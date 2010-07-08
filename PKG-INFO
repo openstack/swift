@@ -1,0 +1,15 @@
+Metadata-Version: 1.0
+Name: swift
+Version: 1.0.0-1
+Summary: Swift
+Home-page: https://launchpad.net/swift
+Author: OpenStack, LLC.
+Author-email: UNKNOWN
+License: Apache License (2.0)
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Environment :: No Input/Output (Daemon)

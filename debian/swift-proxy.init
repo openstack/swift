@@ -1,0 +1,13 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          swift-proxy-server
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Swift proxy server
+# Description:       Proxy server for swift.
+### END INIT INFO
+
+/usr/bin/swift-init proxy-server $1
+

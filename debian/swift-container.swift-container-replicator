@@ -1,0 +1,13 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          swift-container-replicator
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Swift container replicator
+# Description:       Container replicator for swift.
+### END INIT INFO
+
+/usr/bin/swift-init container-replicator $1
+
