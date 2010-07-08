@@ -1,0 +1,125 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import datetime
+import os
+import re
+import subprocess
+import sys
+from ConfigParser import ConfigParser
+
+from swift.common.utils import get_logger
+
+# To search for more types of errors, add the regex to the list below
+error_re = [
+    'error.*(sd[a-z])',
+    '(sd[a-z]).*error',
+]
+
+def get_devices(device_dir, logger):
+    devices = []
+    for line in open('/proc/mounts').readlines():
+        data = line.strip().split()
+        block_device = data[0]
+        mount_point = data[1]
+        if mount_point.startswith(device_dir):
+            device = {}
+            device['mount_point'] = mount_point
+            device['block_device'] = block_device
+            try:
+                device_num = os.stat(block_device).st_rdev
+            except OSError, e:
+                # If we can't stat the device, then something weird is going on
+                logger.error("Error: Could not stat %s!" %
+                    block_device)
+                continue
+            device['major'] = str(os.major(device_num))
+            device['minor'] = str(os.minor(device_num))
+            devices.append(device)
+    for line in open('/proc/partitions').readlines()[2:]:
+        major,minor,blocks,kernel_device = line.strip().split()
+        device = [d for d in devices
+            if d['major'] == major and d['minor'] == minor]
+        if device:
+            device[0]['kernel_device'] = kernel_device
+    return devices
+
+def get_errors(minutes):
+    errors = {}
+    start_time = datetime.datetime.now() - datetime.timedelta(minutes=minutes)
+    for line in open('/var/log/kern.log'):
+        if '[    0.000000]' in line:
+            # Ignore anything before the last boot
+            errors = {}
+            continue
+        log_time_string = '%s %s' % (start_time.year,' '.join(line.split()[:3]))
+        log_time = datetime.datetime.strptime(
+            log_time_string,'%Y %b %d %H:%M:%S')
+        if log_time > start_time:
+            for err in error_re:
+                for device in re.findall(err,line):
+                    errors[device] = errors.get(device,0) + 1
+    return errors
+
+def comment_fstab(mount_point):
+    with open('/etc/fstab', 'r') as fstab:
+        with open('/etc/fstab.new', 'w') as new_fstab:
+            for line in fstab:
+                parts = line.split()
+                if len(parts) > 2 and line.split()[1] == mount_point:
+                    new_fstab.write('#' +  line)
+                else:
+                    new_fstab.write(line)
+    os.rename('/etc/fstab.new', '/etc/fstab')
+
+if __name__ == '__main__':
+    c = ConfigParser()
+    try:
+        conf_path = sys.argv[1]
+    except:
+        print "Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1]
+        sys.exit(1)
+    if not c.read(conf_path):
+        print "Unable to read config file %s" % conf_path
+        sys.exit(1)
+    conf = dict(c.items('drive-audit'))
+    device_dir = conf.get('device_dir', '/srv/node')
+    minutes = int(conf.get('minutes', 60))
+    error_limit = int(conf.get('error_limit', 1))
+    logger = get_logger(conf, 'drive-audit')
+    devices = get_devices(device_dir, logger)
+    logger.debug("Devices found: %s" % str(devices))
+    if not devices:
+        logger.error("Error: No devices found!")
+    errors = get_errors(minutes)
+    logger.debug("Errors found: %s" % str(errors))
+    unmounts = 0
+    for kernel_device,count in errors.items():
+        if count >= error_limit:
+            device = [d for d in devices
+                if d['kernel_device'].startswith(kernel_device)]
+            if device:
+                mount_point = device[0]['mount_point']
+                if mount_point.startswith('/srv/node'):
+                    logger.info("Unmounting %s with %d errors" %
+                        (mount_point, count))
+                    subprocess.call(['umount','-fl',mount_point])
+                    logger.info("Commenting out %s from /etc/fstab" %
+                        (mount_point))
+                    comment_fstab(mount_point)
+                    unmounts += 1
+    if unmounts == 0:
+        logger.info("No drives were unmounted")

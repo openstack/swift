@@ -1,0 +1,17 @@
+Swift
+-----
+
+A distributed object store that was originally developed as the basis for 
+Rackspace's Cloud Files.
+
+To build documentation run `make html` in the /doc folder, and then browse to
+/doc/build/html/index.html.
+
+The best place to get started is the "SAIO - Swift All In One", which will walk
+you through setting up a development cluster of Swift in a VM.
+
+For more information, vist us at http://launchpad.net/swift, or come hang out
+on our IRC channel, #openstack on freenode.
+
+--
+Swift Development Team

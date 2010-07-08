@@ -1,0 +1,1463 @@
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+""" Database code for Swift """
+
+from __future__ import with_statement
+from contextlib import contextmanager
+import hashlib
+import logging
+import operator
+import os
+from uuid import uuid4
+import time
+import cPickle as pickle
+import errno
+from random import randint
+from tempfile import mkstemp
+import math
+
+from eventlet import sleep
+import sqlite3
+
+from swift.common.utils import normalize_timestamp, renamer, \
+        mkdirs, lock_parent_directory, fallocate
+from swift.common.exceptions import LockTimeout
+
+
+#: Timeout for trying to connect to a DB
+BROKER_TIMEOUT = 25
+#: Pickle protocol to use
+PICKLE_PROTOCOL = 2
+#: Max number of pending entries
+PENDING_CAP = 131072
+
+
+class DatabaseConnectionError(sqlite3.DatabaseError):
+    """More friendly error messages for DB Errors."""
+    def __init__(self, path, msg, timeout=0):
+        self.path = path
+        self.timeout = timeout
+        self.msg = msg
+
+    def __str__(self):
+        return 'DB connection error (%s, %s):\n%s' % (
+                self.path, self.timeout, self.msg)
+
+
+class GreenDBConnection(sqlite3.Connection):
+    """SQLite DB Connection handler that plays well with eventlet."""
+    def __init__(self, *args, **kwargs):
+        self.timeout = kwargs.get('timeout', BROKER_TIMEOUT)
+        kwargs['timeout'] = 0
+        self.db_file = args and args[0] or '-'
+        sqlite3.Connection.__init__(self, *args, **kwargs)
+
+    def _timeout(self, call):
+        with LockTimeout(self.timeout, self.db_file):
+            while True:
+                try:
+                    return call()
+                except sqlite3.OperationalError, e:
+                    if 'locked' not in str(e):
+                        raise
+                sleep(0.05)
+
+    def execute(self, *args, **kwargs):
+        return self._timeout(lambda: sqlite3.Connection.execute(
+                                        self, *args, **kwargs))
+
+    def commit(self):
+        return self._timeout(lambda: sqlite3.Connection.commit(self))
+
+
+def dict_factory(crs, row):
+    """
+    This should only be used when you need a real dict,
+    i.e. when you're going to serialize the results.
+    """
+    return dict(
+        ((col[0], row[idx]) for idx, col in enumerate(crs.description)))
+
+
+def chexor(old, name, timestamp):
+    """
+    Each entry in the account and container databases is XORed by the 128-bit
+    hash on insert or delete.  This serves as a rolling, order-independent hash
+    of the contents. (check + XOR)
+
+    :param old: hex representation of the current DB hash
+    :param name: name of the object or container being inserted
+    :param timestamp: timestamp of the new record
+    :returns: a hex representation of the new hash value
+    """
+    if name is None:
+        raise Exception('name is None!')
+    old = old.decode('hex')
+    new = hashlib.md5(('%s-%s' % (name, timestamp)).encode('utf_8')).digest()
+    response = ''.join(
+        map(chr, map(operator.xor, map(ord, old), map(ord, new))))
+    return response.encode('hex')
+
+
+def get_db_connection(path, timeout=30, okay_to_create=False):
+    """
+    Returns a properly configured SQLite database connection.
+
+    :param path: path to DB
+    :param timeout: timeout for connection
+    :param okay_to_create: if True, create the DB if it doesn't exist
+    :returns: DB connection object
+    """
+    try:
+        connect_time = time.time()
+        conn = sqlite3.connect(path, check_same_thread=False,
+                    factory=GreenDBConnection, timeout=timeout)
+        if path != ':memory:' and not okay_to_create:
+            # attempt to detect and fail when connect creates the db file
+            stat = os.stat(path)
+            if stat.st_size == 0 and stat.st_ctime >= connect_time:
+                os.unlink(path)
+                raise DatabaseConnectionError(path,
+                    'DB file created by connect?')
+        conn.row_factory = sqlite3.Row
+        conn.text_factory = str
+        conn.execute('PRAGMA synchronous = NORMAL')
+        conn.execute('PRAGMA count_changes = OFF')
+        conn.execute('PRAGMA temp_store = MEMORY')
+        conn.create_function('chexor', 3, chexor)
+    except sqlite3.DatabaseError:
+        import traceback
+        raise DatabaseConnectionError(path, traceback.format_exc(),
+                timeout=timeout)
+    return conn
+
+
+class DatabaseBroker(object):
+    """Encapsulates working with a database."""
+
+    def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
+                 account=None, container=None, pending_timeout=10,
+                 stale_reads_ok=False):
+        """ Encapsulates working with a database. """
+        self.conn = None
+        self.db_file = db_file
+        self.pending_file = self.db_file + '.pending'
+        self.pending_timeout = pending_timeout
+        self.stale_reads_ok = stale_reads_ok
+        self.db_dir = os.path.dirname(db_file)
+        self.timeout = timeout
+        self.logger = logger or logging.getLogger()
+        self.account = account
+        self.container = container
+
+    def initialize(self, put_timestamp=None):
+        """
+        Create the DB
+
+        :param put_timestamp: timestamp of initial PUT request
+        """
+        if self.db_file == ':memory:':
+            tmp_db_file = None
+            conn = get_db_connection(self.db_file, self.timeout)
+        else:
+            mkdirs(self.db_dir)
+            fd, tmp_db_file = mkstemp(suffix='.tmp', dir=self.db_dir)
+            os.close(fd)
+            conn = sqlite3.connect(tmp_db_file, check_same_thread=False,
+                        factory=GreenDBConnection, timeout=0)
+        # creating dbs implicitly does a lot of transactions, so we
+        # pick fast, unsafe options here and do a big fsync at the end.
+        conn.execute('PRAGMA synchronous = OFF')
+        conn.execute('PRAGMA temp_store = MEMORY')
+        conn.execute('PRAGMA journal_mode = MEMORY')
+        conn.create_function('chexor', 3, chexor)
+        conn.row_factory = sqlite3.Row
+        conn.text_factory = str
+        conn.executescript("""
+            CREATE TABLE outgoing_sync (
+                remote_id TEXT UNIQUE,
+                sync_point INTEGER,
+                updated_at TEXT DEFAULT 0
+            );
+            CREATE TABLE incoming_sync (
+                remote_id TEXT UNIQUE,
+                sync_point INTEGER,
+                updated_at TEXT DEFAULT 0
+            );
+            CREATE TRIGGER outgoing_sync_insert AFTER INSERT ON outgoing_sync
+            BEGIN
+                UPDATE outgoing_sync
+                SET updated_at = STRFTIME('%s', 'NOW')
+                WHERE ROWID = new.ROWID;
+            END;
+            CREATE TRIGGER outgoing_sync_update AFTER UPDATE ON outgoing_sync
+            BEGIN
+                UPDATE outgoing_sync
+                SET updated_at = STRFTIME('%s', 'NOW')
+                WHERE ROWID = new.ROWID;
+            END;
+            CREATE TRIGGER incoming_sync_insert AFTER INSERT ON incoming_sync
+            BEGIN
+                UPDATE incoming_sync
+                SET updated_at = STRFTIME('%s', 'NOW')
+                WHERE ROWID = new.ROWID;
+            END;
+            CREATE TRIGGER incoming_sync_update AFTER UPDATE ON incoming_sync
+            BEGIN
+                UPDATE incoming_sync
+                SET updated_at = STRFTIME('%s', 'NOW')
+                WHERE ROWID = new.ROWID;
+            END;
+        """)
+        if not put_timestamp:
+            put_timestamp = normalize_timestamp(0)
+        self._initialize(conn, put_timestamp)
+        conn.commit()
+        if tmp_db_file:
+            conn.close()
+            with open(tmp_db_file, 'r+b') as fp:
+                os.fsync(fp.fileno())
+            with lock_parent_directory(self.db_file, self.pending_timeout):
+                if os.path.exists(self.db_file):
+                    # It's as if there was a "condition" where different parts
+                    # of the system were "racing" each other.
+                    raise DatabaseConnectionError(self.db_file,
+                            'DB created by someone else while working?')
+                renamer(tmp_db_file, self.db_file)
+            self.conn = get_db_connection(self.db_file, self.timeout)
+        else:
+            self.conn = conn
+
+    def delete_db(self, timestamp):
+        """
+        Mark the DB as deleted
+
+        :param timestamp: delete timestamp
+        """
+        timestamp = normalize_timestamp(timestamp)
+        with self.get() as conn:
+            self._delete_db(conn, timestamp)
+            conn.commit()
+
+    @contextmanager
+    def get(self):
+        """Use with the "with" statement; returns a database connection."""
+        if not self.conn:
+            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+                self.conn = get_db_connection(self.db_file, self.timeout)
+            else:
+                raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        conn = self.conn
+        self.conn = None
+        try:
+            yield conn
+            conn.rollback()
+            self.conn = conn
+        except:
+            conn.close()
+            raise
+
+    @contextmanager
+    def lock(self):
+        """Use with the "with" statement; locks a database."""
+        if not self.conn:
+            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+                self.conn = get_db_connection(self.db_file, self.timeout)
+            else:
+                raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        conn = self.conn
+        self.conn = None
+        orig_isolation_level = conn.isolation_level
+        conn.isolation_level = None
+        conn.execute('BEGIN IMMEDIATE')
+        try:
+            yield True
+        except:
+            pass
+        try:
+            conn.execute('ROLLBACK')
+            conn.isolation_level = orig_isolation_level
+            self.conn = conn
+        except:     # pragma: no cover
+            logging.exception(
+                'Broker error trying to rollback locked connection')
+            conn.close()
+
+    def newid(self, remote_id):
+        """
+        Re-id the database.  This should be called after an rsync.
+
+        :param remote_id: the ID of the remote database being rsynced in
+        """
+        with self.get() as conn:
+            row = conn.execute('''
+                UPDATE %s_stat SET id=?
+            ''' % self.db_type, (str(uuid4()),))
+            row = conn.execute('''
+                SELECT ROWID FROM %s ORDER BY ROWID DESC LIMIT 1
+            ''' % self.db_contains_type).fetchone()
+            sync_point = row['ROWID'] if row else -1
+            conn.execute('''
+                INSERT OR REPLACE INTO incoming_sync (sync_point, remote_id)
+                VALUES (?, ?)
+            ''', (sync_point, remote_id))
+            self._newid(conn)
+            conn.commit()
+
+    def _newid(self, conn):
+        # Override for additional work when receiving an rsynced db.
+        pass
+
+    def merge_timestamps(self, created_at, put_timestamp, delete_timestamp):
+        """
+        Used in replication to handle updating timestamps.
+
+        :param created_at: create timestamp
+        :param put_timestamp: put timestamp
+        :param delete_timestamp: delete timestamp
+        """
+        with self.get() as conn:
+            row = conn.execute('''
+                UPDATE %s_stat SET created_at=MIN(?, created_at),
+                                   put_timestamp=MAX(?, put_timestamp),
+                                   delete_timestamp=MAX(?, delete_timestamp)
+            ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
+            conn.commit()
+
+    def get_items_since(self, start, count):
+        """
+        Get a list of objects in the database between start and end.
+
+        :param start: start ROWID
+        :param count: number to get
+        :returns: list of objects between start and end
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            curs = conn.execute('''
+                SELECT * FROM %s WHERE ROWID > ? ORDER BY ROWID ASC LIMIT ?
+            ''' % self.db_contains_type, (start, count))
+            curs.row_factory = dict_factory
+            return [r for r in curs]
+
+    def get_sync(self, id, incoming=True):
+        """
+        Gets the most recent sync point for a server from the sync table.
+
+        :param id: remote ID to get the sync_point for
+        :param incoming: if True, get the last incoming sync, otherwise get
+                         the last outgoing sync
+        :returns: the sync point, or -1 if the id doesn't exist.
+        """
+        with self.get() as conn:
+            row = conn.execute(
+                "SELECT sync_point FROM %s_sync WHERE remote_id=?"
+                % ('incoming' if incoming else 'outgoing'), (id,)).fetchone()
+            if not row:
+                return -1
+            return row['sync_point']
+
+    def get_syncs(self, incoming=True):
+        """
+        Get a serialized copy of the sync table.
+
+        :param incoming: if True, get the last incoming sync, otherwise get
+                         the last outgoing sync
+        :returns: list of {'remote_id', 'sync_point'}
+        """
+        with self.get() as conn:
+            curs = conn.execute('''
+                SELECT remote_id, sync_point FROM %s_sync
+            ''' % 'incoming' if incoming else 'outgoing')
+            result = []
+            for row in curs:
+                result.append({'remote_id': row[0], 'sync_point': row[1]})
+            return result
+
+    def get_replication_info(self):
+        """
+        Get information about the DB required for replication.
+
+        :returns: tuple of (hash, id, created_at, put_timestamp,
+                  delete_timestamp) from the DB
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            curs = conn.execute('''
+                SELECT hash, id, created_at, put_timestamp, delete_timestamp,
+                       %s_count AS count,
+                    CASE WHEN SQLITE_SEQUENCE.seq IS NOT NULL
+                        THEN SQLITE_SEQUENCE.seq ELSE -1 END AS max_row
+                FROM (%s_stat LEFT JOIN SQLITE_SEQUENCE
+                      ON SQLITE_SEQUENCE.name == '%s') LIMIT 1
+            ''' % (self.db_contains_type, self.db_type, self.db_contains_type))
+            curs.row_factory = dict_factory
+            return curs.fetchone()
+
+    def _commit_puts(self):
+        pass    # stub to be overridden if need be
+
+    def merge_syncs(self, sync_points, incoming=True):
+        """
+        Merge a list of sync points with the incoming sync table.
+
+        :param sync_points: list of sync points where a sync point is a dict of
+                            {'sync_point', 'remote_id'}
+        :param incoming: if True, get the last incoming sync, otherwise get
+                         the last outgoing sync
+        """
+        with self.get() as conn:
+            for rec in sync_points:
+                try:
+                    conn.execute('''
+                        INSERT INTO %s_sync (sync_point, remote_id)
+                        VALUES (?, ?)
+                    ''' % ('incoming' if incoming else 'outgoing'),
+                    (rec['sync_point'], rec['remote_id']))
+                except sqlite3.IntegrityError:
+                    conn.execute('''
+                        UPDATE %s_sync SET sync_point=max(?, sync_point)
+                        WHERE remote_id=?
+                    ''' % ('incoming' if incoming else 'outgoing'),
+                    (rec['sync_point'], rec['remote_id']))
+            conn.commit()
+
+    def _preallocate(self):
+        """
+        The idea is to allocate space in front of an expanding db.  If it gets
+        within 512k of a boundary, it allocates to the next boundary.
+        Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
+        """
+        if self.db_file == ':memory:':
+            return
+        MB = (1024 * 1024)
+
+        def prealloc_points():
+            for pm in (1, 2, 5, 10, 25, 50):
+                yield pm * MB
+            while True:
+                pm += 50
+                yield pm * MB
+
+        stat = os.stat(self.db_file)
+        file_size = stat.st_size
+        allocated_size = stat.st_blocks * 512
+        for point in prealloc_points():
+            if file_size <= point - MB / 2:
+                prealloc_size = point
+                break
+        if allocated_size < prealloc_size:
+            with open(self.db_file, 'rb+') as fp:
+                fallocate(fp.fileno(), int(prealloc_size))
+
+
+class ContainerBroker(DatabaseBroker):
+    """Encapsulates working with a container database."""
+    db_type = 'container'
+    db_contains_type = 'object'
+
+    def _initialize(self, conn, put_timestamp):
+        """Creates a brand new database (tables, indices, triggers, etc.)"""
+        if not self.account:
+            raise ValueError(
+                'Attempting to create a new database with no account set')
+        if not self.container:
+            raise ValueError(
+                'Attempting to create a new database with no container set')
+        self.create_object_table(conn)
+        self.create_container_stat_table(conn, put_timestamp)
+
+    def create_object_table(self, conn):
+        """
+        Create the object table which is specifc to the container DB.
+
+        :param conn: DB connection object
+        """
+        conn.executescript("""
+            CREATE TABLE object (
+                ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                created_at TEXT,
+                size INTEGER,
+                content_type TEXT,
+                etag TEXT,
+                deleted INTEGER DEFAULT 0
+            );
+
+            CREATE INDEX ix_object_deleted ON object (deleted);
+
+            CREATE TRIGGER object_insert AFTER INSERT ON object
+            BEGIN
+                UPDATE container_stat
+                SET object_count = object_count + (1 - new.deleted),
+                    bytes_used = bytes_used + new.size,
+                    hash = chexor(hash, new.name, new.created_at);
+            END;
+
+            CREATE TRIGGER object_update BEFORE UPDATE ON object
+            BEGIN
+                SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+            END;
+
+            CREATE TRIGGER object_delete AFTER DELETE ON object
+            BEGIN
+                UPDATE container_stat
+                SET object_count = object_count - (1 - old.deleted),
+                    bytes_used = bytes_used - old.size,
+                    hash = chexor(hash, old.name, old.created_at);
+            END;
+        """)
+
+    def create_container_stat_table(self, conn, put_timestamp=None):
+        """
+        Create the container_stat table which is specifc to the container DB.
+
+        :param conn: DB connection object
+        :param put_timestamp: put timestamp
+        """
+        if put_timestamp is None:
+            put_timestamp = normalize_timestamp(0)
+        conn.executescript("""
+            CREATE TABLE container_stat (
+                account TEXT,
+                container TEXT,
+                created_at TEXT,
+                put_timestamp TEXT DEFAULT '0',
+                delete_timestamp TEXT DEFAULT '0',
+                object_count INTEGER,
+                bytes_used INTEGER,
+                reported_put_timestamp TEXT DEFAULT '0',
+                reported_delete_timestamp TEXT DEFAULT '0',
+                reported_object_count INTEGER DEFAULT 0,
+                reported_bytes_used INTEGER DEFAULT 0,
+                hash TEXT default '00000000000000000000000000000000',
+                id TEXT,
+                status TEXT DEFAULT '',
+                status_changed_at TEXT DEFAULT '0'
+            );
+
+            INSERT INTO container_stat (object_count, bytes_used)
+                VALUES (0, 0);
+        """)
+        conn.execute('''
+            UPDATE container_stat
+            SET account = ?, container = ?, created_at = ?, id = ?,
+                put_timestamp = ?
+        ''', (self.account, self.container, normalize_timestamp(time.time()),
+              str(uuid4()), put_timestamp))
+
+    def _newid(self, conn):
+        conn.execute('''
+            UPDATE container_stat
+            SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
+                reported_object_count = 0, reported_bytes_used = 0''')
+
+    def update_put_timestamp(self, timestamp):
+        """
+        Update the put_timestamp.  Only modifies it if it is greater than
+        the current timestamp.
+
+        :param timestamp: put timestamp
+        """
+        with self.get() as conn:
+            conn.execute('''
+                UPDATE container_stat SET put_timestamp = ?
+                WHERE put_timestamp < ? ''', (timestamp, timestamp))
+            conn.commit()
+
+    def _delete_db(self, conn, timestamp):
+        """
+        Mark the DB as deleted
+
+        :param conn: DB connection object
+        :param timestamp: timestamp to mark as deleted
+        """
+        conn.execute("""
+            UPDATE container_stat
+            SET delete_timestamp = ?,
+                status = 'DELETED',
+                status_changed_at = ?
+            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
+
+    def empty(self):
+        """
+        Check if the DB is empty.
+
+        :returns: True if the database has no active objects, False otherwise
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            row = conn.execute(
+                    'SELECT object_count from container_stat').fetchone()
+            return (row[0] == 0)
+
+    def _commit_puts(self, item_list=None):
+        """Handles commiting rows in .pending files."""
+        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+            return
+        if item_list is None:
+            item_list = []
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            self._preallocate()
+            if not os.path.getsize(self.pending_file):
+                if item_list:
+                    self.merge_items(item_list)
+                return
+            with open(self.pending_file, 'r+b') as fp:
+                for entry in fp.read().split(':'):
+                    if entry:
+                        try:
+                            (name, timestamp, size, content_type, etag,
+                                deleted) = pickle.loads(entry.decode('base64'))
+                            item_list.append({'name': name, 'created_at':
+                                timestamp, 'size': size, 'content_type':
+                                content_type, 'etag': etag,
+                                'deleted': deleted})
+                        except:
+                            self.logger.exception(
+                                'Invalid pending entry %s: %s'
+                                % (self.pending_file, entry))
+                if item_list:
+                    self.merge_items(item_list)
+                try:
+                    os.ftruncate(fp.fileno(), 0)
+                except OSError, err:
+                    if err.errno != errno.ENOENT:
+                        raise
+
+    def reclaim(self, object_timestamp, sync_timestamp):
+        """
+        Delete rows from the object table that are marked deleted and
+        whose created_at timestamp is < object_timestamp.  Also deletes rows
+        from incoming_sync and outgoing_sync where the updated_at timestamp is
+        < sync_timestamp.
+
+        :param object_timestamp: max created_at timestamp of object rows to
+                                 delete
+        :param sync_timestamp: max update_at timestamp of sync rows to delete
+        """
+        self._commit_puts()
+        with self.get() as conn:
+            conn.execute("""
+                    DELETE FROM object
+                    WHERE deleted = 1
+                    AND created_at < ?""", (object_timestamp,))
+            try:
+                conn.execute('''
+                    DELETE FROM outgoing_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+                conn.execute('''
+                    DELETE FROM incoming_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+            except sqlite3.OperationalError, err:
+                # Old dbs didn't have updated_at in the _sync tables.
+                if 'no such column: updated_at' not in str(err):
+                    raise
+            conn.commit()
+
+    def delete_object(self, name, timestamp):
+        """
+        Mark an object deleted.
+
+        :param name: object name to be deleted
+        :param timestamp: timestamp when the object was marked as deleted
+        """
+        self.put_object(name, timestamp, 0, 'application/deleted', 'noetag', 1)
+
+    def put_object(self, name, timestamp, size, content_type, etag, deleted=0):
+        """
+        Creates an object in the DB with its metadata.
+
+        :param name: object name to be created
+        :param timestamp: timestamp of when the object was created
+        :param size: object size
+        :param content_type: object content-type
+        :param etag: object etag
+        :param deleted: if True, marks the object as deleted and sets the
+                        deteleted_at timestamp to timestamp
+        """
+        record = {'name': name, 'created_at': timestamp, 'size': size,
+                  'content_type': content_type, 'etag': etag,
+                  'deleted': deleted}
+        if self.db_file == ':memory:':
+            self.merge_items([record])
+            return
+        if not os.path.exists(self.db_file):
+            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        pending_size = 0
+        try:
+            pending_size = os.path.getsize(self.pending_file)
+        except OSError, err:
+            if err.errno != errno.ENOENT:
+                raise
+        if pending_size > PENDING_CAP:
+            self._commit_puts([record])
+        else:
+            with lock_parent_directory(
+                    self.pending_file, self.pending_timeout):
+                with open(self.pending_file, 'a+b') as fp:
+                    # Colons aren't used in base64 encoding; so they are our
+                    # delimiter
+                    fp.write(':')
+                    fp.write(pickle.dumps(
+                        (name, timestamp, size, content_type, etag, deleted),
+                        protocol=PICKLE_PROTOCOL).encode('base64'))
+                    fp.flush()
+
+    def is_deleted(self, timestamp=None):
+        """
+        Check if the DB is considered to be deleted.
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+            return True
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT put_timestamp, delete_timestamp, object_count
+                FROM container_stat''').fetchone()
+            # leave this db as a tombstone for a consistency window
+            if timestamp and row['delete_timestamp'] > timestamp:
+                return False
+            # The container is considered deleted if the delete_timestamp
+            # value is greater than the put_timestamp, and there are no
+            # objects in the container.
+            return (row['object_count'] in (None, '', 0, '0')) and \
+                (float(row['delete_timestamp']) > float(row['put_timestamp']))
+
+    def get_info(self):
+        """
+        Get global data for the container.
+
+        :returns: a tuple of (account, container, created_at, put_timestamp,
+                  delete_timestamp, object_count, bytes_used,
+                  reported_put_timestamp, reported_delete_timestamp,
+                  reported_object_count, reported_bytes_used, hash, id)
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            return conn.execute('''
+                SELECT account, container, created_at, put_timestamp,
+                    delete_timestamp, object_count, bytes_used,
+                    reported_put_timestamp, reported_delete_timestamp,
+                    reported_object_count, reported_bytes_used, hash, id
+                FROM container_stat
+            ''').fetchone()
+
+    def reported(self, put_timestamp, delete_timestamp, object_count,
+                 bytes_used):
+        """
+        Update reported stats.
+
+        :param put_timestamp: put_timestamp to update
+        :param delete_timestamp: delete_timestamp to update
+        :param object_count: object_count to update
+        :param bytes_used: bytes_used to update
+        """
+        with self.get() as conn:
+            conn.execute('''
+                UPDATE container_stat
+                SET reported_put_timestamp = ?, reported_delete_timestamp = ?,
+                    reported_object_count = ?, reported_bytes_used = ?
+            ''', (put_timestamp, delete_timestamp, object_count, bytes_used))
+            conn.commit()
+
+    def get_random_objects(self, max_count=100):
+        """
+        Get random objects from the DB.  This is used by the container_auditor
+        when testing random objects for existence.
+
+        :param max_count: maximum number of objects to get
+
+        :returns: list of object names
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        rv = []
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT ROWID FROM object ORDER BY ROWID DESC LIMIT 1
+            ''').fetchone()
+            if not row:
+                return []
+            max_rowid = row['ROWID']
+            for _ in xrange(min(max_count, max_rowid)):
+                row = conn.execute('''
+                    SELECT name FROM object WHERE ROWID >= ? AND +deleted = 0
+                    LIMIT 1
+                ''', (randint(0, max_rowid),)).fetchone()
+                if row:
+                    rv.append(row['name'])
+        return list(set(rv))
+
+    def list_objects_iter(self, limit, marker, prefix, delimiter, path=None,
+                          format=None):
+        """
+        Get a list of objects sorted by name starting at marker onward, up
+        to limit entries.  Entries will begin with the prefix and will not
+        have the delimiter after the prefix.
+
+        :param limit: maximum number of entries to get
+        :param marker: marker query
+        :param prefix: prefix query
+        :param delimeter: delimeter for query
+        :param path: if defined, will set the prefix and delimter based on
+                     the path
+        :param format: TOOD: remove as it is no longer used
+
+        :returns: list of tuples of (name, created_at, size, content_type,
+                  etag)
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        if path is not None:
+            prefix = path
+            if path:
+                prefix = path = path.rstrip('/') + '/'
+            delimiter = '/'
+        elif delimiter and not prefix:
+            prefix = ''
+        orig_marker = marker
+        with self.get() as conn:
+            results = []
+            while len(results) < limit:
+                query = '''SELECT name, created_at, size, content_type, etag
+                           FROM object WHERE'''
+                query_args = []
+                if marker and marker >= prefix:
+                    query += ' name > ? AND'
+                    query_args.append(marker)
+                elif prefix:
+                    query += ' name >= ? AND'
+                    query_args.append(prefix)
+                query += ' +deleted = 0 ORDER BY name LIMIT ?'
+                query_args.append(limit - len(results))
+                curs = conn.execute(query, query_args)
+                curs.row_factory = None
+
+                if prefix is None:
+                    return [r for r in curs]
+                if not delimiter:
+                    return [r for r in curs if r[0].startswith(prefix)]
+                rowcount = 0
+                for row in curs:
+                    rowcount += 1
+                    marker = name = row[0]
+                    if len(results) >= limit or not name.startswith(prefix):
+                        curs.close()
+                        return results
+                    end = name.find(delimiter, len(prefix))
+                    if path is not None:
+                        if name == path:
+                            continue
+                        if end >= 0 and len(name) > end + len(delimiter):
+                            marker = name[:end] + chr(ord(delimiter) + 1)
+                            curs.close()
+                            break
+                    elif end > 0:
+                        marker = name[:end] + chr(ord(delimiter) + 1)
+                        dir_name = name[:end + 1]
+                        if dir_name != orig_marker:
+                            results.append([dir_name, '0', 0, None, ''])
+                        curs.close()
+                        break
+                    results.append(row)
+                if not rowcount:
+                    break
+            return results
+
+    def merge_items(self, item_list, source=None):
+        """
+        Merge items into the object table.
+
+        :param item_list: list of dictionaries of {'name', 'created_at',
+                          'size', 'content_type', 'etag', 'deleted'}
+        :param source: if defined, update incoming_sync with the source
+        """
+        with self.get() as conn:
+            max_rowid = -1
+            for rec in item_list:
+                curs = conn.execute('''
+                    DELETE FROM object WHERE name = ? AND
+                        (created_at < ?)
+                ''', (rec['name'], rec['created_at']))
+                try:
+                    conn.execute('''
+                        INSERT INTO object (name, created_at, size,
+                            content_type, etag, deleted)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', ([rec['name'], rec['created_at'], rec['size'],
+                          rec['content_type'], rec['etag'], rec['deleted']]))
+                except sqlite3.IntegrityError:
+                    pass
+                if source:
+                    max_rowid = max(max_rowid, rec['ROWID'])
+            if source:
+                try:
+                    conn.execute('''
+                        INSERT INTO incoming_sync (sync_point, remote_id)
+                        VALUES (?, ?)
+                    ''', (max_rowid, source))
+                except sqlite3.IntegrityError:
+                    conn.execute('''
+                        UPDATE incoming_sync SET sync_point=max(?, sync_point)
+                        WHERE remote_id=?
+                    ''', (max_rowid, source))
+            conn.commit()
+
+
+class AccountBroker(DatabaseBroker):
+    """Encapsulates working with a account database."""
+    db_type = 'account'
+    db_contains_type = 'container'
+
+    def _initialize(self, conn, put_timestamp):
+        """
+        Create a brand new database (tables, indices, triggers, etc.)
+
+        :param conn: DB connection object
+        :param put_timestamp: put timestamp
+        """
+        if not self.account:
+            raise ValueError(
+                'Attempting to create a new database with no account set')
+        self.create_container_table(conn)
+        self.create_account_stat_table(conn, put_timestamp)
+
+    def create_container_table(self, conn):
+        """
+        Create container table which is specific to the account DB.
+
+        :param conn: DB connection object
+        """
+        conn.executescript("""
+            CREATE TABLE container (
+                ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                put_timestamp TEXT,
+                delete_timestamp TEXT,
+                object_count INTEGER,
+                bytes_used INTEGER,
+                deleted INTEGER DEFAULT 0
+            );
+
+            CREATE INDEX ix_container_deleted ON container (deleted);
+            CREATE INDEX ix_container_name ON container (name);
+            CREATE TRIGGER container_insert AFTER INSERT ON container
+            BEGIN
+                UPDATE account_stat
+                SET container_count = container_count + (1 - new.deleted),
+                    object_count = object_count + new.object_count,
+                    bytes_used = bytes_used + new.bytes_used,
+                    hash = chexor(hash, new.name,
+                                  new.put_timestamp || '-' ||
+                                    new.delete_timestamp || '-' ||
+                                    new.object_count || '-' || new.bytes_used);
+            END;
+
+            CREATE TRIGGER container_update BEFORE UPDATE ON container
+            BEGIN
+                SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+            END;
+
+
+            CREATE TRIGGER container_delete AFTER DELETE ON container
+            BEGIN
+                UPDATE account_stat
+                SET container_count = container_count - (1 - old.deleted),
+                    object_count = object_count - old.object_count,
+                    bytes_used = bytes_used - old.bytes_used,
+                    hash = chexor(hash, old.name,
+                                  old.put_timestamp || '-' ||
+                                    old.delete_timestamp || '-' ||
+                                    old.object_count || '-' || old.bytes_used);
+            END;
+        """)
+
+    def create_account_stat_table(self, conn, put_timestamp):
+        """
+        Create account_stat table which is specific to the account DB.
+
+        :param conn: DB connection object
+        :param put_timestamp: put timestamp
+        """
+        conn.executescript("""
+            CREATE TABLE account_stat (
+                account TEXT,
+                created_at TEXT,
+                put_timestamp TEXT DEFAULT '0',
+                delete_timestamp TEXT DEFAULT '0',
+                container_count INTEGER,
+                object_count INTEGER DEFAULT 0,
+                bytes_used INTEGER DEFAULT 0,
+                hash TEXT default '00000000000000000000000000000000',
+                id TEXT,
+                status TEXT DEFAULT '',
+                status_changed_at TEXT DEFAULT '0'
+            );
+
+            INSERT INTO account_stat (container_count) VALUES (0);
+        """)
+
+        conn.execute('''
+            UPDATE account_stat SET account = ?, created_at = ?, id = ?,
+                   put_timestamp = ?
+            ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
+            put_timestamp))
+
+    def update_put_timestamp(self, timestamp):
+        """
+        Update the put_timestamp.  Only modifies it if it is greater than
+        the current timestamp.
+
+        :param timestamp: put timestamp
+        """
+        with self.get() as conn:
+            conn.execute('''
+                UPDATE account_stat SET put_timestamp = ?
+                WHERE put_timestamp < ? ''', (timestamp, timestamp))
+            conn.commit()
+
+    def _delete_db(self, conn, timestamp, force=False):
+        """
+        Mark the DB as deleted.
+
+        :param conn: DB connection object
+        :param timestamp: timestamp to mark as deleted
+        """
+        conn.execute("""
+            UPDATE account_stat
+            SET delete_timestamp = ?,
+                status = 'DELETED',
+                status_changed_at = ?
+            WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
+
+    def _commit_puts(self, item_list=None):
+        """Handles commiting rows in .pending files."""
+        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+            return
+        if item_list is None:
+            item_list = []
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            self._preallocate()
+            if not os.path.getsize(self.pending_file):
+                if item_list:
+                    self.merge_items(item_list)
+                return
+            with open(self.pending_file, 'r+b') as fp:
+                for entry in fp.read().split(':'):
+                    if entry:
+                        try:
+                            (name, put_timestamp, delete_timestamp,
+                                    object_count, bytes_used, deleted) = \
+                                pickle.loads(entry.decode('base64'))
+                            item_list.append({'name': name,
+                                      'put_timestamp': put_timestamp,
+                                      'delete_timestamp': delete_timestamp,
+                                      'object_count': object_count,
+                                      'bytes_used': bytes_used,
+                                      'deleted': deleted})
+                        except:
+                            self.logger.exception(
+                                'Invalid pending entry %s: %s'
+                                 % (self.pending_file, entry))
+                if item_list:
+                    self.merge_items(item_list)
+                try:
+                    os.ftruncate(fp.fileno(), 0)
+                except OSError, err:
+                    if err.errno != errno.ENOENT:
+                        raise
+
+    def empty(self):
+        """
+        Check if the account DB is empty.
+
+        :returns: True if the database has no active containers.
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            row = conn.execute(
+                    'SELECT container_count from account_stat').fetchone()
+            return (row[0] == 0)
+
+    def reclaim(self, container_timestamp, sync_timestamp):
+        """
+        Delete rows from the container table that are marked deleted and
+        whose created_at timestamp is < object_timestamp.  Also deletes rows
+        from incoming_sync and outgoing_sync where the updated_at timestamp is
+        < sync_timestamp.
+
+        :param object_timestamp: max created_at timestamp of container rows to
+                                 delete
+        :param sync_timestamp: max update_at timestamp of sync rows to delete
+        """
+
+        self._commit_puts()
+        with self.get() as conn:
+            conn.execute('''
+                DELETE FROM container WHERE
+                deleted = 1 AND delete_timestamp < ?
+            ''', (container_timestamp,))
+            try:
+                conn.execute('''
+                    DELETE FROM outgoing_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+                conn.execute('''
+                    DELETE FROM incoming_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+            except sqlite3.OperationalError, err:
+                # Old dbs didn't have updated_at in the _sync tables.
+                if 'no such column: updated_at' not in str(err):
+                    raise
+            conn.commit()
+
+    def get_container_timestamp(self, container_name):
+        """
+        Get the put_timestamp of a container.
+
+        :param container_name: container name
+
+        :returns: put_timestamp of the container
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            ret = conn.execute('''
+                SELECT put_timestamp FROM container
+                WHERE name = ? AND deleted != 1''',
+                (container_name,)).fetchone()
+            if ret:
+                ret = ret[0]
+            return ret
+
+    def put_container(self, name, put_timestamp, delete_timestamp,
+                      object_count, bytes_used):
+        """
+        Create a container with the given attributes.
+
+        :param name: name of the container to create
+        :param put_timestamp: put_timestamp of the container to create
+        :param delete_timestamp: delete_timestamp of the container to create
+        :param object_count: number of objects in the container
+        :param bytes_used: number of bytes used by the container
+        """
+        if delete_timestamp > put_timestamp and \
+                object_count in (None, '', 0, '0'):
+            deleted = 1
+        else:
+            deleted = 0
+        record = {'name': name, 'put_timestamp': put_timestamp,
+                  'delete_timestamp': delete_timestamp,
+                  'object_count': object_count,
+                  'bytes_used': bytes_used,
+                  'deleted': deleted}
+        if self.db_file == ':memory:':
+            self.merge_items([record])
+            return
+        commit = False
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            with open(self.pending_file, 'a+b') as fp:
+                # Colons aren't used in base64 encoding; so they are our
+                # delimiter
+                fp.write(':')
+                fp.write(pickle.dumps(
+                    (name, put_timestamp, delete_timestamp, object_count,
+                     bytes_used, deleted),
+                    protocol=PICKLE_PROTOCOL).encode('base64'))
+                fp.flush()
+                if fp.tell() > PENDING_CAP:
+                    commit = True
+        if commit:
+            self._commit_puts()
+
+    def can_delete_db(self, cutoff):
+        """
+        Check if the accont DB can be deleted.
+
+        :returns: True if the account can be deleted, False otherwise
+        """
+        self._commit_puts()
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT status, put_timestamp, delete_timestamp, container_count
+                FROM account_stat''').fetchone()
+            # The account is considered deleted if its status is marked
+            # as 'DELETED" and the delete_timestamp is older than the supplied
+            # cutoff date; or if the delete_timestamp value is greater than
+            # the put_timestamp, and there are no containers for the account
+            status_del = (row['status'] == 'DELETED')
+            deltime = float(row['delete_timestamp'])
+            past_cutoff = (deltime < cutoff)
+            time_later = (row['delete_timestamp'] > row['put_timestamp'])
+            no_containers = (row['container_count'] in (None, '', 0, '0'))
+            return (
+                (status_del and past_cutoff) or (time_later and no_containers))
+
+    def is_deleted(self):
+        """
+        Check if the account DB is considered to be deleted.
+
+        :returns: True if the account DB is considered to be deleted, False
+                  otherwise
+        """
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+            return True
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT put_timestamp, delete_timestamp, container_count, status
+                FROM account_stat''').fetchone()
+            return row['status'] == 'DELETED' or (
+                    row['container_count'] in (None, '', 0, '0') and
+                    row['delete_timestamp'] > row['put_timestamp'])
+
+    def is_status_deleted(self):
+        """Only returns true if the status field is set to DELETED."""
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT status
+                FROM account_stat''').fetchone()
+            return (row['status'] == "DELETED")
+
+    def get_info(self):
+        """
+        Get global data for the account.
+
+        :returns: a tuple of (account, created_at, put_timestamp,
+                  delete_timestamp, container_count, object_count,
+                  bytes_used, hash, id)
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        with self.get() as conn:
+            return conn.execute('''
+                SELECT account, created_at,  put_timestamp, delete_timestamp,
+                       container_count, object_count, bytes_used, hash, id
+                FROM account_stat
+            ''').fetchone()
+
+    def get_random_containers(self, max_count=100):
+        """
+        Get random containers from the DB.  This is used by the
+        account_auditor when testing random containerss for existence.
+
+        :param max_count: maximum number of containers to get
+
+        :returns: list of container names
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        rv = []
+        with self.get() as conn:
+            row = conn.execute('''
+                SELECT ROWID FROM container ORDER BY ROWID DESC LIMIT 1
+            ''').fetchone()
+            if not row:
+                return []
+            max_rowid = row['ROWID']
+            for _ in xrange(min(max_count, max_rowid)):
+                row = conn.execute('''
+                    SELECT name FROM container WHERE
+                    ROWID >= ? AND +deleted = 0
+                    LIMIT 1
+                ''', (randint(0, max_rowid),)).fetchone()
+                if row:
+                    rv.append(row['name'])
+        return list(set(rv))
+
+    def list_containers_iter(self, limit, marker, prefix, delimiter):
+        """
+        Get a list of containerss sorted by name starting at marker onward, up
+        to limit entries.  Entries will begin with the prefix and will not
+        have the delimiter after the prefix.
+
+        :param limit: maximum number of entries to get
+        :param marker: marker query
+        :param prefix: prefix query
+        :param delimeter: delimeter for query
+
+        :returns: list of tuples of (name, object_count, bytes_used, 0)
+        """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
+        if delimiter and not prefix:
+            prefix = ''
+        orig_marker = marker
+        with self.get() as conn:
+            results = []
+            while len(results) < limit:
+                query = """
+                    SELECT name, object_count, bytes_used, 0
+                    FROM container
+                    WHERE deleted = 0 AND """
+                query_args = []
+                if marker and marker >= prefix:
+                    query += ' name > ? AND'
+                    query_args.append(marker)
+                elif prefix:
+                    query += ' name >= ? AND'
+                    query_args.append(prefix)
+                query += ' +deleted = 0 ORDER BY name LIMIT ?'
+                query_args.append(limit - len(results))
+                curs = conn.execute(query, query_args)
+                curs.row_factory = None
+
+                if prefix is None:
+                    return [r for r in curs]
+                if not delimiter:
+                    return [r for r in curs if r[0].startswith(prefix)]
+                rowcount = 0
+                for row in curs:
+                    rowcount += 1
+                    marker = name = row[0]
+                    if len(results) >= limit or not name.startswith(prefix):
+                        curs.close()
+                        return results
+                    end = name.find(delimiter, len(prefix))
+                    if end > 0:
+                        marker = name[:end] + chr(ord(delimiter) + 1)
+                        dir_name = name[:end + 1]
+                        if dir_name != orig_marker:
+                            results.append([dir_name, 0, 0, 1])
+                        curs.close()
+                        break
+                    results.append(row)
+                if not rowcount:
+                    break
+            return results
+
+    def merge_items(self, item_list, source=None):
+        """
+        Merge items into the container table.
+
+        :param item_list: list of dictionaries of {'name', 'put_timestamp',
+                          'delete_timestamp', 'object_count', 'bytes_used',
+                          'deleted'}
+        :param source: if defined, update incoming_sync with the source
+        """
+        with self.get() as conn:
+            max_rowid = -1
+            for rec in item_list:
+                record = [rec['name'], rec['put_timestamp'],
+                          rec['delete_timestamp'], rec['object_count'],
+                          rec['bytes_used'], rec['deleted']]
+                try:
+                    conn.execute('''
+                        INSERT INTO container (name, put_timestamp,
+                            delete_timestamp, object_count, bytes_used,
+                            deleted)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', record)
+                except sqlite3.IntegrityError:
+                    curs = conn.execute('''
+                        SELECT name, put_timestamp, delete_timestamp,
+                               object_count, bytes_used, deleted
+                        FROM container WHERE name = ? AND
+                             (put_timestamp < ? OR delete_timestamp < ? OR
+                              object_count != ? OR bytes_used != ?)''',
+                        (rec['name'], rec['put_timestamp'],
+                         rec['delete_timestamp'], rec['object_count'],
+                         rec['bytes_used']))
+                    curs.row_factory = None
+                    row = curs.fetchone()
+                    if row:
+                        row = list(row)
+                        for i in xrange(5):
+                            if record[i] is None and row[i] is not None:
+                                record[i] = row[i]
+                        if row[1] > record[1]:  # Keep newest put_timestamp
+                            record[1] = row[1]
+                        if row[2] > record[2]:  # Keep newest delete_timestamp
+                            record[2] = row[2]
+                        conn.execute('DELETE FROM container WHERE name = ?',
+                                     (record[0],))
+                        # If deleted, mark as such
+                        if record[2] > record[1] and \
+                                record[3] in (None, '', 0, '0'):
+                            record[5] = 1
+                        else:
+                            record[5] = 0
+                        try:
+                            conn.execute('''
+                                INSERT INTO container (name, put_timestamp,
+                                    delete_timestamp, object_count, bytes_used,
+                                    deleted)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', record)
+                        except sqlite3.IntegrityError:
+                            continue
+                if source:
+                    max_rowid = max(max_rowid, rec['ROWID'])
+            if source:
+                try:
+                    conn.execute('''
+                        INSERT INTO incoming_sync (sync_point, remote_id)
+                        VALUES (?, ?)
+                    ''', (max_rowid, source))
+                except sqlite3.IntegrityError:
+                    conn.execute('''
+                        UPDATE incoming_sync SET sync_point=max(?, sync_point)
+                        WHERE remote_id=?
+                    ''', (max_rowid, source))
+            conn.commit()

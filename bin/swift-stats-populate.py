@@ -1,0 +1,197 @@
+#!/usr/bin/python -u
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import traceback
+from ConfigParser import ConfigParser
+from optparse import OptionParser
+from sys import exit, argv
+from time import time
+from uuid import uuid4
+
+from eventlet import GreenPool, patcher, sleep
+from eventlet.pools import Pool
+
+from swift.common.client import Connection, get_auth
+from swift.common.ring import Ring
+from swift.common.utils import compute_eta, get_time_units
+
+
+def put_container(connpool, container, report):
+    global retries_done
+    try:
+        with connpool.item() as conn:
+            conn.put_container(container)
+            retries_done += conn.attempts - 1
+        if report:
+            report(True)
+    except:
+        if report:
+            report(False)
+        raise
+
+
+def put_object(connpool, container, obj, report):
+    global retries_done
+    try:
+        with connpool.item() as conn:
+            conn.put_object(container, obj, obj, metadata={'stats': obj})
+            retries_done += conn.attempts - 1
+        if report:
+            report(True)
+    except:
+        if report:
+            report(False)
+        raise
+
+
+def report(success):
+    global begun, created, item_type, next_report, need_to_create, retries_done
+    if not success:
+        traceback.print_exc()
+        exit('Gave up due to error(s).')
+    created += 1
+    if time() < next_report:
+        return
+    next_report = time() + 5
+    eta, eta_unit = compute_eta(begun, created, need_to_create)
+    print '\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries' % (item_type,
+          created, need_to_create, round(eta), eta_unit, retries_done),
+
+
+if __name__ == '__main__':
+    global begun, created, item_type, next_report, need_to_create, retries_done
+    patcher.monkey_patch()
+
+    parser = OptionParser()
+    parser.add_option('-d', '--dispersion', action='store_true',
+                      dest='dispersion', default=False,
+                      help='Run the dispersion population')
+    parser.add_option('-p', '--performance', action='store_true',
+                      dest='performance', default=False,
+                      help='Run the performance population')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+
+    conf_file = '/etc/swift/stats.conf'
+    if args:
+        conf_file = args[0]
+    c = ConfigParser()
+    if not c.read(conf_file):
+        exit('Unable to read config file: %s' % conf_file)
+    conf = dict(c.items('stats'))
+    swift_dir = conf.get('swift_dir', '/etc/swift')
+    dispersion_coverage = int(conf.get('dispersion_coverage', 1))
+    big_container_count = int(conf.get('big_container_count', 1000000))
+    retries = int(conf.get('retries', 5))
+    concurrency = int(conf.get('concurrency', 50))
+
+    coropool = GreenPool(size=concurrency)
+    retries_done = 0
+
+    url, token = get_auth(conf['auth_url'], conf['auth_user'],
+                          conf['auth_key'])
+    account = url.rsplit('/', 1)[1]
+    connpool = Pool(max_size=concurrency)
+    connpool.create = lambda: Connection(conf['auth_url'],
+                                conf['auth_user'], conf['auth_key'],
+                                retries=retries,
+                                preauthurl=url, preauthtoken=token)
+
+    if options.dispersion:
+        container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
+        parts_left = \
+            dict((x, x) for x in xrange(container_ring.partition_count))
+        item_type = 'containers'
+        created = 0
+        retries_done = 0
+        need_to_create = need_to_queue = \
+            dispersion_coverage / 100.0 * container_ring.partition_count
+        begun = next_report = time()
+        next_report += 2
+        while need_to_queue >= 1:
+            container = 'stats_container_dispersion_%s' % uuid4()
+            part, _ = container_ring.get_nodes(account, container)
+            if part in parts_left:
+                coropool.spawn(put_container, connpool, container, report)
+                sleep()
+                del parts_left[part]
+                need_to_queue -= 1
+        coropool.waitall()
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d containers for dispersion reporting, ' \
+              '%d%s, %d retries' % \
+              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+
+        container = 'stats_objects'
+        put_container(connpool, container, None)
+        object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
+        parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
+        item_type = 'objects'
+        created = 0
+        retries_done = 0
+        need_to_create = need_to_queue = \
+            dispersion_coverage / 100.0 * object_ring.partition_count
+        begun = next_report = time()
+        next_report += 2
+        while need_to_queue >= 1:
+            obj = 'stats_object_dispersion_%s' % uuid4()
+            part, _ = object_ring.get_nodes(account, container, obj)
+            if part in parts_left:
+                coropool.spawn(put_object, connpool, container, obj, report)
+                sleep()
+                del parts_left[part]
+                need_to_queue -= 1
+        coropool.waitall()
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d objects for dispersion reporting, ' \
+              '%d%s, %d retries' % \
+              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+
+    if options.performance:
+        container = 'big_container'
+        put_container(connpool, container, None)
+        item_type = 'objects'
+        created = 0
+        retries_done = 0
+        need_to_create = need_to_queue = big_container_count
+        begun = next_report = time()
+        next_report += 2
+        segments = ['00']
+        for x in xrange(big_container_count):
+            obj = '%s/%02x' % ('/'.join(segments), x)
+            coropool.spawn(put_object, connpool, container, obj, report)
+            sleep()
+            need_to_queue -= 1
+            i = 0
+            while True:
+                nxt = int(segments[i], 16) + 1
+                if nxt < 10005:
+                    segments[i] = '%02x' % nxt
+                    break
+                else:
+                    segments[i] = '00'
+                    i += 1
+                    if len(segments) <= i:
+                        segments.append('00')
+                        break
+        coropool.waitall()
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d objects for performance reporting, ' \
+              '%d%s, %d retries' % \
+              (need_to_create, round(elapsed), elapsed_unit, retries_done)
