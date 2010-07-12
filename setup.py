@@ -20,7 +20,7 @@ setup(
     name='swift',
     version='1.0.0-1',
     description='Swift',
-    license='Apache License (2.0)'
+    license='Apache License (2.0)',
     author='OpenStack, LLC.',
     url='https://launchpad.net/swift',
     packages=['swift', 'swift.common'],
