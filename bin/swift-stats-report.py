@@ -1,0 +1,942 @@
+#!/usr/bin/python -u
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import csv
+import os
+import socket
+from ConfigParser import ConfigParser
+from httplib import HTTPException
+from optparse import OptionParser
+from sys import argv, exit, stderr
+from time import time
+from uuid import uuid4
+
+from eventlet import GreenPool, hubs, patcher, sleep, Timeout
+from eventlet.pools import Pool
+
+from swift.common import direct_client
+from swift.common.client import ClientException, Connection, get_auth
+from swift.common.ring import Ring
+from swift.common.utils import compute_eta, get_time_units
+
+
+unmounted = []
+
+def get_error_log(prefix):
+    def error_log(msg_or_exc):
+        global unmounted
+        if hasattr(msg_or_exc, 'http_status') and \
+                msg_or_exc.http_status == 507:
+            identifier = '%s:%s/%s'
+            if identifier not in unmounted:
+                unmounted.append(identifier)
+                print >>stderr, 'ERROR: %s:%s/%s is unmounted -- This will ' \
+                    'cause replicas designated for that device to be ' \
+                    'considered missing until resolved or the ring is ' \
+                    'updated.' % (msg_or_exc.http_host, msg_or_exc.http_port,
+                    msg_or_exc.http_device)
+        if not hasattr(msg_or_exc, 'http_status') or \
+                msg_or_exc.http_status not in (404, 507):
+            print >>stderr, 'ERROR: %s: %s' % (prefix, msg_or_exc)
+    return error_log
+
+
+def audit(coropool, connpool, account, container_ring, object_ring, options):
+    begun = time()
+    with connpool.item() as conn:
+        estimated_items = [conn.head_account()[0]]
+    items_completed = [0]
+    retries_done = [0]
+    containers_missing_replicas = {}
+    objects_missing_replicas = {}
+    next_report = [time() + 2]
+    def report():
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = \
+                compute_eta(begun, items_completed[0], estimated_items[0])
+            print '\r\x1B[KAuditing items: %d of %d, %d%s left, %d ' \
+                  'retries' % (items_completed[0], estimated_items[0],
+                  round(eta), eta_unit, retries_done[0]),
+    def direct_container(container, part, nodes):
+        estimated_objects = 0
+        for node in nodes:
+            found = False
+            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            try:
+                attempts, info = direct_client.retry(
+                                    direct_client.direct_head_container, node,
+                                    part, account, container,
+                                    error_log=error_log,
+                                    retries=options.retries)
+                retries_done[0] += attempts - 1
+                found = True
+                if not estimated_objects:
+                    estimated_objects = info[0]
+            except ClientException, err:
+                if err.http_status not in (404, 507):
+                    error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                              container, err))
+            except (Exception, Timeout), err:
+                error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                          container, err))
+            if not found:
+                if container in containers_missing_replicas:
+                    containers_missing_replicas[container].append(node)
+                else:
+                    containers_missing_replicas[container] = [node]
+        estimated_items[0] += estimated_objects
+        items_completed[0] += 1
+        report()
+    def direct_object(container, obj, part, nodes):
+        for node in nodes:
+            found = False
+            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            try:
+                attempts, _ = direct_client.retry(
+                                direct_client.direct_head_object, node, part,
+                                account, container, obj, error_log=error_log,
+                                retries=options.retries)
+                retries_done[0] += attempts - 1
+                found = True
+            except ClientException, err:
+                if err.http_status not in (404, 507):
+                    error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                              container, err))
+            except (Exception, Timeout), err:
+                error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                          container, err))
+            if not found:
+                opath = '/%s/%s' % (container, obj)
+                if opath in objects_missing_replicas:
+                    objects_missing_replicas[opath].append(node)
+                else:
+                    objects_missing_replicas[opath] = [node]
+        items_completed[0] += 1
+        report()
+    cmarker = ''
+    while True:
+        with connpool.item() as conn:
+            containers = [c['name'] for c in conn.get_account(marker=cmarker)]
+        if not containers:
+            break
+        cmarker = containers[-1]
+        for container in containers:
+            part, nodes = container_ring.get_nodes(account, container)
+            coropool.spawn(direct_container, container, part, nodes)
+        for container in containers:
+            omarker = ''
+            while True:
+                with connpool.item() as conn:
+                    objects = [o['name'] for o in
+                               conn.get_container(container, marker=omarker)]
+                if not objects:
+                    break
+                omarker = objects[-1]
+                for obj in objects:
+                    part, nodes = object_ring.get_nodes(account, container, obj)
+                    coropool.spawn(direct_object, container, obj, part, nodes)
+    coropool.waitall()
+    print '\r\x1B[K\r',
+    if not containers_missing_replicas and not objects_missing_replicas:
+        print 'No missing items.'
+        return
+    if containers_missing_replicas:
+        print 'Containers Missing'
+        print '-' * 78
+        for container in sorted(containers_missing_replicas.keys()):
+            part, _ = container_ring.get_nodes(account, container)
+            for node in containers_missing_replicas[container]:
+                print 'http://%s:%s/%s/%s/%s/%s' % (node['ip'], node['port'],
+                      node['device'], part, account, container)
+    if objects_missing_replicas:
+        if containers_missing_replicas:
+            print
+        print 'Objects Missing'
+        print '-' * 78
+        for opath in sorted(objects_missing_replicas.keys()):
+            _, container, obj = opath.split('/', 2)
+            part, _ = object_ring.get_nodes(account, container, obj)
+            for node in objects_missing_replicas[opath]:
+                print 'http://%s:%s/%s/%s/%s/%s/%s' % (node['ip'],
+                      node['port'], node['device'], part, account, container,
+                      obj)
+
+
+def container_dispersion_report(coropool, connpool, account, container_ring,
+                                options):
+    """ Returns (number of containers listed, number of distinct partitions,
+                 number of container copies found) """
+    with connpool.item() as conn:
+        containers = [c['name'] for c in
+                      conn.get_account(prefix='stats_container_dispersion_',
+                                       full_listing=True)]
+    containers_listed = len(containers)
+    if not containers_listed:
+        print >>stderr, 'No containers to query. Has stats-populate been run?'
+        return 0
+    retries_done = [0]
+    containers_queried = [0]
+    container_copies_found = [0, 0, 0, 0]
+    begun = time()
+    next_report = [time() + 2]
+    def direct(container, part, nodes):
+        found_count = 0
+        for node in nodes:
+            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            try:
+                attempts, _ = direct_client.retry(
+                                direct_client.direct_head_container, node,
+                                part, account, container, error_log=error_log,
+                                retries=options.retries)
+                retries_done[0] += attempts - 1
+                found_count += 1
+            except ClientException, err:
+                if err.http_status not in (404, 507):
+                    error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                              container, err))
+            except (Exception, Timeout), err:
+                error_log('Giving up on /%s/%s/%s: %s' % (part, account,
+                          container, err))
+        container_copies_found[found_count] += 1
+        containers_queried[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, containers_queried[0],
+                                        containers_listed)
+            print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
+                  'retries' % (containers_queried[0], containers_listed,
+                  round(eta), eta_unit, retries_done[0]),
+    container_parts = {}
+    for container in containers:
+        part, nodes = container_ring.get_nodes(account, container)
+        if part not in container_parts:
+            container_parts[part] = part
+            coropool.spawn(direct, container, part, nodes)
+    coropool.waitall()
+    distinct_partitions = len(container_parts)
+    copies_expected = distinct_partitions * container_ring.replica_count
+    copies_found = sum(a * b for a, b in enumerate(container_copies_found))
+    value = 100.0 * copies_found / copies_expected
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
+              '%d%s, %d retries' % (containers_listed, round(elapsed),
+              elapsed_unit, retries_done[0])
+        if containers_listed - distinct_partitions:
+            print 'There were %d overlapping partitions' % (
+                  containers_listed - distinct_partitions)
+        if container_copies_found[2]:
+            print 'There were %d partitions missing one copy.' % \
+                  container_copies_found[2]
+        if container_copies_found[1]:
+            print '! There were %d partitions missing two copies.' % \
+                  container_copies_found[1]
+        if container_copies_found[0]:
+            print '!!! There were %d partitions missing all copies.' % \
+                  container_copies_found[0]
+        print '%.02f%% of container copies found (%d of %d)' % (
+              value, copies_found, copies_expected)
+        print 'Sample represents %.02f%% of the container partition space' % (
+              100.0 * distinct_partitions / container_ring.partition_count)
+    return value
+
+
+def object_dispersion_report(coropool, connpool, account, object_ring, options):
+    """ Returns (number of objects listed, number of distinct partitions,
+                 number of object copies found) """
+    container = 'stats_objects'
+    with connpool.item() as conn:
+        try:
+            objects = [o['name'] for o in conn.get_container(container,
+                       prefix='stats_object_dispersion_', full_listing=True)]
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            print >>stderr, 'No objects to query. Has stats-populate been run?'
+            return 0
+    objects_listed = len(objects)
+    if not objects_listed:
+        print >>stderr, 'No objects to query. Has stats-populate been run?'
+        return 0
+    retries_done = [0]
+    objects_queried = [0]
+    object_copies_found = [0, 0, 0, 0]
+    begun = time()
+    next_report = [time() + 2]
+    def direct(obj, part, nodes):
+        found_count = 0
+        for node in nodes:
+            error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
+            try:
+                attempts, _ = direct_client.retry(
+                                direct_client.direct_head_object, node, part,
+                                account, container, obj, error_log=error_log,
+                                retries=options.retries)
+                retries_done[0] += attempts - 1
+                found_count += 1
+            except ClientException, err:
+                if err.http_status not in (404, 507):
+                    error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
+                              container, obj, err))
+            except (Exception, Timeout), err:
+                error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
+                          container, obj, err))
+        object_copies_found[found_count] += 1
+        objects_queried[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, objects_queried[0],
+                                        objects_listed)
+            print '\r\x1B[KQuerying objects: %d of %d, %d%s left, %d ' \
+                  'retries' % (objects_queried[0], objects_listed, round(eta),
+                  eta_unit, retries_done[0]),
+    object_parts = {}
+    for obj in objects:
+        part, nodes = object_ring.get_nodes(account, container, obj)
+        if part not in object_parts:
+            object_parts[part] = part
+            coropool.spawn(direct, obj, part, nodes)
+    coropool.waitall()
+    distinct_partitions = len(object_parts)
+    copies_expected = distinct_partitions * object_ring.replica_count
+    copies_found = sum(a * b for a, b in enumerate(object_copies_found))
+    value = 100.0 * copies_found / copies_expected
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KQueried %d objects for dispersion reporting, ' \
+              '%d%s, %d retries' % (objects_listed, round(elapsed),
+              elapsed_unit, retries_done[0])
+        if objects_listed - distinct_partitions:
+            print 'There were %d overlapping partitions' % (
+                  objects_listed - distinct_partitions)
+        if object_copies_found[2]:
+            print 'There were %d partitions missing one copy.' % \
+                  object_copies_found[2]
+        if object_copies_found[1]:
+            print '! There were %d partitions missing two copies.' % \
+                  object_copies_found[1]
+        if object_copies_found[0]:
+            print '!!! There were %d partitions missing all copies.' % \
+                  object_copies_found[0]
+        print '%.02f%% of object copies found (%d of %d)' % (
+              value, copies_found, copies_expected)
+        print 'Sample represents %.02f%% of the object partition space' % (
+              100.0 * distinct_partitions / object_ring.partition_count)
+    return value
+
+
+def container_put_report(coropool, connpool, count, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    def put(container):
+        with connpool.item() as conn:
+            try:
+                conn.put_container(container)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KCreating containers: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for x in xrange(count):
+        coropool.spawn(put, 'stats_container_put_%02x' % x)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / count
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d containers for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def container_head_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        containers = [c['name'] for c in
+                      conn.get_account(prefix='stats_container_put_',
+                      full_listing=True)]
+    count = len(containers)
+    def head(container):
+        with connpool.item() as conn:
+            try:
+                conn.head_container(container)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KHeading containers: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for container in containers:
+        coropool.spawn(head, container)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(containers)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KHeaded %d containers for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def container_get_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        containers = [c['name'] for c in
+                      conn.get_account(prefix='stats_container_put_',
+                      full_listing=True)]
+    count = len(containers)
+    def get(container):
+        with connpool.item() as conn:
+            try:
+                conn.get_container(container)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KListing containers: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for container in containers:
+        coropool.spawn(get, container)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(containers)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KListing %d containers for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def container_standard_listing_report(coropool, connpool, options):
+    begun = time()
+    if options.verbose:
+        print 'Listing big_container',
+    with connpool.item() as conn:
+        try:
+            value = len(conn.get_container('big_container', full_listing=True))
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            print >>stderr, \
+                  "big_container doesn't exist. Has stats-populate been run?"
+            return 0
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\rGot %d objects (standard listing) in big_container, %d%s' % \
+              (value, elapsed, elapsed_unit)
+    return value
+
+
+def container_prefix_listing_report(coropool, connpool, options):
+    begun = time()
+    if options.verbose:
+        print 'Prefix-listing big_container',
+    value = 0
+    with connpool.item() as conn:
+        try:
+            for x in xrange(256):
+                value += len(conn.get_container('big_container',
+                                prefix=('%02x' % x), full_listing=True))
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            print >>stderr, \
+                  "big_container doesn't exist. Has stats-populate been run?"
+            return 0
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\rGot %d objects (prefix listing) in big_container, %d%s' % \
+              (value, elapsed, elapsed_unit)
+    return value
+
+
+def container_prefix_delimiter_listing_report(coropool, connpool, options):
+    begun = time()
+    if options.verbose:
+        print 'Prefix-delimiter-listing big_container',
+    value = [0]
+    def list(prefix=None):
+        marker = None
+        while True:
+            try:
+                with connpool.item() as conn:
+                    listing = conn.get_container('big_container',
+                                marker=marker, prefix=prefix, delimiter='/')
+            except ClientException, err:
+                if err.http_status != 404:
+                    raise
+                print >>stderr, "big_container doesn't exist. " \
+                                "Has stats-populate been run?"
+                return 0
+            if not len(listing):
+                break
+            marker = listing[-1].get('name', listing[-1].get('subdir'))
+            value[0] += len(listing)
+            subdirs = []
+            i = 0
+            # Capping the subdirs we'll list per dir to 10
+            while len(subdirs) < 10 and i < len(listing):
+                if 'subdir' in listing[i]:
+                    subdirs.append(listing[i]['subdir'])
+                i += 1
+            del listing
+            for subdir in subdirs:
+                coropool.spawn(list, subdir)
+                sleep()
+    coropool.spawn(list)
+    coropool.waitall()
+    value = value[0]
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\rGot %d objects/subdirs in big_container, %d%s' % (value,
+              elapsed, elapsed_unit)
+    return value
+
+
+def container_delete_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        containers = [c['name'] for c in
+                      conn.get_account(prefix='stats_container_put_',
+                      full_listing=True)]
+    count = len(containers)
+    def delete(container):
+        with connpool.item() as conn:
+            try:
+                conn.delete_container(container)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KDeleting containers: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for container in containers:
+        coropool.spawn(delete, container)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(containers)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KDeleting %d containers for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def object_put_report(coropool, connpool, count, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    def put(obj):
+        with connpool.item() as conn:
+            try:
+                conn.put_object('stats_object_put', obj, '')
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KCreating objects: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    with connpool.item() as conn:
+        conn.put_container('stats_object_put')
+    for x in xrange(count):
+        coropool.spawn(put, 'stats_object_put_%02x' % x)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / count
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d objects for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def object_head_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        objects = [o['name'] for o in conn.get_container('stats_object_put',
+                   prefix='stats_object_put_', full_listing=True)]
+    count = len(objects)
+    def head(obj):
+        with connpool.item() as conn:
+            try:
+                conn.head_object('stats_object_put', obj)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KHeading objects: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for obj in objects:
+        coropool.spawn(head, obj)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(objects)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KHeaded %d objects for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def object_get_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        objects = [o['name'] for o in conn.get_container('stats_object_put',
+                   prefix='stats_object_put_', full_listing=True)]
+    count = len(objects)
+    def get(obj):
+        with connpool.item() as conn:
+            try:
+                conn.get_object('stats_object_put', obj)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KRetrieving objects: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for obj in objects:
+        coropool.spawn(get, obj)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(objects)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KRetrieved %d objects for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+def object_delete_report(coropool, connpool, options):
+    successes = [0]
+    failures = [0]
+    retries_done = [0]
+    begun = time()
+    next_report = [time() + 2]
+    with connpool.item() as conn:
+        objects = [o['name'] for o in conn.get_container('stats_object_put',
+                   prefix='stats_object_put_', full_listing=True)]
+    count = len(objects)
+    def delete(obj):
+        with connpool.item() as conn:
+            try:
+                conn.delete_object('stats_object_put', obj)
+                successes[0] += 1
+            except (Exception, Timeout):
+                failures[0] += 1
+        if options.verbose and time() >= next_report[0]:
+            next_report[0] = time() + 5
+            eta, eta_unit = compute_eta(begun, successes[0] + failures[0],
+                                        count)
+            print '\r\x1B[KDeleting objects: %d of %d, %d%s left, %d ' \
+                  'retries' % (successes[0] + failures[0], count, eta,
+                  eta_unit, retries_done[0]),
+    for obj in objects:
+        coropool.spawn(delete, obj)
+    coropool.waitall()
+    successes = successes[0]
+    failures = failures[0]
+    value = 100.0 * successes / len(objects)
+    if options.verbose:
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KDeleted %d objects for performance reporting, ' \
+              '%d%s, %d retries' % (count, round(elapsed), elapsed_unit,
+              retries_done[0])
+        print '%d succeeded, %d failed, %.02f%% success rate' % (
+              successes, failures, value)
+    return value
+
+
+if __name__ == '__main__':
+    patcher.monkey_patch()
+    hubs.get_hub().debug_exceptions = False
+
+    parser = OptionParser(usage='''
+Usage: %prog [options] [conf_file]
+
+[conf_file] defaults to /etc/swift/stats.conf'''.strip())
+    parser.add_option('-a', '--audit', action='store_true',
+                      dest='audit', default=False,
+                      help='Run the audit checks')
+    parser.add_option('-d', '--dispersion', action='store_true',
+                      dest='dispersion', default=False,
+                      help='Run the dispersion reports')
+    parser.add_option('-o', '--output', dest='csv_output',
+                      default=None,
+                      help='Override where the CSV report is written '
+                           '(default from conf file); the keyword None will '
+                           'suppress the CSV report')
+    parser.add_option('-p', '--performance', action='store_true',
+                      dest='performance', default=False,
+                      help='Run the performance reports')
+    parser.add_option('-q', '--quiet', action='store_false', dest='verbose',
+                      default=True, help='Suppress status output')
+    parser.add_option('-r', '--retries', dest='retries',
+                      default=None,
+                      help='Override retry attempts (default from conf file)')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+
+    conf_file = '/etc/swift/stats.conf'
+    if args:
+        conf_file = args.pop(0)
+    c = ConfigParser()
+    if not c.read(conf_file):
+        exit('Unable to read config file: %s' % conf_file)
+    conf = dict(c.items('stats'))
+    swift_dir = conf.get('swift_dir', '/etc/swift')
+    dispersion_coverage = int(conf.get('dispersion_coverage', 1))
+    container_put_count = int(conf.get('container_put_count', 1000))
+    object_put_count = int(conf.get('object_put_count', 1000))
+    concurrency = int(conf.get('concurrency', 50))
+    if options.retries:
+        options.retries = int(options.retries)
+    else:
+        options.retries = int(conf.get('retries', 5))
+    if not options.csv_output:
+        csv_output = conf.get('csv_output', '/etc/swift/stats.csv')
+
+    coropool = GreenPool(size=concurrency)
+
+    url, token = get_auth(conf['auth_url'], conf['auth_user'],
+                          conf['auth_key'])
+    account = url.rsplit('/', 1)[1]
+    connpool = Pool(max_size=concurrency)
+    connpool.create = lambda: Connection(conf['auth_url'],
+                                conf['auth_user'], conf['auth_key'],
+                                retries=options.retries, preauthurl=url,
+                                preauthtoken=token)
+
+    report = [time(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0]
+    (R_TIMESTAMP, R_CDR_TIME, R_CDR_VALUE, R_ODR_TIME, R_ODR_VALUE,
+     R_CPUT_TIME, R_CPUT_RATE, R_CHEAD_TIME, R_CHEAD_RATE, R_CGET_TIME,
+     R_CGET_RATE, R_CDELETE_TIME, R_CDELETE_RATE, R_CLSTANDARD_TIME,
+     R_CLPREFIX_TIME, R_CLPREDELIM_TIME, R_OPUT_TIME, R_OPUT_RATE, R_OHEAD_TIME,
+     R_OHEAD_RATE, R_OGET_TIME, R_OGET_RATE, R_ODELETE_TIME, R_ODELETE_RATE) = \
+     xrange(len(report))
+
+    container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
+    object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
+
+    if options.audit:
+        audit(coropool, connpool, account, container_ring, object_ring, options)
+        if options.verbose and (options.dispersion or options.performance):
+            print
+
+    if options.dispersion:
+        begin = time()
+        report[R_CDR_VALUE] = container_dispersion_report(coropool, connpool,
+                                account, container_ring, options)
+        report[R_CDR_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_ODR_VALUE] = object_dispersion_report(coropool, connpool,
+                                account, object_ring, options)
+        report[R_ODR_TIME] = time() - begin
+        if options.verbose and options.performance:
+            print
+
+    if options.performance:
+        begin = time()
+        report[R_CPUT_RATE] = container_put_report(coropool, connpool,
+                                                   container_put_count, options)
+        report[R_CPUT_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_CHEAD_RATE] = \
+            container_head_report(coropool, connpool, options)
+        report[R_CHEAD_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_CGET_RATE] = container_get_report(coropool, connpool, options)
+        report[R_CGET_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_CDELETE_RATE] = \
+            container_delete_report(coropool, connpool, options)
+        report[R_CDELETE_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        container_standard_listing_report(coropool, connpool, options)
+        report[R_CLSTANDARD_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        container_prefix_listing_report(coropool, connpool, options)
+        report[R_CLPREFIX_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        container_prefix_delimiter_listing_report(coropool, connpool, options)
+        report[R_CLPREDELIM_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_OPUT_RATE] = \
+            object_put_report(coropool, connpool, object_put_count, options)
+        report[R_OPUT_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_OHEAD_RATE] = object_head_report(coropool, connpool, options)
+        report[R_OHEAD_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_OGET_RATE] = object_get_report(coropool, connpool, options)
+        report[R_OGET_TIME] = time() - begin
+        if options.verbose:
+            print
+
+        begin = time()
+        report[R_ODELETE_RATE] = \
+            object_delete_report(coropool, connpool, options)
+        report[R_ODELETE_TIME] = time() - begin
+
+    if options.csv_output != 'None':
+        try:
+            if not os.path.exists(csv_output):
+                f = open(csv_output, 'wb')
+                f.write('Timestamp,'
+                        'Container Dispersion Report Time,'
+                        'Container Dispersion Report Value,'
+                        'Object Dispersion Report Time,'
+                        'Object Dispersion Report Value,'
+                        'Container PUT Report Time,'
+                        'Container PUT Report Success Rate,'
+                        'Container HEAD Report Time,'
+                        'Container HEAD Report Success Rate,'
+                        'Container GET Report Time,'
+                        'Container GET Report Success Rate'
+                        'Container DELETE Report Time,'
+                        'Container DELETE Report Success Rate,'
+                        'Container Standard Listing Time,'
+                        'Container Prefix Listing Time,'
+                        'Container Prefix Delimiter Listing Time,'
+                        'Object PUT Report Time,'
+                        'Object PUT Report Success Rate,'
+                        'Object HEAD Report Time,'
+                        'Object HEAD Report Success Rate,'
+                        'Object GET Report Time,'
+                        'Object GET Report Success Rate'
+                        'Object DELETE Report Time,'
+                        'Object DELETE Report Success Rate\r\n')
+                csv = csv.writer(f)
+            else:
+                csv = csv.writer(open(csv_output, 'ab'))
+            csv.writerow(report)
+        except Exception, err:
+            print >>stderr, 'Could not write CSV report:', err

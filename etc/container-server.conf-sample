@@ -1,0 +1,43 @@
+[container-server]
+# swift_dir = /etc/swift
+# devices = /srv/node
+# mount_check = true
+# bind_ip = 0.0.0.0
+# bind_port = 6001
+# workers = 1
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# user = swift
+# node_timeout = 3
+# conn_timeout = 0.5
+
+[container-replicator]
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# per_diff = 1000
+# concurrency = 8
+# run_pause = 30
+# node_timeout = 10
+# conn_timeout = 0.5
+# The replicator also performs reclamation
+# reclaim_age = 604800
+
+[container-updater]
+# interval = 300
+# concurrency = 4
+# node_timeout = 3
+# conn_timeout = 0.5
+# slowdown will sleep that amount between containers
+# slowdown = 0.01
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+
+[container-auditor]
+# Will audit, at most, 1 container per device per interval
+# interval = 1800
+# Maximum objects randomly picked for a given container audit
+# max_object_count = 100
+# node_timeout = 10
+# conn_timeout = 0.5
+# log_facility = LOG_LOCAL0
+# log_level = INFO

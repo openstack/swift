@@ -1,0 +1,8 @@
+#!/bin/sh -e
+
+# there's probably a better way
+python -m compileall `python -c 'import swift;import os;print os.path.dirname(swift.__file__)'`
+if ! getent passwd swift > /dev/null ; then
+  adduser --system --quiet --disabled-login --disabled-password --no-create-home --group swift
+fi
+

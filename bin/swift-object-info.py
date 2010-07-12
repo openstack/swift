@@ -1,0 +1,92 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import sys
+import cPickle as pickle
+from datetime import datetime
+from hashlib import md5
+
+from swift.common.ring import Ring
+from swift.obj.server import read_metadata
+from swift.common.utils import hash_path
+
+if __name__ == '__main__':
+    if len(sys.argv) <= 1:
+        print "Usage: %s OBJECT_FILE" % sys.argv[0]
+        sys.exit(1)
+    try:
+        ring = Ring('/etc/swift/object.ring.gz')
+    except:
+        ring = None
+    datafile = sys.argv[1]
+    fp = open(datafile, 'rb')
+    metadata = read_metadata(fp)
+    path = metadata.pop('name','')
+    content_type = metadata.pop('Content-Type','')
+    ts = metadata.pop('X-Timestamp','')
+    etag = metadata.pop('ETag','')
+    length = metadata.pop('Content-Length','')
+    if path:
+        print 'Path: %s' % path
+        account, container, obj = path.split('/',3)[1:]
+        print '  Account: %s' % account
+        print '  Container: %s' % container
+        print '  Object: %s' % obj
+        obj_hash = hash_path(account, container, obj)
+        print '  Object hash: %s' % obj_hash
+        if ring is not None:
+            print 'Ring locations:'
+            part, nodes = ring.get_nodes(account, container, obj)
+            for node in nodes:
+                print ('  %s:%s - /srv/node/%s/objects/%s/%s/%s/%s.data' %
+                        (node['ip'], node['port'], node['device'], part,
+                        obj_hash[-3:], obj_hash, ts))
+    else:
+        print 'Path: Not found in metadata'
+    if content_type:
+        print 'Content-Type: %s' % content_type
+    else:
+        print 'Content-Type: Not found in metadata'
+    if ts:
+        print 'Timestamp: %s (%s)' % (datetime.fromtimestamp(float(ts)), ts)
+    else:
+        print 'Timestamp: Not found in metadata'
+    h = md5()
+    file_len = 0
+    while True:
+        data = fp.read(64*1024)
+        if not data:
+            break
+        h.update(data)
+        file_len += len(data)
+    h = h.hexdigest()
+    if etag:
+        if h == etag:
+            print 'ETag: %s (valid)' % etag
+        else:
+            print "Etag: %s doesn't match file hash of %s!" % (etag, h)
+    else:
+        print 'ETag: Not found in metadata'
+    if length:
+        if file_len == int(length):
+            print 'Content-Length: %s (valid)' % length
+        else:
+            print "Content-Length: %s doesn't match file length of %s" % (
+                length, file_len)
+    else:
+        print 'Content-Length: Not found in metadata'
+    print 'User Metadata: %s' % metadata
+    fp.close()

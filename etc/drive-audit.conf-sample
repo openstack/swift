@@ -1,0 +1,6 @@
+[drive-audit]
+# device_dir = /srv/node
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# minutes = 60
+# error_limit = 1

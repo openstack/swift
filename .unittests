@@ -1,0 +1,4 @@
+#!/bin/bash
+
+nosetests test/unit --exe --with-coverage --cover-package swift --cover-erase
+rm -f .coverage
