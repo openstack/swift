@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 setup(
     name='swift',
@@ -23,7 +23,10 @@ setup(
     license='Apache License (2.0)',
     author='OpenStack, LLC.',
     url='https://launchpad.net/swift',
-    packages=['swift', 'swift.common'],
+    packages=find_packages(exclude=['tests','bin']),
+    #Uncomment this once unittests work without /etc
+    #Also, figure out how to make this only run unit tests
+    #test_suite = 'nose.collector',
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
