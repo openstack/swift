@@ -1028,9 +1028,11 @@ class TestObjectController(unittest.TestCase):
         # proxy_server.Application we couldn't get to easily otherwise.
         path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
         if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-            raise Exception('PATH_TO_TEST_XFS not set or not pointing to '
-                'a valid directory.\nPlease set PATH_TO_TEST_XFS to a '
-                'directory on an XFS file system for testing.')
+            print >>sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
+                'pointing to a valid directory.\n' \
+                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
+                'system for testing.'
+            return
         testdir = \
             os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
         mkdirs(testdir)
