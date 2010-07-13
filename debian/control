@@ -2,53 +2,71 @@ Source: swift
 Section: net
 Priority: optional
 Maintainer: Michael Barton <michael.barton@rackspace.com>
-Build-Depends: debhelper (>> 3.0.0), python (>= 2.6)
-Standards-Version: 3.7.2
+Uploaders: Monty Taylor <mordred@inaugust.com>
+Build-Depends: debhelper (>= 7),
+ python (>= 2.6),
+ python-openssl,
+ python-setuptools,
+ python-webob (>= 0.9.7.1~hg20100111-1~racklabs1),
+ python-simplejson,
+ python-xattr,
+ net-tools,
+ python-greenlet (>= 0.3.1),
+ python-eventlet (>= 0.9.8),
+ python-nose
+Standards-Version: 3.8.4
+Homepage: http://launchpad.net/swift
 
 Package: swift
 Architecture: all
-Depends: python (>= 2.6), python-openssl, python-webob (>= 0.9.7.1~hg20100111-1~racklabs1), python-simplejson, python-xattr, net-tools, python-eventlet (>= 0.9.8pre1-7)
+Depends: python (>= 2.6), net-tools, ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: Swift, a distributed virtual object store (common files)
  Swift, a distributed virtual object store.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift
 
 Package: swift-proxy
 Architecture: all
-Depends: swift (=${Source-Version})
+Depends: swift (=${Source-Version}), ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: The swift proxy server.
  The swift proxy server.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift
 
 Package: swift-object
 Architecture: all
-Depends: swift (=${Source-Version})
+Depends: swift (=${Source-Version}), ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: The swift object server.
  The swift object server.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift
 
 Package: swift-container
 Architecture: all
-Depends: swift (=${Source-Version})
+Depends: swift (=${Source-Version}), ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: The swift container server.
  The swift container server.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift
 
 Package: swift-account
 Architecture: all
-Depends: swift (=${Source-Version})
+Depends: swift (=${Source-Version}), ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: The swift account server.
  The swift account server.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift
 
 Package: swift-auth
 Architecture: all
-Depends: swift (=${Source-Version})
+Depends: swift (=${Source-Version}), ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Provides: ${python:Provides}
 Description: The swift auth server.
  The swift auth server.
  .
-  Homepage: https://swift.racklabs.com/trac
+ Homepage: https://launchpad.net/swift

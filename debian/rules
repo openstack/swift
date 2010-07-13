@@ -3,30 +3,23 @@
 # Verbose mode
 export DH_VERBOSE=1
 
+DEB_PYTHON_SYSTEM=pysupport
+
 PYTHON = "/usr/bin/python"
 
+build:
+	dh build
+
 clean:
-	dh_testdir
-	dh_testroot
-	$(PYTHON) setup.py clean --all
-	rm -rf $(CURDIR)/debian/swift
-	rm -f build-stamp install-stamp
-	dh_clean
+	dh clean
+	find . -name "*\.pyc" -delete
 
-build: build-stamp
-build-stamp:
-	dh_testdir
-	$(PYTHON) setup.py build
-	touch build-stamp
-
-install: build-stamp
-	dh_testdir
-	dh_installdirs
+install: build
+	dh install
+	mkdir -p $(CURDIR)/debian/swift/etc/swift
 	mkdir -p $(CURDIR)/debian/swift/usr/bin
 
 	# Copy files into binary package directories
-	dh_install --sourcedir=debian/swift
-	$(PYTHON) setup.py install --root $(CURDIR)/debian/swift
 	install -m 755 $(CURDIR)/bin/swift-init.py \
 		$(CURDIR)/debian/swift/usr/bin/swift-init
 	install -m 755 $(CURDIR)/bin/swift-ring-builder.py \
@@ -106,9 +99,10 @@ install: build-stamp
 	install -m 755 $(CURDIR)/bin/swift-auth-recreate-accounts.py \
 		$(CURDIR)/debian/swift-auth/usr/bin/swift-auth-recreate-accounts
 
-	touch install-stamp
 
-binary-arch:
+binary-arch: install
+	dh binary-arch
+
 binary-indep: install
 	dh_installinit --no-start
 	dh_installinit --no-start -pswift-container --init-script=swift-container-replicator
@@ -120,15 +114,7 @@ binary-indep: install
 	dh_installinit --no-start -pswift-object --init-script=swift-object-updater
 	dh_installinit --no-start -pswift-object --init-script=swift-object-replicator
 	dh_installinit --no-start -pswift-container --init-script=swift-container-updater
-	dh_installcron
-	dh_installdocs
-	dh_installchangelogs
-	dh_compress
-	dh_fixperms
-	dh_gencontrol
-	dh_installdeb
-	dh_md5sums
-	dh_builddeb
+	dh binary-indep
 
 binary: binary-arch binary-indep
 .PHONY: build clean binary-indep binary-arch binary clean
