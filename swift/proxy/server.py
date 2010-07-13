@@ -934,7 +934,8 @@ class BaseApplication(object):
 
     log_name = 'base_application'
 
-    def __init__(self, conf, memcache, logger=None):
+    def __init__(self, conf, memcache, logger=None, account_ring=None,
+                 container_ring=None, object_ring=None):
         if logger:
             self.logger = logger
         else:
@@ -961,10 +962,12 @@ class BaseApplication(object):
             int(conf.get('recheck_account_existence', 60))
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
-        self.object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
-        self.container_ring = \
+        self.object_ring = object_ring or \
+            Ring(os.path.join(swift_dir, 'object.ring.gz'))
+        self.container_ring = container_ring or \
             Ring(os.path.join(swift_dir, 'container.ring.gz'))
-        self.account_ring = Ring(os.path.join(swift_dir, 'account.ring.gz'))
+        self.account_ring = account_ring or \
+            Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
         self.rate_limit = float(conf.get('rate_limit', 20000.0))
         self.account_rate_limit = float(conf.get('account_rate_limit', 200.0))

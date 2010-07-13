@@ -191,10 +191,9 @@ def save_globals():
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache())
-        self.app.object_ring = FakeRing()
-        self.app.container_ring = FakeRing()
-        self.app.account_ring = FakeRing()
+        self.app = proxy_server.Application(None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing(),
+            object_ring=FakeRing())
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -1447,10 +1446,9 @@ class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache())
-        self.app.object_ring = FakeRing()
-        self.app.container_ring = FakeRing()
-        self.app.account_ring = FakeRing()
+        self.app = proxy_server.Application(None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing(),
+            object_ring=FakeRing())
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False, missing_container=False):
         with save_globals():
@@ -1635,10 +1633,9 @@ class TestContainerController(unittest.TestCase):
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache())
-        self.app.object_ring = FakeRing()
-        self.app.container_ring = FakeRing()
-        self.app.account_ring = FakeRing()
+        self.app = proxy_server.Application(None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing(),
+            object_ring=FakeRing)
 
     def assert_status_map(self, method, statuses, expected):
         with save_globals():
