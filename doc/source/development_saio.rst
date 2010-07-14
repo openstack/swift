@@ -447,7 +447,7 @@ good idea what to do on other environments.
 
 If you plan to work on documentation (and who doesn't?!):
 
-  #. `sudo apt-get install python-sphix`
+  #. `sudo apt-get install python-sphinx`
   #. `cd ~/swift/doc`
   #. `make html`
 
