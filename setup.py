@@ -28,11 +28,6 @@ setup(
     url='https://launchpad.net/swift',
     packages=find_packages(exclude=['tests','bin']),
     test_suite = 'nose.collector',
-    command_options = {
-        'build_sphinx': {
-            'version': ('setup.py', version),
-      }
-    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
