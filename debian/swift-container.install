@@ -1,4 +1,3 @@
-etc/swift/container-server.conf-sample
 usr/bin/swift-container-server
 usr/bin/swift-container-replicator
 usr/bin/swift-container-auditor

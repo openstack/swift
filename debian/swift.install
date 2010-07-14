@@ -1,5 +1,3 @@
-etc/swift/stats.conf-sample
-etc/swift/drive-audit.conf-sample
 usr/bin/swift-init
 usr/bin/swift-ring-builder
 usr/bin/swift-get-nodes

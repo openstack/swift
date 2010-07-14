@@ -1,4 +1,3 @@
-etc/swift/auth-server.conf-sample
 usr/bin/swift-auth-server
 usr/bin/swift-auth-create-account
 usr/bin/swift-auth-recreate-accounts

@@ -50,7 +50,9 @@ setup(
              'bin/swift-container-server', 'bin/swift-container-updater',
              'bin/swift-drive-audit', 'bin/swift-get-nodes',
              'bin/swift-init', 'bin/swift-object-auditor',
-             'bin/swift-object-info', 'bin/swift-object-server',
+             'bin/swift-object-info',
+             'bin/swift-object-replicator',
+             'bin/swift-object-server',
              'bin/swift-object-updater', 'bin/swift-proxy-server',
              'bin/swift-ring-builder', 'bin/swift-stats-populate',
              'bin/swift-stats-report']

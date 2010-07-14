@@ -15,8 +15,6 @@ clean:
 	find . -name "*\.pyc" -delete
 
 install: build
-	mkdir -p $(CURDIR)/debian/swift/etc/swift
-	cp $(CURDIR)/etc/* $(CURDIR)/debian/swift/etc/swift
 	dh install
 
 
