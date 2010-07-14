@@ -16,15 +16,23 @@
 
 from setuptools import setup, find_packages
 
+name='swift'
+version='1.0.0'
+
 setup(
-    name='swift',
-    version='1.0.0-1',
+    name=name,
+    version=version,
     description='Swift',
     license='Apache License (2.0)',
     author='OpenStack, LLC.',
     url='https://launchpad.net/swift',
     packages=find_packages(exclude=['tests','bin']),
     test_suite = 'nose.collector',
+    command_options = {
+        'build_sphinx': {
+            'version': ('setup.py', version),
+      }
+    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
