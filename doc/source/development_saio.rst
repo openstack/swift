@@ -19,8 +19,7 @@ good idea what to do on other environments.
   #. `Use operating system installation disc image file`, pick the .iso
      from above.
   #. Select `Linux` and `Ubuntu 64-bit`.
-  #. Fill in the *Linux Easy Install* details (you should make the user
-     name match your launchpad user id).
+  #. Fill in the *Linux Easy Install* details.
   #. `Customize Settings`, name the image whatever you want 
      (`SAIO` for instance.)
   #. When the `Settings` window comes up, select `Hard Disk`, create an
