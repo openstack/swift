@@ -1,0 +1,10 @@
+etc/swift/stats.conf-sample
+etc/swift/drive-audit.conf-sample
+usr/bin/swift-init
+usr/bin/swift-ring-builder
+usr/bin/swift-get-nodes
+usr/bin/swift-stats-populate
+usr/bin/swift-stats-report
+usr/bin/swift-account-audit
+usr/bin/st
+usr/bin/swift-drive-audit

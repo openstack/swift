@@ -1,0 +1,7 @@
+etc/swift/object-server.conf-sample
+etc/swift/rsyncd.conf-sample
+usr/bin/swift-object-server
+usr/bin/swift-object-replicator
+usr/bin/swift-object-auditor
+usr/bin/swift-object-updater
+usr/bin/swift-object-info

@@ -1,0 +1,2 @@
+etc/swift/proxy-server.conf-sample
+usr/bin/swift-proxy-server
