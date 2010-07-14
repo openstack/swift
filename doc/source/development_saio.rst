@@ -48,7 +48,7 @@ good idea what to do on other environments.
   #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
   #. `mkdir -p /etc/swift/object-server /etc/swift/container-server /etc/swift/account-server /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4 /var/run/swift`
-  #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4] /var/run/swift`
+  #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4]/ /var/run/swift` -- **Make sure to include the trailing slash after /srv/[1-4]/**
   #. Add to `/etc/rc.local` (before the `exit 0`)::
 
         mkdir /var/run/swift
@@ -445,6 +445,12 @@ good idea what to do on other environments.
   #. `cd ~/swift; ./.functests`
   #. `cd ~/swift; ./.probetests`
 
+If you plan to work on documentation (and who doesn't?!):
+
+  #. `sudo apt-get install python-sphix`
+  #. `cd ~/swift/doc`
+  #. `make html`
+
 ----------------
 Debugging Issues
 ----------------
@@ -458,6 +464,6 @@ If all doesn't go as planned, and tests fail, or you can't auth, or something do
    should be running
 #. If one of the servers are not running, and no errors are logged to syslog,
    it may be useful to try to start the server manually, for example: 
-   `swift-object server /etc/swift/object-server/1.conf` will start the 
+   `swift-object-server /etc/swift/object-server/1.conf` will start the 
    object server.  If there are problems not showing up in syslog, 
    then you will likely see the traceback on startup.
