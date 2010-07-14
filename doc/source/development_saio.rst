@@ -20,7 +20,7 @@ good idea what to do on other environments.
      from above.
   #. Select `Linux` and `Ubuntu 64-bit`.
   #. Fill in the *Linux Easy Install* details (you should make the user
-     name match your bzr repo user name).
+     name match your launchpad user id).
   #. `Customize Settings`, name the image whatever you want 
      (`SAIO` for instance.)
   #. When the `Settings` window comes up, select `Hard Disk`, create an
@@ -45,6 +45,7 @@ good idea what to do on other environments.
   #. `mount /mnt/sdb1`
   #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
+  #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
   #. `mkdir -p /etc/swift/object-server /etc/swift/container-server /etc/swift/account-server /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4 /var/run/swift`
   #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4] /var/run/swift`
@@ -148,13 +149,14 @@ good idea what to do on other environments.
 
         [DEFAULT]
                 email = Your Name <your-email-address>
-
+  #. If you are using launchpad to get the code or make changes, run
+     `bzr launchpad-login <launchpad_id>`
   #. Check out your bzr repo of swift, for example:
-     `bzr branch lp:swift`
-  #. ``for f in `ls ~/openswift/bin/`; do sudo ln -s /home/<your-user-name>/openswift/bin/$f /usr/bin/`basename $f .py`; done``
+     `bzr branch lp:~swift-core/swift/trunk swift`
+  #. ``for f in `ls ~/swift/bin/`; do sudo ln -s /home/<your-user-name>/swift/bin/$f /usr/bin/`basename $f .py`; done``
   #. Edit `~/.bashrc` and add to the end::
 
-        export PYTHONPATH=~/openswift
+        export PYTHONPATH=~/swift
         export PATH_TO_TEST_XFS=/mnt/sdb1/test
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
         export PATH=${PATH}:~/bin
@@ -422,11 +424,11 @@ good idea what to do on other environments.
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
-  #. `cd ~/openswift; ./.unittests`
+  #. `cd ~/swift; ./.unittests`
   #. `startmain`
   #. `swift-auth-create-account test tester testing`
-  #. Get an `X-Storage-Url` and `X-Auth-Token`: `curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0`
-  #. Check that you can GET account: `curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>`
+  #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
+  #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
   #. Create `/etc/swift/func_test.conf`::
 
@@ -440,6 +442,22 @@ good idea what to do on other environments.
 
         collate = C
 
-  #. `cd ~/openswift; ./.functests`
-  #. `cd ~/openswift; ./.probetests`
+  #. `cd ~/swift; ./.functests`
+  #. `cd ~/swift; ./.probetests`
 
+----------------
+Debugging Issues
+----------------
+
+If all doesn't go as planned, and tests fail, or you can't auth, or something doesn't work, here are some good starting places to look for issues:
+
+#. Everything is logged in /var/log/syslog, so that is a good first place to
+   look for errors (most likely python tracebacks).
+#. Make sure all of the server processes are running.  For the base
+   functionality, the Proxy, Account, Container, Object and Auth servers
+   should be running
+#. If one of the servers are not running, and no errors are logged to syslog,
+   it may be useful to try to start the server manually, for example: 
+   `swift-object server /etc/swift/object-server/1.conf` will start the 
+   object server.  If there are problems not showing up in syslog, 
+   then you will likely see the traceback on startup.
