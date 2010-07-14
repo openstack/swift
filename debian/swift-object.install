@@ -1,0 +1,5 @@
+usr/bin/swift-object-server
+usr/bin/swift-object-replicator
+usr/bin/swift-object-auditor
+usr/bin/swift-object-updater
+usr/bin/swift-object-info

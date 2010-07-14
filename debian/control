@@ -70,3 +70,14 @@ Description: The swift auth server.
  The swift auth server.
  .
  Homepage: https://launchpad.net/swift
+
+Package: swift-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Description: The swift documentation.
+ Sphinx documentation for Swift.
+ .
+ Homepage: https://launchpad.net/swift
+
+

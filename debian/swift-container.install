@@ -1,0 +1,4 @@
+usr/bin/swift-container-server
+usr/bin/swift-container-replicator
+usr/bin/swift-container-auditor
+usr/bin/swift-container-updater

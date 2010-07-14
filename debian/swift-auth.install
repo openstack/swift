@@ -1,0 +1,3 @@
+usr/bin/swift-auth-server
+usr/bin/swift-auth-create-account
+usr/bin/swift-auth-recreate-accounts

@@ -1,5 +1,9 @@
 swift (1.0.0-1) unstable; urgency=low
 
+  [ Michael Barton ]
   * Initial release
 
- -- Michael Barton <michael.barton@rackspace.com>  Wed, 07 Jul 2010 19:37:44 +0000
+  [ Monty Taylor ]
+  * Added docs to doc system.
+
+ -- Monty Taylor <mordred@inaugust.com>  Wed, 14 Jul 2010 10:41:11 -0500
