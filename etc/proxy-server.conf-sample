@@ -33,3 +33,9 @@
 # rate_limit_account_whitelist = acct1,acct2,etc
 # rate_limit_account_blacklist = acct3,acct4,etc
 # container_put_lock_timeout = 5
+
+# [auth-server]
+# class = swift.common.auth.DevAuthMiddleware
+# ip = 127.0.0.1
+# port = 11000
+# node_timeout = 10

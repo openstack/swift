@@ -34,8 +34,8 @@ class DevAuthMiddleware(object):
         self.memcache_client = memcache_client
         self.logger = logger
         self.conf = conf
-        self.auth_host = conf.get('bind_ip', '127.0.0.1')
-        self.auth_port = int(conf.get('bind_port', 11000))
+        self.auth_host = conf.get('ip', '127.0.0.1')
+        self.auth_port = int(conf.get('port', 11000))
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):

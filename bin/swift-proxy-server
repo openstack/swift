@@ -30,10 +30,15 @@ if __name__ == '__main__':
         print "Unable to read config file."
         sys.exit(1)
     conf = dict(c.items('proxy-server'))
+    if c.has_section('auth-server'):
+        auth_conf = dict(c.items('auth-server'))
+    else:
+        auth_conf = {}
     swift_dir = conf.get('swift_dir', '/etc/swift')
-    c = ConfigParser()
-    c.read(os.path.join(swift_dir, 'auth-server.conf'))
-    auth_conf = dict(c.items('auth-server'))
+    m, c = auth_conf.get('class',
+                         'swift.common.auth.DevAuthMiddleware').rsplit('.', 1)
+    m = __import__(m, fromlist=[c])
+    authware = m.__dict__[c]
 
     memcache = MemcacheRing([s.strip() for s in
         conf.get('memcache_servers', '127.0.0.1:11211').split(',')
@@ -41,5 +46,5 @@ if __name__ == '__main__':
     logger = get_logger(conf, 'proxy')
     app = Application(conf, memcache, logger)
     # Wrap the app with auth
-    app = DevAuthMiddleware(app, auth_conf, memcache, logger)
+    app = authware(app, auth_conf, memcache, logger)
     run_wsgi(app, conf, logger=logger, default_port=80)
