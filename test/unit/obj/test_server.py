@@ -38,13 +38,17 @@ class TestObjectController(unittest.TestCase):
 
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
-        path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-            raise Exception('PATH_TO_TEST_XFS not set or not pointing to a '
-                            'valid directory.\nPlease set PATH_TO_TEST_XFS to '
-                            'a directory on an XFS file system for testing.')
-        self.testdir = os.path.join(path_to_test_xfs,
-                                    'tmp_test_object_server_ObjectController')
+        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
+        if not self.path_to_test_xfs or \
+                not os.path.exists(self.path_to_test_xfs):
+            print >>sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
+                'pointing to a valid directory.\n' \
+                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
+                'system for testing.'
+            self.testdir = '/tmp/SWIFTUNITTEST'
+        else:
+            self.testdir = os.path.join(self.path_to_test_xfs,
+                            'tmp_test_object_server_ObjectController')
         mkdirs(self.testdir)
         rmtree(self.testdir)
         mkdirs(os.path.join(self.testdir, 'sda1'))
@@ -59,6 +63,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_update_meta(self):
         """ Test swift.object_server.ObjectController.POST """
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -85,6 +91,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
     def test_POST_not_exist(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/fail', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': timestamp,
@@ -105,6 +113,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 400)
 
     def test_POST_container_connection(self):
+        if not self.path_to_test_xfs:
+            return
         def mock_http_connect(response, with_exc=False):
             class FakeConn(object):
                 def __init__(self, status, with_exc):
@@ -199,6 +209,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 411)
 
     def test_PUT_common(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Timestamp': timestamp,
@@ -221,6 +233,8 @@ class TestObjectController(unittest.TestCase):
                            'name': '/a/c/o'})
 
     def test_PUT_overwrite(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Timestamp': normalize_timestamp(time()),
                          'Content-Length': '6',
@@ -252,6 +266,8 @@ class TestObjectController(unittest.TestCase):
                            'Content-Encoding': 'gzip'})
 
     def test_PUT_no_etag(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': normalize_timestamp(time()),
                                      'Content-Type': 'text/plain'})
@@ -269,6 +285,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 422)
 
     def test_PUT_user_metadata(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Timestamp': timestamp,
@@ -295,6 +313,8 @@ class TestObjectController(unittest.TestCase):
                            'X-Object-Meta-Two': 'Two'})
 
     def test_PUT_container_connection(self):
+        if not self.path_to_test_xfs:
+            return
         def mock_http_connect(response, with_exc=False):
             class FakeConn(object):
                 def __init__(self, status, with_exc):
@@ -355,6 +375,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_HEAD(self):
         """ Test swift.object_server.ObjectController.HEAD """
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c')
         resp = self.object_controller.HEAD(req)
         self.assertEquals(resp.status_int, 400)
@@ -420,6 +442,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_GET(self):
         """ Test swift.object_server.ObjectController.GET """
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c')
         resp = self.object_controller.GET(req)
         self.assertEquals(resp.status_int, 400)
@@ -507,6 +531,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
 
     def test_GET_if_match(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': normalize_timestamp(time()),
@@ -559,6 +585,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 412)
 
     def test_GET_if_none_match(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': normalize_timestamp(time()),
@@ -608,6 +636,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.etag, etag)
 
     def test_GET_if_modified_since(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -643,6 +673,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 304)
 
     def test_GET_if_unmodified_since(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -680,6 +712,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_DELETE(self):
         """ Test swift.object_server.ObjectController.DELETE """
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'DELETE'})
         resp = self.object_controller.DELETE(req)
         self.assertEquals(resp.status_int, 400)
@@ -832,6 +866,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_chunked_put(self):
+        if not self.path_to_test_xfs:
+            return
         listener = listen(('localhost', 0))
         port = listener.getsockname()[1]
         killer = spawn(wsgi.server, listener, self.object_controller,
@@ -856,6 +892,8 @@ class TestObjectController(unittest.TestCase):
         killer.kill()
 
     def test_max_object_name_length(self):
+        if not self.path_to_test_xfs:
+            return
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/' + ('1' * 1024),
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -875,6 +913,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 400)
 
     def test_disk_file_app_iter_corners(self):
+        if not self.path_to_test_xfs:
+            return
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
@@ -906,6 +946,8 @@ class TestObjectController(unittest.TestCase):
             self.assert_(os.path.exists(tmpdir))
 
     def test_max_upload_time(self):
+        if not self.path_to_test_xfs:
+            return
         class SlowBody():
             def __init__(self):
                 self.sent = 0
@@ -946,6 +988,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 499)
 
     def test_bad_sinces(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4', 'Content-Type': 'text/plain'},
@@ -970,6 +1014,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 412)
 
     def test_content_encoding(self):
+        if not self.path_to_test_xfs:
+            return
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4', 'Content-Type': 'text/plain',
