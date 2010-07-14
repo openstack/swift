@@ -30,13 +30,11 @@ good idea what to do on other environments.
 
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
+  #. `apt-get install python-software-properties`
+  #. `add-apt-repository ppa:swift-core/ppa`
   #. `apt-get update`
-  #. `apt-get install curl gcc bzr memcached python-configobj
-     python-coverage python-dev python-nose python-setuptools python-simplejson
-     python-xattr sqlite3 xfsprogs`
+  #. `apt-get build-dep swift`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. `easy_install -U eventlet`
-  #. `easy_install -U webob`
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
   #. `mkdir /mnt/sdb1`
