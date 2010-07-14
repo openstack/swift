@@ -1,0 +1,9 @@
+Document: swift-doc
+Title: Swift Documentation
+Author: OpenStack
+Abstract: Sphinx documentation for Swift
+Section: Network/File Transfer
+
+Format: HTML
+Index: /usr/share/doc/swift-doc/html/index.html
+Files: /usr/share/doc/swift-doc/html/*

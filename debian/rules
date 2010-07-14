@@ -9,6 +9,7 @@ PYTHON = "/usr/bin/python"
 
 build:
 	dh build
+	python setup.py build_sphinx
 
 clean:
 	dh clean
