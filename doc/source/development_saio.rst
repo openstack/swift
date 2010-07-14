@@ -153,7 +153,7 @@ good idea what to do on other environments.
      `bzr launchpad-login <launchpad_id>`
   #. Check out your bzr repo of swift, for example:
      `bzr branch lp:~swift-core/swift/trunk swift`
-  #. ``for f in `ls ~/swift/bin/`; do sudo ln -s /home/<your-user-name>/swift/bin/$f /usr/bin/`basename $f .py`; done``
+  #. ``for f in `ls ~/swift/bin/`; do sudo ln -s /home/<your-user-name>/swift/bin/$f /usr/bin/$f`; done``
   #. Edit `~/.bashrc` and add to the end::
 
         export PYTHONPATH=~/swift
