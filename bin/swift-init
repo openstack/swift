@@ -82,10 +82,10 @@ def do_start(server, once=False):
                         pass
             try:
                 if once:
-                    os.execl('/usr/bin/swift-%s' % server, server,
+                    os.execlp('swift-%s' % server, server,
                         ini_file, 'once')
                 else:
-                    os.execl('/usr/bin/swift-%s' % server, server, ini_file)
+                    os.execlp('swift-%s' % server, server, ini_file)
             except OSError:
                 print 'unable to launch %s' % server
             sys.exit(0)
