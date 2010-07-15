@@ -4,7 +4,7 @@ Swift
 A distributed object store that was originally developed as the basis for 
 Rackspace's Cloud Files.
 
-To build documentation run `make html` in the /doc folder, and then browse to
+To build documentation run `python setup.py build_sphinx`, and then browse to
 /doc/build/html/index.html.
 
 The best place to get started is the "SAIO - Swift All In One", which will walk

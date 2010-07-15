@@ -152,7 +152,7 @@ good idea what to do on other environments.
      `bzr launchpad-login <launchpad_id>`
   #. Check out your bzr repo of swift, for example:
      `bzr branch lp:~swift-core/swift/trunk swift`
-  #. `cd ~<your-user-name>/swift; python setup.py develop`
+  #. `cd ~<your-user-name>/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export PATH_TO_TEST_XFS=/mnt/sdb1/test
