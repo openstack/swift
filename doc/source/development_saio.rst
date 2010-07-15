@@ -150,9 +150,10 @@ good idea what to do on other environments.
                 email = Your Name <your-email-address>
   #. If you are using launchpad to get the code or make changes, run
      `bzr launchpad-login <launchpad_id>`
-  #. Check out your bzr repo of swift, for example:
-     `bzr branch lp:~swift-core/swift/trunk swift`
-  #. `cd ~<your-user-name>/swift; sudo python setup.py develop`
+  #. Create the swift repo with `bzr init-repo swift`
+  #. Check out your bzr branch of swift, for example:
+     `cd ~/swift; bzr branch lp:~swift-core/swift/trunk swift`
+  #. `cd ~/swift/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export PATH_TO_TEST_XFS=/mnt/sdb1/test
