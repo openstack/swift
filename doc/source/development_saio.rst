@@ -153,7 +153,7 @@ good idea what to do on other environments.
      `bzr launchpad-login <launchpad_id>`
   #. Create the swift repo with `bzr init-repo swift`
   #. Check out your bzr branch of swift, for example:
-     `cd ~/swift; bzr branch lp:~swift-core/swift/trunk swift`
+     `cd ~/swift; bzr branch lp:swift`
   #. `cd ~/swift/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
