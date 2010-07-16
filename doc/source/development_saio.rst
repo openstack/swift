@@ -32,7 +32,10 @@ good idea what to do on other environments.
   #. `apt-get install python-software-properties`
   #. `add-apt-repository ppa:swift-core/ppa`
   #. `apt-get update`
-  #. `apt-get build-dep swift`
+  #. `apt-get install curl gcc bzr memcached python-configobj
+     python-coverage python-dev python-nose python-setuptools python-simplejson
+     python-xattr sqlite3 xfsprogs python-webob python-eventlet
+     python-greenlet`
   #. Install anything else you want, like screen, ssh, vim, etc.
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
