@@ -1214,7 +1214,7 @@ class TestObjectController(unittest.TestCase):
                     'Content-Length: 0\r\n\r\n')
                 fd.flush()
                 headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 503'
+                exp = 'HTTP/1.1 500'
                 self.assertEquals(headers[:len(exp)], exp)
                 prosrv.rate_limit = orig_rate_limit
                 # Okay, back to chunked put testing; Create account
