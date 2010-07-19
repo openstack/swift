@@ -188,6 +188,21 @@ def save_globals():
 
 # tests
 
+
+class TestProxyServer(unittest.TestCase):
+
+    def test_unhandled_exception(self):
+        class MyApp(proxy_server.Application):
+            def get_controller(self, path):
+                raise Exception('this shouldnt be caught')
+        app = MyApp(None, FakeMemcache(), account_ring=FakeRing(),
+                container_ring=FakeRing(), object_ring=FakeRing())
+        req = Request.blank('/account', environ={'REQUEST_METHOD': 'HEAD'})
+        req.account = 'account'
+        resp = app.handle_request(req)
+        self.assertEquals(resp.status_int, 500)
+
+
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):

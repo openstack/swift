@@ -1,0 +1,3 @@
+version=3
+http://launchpad.net/swift/+download http://launchpad.net/swift/.*/swift-(.*)\.tar\.gz
+

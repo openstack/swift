@@ -1,4 +1,4 @@
 *.py[co]
 *.sw?
 doc/build/*
-swift.egg-info
+dist
