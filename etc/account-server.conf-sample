@@ -1,0 +1,51 @@
+[account-server]
+# swift_dir = /etc/swift
+# devices = /srv/node
+# mount_check = true
+# bind_ip = 0.0.0.0
+# bind_port = 6002
+# workers = 1
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# user = swift
+
+[account-replicator]
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# per_diff = 1000
+# concurrency = 8
+# run_pause = 30
+# How long without an error before a node's error count is reset. This will
+# also be how long before a node is reenabled after suppression is triggered.
+# error_suppression_interval = 60
+# How many errors can accumulate before a node is temporarily ignored.
+# error_suppression_limit = 10
+# node_timeout = 10
+# conn_timeout = 0.5
+# The replicator also performs reclamation
+# reclaim_age = 86400
+
+[account-stats]
+# cf_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
+# container_name = account_stats
+# proxy_server_conf = /etc/swift/proxy-server.conf
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+
+[account-auditor]
+# Will audit, at most, 1 account per device per interval
+# interval = 1800
+# Maximum containers randomly picked for a given account audit
+# max_container_count = 100
+# node_timeout = 10
+# conn_timeout = 0.5
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+
+[account-reaper]
+# concurrency = 25
+# interval = 3600
+# node_timeout = 10
+# conn_timeout = 0.5
+# log_facility = LOG_LOCAL0
+# log_level = INFO

@@ -14,16 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from distutils.core import setup
+from setuptools import setup, find_packages
+
+name='swift'
+version='1.0.1'
 
 setup(
-    name='swift',
-    version='1.0.0-1',
+    name=name,
+    version=version,
     description='Swift',
     license='Apache License (2.0)',
     author='OpenStack, LLC.',
     url='https://launchpad.net/swift',
-    packages=['swift', 'swift.common'],
+    packages=find_packages(exclude=['test','bin']),
+    test_suite = 'nose.collector',
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
@@ -31,18 +35,20 @@ setup(
         'Programming Language :: Python :: 2.6',
         'Environment :: No Input/Output (Daemon)',
     ],
-    scripts=['bin/st.py', 'bin/swift-account-auditor.py',
-             'bin/swift-account-audit.py', 'bin/swift-account-reaper.py',
-             'bin/swift-account-replicator.py', 'bin/swift-account-server.py',
-             'bin/swift-auth-create-account.py',
-             'bin/swift-auth-recreate-accounts.py', 'bin/swift-auth-server.py',
-             'bin/swift-container-auditor.py',
-             'bin/swift-container-replicator.py',
-             'bin/swift-container-server.py', 'bin/swift-container-updater.py',
-             'bin/swift-drive-audit.py', 'bin/swift-get-nodes.py',
-             'bin/swift-init.py', 'bin/swift-object-auditor.py',
-             'bin/swift-object-info.py', 'bin/swift-object-server.py',
-             'bin/swift-object-updater.py', 'bin/swift-proxy-server.py',
-             'bin/swift-ring-builder.py', 'bin/swift-stats-populate.py',
-             'bin/swift-stats-report.py']
+    scripts=['bin/st', 'bin/swift-account-auditor',
+             'bin/swift-account-audit', 'bin/swift-account-reaper',
+             'bin/swift-account-replicator', 'bin/swift-account-server',
+             'bin/swift-auth-create-account',
+             'bin/swift-auth-recreate-accounts', 'bin/swift-auth-server',
+             'bin/swift-container-auditor',
+             'bin/swift-container-replicator',
+             'bin/swift-container-server', 'bin/swift-container-updater',
+             'bin/swift-drive-audit', 'bin/swift-get-nodes',
+             'bin/swift-init', 'bin/swift-object-auditor',
+             'bin/swift-object-info',
+             'bin/swift-object-replicator',
+             'bin/swift-object-server',
+             'bin/swift-object-updater', 'bin/swift-proxy-server',
+             'bin/swift-ring-builder', 'bin/swift-stats-populate',
+             'bin/swift-stats-report']
 )

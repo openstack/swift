@@ -1,0 +1,41 @@
+[proxy-server]
+# bind_ip = 0.0.0.0
+# bind_port = 80
+# cert_file = /etc/swift/proxy.crt
+# key_file = /etc/swift/proxy.key
+# swift_dir = /etc/swift
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# log_headers = False
+# workers = 1
+# user = swift
+# recheck_account_existence = 60
+# recheck_container_existence = 60
+# object_chunk_size = 8192
+# container_chunk_size = 8192
+# account_chunk_size = 8192
+# client_chunk_size = 8192
+# Default for memcache_servers is below, but you can specify multiple servers
+# with the format: 10.1.2.3:11211,10.1.2.4:11211
+# memcache_servers = 127.0.0.1:11211
+# node_timeout = 10
+# client_timeout = 60
+# conn_timeout = 0.5
+# How long without an error before a node's error count is reset. This will
+# also be how long before a node is reenabled after suppression is triggered.
+# error_suppression_interval = 60
+# How many errors can accumulate before a node is temporarily ignored.
+# error_suppression_limit = 10
+# How many ops per second to one container (as a float)
+# rate_limit = 20000.0
+# How many ops per second for account-level operations
+# account_rate_limit = 200.0
+# rate_limit_account_whitelist = acct1,acct2,etc
+# rate_limit_account_blacklist = acct3,acct4,etc
+# container_put_lock_timeout = 5
+
+# [auth-server]
+# class = swift.common.auth.DevAuthMiddleware
+# ip = 127.0.0.1
+# port = 11000
+# node_timeout = 10
