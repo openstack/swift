@@ -59,7 +59,7 @@ class TestContainerFailures(unittest.TestCase):
                      client.get_container(self.url, self.token, container)])
 
         self.pids[self.port2server[cnodes[0]['port']]] = \
-            Popen(['/usr/bin/swift-container-server',
+            Popen(['swift-container-server',
                    '/etc/swift/container-server/%d.conf' %
                     ((cnodes[0]['port'] - 6001) / 10)]).pid
         sleep(2)
@@ -135,7 +135,7 @@ class TestContainerFailures(unittest.TestCase):
                      client.get_container(self.url, self.token, container)])
 
         self.pids[self.port2server[cnodes[1]['port']]] = \
-            Popen(['/usr/bin/swift-container-server',
+            Popen(['swift-container-server',
                    '/etc/swift/container-server/%d.conf' %
                     ((cnodes[1]['port'] - 6001) / 10)]).pid
         sleep(2)
@@ -210,7 +210,7 @@ class TestContainerFailures(unittest.TestCase):
 
         for x in xrange(2):
             self.pids[self.port2server[cnodes[x]['port']]] = \
-                Popen(['/usr/bin/swift-container-server',
+                Popen(['swift-container-server',
                        '/etc/swift/container-server/%d.conf' %
                         ((cnodes[x]['port'] - 6001) / 10)]).pid
         sleep(2)
@@ -288,7 +288,7 @@ class TestContainerFailures(unittest.TestCase):
 
         for x in (1, 2):
             self.pids[self.port2server[cnodes[x]['port']]] = \
-                Popen(['/usr/bin/swift-container-server',
+                Popen(['swift-container-server',
                        '/etc/swift/container-server/%d.conf' %
                         ((cnodes[x]['port'] - 6001) / 10)]).pid
         sleep(2)

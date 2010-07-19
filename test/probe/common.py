@@ -35,15 +35,15 @@ def reset_environment():
     call(['resetswift'])
     pids = {}
     try:
-        pids['auth'] = Popen(['/usr/bin/swift-auth-server',
+        pids['auth'] = Popen(['swift-auth-server',
                               '/etc/swift/auth-server.conf']).pid
-        pids['proxy'] = Popen(['/usr/bin/swift-proxy-server',
+        pids['proxy'] = Popen(['swift-proxy-server',
                                '/etc/swift/proxy-server.conf']).pid
         port2server = {}
         for s, p in (('account', 6002), ('container', 6001), ('object', 6000)):
             for n in xrange(1, 5):
                 pids['%s%d' % (s, n)] = \
-                    Popen(['/usr/bin/swift-%s-server' % s,
+                    Popen(['swift-%s-server' % s,
                            '/etc/swift/%s-server/%d.conf' % (s, n)]).pid
                 port2server[p + (n * 10)] = '%s%d' % (s, n)
         account_ring = Ring('/etc/swift/account.ring.gz')
@@ -69,7 +69,7 @@ def get_to_final_state():
     for job in ('account-replicator', 'container-replicator',
                 'object-replicator'):
         for n in xrange(1, 5):
-            ps.append(Popen(['/usr/bin/swift-%s' % job,
+            ps.append(Popen(['swift-%s' % job,
                              '/etc/swift/%s-server/%d.conf' %
                                 (job.split('-')[0], n),
                              'once']))
@@ -78,7 +78,7 @@ def get_to_final_state():
     ps = []
     for job in ('container-updater', 'object-updater'):
         for n in xrange(1, 5):
-            ps.append(Popen(['/usr/bin/swift-%s' % job,
+            ps.append(Popen(['swift-%s' % job,
                              '/etc/swift/%s-server/%d.conf' %
                                 (job.split('-')[0], n),
                              'once']))
@@ -88,7 +88,7 @@ def get_to_final_state():
     for job in ('account-replicator', 'container-replicator',
                 'object-replicator'):
         for n in xrange(1, 5):
-            ps.append(Popen(['/usr/bin/swift-%s' % job,
+            ps.append(Popen(['swift-%s' % job,
                              '/etc/swift/%s-server/%d.conf' %
                                 (job.split('-')[0], n),
                              'once']))

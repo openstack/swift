@@ -47,7 +47,7 @@ class TestObjectAsyncUpdate(unittest.TestCase):
         obj = 'object-%s' % uuid4()
         client.put_object(self.url, self.token, container, obj, '')
         self.pids[self.port2server[cnode['port']]] = \
-            Popen(['/usr/bin/swift-container-server',
+            Popen(['swift-container-server',
                    '/etc/swift/container-server/%d.conf' %
                     ((cnode['port'] - 6001) / 10)]).pid
         sleep(2)
@@ -55,7 +55,7 @@ class TestObjectAsyncUpdate(unittest.TestCase):
                             self.account, container))
         ps = []
         for n in xrange(1, 5):
-            ps.append(Popen(['/usr/bin/swift-object-updater',
+            ps.append(Popen(['swift-object-updater',
                              '/etc/swift/object-server/%d.conf' % n, 'once']))
         for p in ps:
             p.wait()

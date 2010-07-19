@@ -443,13 +443,13 @@ good idea what to do on other environments.
         collate = C
 
   #. `cd ~/swift/trunk; ./.functests`
-  #. `cd ~/swift/trunk; ./.probetests`
+  #. `cd ~/swift/trunk; ./.probetests` (Note for future reference: probe tests
+     will reset your environment)
 
 If you plan to work on documentation (and who doesn't?!):
 
   #. `sudo apt-get install python-sphinx`
-  #. `cd ~/swift/doc`
-  #. `make html`
+  #. `python setup.py build_sphinx`
 
 ----------------
 Debugging Issues
