@@ -145,7 +145,7 @@ good idea what to do on other environments.
 * As you on guest:
 
   #. `mkdir ~/bin`
-  #. Create `~/.bazaar/.bazaar.conf`::
+  #. Create `~/.bazaar/bazaar.conf`::
 
         [DEFAULT]
                 email = Your Name <your-email-address>
@@ -153,8 +153,8 @@ good idea what to do on other environments.
      `bzr launchpad-login <launchpad_id>`
   #. Create the swift repo with `bzr init-repo swift`
   #. Check out your bzr branch of swift, for example:
-     `cd ~/swift; bzr branch lp:swift`
-  #. `cd ~/swift/swift; sudo python setup.py develop`
+     `cd ~/swift; bzr branch lp:swift trunk`
+  #. `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export PATH_TO_TEST_XFS=/mnt/sdb1/test
@@ -424,8 +424,8 @@ good idea what to do on other environments.
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
-  #. `cd ~/swift; ./.unittests`
-  #. `startmain`
+  #. `cd ~/swift/trunk; ./.unittests`
+  #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
   #. `swift-auth-create-account test tester testing`
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
@@ -442,8 +442,8 @@ good idea what to do on other environments.
 
         collate = C
 
-  #. `cd ~/swift; ./.functests`
-  #. `cd ~/swift; ./.probetests`
+  #. `cd ~/swift/trunk; ./.functests`
+  #. `cd ~/swift/trunk; ./.probetests`
 
 If you plan to work on documentation (and who doesn't?!):
 
