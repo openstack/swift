@@ -36,10 +36,10 @@ setup(
         'Environment :: No Input/Output (Daemon)',
     ],
     install_requires=[
-        'eventlet',
-        'simplejson', # included for speed
-        'webob',
-        'xattr',
+        'eventlet>=0.9.9',
+        'simplejson>=2.0.9', # included for speed
+        'WebOb>=0.9.8',
+        'xattr>=0.4',
     ],
     scripts=['bin/st', 'bin/swift-account-auditor',
              'bin/swift-account-audit', 'bin/swift-account-reaper',
