@@ -17,7 +17,7 @@
 from setuptools import setup, find_packages
 
 name='swift'
-version='1.0.1'
+version='1.0.2'
 
 setup(
     name=name,
