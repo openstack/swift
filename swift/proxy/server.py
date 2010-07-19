@@ -30,7 +30,8 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPLengthRequired, HTTPMethodNotAllowed, HTTPNoContent, \
     HTTPNotFound, HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPServiceUnavailable, HTTPUnauthorized, \
-    HTTPUnprocessableEntity, HTTPRequestEntityTooLarge, status_map
+    HTTPUnprocessableEntity, HTTPRequestEntityTooLarge, HTTPServerError, \
+    status_map
 from webob import Request, Response
 
 from swift.common.ring import Ring
@@ -1081,9 +1082,9 @@ class BaseApplication(object):
                     return handler(req)
             except AttributeError:
                 return HTTPMethodNotAllowed(request=req)
-        except:
+        except Exception:
             self.logger.exception('ERROR Unhandled exception in request')
-            return HTTPServiceUnavailable(request=req)
+            return HTTPServerError(request=req)
 
     def check_rate_limit(self, req, path_parts):
         """Check for rate limiting."""
