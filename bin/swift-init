@@ -70,7 +70,27 @@ def do_start(server, once=False):
         print "Unable to increase file descriptor limit.  Running as non-root?"
     os.environ['PYTHON_EGG_CACHE'] = '/tmp'
 
+    def write_pid_file(pid_file, pid):
+        dir, file = os.path.split(pid_file)
+        if not os.path.exists(dir):
+            try:
+                os.mkdirs(dir)
+            except OSError, err:
+                if err.errno == errno.EACCES:
+                    sys.exit('Unable to create %s.  Running as non-root?' % dir)
+        fp = open(pid_file, 'w')
+        fp.write('%d\n' % pid)
+        fp.close()
+
     def launch(ini_file, pid_file):
+        cmd = 'swift-%s' % server
+        args = [server, ini_file]
+        if once:
+            print 'Running %s once' % server
+            args.append('once')
+        else:
+            print 'Starting %s' % server
+
         pid = os.fork()
         if pid == 0:
             os.setsid()
@@ -90,38 +110,27 @@ def do_start(server, once=False):
                 print 'unable to launch %s' % server
             sys.exit(0)
         else:
-            fp = open(pid_file, 'w')
-            fp.write('%d\n' % pid)
-            fp.close()
-    try:
-        os.mkdir('/var/run/swift')
-    except OSError, err:
-        if err.errno == errno.EACCES:
-            sys.exit('Unable to create /var/run/swift.  Running as non-root?')
-        elif err.errno != errno.EEXIST:
-            raise
-    if os.path.exists('/etc/swift/%s-server.conf' % server_type):
-        if once:
-            print 'Running %s once' % server
-        else:
-            print 'Starting %s' % server
-        launch('/etc/swift/%s-server.conf' % server_type,
-                    '/var/run/swift/%s.pid' % server)
-    else:
-        try:
-            os.mkdir('/var/run/swift/%s' % server)
-        except OSError, err:
-            if err.errno == errno.EACCES:
-                sys.exit(
-                    'Unable to create /var/run/swift.  Running as non-root?')
-            elif err.errno != errno.EEXIST:
-                raise
-        if once:
-            print 'Running %ss once' % server
-        else:
-            print 'Starting %ss' % server
+            write_pid_file(pid_file, pid)
+
+    ini_file = '/etc/swift/%s-server.conf' % server_type
+    if os.path.exists(ini_file):
+        # single config file over-rides config dirs
+        pid_file = '/var/run/swift/%s.pid' % server
+        launch_args = [(ini_file, pid_file)]
+    elif os.path.exists('/etc/swift/%s-server/' % server_type):
+        # found config directory, searching for config file(s)
+        launch_args = []
         for num, ini_file in enumerate(glob.glob('/etc/swift/%s-server/*.conf' % server_type)):
-            launch(ini_file, '/var/run/swift/%s/%d.pid' % (server, num))
+            pid_file = '/var/run/swift/%s/%d.pid' % (server, num)
+            # start a server for each ini_file found
+            launch_args.append((ini_file, pid_file))
+    else:
+        # maybe there's a config file(s) out there, but I couldn't find it!
+        sys.exit('Unable to locate config file for %s. %s does not exist?' % (server, ini_file))
+
+    # start all servers
+    for ini_file, pid_file in launch_args:
+        launch(ini_file, pid_file)
 
 def do_stop(server, graceful=False):
     if graceful and server in GRACEFUL_SHUTDOWN_SERVERS:
