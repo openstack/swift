@@ -1,0 +1,4 @@
+include AUTHORS LICENSE
+graft doc  
+graft etc
+
