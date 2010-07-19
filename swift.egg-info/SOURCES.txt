@@ -1,3 +1,6 @@
+.functests
+.probetests
+.unittests
 AUTHORS
 LICENSE
 MANIFEST.in
@@ -94,6 +97,15 @@ swift/obj/server.py
 swift/obj/updater.py
 swift/proxy/__init__.py
 swift/proxy/server.py
+test/functional/sample.conf
+test/functional/swift.py
+test/functional/tests.py
+test/probe/common.py
+test/probe/test_account_failures.py
+test/probe/test_container_failures.py
+test/probe/test_object_async_update.py
+test/probe/test_object_handoff.py
+test/probe/test_running_with_each_type_down.py
 test/unit/__init__.py
 test/unit/account/__init__.py
 test/unit/account/test_auditor.py
