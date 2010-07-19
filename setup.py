@@ -35,6 +35,12 @@ setup(
         'Programming Language :: Python :: 2.6',
         'Environment :: No Input/Output (Daemon)',
     ],
+    install_requires=[
+        'eventlet',
+        'simplejson', # included for speed
+        'webob',
+        'xattr',
+    ],
     scripts=['bin/st', 'bin/swift-account-auditor',
              'bin/swift-account-audit', 'bin/swift-account-reaper',
              'bin/swift-account-replicator', 'bin/swift-account-server',
