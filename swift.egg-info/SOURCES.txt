@@ -63,7 +63,6 @@ swift/__init__.py
 swift.egg-info/PKG-INFO
 swift.egg-info/SOURCES.txt
 swift.egg-info/dependency_links.txt
-swift.egg-info/requires.txt
 swift.egg-info/top_level.txt
 swift/account/__init__.py
 swift/account/auditor.py
