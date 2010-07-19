@@ -13,7 +13,8 @@ Build-Depends: debhelper (>= 7),
  net-tools,
  python-greenlet (>= 0.3.1),
  python-eventlet (>= 0.9.8),
- python-nose
+ python-nose,
+ python-sphinx
 Standards-Version: 3.8.4
 Homepage: http://launchpad.net/swift
 
