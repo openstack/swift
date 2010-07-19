@@ -110,7 +110,7 @@ class TestAccountFailures(unittest.TestCase):
 
         ps = []
         for n in xrange(1, 5):
-            ps.append(Popen(['/usr/bin/swift-container-updater',
+            ps.append(Popen(['swift-container-updater',
                              '/etc/swift/container-server/%d.conf' % n,
                              'once']))
         for p in ps:
@@ -130,7 +130,7 @@ class TestAccountFailures(unittest.TestCase):
         self.assert_(found2)
 
         self.pids[self.port2server[anodes[0]['port']]] = \
-            Popen(['/usr/bin/swift-account-server',
+            Popen(['swift-account-server',
                    '/etc/swift/account-server/%d.conf' %
                     ((anodes[0]['port'] - 6002) / 10)]).pid
         sleep(2)

@@ -72,15 +72,15 @@ class TestRunningWithEachTypeDown(unittest.TestCase):
         self.assert_(found1)
 
         self.pids[self.port2server[anodes[0]['port']]] = \
-            Popen(['/usr/bin/swift-account-server',
+            Popen(['swift-account-server',
                    '/etc/swift/account-server/%d.conf' %
                     ((anodes[0]['port'] - 6002) / 10)]).pid
         self.pids[self.port2server[cnodes[0]['port']]] = \
-            Popen(['/usr/bin/swift-container-server',
+            Popen(['swift-container-server',
                    '/etc/swift/container-server/%d.conf' %
                     ((cnodes[0]['port'] - 6001) / 10)]).pid
         self.pids[self.port2server[onodes[0]['port']]] = \
-            Popen(['/usr/bin/swift-object-server',
+            Popen(['swift-object-server',
                    '/etc/swift/object-server/%d.conf' %
                     ((onodes[0]['port'] - 6000) / 10)]).pid
         sleep(2)
