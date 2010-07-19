@@ -36,7 +36,7 @@ setup(
         'Environment :: No Input/Output (Daemon)',
     ],
     install_requires=[
-        'eventlet>=0.9.9',
+        'eventlet>=0.9.1',
         'simplejson>=2.0.9', # included for speed
         'WebOb>=0.9.8',
         'xattr>=0.4',
