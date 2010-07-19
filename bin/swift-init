@@ -74,7 +74,7 @@ def do_start(server, once=False):
         dir, file = os.path.split(pid_file)
         if not os.path.exists(dir):
             try:
-                os.mkdirs(dir)
+                os.makedirs(dir)
             except OSError, err:
                 if err.errno == errno.EACCES:
                     sys.exit('Unable to create %s.  Running as non-root?' % dir)
