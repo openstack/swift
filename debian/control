@@ -3,8 +3,8 @@ Section: net
 Priority: optional
 Maintainer: Michael Barton <michael.barton@rackspace.com>
 Uploaders: Monty Taylor <mordred@inaugust.com>
-Build-Depends: debhelper (>= 7),
- python (>= 2.6),
+Build-Depends: debhelper (>= 7.0.50~),
+ python-support (>= 0.90),
  python-openssl,
  python-setuptools,
  python-webob (>= 0.9.7.1~hg20100111-1~racklabs1),
@@ -16,6 +16,7 @@ Build-Depends: debhelper (>= 7),
  python-nose,
  python-sphinx
 Standards-Version: 3.8.4
+XS-Python-Version: >= 2.6
 Homepage: http://launchpad.net/swift
 
 Package: swift

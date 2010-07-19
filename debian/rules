@@ -1,28 +1,22 @@
 #!/usr/bin/make -f
 
 # Verbose mode
-export DH_VERBOSE=1
+#export DH_VERBOSE=1
 
-DEB_PYTHON_SYSTEM=pysupport
+%:
+	dh $@
 
-PYTHON = "/usr/bin/python"
+# clean sphinx build output
+override_dh_clean:
+	dh_clean
+	rm -rf doc/build/*
 
-build:
-	dh build
+# build with sphinx documentation
+override_dh_auto_build:
+	dh_auto_build
 	python setup.py build_sphinx
 
-clean:
-	dh clean
-	find . -name "*\.pyc" -delete
-
-install: build
-	dh install
-
-
-binary-arch: install
-	dh binary-arch
-
-binary-indep: install
+override_dh_installinit:
 	dh_installinit --no-start
 	dh_installinit --no-start -pswift-container --init-script=swift-container-replicator
 	dh_installinit --no-start -pswift-account --init-script=swift-account-replicator
@@ -33,7 +27,3 @@ binary-indep: install
 	dh_installinit --no-start -pswift-object --init-script=swift-object-updater
 	dh_installinit --no-start -pswift-object --init-script=swift-object-replicator
 	dh_installinit --no-start -pswift-container --init-script=swift-container-updater
-	dh binary-indep
-
-binary: binary-arch binary-indep
-.PHONY: build clean binary-indep binary-arch binary clean
