@@ -1,5 +1,5 @@
 ============================
-Swift Archictectual Overview
+Swift Architectural Overview
 ============================
 
 --------
