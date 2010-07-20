@@ -40,9 +40,11 @@ doc/source/container.rst
 doc/source/db.rst
 doc/source/development_guidelines.rst
 doc/source/development_saio.rst
+doc/source/getting_started.rst
 doc/source/index.rst
 doc/source/misc.rst
 doc/source/object.rst
+doc/source/overview_architecture.rst
 doc/source/overview_auth.rst
 doc/source/overview_reaper.rst
 doc/source/overview_replication.rst
