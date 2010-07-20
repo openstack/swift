@@ -6,7 +6,7 @@ Getting Started
 System Requirements
 -------------------
 
-Swift development currently targets Unbunt Server 10.04, but should work on 
+Swift development currently targets Unbuntu Server 10.04, but should work on 
 most Linux platforms with the following software:
 
 * Python 2.6
