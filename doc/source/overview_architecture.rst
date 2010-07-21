@@ -79,7 +79,7 @@ example, if a server is unavailable for an object PUT, it will ask the
 ring for a handoff server, and route there instead.
 
 When objects are streamed to or from an object server, they are streamed
-directly through the proxy server to of from the user -- the proxy server
+directly through the proxy server to or from the user -- the proxy server
 does not spool them.
 
 -----------
