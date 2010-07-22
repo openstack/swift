@@ -99,6 +99,7 @@ swift/obj/server.py
 swift/obj/updater.py
 swift/proxy/__init__.py
 swift/proxy/server.py
+test/__init__.py
 test/functional/sample.conf
 test/functional/swift.py
 test/functional/tests.py
