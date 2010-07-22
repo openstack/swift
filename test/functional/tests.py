@@ -582,15 +582,6 @@ class TestContainer(Base):
             (cont.name))
         self.assert_status(400)
 
-    def testYourmomContainer(self):
-        cont = self.env.account.container('yourmom')
-        self.assert_(cont.create())
-
-        info = cont.info()
-        self.assert_status(204)
-        self.assertEquals(info['object_count'], 0)
-        self.assertEquals(info['bytes_used'], 0)
-
     def testContainerExistenceCachingProblem(self):
         cont = self.env.account.container(Utils.create_name())
         self.assertRaises(ResponseError, cont.files)
