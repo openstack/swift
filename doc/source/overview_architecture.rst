@@ -6,21 +6,29 @@ Swift Architectural Overview
 The Ring
 --------
 
-The Ring is a mapping of a requested account, container, or object to the
-server, device, and partition that it should reside in.  The partitions
-of the ring are equally divided among all the devices in the cluster.
-When an event occurs that requires partitions to be moved around (for
-example if a device is added to the cluster), it ensures that a minimum
-number of partitions are moved at a time, and only one replica of a
-partition is moved at a time.
+The available storage in a Swift deployment is organized into separate rings
+for accounts, containers, and objects.  When other components need to handle
+requests to find, create, destroy, or perform any operation on any object,
+container, or account, they interact with the appropriate ring to accomplish
+that. 
+
+The Ring manages the available storage using zones, devices, partitions, and
+replicas. 
 
 Each partition in the ring is replicated, by default, 3 times accross the
-cluster, and thus stored in the mapping.  The ring is also responsible
-for determining which devices are used for handoff in failure scenarios.
+cluster, and the locations for a partition are stored in the mapping
+maintained by the ring.  The ring is also responsible for determining which
+devices are used for handoff in failure scenarios.
 
 Data can be isolated with the concept of zones in the ring.  Each replica
-of a partition is guaranteed to reside in a different zone, A zone could
+of a partition is guaranteed to reside in a different zone. A zone could
 represent a drive, a server, a cabinet, a switch, or even a datacenter.
+
+The partitions of the ring are equally divided among all the devices in the
+Swift installation.  When an event occurs that requires partitions to be
+moved around (for example if a device is added to the cluster), the ring
+ensures that a minimum number of partitions are moved at a time, and only
+one replica of a partition is moved at a time.
 
 Weights can be used to balance the distribution of partitions on drives
 across the cluster.  This can be useful, for example, if different sized
@@ -28,6 +36,8 @@ drives are used in a cluster.
 
 The ring is used by the Proxy server and several background processes
 (like replication).
+
+For more detailed information about the ring, see :doc:`overview_ring`
 
 -------------
 Object Server
@@ -79,7 +89,7 @@ example, if a server is unavailable for an object PUT, it will ask the
 ring for a handoff server, and route there instead.
 
 When objects are streamed to or from an object server, they are streamed
-directly through the proxy server to or from the user -- the proxy server
+directly through the proxy server to of from the user -- the proxy server
 does not spool them.
 
 -----------
@@ -134,3 +144,4 @@ for example), the file is quarantined, and replication will replace the bad
 file from another replica.  If other errors are found they are logged (for
 example, an object's listing can't be found on any container server it
 should be).
+
