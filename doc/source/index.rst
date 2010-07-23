@@ -33,6 +33,13 @@ Development:
     development_guidelines
     development_saio
 
+Deployment:
+
+.. toctree::
+    :maxdepth: 1
+
+    deployment_guide
+
 Source:
 
 .. toctree::
