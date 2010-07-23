@@ -2,6 +2,8 @@
 Swift Architectural Overview
 ============================
 
+.. TODO - add links to more detailed overview in each section below.
+
 ------------
 Proxy Server
 ------------
@@ -18,8 +20,6 @@ ring for a handoff server, and route there instead.
 When objects are streamed to or from an object server, they are streamed
 directly through the proxy server to of from the user -- the proxy server
 does not spool them.
-
-For more detailed information about the proxy server, see :doc:`proxy`
 
 --------
 The Ring
@@ -54,8 +54,6 @@ drives are used in a cluster.
 The ring is used by the Proxy server and several background processes
 (like replication).
 
-For more detailed information about the ring, see :doc:`overview_ring`
-
 -------------
 Object Server
 -------------
@@ -74,8 +72,6 @@ version of the file (a 0 byte file ending with ".ts", which stands for
 tombstone).  This ensures that deleted files are replicated correctly and
 older versions don't magically reappear due to failure scenarios.
 
-For more detailed information about the object server, see :doc:`object`
-
 ----------------
 Container Server
 ----------------
@@ -87,16 +83,12 @@ across the cluster similar to how objects are.  Statistics are also tracked
 that include the total number of objects, and total storage usage for that
 container.
 
-For more detailed information about the container server, see :doc:`container`
-
 --------------
 Account Server
 --------------
 
 The Account Server is very similar to the Container Server, excepting that
 it is responsible for listings of containers rather than objects.
-
-For more detailed information about the account server see :doc:`account`
 
 -----------
 Replication
