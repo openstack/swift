@@ -2,23 +2,40 @@
 Swift Architectural Overview
 ============================
 
+------------
+Proxy Server
+------------
+
+The Proxy Server is responsible for tying together the rest of the Swift
+architecture. For each request, it will look up the location of the account,
+container, or object in the ring (see below) and route the request accordingly.
+The public API is also exposed through the Proxy Server.
+
+A large number of failures are also handled in the Proxy Server.  For
+example, if a server is unavailable for an object PUT, it will ask the
+ring for a handoff server, and route there instead.
+
+When objects are streamed to or from an object server, they are streamed
+directly through the proxy server to of from the user -- the proxy server
+does not spool them.
+
+For more detailed information about the proxy server, see :doc:`proxy`
+
 --------
 The Ring
 --------
 
-The available storage in a Swift deployment is organized into separate rings
-for accounts, containers, and objects.  When other components need to handle
-requests to find, create, destroy, or perform any operation on any object,
-container, or account, they interact with the appropriate ring to accomplish
-that. 
+A ring represents a mapping between the names of entities stored on disk, and
+their physical location. There are separate rings for accounts, containers, and
+objects. When other components need to perform any operation on an object,
+container, or account, they need to interact with the appropriate ring to
+determine its location in the cluster.
 
-The Ring manages the available storage using zones, devices, partitions, and
-replicas. 
-
+The Ring maintains this mapping using zones, devices, partitions, and replicas.
 Each partition in the ring is replicated, by default, 3 times accross the
-cluster, and the locations for a partition are stored in the mapping
-maintained by the ring.  The ring is also responsible for determining which
-devices are used for handoff in failure scenarios.
+cluster, and the locations for a partition are stored in the mapping maintained
+by the ring. The ring is also responsible for determining which devices are
+used for handoff in failure scenarios.
 
 Data can be isolated with the concept of zones in the ring.  Each replica
 of a partition is guaranteed to reside in a different zone. A zone could
@@ -44,8 +61,8 @@ Object Server
 -------------
 
 The Object Server is a very simple blob storage server that can store,
-retrieve and delete objects stored on local devices.  Objects are stored
-as binary files on the filesystem with metadata  stored in the file's
+retrieve and delete objects stored on local devices. Objects are stored
+as binary files on the filesystem with metadata stored in the file's
 extended attributes (xattrs). This requires that the underlying filesystem
 choice for object servers must support xattrs on files. Some filesystems,
 like ext3, have xattrs turned off by default.
@@ -56,6 +73,8 @@ latest object version will be served.  A deletion is also treated as a
 version of the file (a 0 byte file ending with ".ts", which stands for
 tombstone).  This ensures that deleted files are replicated correctly and
 older versions don't magically reappear due to failure scenarios.
+
+For more detailed information about the object server, see :doc:`object`
 
 ----------------
 Container Server
@@ -68,6 +87,8 @@ across the cluster similar to how objects are.  Statistics are also tracked
 that include the total number of objects, and total storage usage for that
 container.
 
+For more detailed information about the container server, see :doc:`container`
+
 --------------
 Account Server
 --------------
@@ -75,22 +96,7 @@ Account Server
 The Account Server is very similar to the Container Server, excepting that
 it is responsible for listings of containers rather than objects.
 
-------------
-Proxy Server
-------------
-
-The Proxy Server is responsible for tying the above servers together.  For
-each request, it will look up the location of the account, container, or
-object in the ring and route the request accordingly.  The public API is
-also exposed through the Proxy Server.
-
-A large number of failures are also handled in the Proxy Server.  For
-example, if a server is unavailable for an object PUT, it will ask the
-ring for a handoff server, and route there instead.
-
-When objects are streamed to or from an object server, they are streamed
-directly through the proxy server to of from the user -- the proxy server
-does not spool them.
+For more detailed information about the account server see :doc:`account`
 
 -----------
 Replication
