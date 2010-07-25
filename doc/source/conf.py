@@ -31,13 +31,14 @@ import sys, os
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-#sys.path.append(os.path.abspath('.'))
+sys.path.append([os.path.abspath('../swift'), os.path.abspath('..'), os.path.abspath('../bin')])
 
 # -- General configuration -----------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc']
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.todo', 'sphinx.ext.coverage', 'sphinx.ext.pngmath', 'sphinx.ext.ifconfig']
+todo_include_todos = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -93,13 +94,13 @@ exclude_trees = []
 
 # If true, sectionauthor and moduleauthor directives will be shown in the
 # output. They are ignored by default.
-#show_authors = False
+show_authors = True
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 
 # A list of ignored prefixes for module index sorting.
-#modindex_common_prefix = []
+modindex_common_prefix = ['swift.']
 
 
 # -- Options for HTML output ---------------------------------------------------
@@ -173,7 +174,7 @@ html_static_path = ['_static']
 #html_file_suffix = ''
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'Swiftdoc'
+htmlhelp_basename = 'swiftdoc'
 
 
 # -- Options for LaTeX output --------------------------------------------------
@@ -207,3 +208,8 @@ latex_documents = [
 
 # If false, no module index is generated.
 #latex_use_modindex = True
+
+# Example configuration for intersphinx: refer to the Python standard library.
+intersphinx_mapping = {'python': ('http://docs.python.org/', None),
+                       'nova': ('http://nova.openstack.org', None)}
+

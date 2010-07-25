@@ -114,7 +114,7 @@ class AccountController(object):
 
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        # TODO: Refactor: The account server used to provide a 'account and
+        # TODO(refactor): The account server used to provide a 'account and
         # container existence check all-in-one' call by doing a HEAD with a
         # container path. However, container existence is now checked with the
         # container servers directly so this is no longer needed. We should
