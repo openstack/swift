@@ -435,7 +435,7 @@ class Replicator(object):
 
 
 class ReplicatorRpc(object):
-    """Handle Replication RPC calls.  TODO: redbo document please :)"""
+    """Handle Replication RPC calls.  TODO(redbo): document please :)"""
 
     def __init__(self, root, datadir, broker_class, mount_check=True):
         self.root = root
@@ -472,7 +472,7 @@ class ReplicatorRpc(object):
             info = broker.get_replication_info()
         except Exception, e:
             if 'no such table' in str(e):
-                # TODO find a real logger
+                # TODO(unknown): find a real logger
                 print "Quarantining DB %s" % broker.db_file
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()

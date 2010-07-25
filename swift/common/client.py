@@ -664,9 +664,9 @@ class Connection(object):
     def get_account(self, marker=None, limit=None, prefix=None,
                     full_listing=False):
         """Wrapper for get_account"""
-        # TODO: With full_listing=True this will restart the entire listing
-        # with each retry. Need to make a better version that just retries
-        # where it left off.
+        # TODO(unknown): With full_listing=True this will restart the entire
+        # listing with each retry. Need to make a better version that just
+        # retries where it left off.
         return self._retry(get_account, marker=marker, limit=limit,
                            prefix=prefix, full_listing=full_listing)
 
@@ -677,9 +677,9 @@ class Connection(object):
     def get_container(self, container, marker=None, limit=None, prefix=None,
                       delimiter=None, full_listing=False):
         """Wrapper for get_container"""
-        # TODO: With full_listing=True this will restart the entire listing
-        # with each retry. Need to make a better version that just retries
-        # where it left off.
+        # TODO(unknown): With full_listing=True this will restart the entire
+        # listing with each retry. Need to make a better version that just
+        # retries where it left off.
         return self._retry(get_container, container, marker=marker,
                            limit=limit, prefix=prefix, delimiter=delimiter,
                            full_listing=full_listing)
