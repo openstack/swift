@@ -47,6 +47,7 @@ PENDING_CAP = 131072
 
 class DatabaseConnectionError(sqlite3.DatabaseError):
     """More friendly error messages for DB Errors."""
+
     def __init__(self, path, msg, timeout=0):
         self.path = path
         self.timeout = timeout
@@ -59,6 +60,7 @@ class DatabaseConnectionError(sqlite3.DatabaseError):
 
 class GreenDBConnection(sqlite3.Connection):
     """SQLite DB Connection handler that plays well with eventlet."""
+
     def __init__(self, *args, **kwargs):
         self.timeout = kwargs.get('timeout', BROKER_TIMEOUT)
         kwargs['timeout'] = 0

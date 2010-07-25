@@ -26,10 +26,29 @@ class MessageTimeout(TimeoutError):
         return '%s: %s' % (TimeoutError.__str__(self), self.msg)
 
 
-class AuditException(Exception): pass
-class AuthException(Exception): pass
-class ChunkReadTimeout(TimeoutError): pass
-class ChunkWriteTimeout(TimeoutError): pass
-class ConnectionTimeout(TimeoutError): pass
-class DriveNotMounted(Exception): pass
-class LockTimeout(MessageTimeout): pass
+class AuditException(Exception):
+    pass
+
+
+class AuthException(Exception):
+    pass
+
+
+class ChunkReadTimeout(TimeoutError):
+    pass
+
+
+class ChunkWriteTimeout(TimeoutError):
+    pass
+
+
+class ConnectionTimeout(TimeoutError):
+    pass
+
+
+class DriveNotMounted(Exception):
+    pass
+
+
+class LockTimeout(MessageTimeout):
+    pass

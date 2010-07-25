@@ -88,6 +88,7 @@ class DiskFile(object):
     :param keep_data_fp: if True, don't close the fp, otherwise close it
     :param disk_chunk_Size: size of chunks on file reads
     """
+
     def __init__(self, path, device, partition, account, container, obj,
                     keep_data_fp=False, disk_chunk_size=65536):
         self.disk_chunk_size = disk_chunk_size

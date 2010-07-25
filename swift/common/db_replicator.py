@@ -55,6 +55,7 @@ class ReplConnection(BufferedHTTPConnection):
     """
     Helper to simplify POSTing to a remote server.
     """
+
     def __init__(self, node, partition, hash_, logger):
         ""
         self.logger = logger
@@ -92,7 +93,7 @@ class Replicator(object):
         self.logger = \
             get_logger(replicator_conf, '%s-replicator' % self.server_type)
         # log uncaught exceptions
-        sys.excepthook = lambda *exc_info: \
+        sys.excepthook = lambda * exc_info: \
                 self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
         sys.stdout = sys.stderr = LoggerFileObject(self.logger)
         self.root = server_conf.get('devices', '/srv/node')
@@ -376,6 +377,7 @@ class Replicator(object):
 
         :param datadirs: a list of paths to walk
         """
+
         def walk_datadir(datadir, node_id):
             partitions = os.listdir(datadir)
             random.shuffle(partitions)
