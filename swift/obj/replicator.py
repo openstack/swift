@@ -410,7 +410,7 @@ class ObjectReplicator(object):
         if self.replication_count:
             rate = self.replication_count / (time.time() - self.start)
             left = int((self.job_count - self.replication_count) / rate)
-            self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f "\
+            self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f "
                              "seconds (%.2f/sec, %s remaining)"
                     % (self.replication_count, self.job_count,
                        self.replication_count * 100.0 / self.job_count,
@@ -418,13 +418,13 @@ class ObjectReplicator(object):
                        '%d%s' % compute_eta(self.start,
                            self.replication_count, self.job_count)))
             if self.suffix_count:
-                self.logger.info("%d suffixes checked - %.2f%% hashed, "\
+                self.logger.info("%d suffixes checked - %.2f%% hashed, "
                                  "%.2f%% synced" %
                     (self.suffix_count,
                      (self.suffix_hash * 100.0) / self.suffix_count,
                      (self.suffix_sync * 100.0) / self.suffix_count))
                 self.partition_times.sort()
-                self.logger.info("Partition times: max %.4fs, min %.4fs, "\
+                self.logger.info("Partition times: max %.4fs, min %.4fs, "
                                  "med %.4fs"
                     % (self.partition_times[-1], self.partition_times[0],
                        self.partition_times[len(self.partition_times) // 2]))
