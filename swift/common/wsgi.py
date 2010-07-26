@@ -35,6 +35,7 @@ from eventlet.green import socket, ssl
 from swift.common.utils import get_logger, drop_privileges, \
     LoggerFileObject, NullLogger
 
+
 def monkey_patch_mimetools():
     """
     mimetools.Message defaults content-type to "text/plain"
@@ -56,6 +57,8 @@ def monkey_patch_mimetools():
 
 # We might be able to pull pieces of this out to test, but right now it seems
 # like more work than it's worth.
+
+
 def run_wsgi(app, conf, *args, **kwargs):   # pragma: no cover
     """
     Loads common settings from conf, then instantiates app and runs
@@ -68,8 +71,9 @@ def run_wsgi(app, conf, *args, **kwargs):   # pragma: no cover
         logger = kwargs['logger']
     else:
         logger = get_logger(conf, app.log_name)
+
     # log uncaught exceptions
-    sys.excepthook = lambda *exc_info: \
+    sys.excepthook = lambda * exc_info: \
         logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
     sys.stdout = sys.stderr = LoggerFileObject(logger)
 

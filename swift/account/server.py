@@ -121,7 +121,8 @@ class AccountController(object):
         # refactor out the container existence check here and retest
         # everything.
         try:
-            drive, part, account, container = split_path(unquote(req.path), 3, 4)
+            drive, part, account, container = split_path(unquote(req.path),
+                                                         3, 4)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
@@ -139,8 +140,7 @@ class AccountController(object):
             'X-Account-Object-Count': info['object_count'],
             'X-Account-Bytes-Used': info['bytes_used'],
             'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp'],
-        }
+            'X-PUT-Timestamp': info['put_timestamp']}
         if container:
             container_ts = broker.get_container_timestamp(container)
             if container_ts is not None:
@@ -167,8 +167,7 @@ class AccountController(object):
             'X-Account-Object-Count': info['object_count'],
             'X-Account-Bytes-Used': info['bytes_used'],
             'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp']
-        }
+            'X-PUT-Timestamp': info['put_timestamp']}
         try:
             prefix = get_param(req, 'prefix')
             delimiter = get_param(req, 'delimiter')
@@ -203,7 +202,7 @@ class AccountController(object):
             for (name, object_count, bytes_used, is_subdir) in account_list:
                 name = simplejson.dumps(name)
                 if is_subdir:
-                    json_out.append('{"subdir":%s}'% name)
+                    json_out.append('{"subdir":%s}' % name)
                 else:
                     json_out.append(json_pattern %
                         (name, object_count, bytes_used))
@@ -211,7 +210,7 @@ class AccountController(object):
         elif format == 'xml':
             out_content_type = 'application/xml'
             output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
-                           '<account name="%s">'%account]
+                           '<account name="%s">' % account]
             for (name, object_count, bytes_used, is_subdir) in account_list:
                 name = saxutils.escape(name)
                 if is_subdir:
@@ -292,4 +291,3 @@ class AccountController(object):
         else:
             self.logger.info(log_message)
         return res(env, start_response)
-

@@ -98,7 +98,8 @@ def drop_buffer_cache(fd, offset, length):
     :param length: length
     """
     # 4 means "POSIX_FADV_DONTNEED"
-    ret = posix_fadvise(fd, ctypes.c_uint64(offset), ctypes.c_uint64(length), 4)
+    ret = posix_fadvise(fd, ctypes.c_uint64(offset),
+                        ctypes.c_uint64(length), 4)
     if ret != 0:
         print "posix_fadvise(%s, %s, %s, 4) -> %s" % (fd, offset, length, ret)
 
@@ -262,6 +263,7 @@ class NamedLogger(object):
                     self._proxy(getattr(logger, proxied_method)))
 
     def _proxy(self, logger_meth):
+
         def _inner_proxy(msg, *args, **kwargs):
             msg = '%s %s' % (self.server, msg)
             logger_meth(msg, *args, **kwargs)

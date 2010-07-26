@@ -180,7 +180,7 @@ class AccountReaper(object):
         only delete one account at any given time. It will call
         :func:`reap_container` up to sqrt(self.concurrency) times concurrently
         while reaping the account.
-        
+
         If there is any exception while deleting a single container, the
         process will continue for any other containers and the failed
         containers will be tried again the next time this function is called
@@ -201,7 +201,8 @@ class AccountReaper(object):
         :param partition: The partition in the account ring the account is on.
         :param nodes: The primary node dicts for the account to delete.
 
-        * See also: :class:`swift.common.db.AccountBroker` for the broker class.
+        * See also: :class:`swift.common.db.AccountBroker` for the broker
+        class.
         * See also: :func:`swift.common.ring.Ring.get_nodes` for a description
           of the node dicts.
         """
@@ -241,7 +242,8 @@ class AccountReaper(object):
         if self.stats_objects_deleted:
             log += ', %s objects deleted' % self.stats_objects_deleted
         if self.stats_containers_remaining:
-            log += ', %s containers remaining' % self.stats_containers_remaining
+            log += ', %s containers remaining' % \
+                   self.stats_containers_remaining
         if self.stats_objects_remaining:
             log += ', %s objects remaining' % self.stats_objects_remaining
         if self.stats_containers_possibly_remaining:

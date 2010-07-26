@@ -133,6 +133,7 @@ def http_connect(ipaddr, port, device, partition, method, path,
     conn.endheaders()
     return conn
 
+
 def http_connect_raw(ipaddr, port, method, path, headers=None,
                      query_string=None):
     """
