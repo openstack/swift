@@ -755,7 +755,7 @@ class ObjectController(Controller):
             _, dest_container, dest_object = dest.split('/', 3)
         except ValueError:
             return HTTPPreconditionFailed(request=req,
-                    body='Destination header must be of the form ' +
+                    body='Destination header must be of the form '
                          'container/object')
         new_source = '/' + self.container_name + '/' + self.object_name
         self.container_name = dest_container
