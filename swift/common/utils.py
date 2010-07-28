@@ -47,8 +47,16 @@ logging._lock = logging.threading.RLock()
 
 
 libc = ctypes.CDLL(ctypes.util.find_library('c'))
-sys_fallocate = libc.fallocate
-posix_fadvise = libc.posix_fadvise
+try:  # Not portable, and not available before linux 2.6.23.
+    sys_fallocate = libc.fallocate
+except AttributeError:
+    def sys_fallocate(fd, mode, offset, len_):
+        pass
+try: # Not yet available on all OSs, or linux before 2.5.60.
+    posix_fadvise = libc.posix_fadvise
+except AttributeError:
+    def posix_fadvise(fd, offset, len_, advice):
+        pass
 
 
 # Used by hash_path to offer a bit more security when generating hashes for
