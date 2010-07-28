@@ -19,22 +19,24 @@ from setuptools.command.sdist import sdist
 import os
 import subprocess
 
+
 class local_sdist(sdist):
     """Customized sdist hook - builds the ChangeLog file from VC first"""
 
     def run(self):
         if os.path.isdir('.bzr'):
             # We're in a bzr branch
-            log_cmd = subprocess.Popen(["bzr","log","--gnu"],
-                                       stdout = subprocess.PIPE)
+
+            log_cmd = subprocess.Popen(["bzr", "log", "--gnu"],
+                                       stdout=subprocess.PIPE)
             changelog = log_cmd.communicate()[0]
             with open("ChangeLog", "w") as changelog_file:
                 changelog_file.write(changelog)
         sdist.run(self)
 
 
-name='swift'
-version='1.0.2'
+name = 'swift'
+version = '1.0.2'
 
 setup(
     name=name,
@@ -44,9 +46,9 @@ setup(
     author='OpenStack, LLC.',
     author_email='openstack-admins@lists.launchpad.net',
     url='https://launchpad.net/swift',
-    packages=find_packages(exclude=['test','bin']),
-    test_suite = 'nose.collector',
-    cmdclass = {'sdist': local_sdist},
+    packages=find_packages(exclude=['test', 'bin']),
+    test_suite='nose.collector',
+    cmdclass={'sdist': local_sdist},
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
@@ -70,5 +72,4 @@ setup(
              'bin/swift-object-server',
              'bin/swift-object-updater', 'bin/swift-proxy-server',
              'bin/swift-ring-builder', 'bin/swift-stats-populate',
-             'bin/swift-stats-report']
-)
+             'bin/swift-stats-report'])
