@@ -145,13 +145,19 @@ def http_connection(url):
 
 def get_auth(url, user, key, snet=False):
     """
-    Get authentication credentials
+    Get authentication/authorization credentials.
 
-    :param url: authentication URL
-    :param user: user to auth as
-    :param key: key or passowrd for auth
-    :param snet: use SERVICENET internal network default is False
-    :returns: tuple of (storage URL, storage token, auth token)
+    The snet parameter is used for Rackspace's ServiceNet internal network
+    implementation. In this function, it simply adds *snet-* to the beginning
+    of the host name for the returned storage URL. With Rackspace Cloud Files,
+    use of this network path causes no bandwidth charges but requires the
+    client to be running on Rackspace's ServiceNet network.
+
+    :param url: authentication/authorization URL
+    :param user: user to authenticate as
+    :param key: key or password for authorization
+    :param snet: use SERVICENET internal network (see above), default is False
+    :returns: tuple of (storage URL, auth token)
     :raises ClientException: HTTP GET request to auth URL failed
     """
     parsed, conn = http_connection(url)
@@ -659,12 +665,12 @@ class Connection(object):
             backoff *= 2
 
     def head_account(self):
-        """Wrapper for head_account"""
+        """Wrapper for :func:`head_account`"""
         return self._retry(head_account)
 
     def get_account(self, marker=None, limit=None, prefix=None,
                     full_listing=False):
-        """Wrapper for get_account"""
+        """Wrapper for :func:`get_account`"""
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
@@ -672,12 +678,12 @@ class Connection(object):
                            prefix=prefix, full_listing=full_listing)
 
     def head_container(self, container):
-        """Wrapper for head_container"""
+        """Wrapper for :func:`head_container`"""
         return self._retry(head_container, container)
 
     def get_container(self, container, marker=None, limit=None, prefix=None,
                       delimiter=None, full_listing=False):
-        """Wrapper for get_container"""
+        """Wrapper for :func:`get_container`"""
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
@@ -686,34 +692,34 @@ class Connection(object):
                            full_listing=full_listing)
 
     def put_container(self, container):
-        """Wrapper for put_container"""
+        """Wrapper for :func:`put_container`"""
         return self._retry(put_container, container)
 
     def delete_container(self, container):
-        """Wrapper for delete_container"""
+        """Wrapper for :func:`delete_container`"""
         return self._retry(delete_container, container)
 
     def head_object(self, container, obj):
-        """Wrapper for head_object"""
+        """Wrapper for :func:`head_object`"""
         return self._retry(head_object, container, obj)
 
     def get_object(self, container, obj, resp_chunk_size=None):
-        """Wrapper for get_object"""
+        """Wrapper for :func:`get_object`"""
         return self._retry(get_object, container, obj,
                            resp_chunk_size=resp_chunk_size)
 
     def put_object(self, container, obj, contents, metadata={},
                    content_length=None, etag=None, chunk_size=65536,
                    content_type=None):
-        """Wrapper for put_object"""
+        """Wrapper for :func:`put_object`"""
         return self._retry(put_object, container, obj, contents,
             metadata=metadata, content_length=content_length, etag=etag,
             chunk_size=chunk_size, content_type=content_type)
 
     def post_object(self, container, obj, metadata):
-        """Wrapper for post_object"""
+        """Wrapper for :func:`post_object`"""
         return self._retry(post_object, container, obj, metadata)
 
     def delete_object(self, container, obj):
-        """Wrapper for delete_object"""
+        """Wrapper for :func:`delete_object`"""
         return self._retry(delete_object, container, obj)
