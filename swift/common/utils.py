@@ -65,7 +65,8 @@ def load_libc_function(func_name):
         libc = ctypes.CDLL(ctypes.util.find_library('c'))
         return getattr(libc, func_name)
     except AttributeError:
-        print "Unable to locate %s in libc.  Leaving as a no-op." % func_name
+        logging.warn("Unable to locate %s in libc.  Leaving as a no-op."
+                     % func_name)
         def noop_libc_function(*args):
             return 0
         return noop_libc_function
@@ -121,7 +122,8 @@ def drop_buffer_cache(fd, offset, length):
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                         ctypes.c_uint64(length), 4)
     if ret != 0:
-        print "posix_fadvise(%s, %s, %s, 4) -> %s" % (fd, offset, length, ret)
+        logging.warn("posix_fadvise(%s, %s, %s, 4) -> %s"
+                     % (fd, offset, length, ret))
 
 
 def normalize_timestamp(timestamp):
