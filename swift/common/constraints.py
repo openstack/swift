@@ -32,6 +32,12 @@ MAX_META_COUNT = 90
 MAX_META_OVERALL_SIZE = 4096
 #: Max object name length
 MAX_OBJECT_NAME_LENGTH = 1024
+#: Max object list length of a get request for a container
+CONTAINER_LISTING_LIMIT = 10000
+#: Max container list length of a get request for an account
+ACCOUNT_LISTING_LIMIT = 10000
+
+
 
 
 def check_metadata(req):

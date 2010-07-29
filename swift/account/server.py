@@ -30,13 +30,12 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 import simplejson
 from xml.sax import saxutils
 
-from swift.common import ACCOUNT_LISTING_LIMIT
 from swift.common.db import AccountBroker
 from swift.common.exceptions import MessageTimeout
 from swift.common.utils import get_param, split_path, storage_directory, \
     hash_path
-from swift.common.constraints import check_mount, check_float, \
-    check_xml_encodable
+from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
+    check_mount, check_float, check_xml_encodable
 from swift.common.healthcheck import healthcheck
 from swift.common.db_replicator import ReplicatorRpc
 
