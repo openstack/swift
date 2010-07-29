@@ -241,6 +241,11 @@ class TestUtils(unittest.TestCase):
                   '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN\x00\xf4.\xb5\xea\x83')
         self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
 
+    def test_load_libc_function(self):
+        self.assert_(callable(
+            utils.load_libc_function('printf')))
+        self.assert_(callable(
+            utils.load_libc_function('some_not_real_function')))
 
 if __name__ == '__main__':
     unittest.main()

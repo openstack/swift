@@ -45,16 +45,31 @@ logging.thread = eventlet.green.thread
 logging.threading = eventlet.green.threading
 logging._lock = logging.threading.RLock()
 
-
-libc = ctypes.CDLL(ctypes.util.find_library('c'))
-sys_fallocate = libc.fallocate
-posix_fadvise = libc.posix_fadvise
-
+# These are lazily pulled from libc elsewhere
+_sys_fallocate = None
+_posix_fadvise = None
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
 HASH_PATH_SUFFIX = os.environ.get('SWIFT_HASH_PATH_SUFFIX', 'endcap')
+
+
+def load_libc_function(func_name):
+    """
+    Attempt to find the function in libc, otherwise return a no-op func.
+
+    :param func_name: name of the function to pull from libc.
+    """
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library('c'))
+        return getattr(libc, func_name)
+    except AttributeError:
+        logging.warn("Unable to locate %s in libc.  Leaving as a no-op."
+                     % func_name)
+        def noop_libc_function(*args):
+            return 0
+        return noop_libc_function
 
 
 def get_param(req, name, default=None):
@@ -80,9 +95,12 @@ def fallocate(fd, size):
     :param fd: file descriptor
     :param size: size to allocate (in bytes)
     """
+    global _sys_fallocate
+    if _sys_fallocate is None:
+        _sys_fallocate = load_libc_function('fallocate')
     if size > 0:
         # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
-        ret = sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
+        ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
         # XXX: in (not very thorough) testing, errno always seems to be 0?
         err = ctypes.get_errno()
         if ret and err not in (0, errno.ENOSYS):
@@ -97,11 +115,15 @@ def drop_buffer_cache(fd, offset, length):
     :param offset: start offset
     :param length: length
     """
+    global _posix_fadvise
+    if _posix_fadvise is None:
+        _posix_fadvise = load_libc_function('posix_fadvise')
     # 4 means "POSIX_FADV_DONTNEED"
-    ret = posix_fadvise(fd, ctypes.c_uint64(offset),
+    ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                         ctypes.c_uint64(length), 4)
     if ret != 0:
-        print "posix_fadvise(%s, %s, %s, 4) -> %s" % (fd, offset, length, ret)
+        logging.warn("posix_fadvise(%s, %s, %s, 4) -> %s"
+                     % (fd, offset, length, ret))
 
 
 def normalize_timestamp(timestamp):
