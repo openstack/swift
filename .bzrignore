@@ -3,3 +3,4 @@
 doc/build/*
 dist
 ChangeLog
+.coverage

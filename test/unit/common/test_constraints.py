@@ -14,13 +14,13 @@
 # limitations under the License.
 
 import unittest
+from test.unit import MockTrue
 
 from webob import Request
 from webob.exc import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
 
 from swift.common import constraints
-
 
 class TestConstraints(unittest.TestCase):
 
@@ -137,6 +137,15 @@ class TestConstraints(unittest.TestCase):
         self.assert_(isinstance(resp, HTTPBadRequest))
         self.assert_('Content-Type' in resp.body)
 
+    def test_check_mount(self):
+        self.assertFalse(constraints.check_mount('', ''))
+        constraints.os = MockTrue() # mock os module
+        self.assertTrue(constraints.check_mount('/srv', '1'))
+        reload(constraints) # put it back
+
+    def test_check_float(self):
+        self.assertFalse(constraints.check_float(''))
+        self.assertTrue(constraints.check_float('0'))
 
 if __name__ == '__main__':
     unittest.main()

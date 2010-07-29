@@ -31,12 +31,11 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPException, HTTPInternalServerError, HTTPNoContent, \
     HTTPNotFound, HTTPPreconditionFailed, HTTPMethodNotAllowed
 
-from swift.common import CONTAINER_LISTING_LIMIT
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
     storage_directory, split_path, mkdirs
-from swift.common.constraints import check_mount, check_float, \
-    check_xml_encodable
+from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
+    check_mount, check_float, check_xml_encodable
 from swift.common.bufferedhttp import http_connect
 from swift.common.healthcheck import healthcheck
 from swift.common.exceptions import ConnectionTimeout, MessageTimeout
