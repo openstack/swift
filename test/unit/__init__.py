@@ -25,7 +25,7 @@ def connect_tcp(hostport):
 
 class MockTrue(object):
     """
-    Instances of MockTrue evalulate like True
+    Instances of MockTrue evaluate like True
     Any attr accessed on an instance of MockTrue will return a MockTrue instance
     Any method called on an instance of MockTrue will return a MockTrue instance
 
