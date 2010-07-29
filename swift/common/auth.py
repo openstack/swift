@@ -29,6 +29,7 @@ class DevAuthMiddleware(object):
     """
     Auth Middleware that uses the dev auth server
     """
+
     def __init__(self, app, conf, memcache_client, logger):
         self.app = app
         self.memcache_client = memcache_client

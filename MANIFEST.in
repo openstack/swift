@@ -1,4 +1,4 @@
-include AUTHORS LICENSE .functests .unittests .probetests
+include AUTHORS LICENSE .functests .unittests .probetests test/__init__.py
 graft doc  
 graft etc
 graft test/functional

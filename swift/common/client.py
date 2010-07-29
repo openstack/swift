@@ -150,7 +150,7 @@ def get_auth(url, user, key, snet=False):
     :param url: authentication URL
     :param user: user to auth as
     :param key: key or passowrd for auth
-    :param snet: use SERVICENET internal network default is False 
+    :param snet: use SERVICENET internal network default is False
     :returns: tuple of (storage URL, storage token, auth token)
     :raises ClientException: HTTP GET request to auth URL failed
     """
@@ -166,7 +166,7 @@ def get_auth(url, user, key, snet=False):
     url = resp.getheader('x-storage-url')
     if snet:
         parsed = list(urlparse(url))
-        # Second item in the list is the netloc 
+        # Second item in the list is the netloc
         parsed[1] = 'snet-' + parsed[1]
         url = urlunparse(parsed)
     return url, resp.getheader('x-storage-token',
@@ -611,7 +611,7 @@ class Connection(object):
         :param preauthurl: storage URL (if you have already authenticated)
         :param preauthtoken: authentication token (if you have already
                              authenticated)
-        :param snet: use SERVICENET internal network default is False 
+        :param snet: use SERVICENET internal network default is False
         """
         self.authurl = authurl
         self.user = user
@@ -632,7 +632,8 @@ class Connection(object):
             try:
                 if not self.url or not self.token:
                     self.url, self.token = \
-                        get_auth(self.authurl, self.user, self.key, snet=self.snet)
+                        get_auth(self.authurl, self.user, self.key,
+                                 snet=self.snet)
                     self.http_conn = None
                 if not self.http_conn:
                     self.http_conn = http_connection(self.url)
@@ -664,9 +665,9 @@ class Connection(object):
     def get_account(self, marker=None, limit=None, prefix=None,
                     full_listing=False):
         """Wrapper for get_account"""
-        # TODO: With full_listing=True this will restart the entire listing
-        # with each retry. Need to make a better version that just retries
-        # where it left off.
+        # TODO(unknown): With full_listing=True this will restart the entire
+        # listing with each retry. Need to make a better version that just
+        # retries where it left off.
         return self._retry(get_account, marker=marker, limit=limit,
                            prefix=prefix, full_listing=full_listing)
 
@@ -677,9 +678,9 @@ class Connection(object):
     def get_container(self, container, marker=None, limit=None, prefix=None,
                       delimiter=None, full_listing=False):
         """Wrapper for get_container"""
-        # TODO: With full_listing=True this will restart the entire listing
-        # with each retry. Need to make a better version that just retries
-        # where it left off.
+        # TODO(unknown): With full_listing=True this will restart the entire
+        # listing with each retry. Need to make a better version that just
+        # retries where it left off.
         return self._retry(get_container, container, marker=marker,
                            limit=limit, prefix=prefix, delimiter=delimiter,
                            full_listing=full_listing)

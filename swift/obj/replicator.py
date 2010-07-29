@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os, sys
+import os
+import sys
 from os.path import isdir, join
 from ConfigParser import ConfigParser
 import random
@@ -40,6 +41,7 @@ MAX_HANDOFFS = 5
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
+
 
 def hash_suffix(path, reclaim_age):
     """
@@ -94,6 +96,7 @@ def recalculate_hashes(partition_dir, suffixes, reclaim_age=ONE_WEEK):
     :param suffixes: list of suffixes to recalculate
     :param reclaim_age: age in seconds at which tombstones should be removed
     """
+
     def tpool_listdir(partition_dir):
         return dict(((suff, None) for suff in os.listdir(partition_dir)
                      if len(suff) == 3 and isdir(join(partition_dir, suff))))
@@ -119,8 +122,10 @@ def invalidate_hash(suffix_dir):
     """
     Invalidates the hash for a suffix_dir in the partition's hashes file.
 
-    :param suffix_dir: absolute path to suffix dir whose hash needs invalidating
+    :param suffix_dir: absolute path to suffix dir whose hash needs
+    invalidating
     """
+
     suffix = os.path.basename(suffix_dir)
     partition_dir = os.path.dirname(suffix_dir)
     hashes_file = join(partition_dir, HASH_FILE)
@@ -150,6 +155,7 @@ def get_hashes(partition_dir, do_listdir=True, reclaim_age=ONE_WEEK):
 
     :returns: tuple of (number of suffix dirs hashed, dictionary of hashes)
     """
+
     def tpool_listdir(hashes, partition_dir):
         return dict(((suff, hashes.get(suff, None))
                      for suff in os.listdir(partition_dir)
@@ -230,8 +236,8 @@ class ObjectReplicator(object):
         ret_val = None
         try:
             with Timeout(120):
-                proc = subprocess.Popen(args, stdout = subprocess.PIPE,
-                    stderr = subprocess.STDOUT)
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT)
                 results = proc.stdout.read()
                 ret_val = proc.wait()
         finally:
@@ -311,11 +317,12 @@ class ObjectReplicator(object):
 
     def update_deleted(self, job):
         """
-        High-level method that replicates a single partition that doesn't belong
-        on this node.
+        High-level method that replicates a single partition that doesn't
+        belong on this node.
 
         :param job: a dict containing info about the partition to be replicated
         """
+
         def tpool_get_suffixes(path):
             return [suff for suff in os.listdir(path)
                     if len(suff) == 3 and isdir(join(path, suff))]
@@ -329,11 +336,11 @@ class ObjectReplicator(object):
                     success = self.rsync(node, job, suffixes)
                     if success:
                         with Timeout(60):
-                            http_connect(node['ip'], node['port'],
+                            http_connect(node['ip'],
+                                node['port'],
                                 node['device'], job['partition'], 'REPLICATE',
                                 '/' + '-'.join(suffixes),
-                                headers={'Content-Length': '0'}
-                            ).getresponse().read()
+                          headers={'Content-Length': '0'}).getresponse().read()
                     responses.append(success)
             if not suffixes or (len(responses) == REPLICAS and all(responses)):
                 self.logger.info("Removing partition: %s" % job['path'])
@@ -365,8 +372,7 @@ class ObjectReplicator(object):
                     with Timeout(60):
                         resp = http_connect(node['ip'], node['port'],
                                 node['device'], job['partition'], 'REPLICATE',
-                                '', headers={'Content-Length': '0'}
-                        ).getresponse()
+                            '', headers={'Content-Length': '0'}).getresponse()
                         if resp.status != 200:
                             self.logger.error("Invalid response %s from %s" %
                                     (resp.status, node['ip']))
@@ -375,18 +381,19 @@ class ObjectReplicator(object):
                         del resp
                     successes += 1
                     suffixes = [suffix for suffix in local_hash
-                           if local_hash[suffix] != remote_hash.get(suffix, -1)]
+                                  if local_hash[suffix] !=
+                                     remote_hash.get(suffix, -1)]
                     if not suffixes:
                         continue
                     success = self.rsync(node, job, suffixes)
                     recalculate_hashes(job['path'], suffixes,
                                        reclaim_age=self.reclaim_age)
                     with Timeout(60):
-                        http_connect(node['ip'], node['port'],
+                        conn = http_connect(node['ip'], node['port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '/' + '-'.join(suffixes),
-                            headers={'Content-Length': '0'}
-                        ).getresponse().read()
+                            headers={'Content-Length': '0'})
+                        conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                 except (Exception, Timeout):
                     logging.exception("Error syncing with node: %s" % node)
@@ -403,22 +410,27 @@ class ObjectReplicator(object):
         if self.replication_count:
             rate = self.replication_count / (time.time() - self.start)
             left = int((self.job_count - self.replication_count) / rate)
-            self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f seconds (%.2f/sec, %s remaining)"
+            self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f "
+                             "seconds (%.2f/sec, %s remaining)"
                     % (self.replication_count, self.job_count,
                        self.replication_count * 100.0 / self.job_count,
                        time.time() - self.start, rate,
-                       '%d%s' % compute_eta(self.start, self.replication_count, self.job_count)))
+                       '%d%s' % compute_eta(self.start,
+                           self.replication_count, self.job_count)))
             if self.suffix_count:
-                self.logger.info("%d suffixes checked - %.2f%% hashed, %.2f%% synced" %
+                self.logger.info("%d suffixes checked - %.2f%% hashed, "
+                                 "%.2f%% synced" %
                     (self.suffix_count,
                      (self.suffix_hash * 100.0) / self.suffix_count,
                      (self.suffix_sync * 100.0) / self.suffix_count))
                 self.partition_times.sort()
-                self.logger.info("Partition times: max %.4fs, min %.4fs, med %.4fs"
+                self.logger.info("Partition times: max %.4fs, min %.4fs, "
+                                 "med %.4fs"
                     % (self.partition_times[-1], self.partition_times[0],
                        self.partition_times[len(self.partition_times) // 2]))
         else:
-            self.logger.info("Nothing replicated for %s seconds." % (time.time() - self.start))
+            self.logger.info("Nothing replicated for %s seconds."
+                % (time.time() - self.start))
 
     def kill_coros(self):
         """Utility function that kills all coroutines currently running."""
@@ -457,9 +469,8 @@ class ObjectReplicator(object):
             ips = whataremyips()
             self.run_pool = GreenPool(size=self.concurrency)
             for local_dev in [
-                dev for dev in self.object_ring.devs
-                if dev and dev['ip'] in ips and dev['port'] == self.port
-            ]:
+                    dev for dev in self.object_ring.devs
+                    if dev and dev['ip'] in ips and dev['port'] == self.port]:
                 dev_path = join(self.devices_dir, local_dev['device'])
                 obj_path = join(dev_path, 'objects')
                 tmp_path = join(dev_path, 'tmp')
@@ -472,7 +483,7 @@ class ObjectReplicator(object):
                 for partition in os.listdir(obj_path):
                     try:
                         nodes = [node for node in
-                                 self.object_ring.get_part_nodes(int(partition))
+                            self.object_ring.get_part_nodes(int(partition))
                                  if node['id'] != local_dev['id']]
                         jobs.append(dict(path=join(obj_path, partition),
                             nodes=nodes, delete=len(nodes) > 2,

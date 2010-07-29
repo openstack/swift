@@ -6,11 +6,20 @@
 Welcome to Swift's documentation!
 =================================
 
+Swift is a highly available, distributed, eventually consistent object/blob 
+store.
+
+.. toctree::
+    :maxdepth: 1
+    
+    getting_started
+
 Overview:
 
 .. toctree::
     :maxdepth: 1
 
+    overview_architecture
     overview_ring
     overview_reaper
     overview_auth
@@ -23,6 +32,13 @@ Development:
 
     development_guidelines
     development_saio
+
+Deployment:
+
+.. toctree::
+    :maxdepth: 1
+
+    deployment_guide
 
 Source:
 

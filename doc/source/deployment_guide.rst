@@ -1,0 +1,450 @@
+================
+Deployment Guide
+================
+
+-----------------------
+Hardware Considerations
+-----------------------
+
+Swift is designed to run on commodity hardware. At Rackspace, our storage
+servers are currently running fairly generic 4U servers with 24 2T SATA
+drives and 8 cores of processing power. RAID on the storage drives is not
+required and not recommended. Swift's disk usage pattern is the worst
+case possible for RAID, and performance degrades very quickly using RAID 5
+or 6.
+
+------------------
+Deployment Options
+------------------
+
+The swift services run completely autonomously, which provides for a lot of
+flexibility when architecting the hardware deployment for swift. The 4 main
+services are:
+
+#. Proxy Services
+#. Object Services
+#. Container Services
+#. Account Services
+
+The Proxy Services are more CPU and network I/O intensive. If you are using
+10g networking to the proxy, or are terminating SSL traffic at the proxy,
+greater CPU power will be required.
+
+The Object, Container, and Account Services (Storage Services) are more disk
+and network I/O intensive.
+
+The easiest deployment is to install all services on each server. There is
+nothing wrong with doing this, as it scales each service out horizontally.
+
+At Rackspace, we put the Proxy Services on their own servers and all of the
+Storage Services on the same server. This allows us to send 10g networking to
+the proxy and 1g to the storage servers, and keep load balancing to the
+proxies more manageable.  Storage Services scale out horizontally as storage
+servers are added, and we can scale overall API throughput by adding more
+Proxies.
+
+If you need more throughput to either Account or Container Services, they may
+each be deployed to their own servers. For example you might use faster (but
+more expensive) SAS or even SSD drives to get faster disk I/O to the databases.
+
+Load balancing and network design is left as an excercise to the reader,
+but this is a very important part of the cluster, so time should be spent
+designing the network for a Swift cluster.
+
+------------------
+Preparing the Ring
+------------------
+
+The first step is to determine the number of partitions that will be in the
+ring. We recommend that there be a minimum of 100 partitions per drive to
+insure even distribution accross the drives. A good starting point might be
+to figure out the maximum number of drives the cluster will contain, and then
+multiply by 100, and then round up to the nearest power of two.
+
+For example, imagine we are building a cluster that will have no more than
+5,000 drives. That would mean that we would have a total number of 500,000
+partitions, which is pretty close to 2^19, rounded up.
+
+It is also a good idea to keep the number of partitions small (realatively).
+The more partitions there are, the more work that has to be done by the
+replicators and other backend jobs and the more memory the rings consume in
+process. The goal is to find a good balance between small rings and maximum
+cluster size.
+
+The next step is to determine the number of replicas to store of the data.
+Currently it is recommended to use 3 (as this is the only value that has
+been tested). The higher the number, the more storage that is used but the
+less likely you are to lose data.
+
+It is also important to determine how many zones the cluster should have. It is
+recommended to start with a minimum of 5 zones. You can start with fewer, but
+our testing has shown that having at least five zones is optimal when failures
+occur. We also recommend trying to configure the zones as high a level as
+possible to create as much isolation as possible. Some example things to take
+into consideration can include physical location, power availability, and
+network connectivity. For example, in a small cluster you might decide to
+split the zones up by cabinet, with each cabinet having its own power and
+network connectivity. The zone concept is very abstract, so feel free to use
+it in whatever way best isolates your data from failure. Zones are referenced
+by number, beginning with 1.
+
+You can now start building the ring with::
+
+    swift-ring_builder <builder_file> create <part_power> <replicas> <min_part_hours>
+
+This will start the ring build process creating the <builder_file> with 
+2^<part_power> partitions. <min_part_hours> is the time in hours before a
+specific partition can be moved in succession (24 is a good value for this).
+
+Devices can be added to the ring with::
+
+    swift-ring_builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
+
+This will add a device to the ring where <builder_file> is the name of the
+builder file that was created previously, <zone> is the number of the zone
+this device is in, <ip> is the ip address of the server the device is in,
+<port> is the port number that the server is running on, <device_name> is
+the name of the device on the server (for example: sdb1), <meta> is a string
+of metadata for the device (optional), and <weight> is a float weight that
+determines how many partitions are put on the device relative to the rest of
+the devices in the cluster (a good starting point is 100.0 x TB on the drive).
+Add each device that will be initially in the cluster.
+
+Once all of the devices are added to the ring, run::
+
+    swift_ring_builder <builder_file> rebalance
+
+This will distribute the partitions across the drives in the ring. It is
+important whenever making changes to the ring to make all the changes
+required before running rebalance. This will ensure that the ring stays as
+balanced as possible, and as few partitions are moved as possible.
+
+The above process should be done to make a ring for each storage serivce
+(Account, Container and Object). The builder files will be needed in future
+changes to the ring, so it is very important that these be kept and backed up.
+The resulting .tar.gz ring file should be pushed to all of the servers in the
+cluster. For more information about building rings, running
+swift_ring_builder with no options will display help text with available
+commands and options. More information on how the ring works internally
+can be found in the :doc:`Ring Overview <overview_ring>`.
+
+---------------------------
+Object Server Configuration
+---------------------------
+
+An Example Object Server configuration can be found at 
+etc/object-server.conf-sample in the source code repository.
+
+The following configuration options are available:
+
+[object-server]
+
+==================  ==========  =============================================
+Option              Default     Description
+------------------  ----------  ---------------------------------------------
+swift_dir           /etc/swift  Swift configuration directory
+devices             /srv/node   Parent directory of where devices are mounted
+mount_check         true        Weather or not check if the devices are
+                                mounted to prevent accidently writing
+                                to the root device
+bind_ip             0.0.0.0     IP Address for server to bind to
+bind_port           6000        Port for server to bind to
+workers             1           Number of workers to fork
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+log_requests        True        Weather or not to log each request
+user                swift       User to run as
+node_timeout        3           Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+network_chunk_size  65536       Size of chunks to read/write over the
+                                network
+disk_chunk_size     65536       Size of chunks to read/write to disk
+max_upload_time     86400       Maximum time allowed to upload an object
+slow                0           If > 0, Minimum time in seconds for a PUT
+                                or DELETE request to complete
+==================  ==========  =============================================
+
+[object-replicator]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+daemonize           yes         Weather or not to run replication as a
+                                daemon
+run_pause           30          Time in seconds to wait between replication
+                                passes
+concurrency         1           Number of replication workers to spawn
+timeout             5           Timeout value sent to rsync --timeout and
+                                --contimeout options
+stats_interval      3600        Interval in seconds between logging
+                                replication statistics
+reclaim_age         604800      Time elapsed in seconds before an object
+                                can be reclaimed
+==================  ==========  ===========================================
+
+[object-updater]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+interval            300         Minimum time for a pass to take
+concurrency         1           Number of updater workers to spawn
+node_timeout        10          Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+slowdown            0.01        Time in seconds to wait between objects
+==================  ==========  ===========================================
+
+[object-auditor]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+interval            1800        Minimum time for a pass to take
+node_timeout        10          Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+==================  ==========  ===========================================
+
+------------------------------
+Container Server Configuration
+------------------------------
+
+An example Container Server configuration can be found at 
+etc/container-server.conf-sample in the source code repository.
+
+The following configuration options are available:
+
+[container-server]
+
+==================  ==========  ============================================
+Option              Default     Description
+------------------  ----------  --------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+swift_dir           /etc/swift  Swift configuration directory
+devices             /srv/node   Parent irectory of where devices are mounted
+mount_check         true        Weather or not check if the devices are
+                                mounted to prevent accidently writing
+                                to the root device
+bind_ip             0.0.0.0     IP Address for server to bind to
+bind_port           6001        Port for server to bind to
+workers             1           Number of workers to fork
+user                swift       User to run as
+node_timeout        3           Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+==================  ==========  ============================================
+
+[container-replicator]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+per_diff            1000
+concurrency         8           Number of replication workers to spawn
+run_pause           30          Time in seconds to wait between replication
+                                passes
+node_timeout        10          Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+reclaim_age         604800      Time elapsed in seconds before a container
+                                can be reclaimed
+==================  ==========  ===========================================
+
+[container-updater]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+interval            300         Minimum time for a pass to take
+concurrency         4           Number of updater workers to spawn
+node_timeout        3           Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+slowdown            0.01        Time in seconds to wait between containers
+==================  ==========  ===========================================
+
+[container-auditor]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+interval            1800        Minimum time for a pass to take
+node_timeout        10          Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+==================  ==========  ===========================================
+
+----------------------------
+Account Server Configuration
+----------------------------
+
+An example Account Server configuration can be found at 
+etc/account-server.conf-sample in the source code repository.
+
+The following configuration options are available:
+
+[account-server]
+
+==================  ==========  =============================================
+Option              Default     Description
+------------------  ----------  ---------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+swift_dir           /etc/swift  Swift configuration directory
+devices             /srv/node   Parent directory or where devices are mounted
+mount_check         true        Weather or not check if the devices are
+                                mounted to prevent accidently writing
+                                to the root device
+bind_ip             0.0.0.0     IP Address for server to bind to
+bind_port           6002        Port for server to bind to
+workers             1           Number of workers to fork
+user                swift       User to run as
+==================  ==========  =============================================
+
+[account-replicator]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+per_diff            1000
+concurrency         8           Number of replication workers to spawn
+run_pause           30          Time in seconds to wait between replication
+                                passes
+node_timeout        10           Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+reclaim_age         604800      Time elapsed in seconds before a account
+                                can be reclaimed
+==================  ==========  ===========================================
+
+[account-auditor]
+
+====================  ==========  ===========================================
+Option                Default     Description
+--------------------  ----------  -------------------------------------------
+log_facility          LOG_LOCAL0  Syslog log facility
+log_level             INFO        Logging level
+interval              1800        Minimum time for a pass to take
+max_container_count   100         Maximum containers randomly picked for
+                                  a given account audit
+node_timeout          10          Request timeout to external services
+conn_timeout          0.5         Connection timeout to external services
+====================  ==========  ===========================================
+
+[account-reaper]
+
+==================  ==========  ===========================================
+Option              Default     Description
+------------------  ----------  -------------------------------------------
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
+concurrency         25          Number of replication workers to spawn
+interval            3600        Minimum time for a pass to take
+node_timeout        10          Request timeout to external services
+conn_timeout        0.5         Connection timeout to external services
+==================  ==========  ===========================================
+
+----------------------
+General Service Tuning
+----------------------
+
+Most services support either a worker or concurrency value in the settings.
+This allows the services to make effective use of the cores available. A good
+starting point to set the concurrency level for the proxy and storage services
+to 2 times the number of cores available. If more than one service is
+sharing a server, then some experimentaiton may be needed to find the best
+balance.
+
+At Rackspace, our Proxy servers have dual quad core processors, giving us 8
+cores. Our testing has shown 16 workers to be a pretty good balance when
+saturating a 10g network and gives good CPU utilization.
+
+Our Storage servers all run together on the same servers. These servers have
+dual quad core processors, for 8 cores total. We run the Account, Container,
+and Object servers with 8 workers each. Most of the background jobs are run
+at a concurrency of 1, with the exception of the replicators which are run at
+a concurrency of 2.
+
+The above configuration setting should be taken as suggestions and testing
+of configuration settings should be done to ensure best utilization of CPU,
+network connectivity, and disk I/O.
+
+-------------------------
+Filesystem Considerations
+-------------------------
+
+Swift is designed to be mostly filesystem agnostic--the only requirement
+beeing that the filesystem supports extended attributes (xattrs). After
+thorough testing with our use cases and hardware configurations, XFS was
+the best all-around choice. If you decide to use a filesystem other than
+XFS, we highly recommend thorough testing.
+
+If you are using XFS, some settings that can dramatically impact
+performance. We recommend the following when creating the XFS 
+partition::
+
+    mkfs.xfs -i size=1024 -f /dev/sda1
+
+Setting the inode size is important, as XFS stores xattr data in the inode.
+If the metadata is too large to fit in the inode, a new extent is created,
+which can cause quite a performance problem. Upping the inode size to 1024
+bytes provides enough room to write the default metadata, plus a little
+headroom. We do not recommend running Swift on RAID, but if you are using
+RAID it is also important to make sure that the proper sunit and swidth
+settings get set so that XFS can make most efficient use of the RAID array.
+
+We also recommend the following example mount options when using XFS::
+
+    mount -t xfs -o noatime,nodiratime,nobarrier,logbufs=8 /dev/sda1 /srv/node/sda
+
+For a standard swift install, all data drives are mounted directly under
+/srv/node (as can be seen in the above example of mounting /def/sda1 as
+/srv/node/sda). If you choose to mount the drives in another directory,
+be sure to set the `devices` config option in all of the server configs to
+point to the correct directory.  
+
+---------------------
+General System Tuning
+---------------------
+
+Rackspace currently runs Swift on Ubuntu Server 10.04, and the following
+changes have been found to be useful for our use cases.
+
+The following settings should be in `/etc/sysctl.conf`::
+
+    # disable TIME_WAIT.. wait..
+    net.ipv4.tcp_tw_recycle=1
+    net.ipv4.tcp_tw_reuse=1
+
+    # disable syn cookies
+    net.ipv4.tcp_syncookies = 0
+
+    # double amount of allowed conntrack
+    net.ipv4.netfilter.ip_conntrack_max = 262144
+
+To load the updated sysctl settings, run ``sudo sysctl -p``
+
+A note about changing the TIME_WAIT values.  By default the OS will hold
+a port open for 60 seconds to ensure that any remaining packets can be
+received.  During high usage, and with the number of connections that are
+created, it is easy to run out of ports.  We can change this since we are
+in control of the network.  If you are not in control of the network, or
+do not expect high loads, then you may not want to adjust those values.
+
+----------------------
+Logging Considerations
+----------------------
+
+Swift is set up to log directly to syslog. Every service can be configured
+with the `log_facility` option to set the syslog log facility destination.
+It is recommended to use syslog-ng to route the logs to specific log
+files locally on the server and also to remote log collecting servers.

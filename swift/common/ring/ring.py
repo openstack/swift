@@ -24,6 +24,7 @@ from swift.common.utils import hash_path
 
 class RingData(object):
     """Partitioned consistent hashing ring data (used for serialization)."""
+
     def __init__(self, replica2part2dev_id, devs, part_shift):
         self.devs = devs
         self._replica2part2dev_id = replica2part2dev_id
@@ -37,6 +38,7 @@ class Ring(object):
     :param pickle_gz_path: path to ring file
     :param reload_time: time interval in seconds to check for a ring change
     """
+
     def __init__(self, pickle_gz_path, reload_time=15):
         self.pickle_gz_path = pickle_gz_path
         self.reload_time = reload_time

@@ -15,6 +15,7 @@
 
 from webob import Response
 
+
 class HealthCheckController(object):
     """Basic controller used for monitoring."""
 

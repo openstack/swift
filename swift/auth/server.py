@@ -140,7 +140,7 @@ class AuthController(object):
             try:
                 conn = None
                 conn = http_connect(node['ip'], node['port'], node['device'],
-                        partition, 'PUT', '/'+account_name, headers)
+                        partition, 'PUT', '/' + account_name, headers)
                 source = conn.getresponse()
                 statuses.append(source.status)
                 if source.status >= 500:
@@ -358,7 +358,7 @@ class AuthController(object):
         :param request: webob.Request object
         """
         result = self.recreate_accounts()
-        return Response(result, 200, request = request)
+        return Response(result, 200, request=request)
 
     def handle_auth(self, request):
         """
@@ -438,7 +438,6 @@ class AuthController(object):
                                           'x-storage-token': token,
                                           'x-storage-url': url})
 
-
     def handleREST(self, env, start_response):
         """
         Handles routing of ReST requests. This handler also logs all requests.
@@ -452,7 +451,7 @@ class AuthController(object):
             logged_headers = '\n'.join('%s: %s' % (k, v)
                 for k, v in req.headers.items()).replace('"', "#042")
         start_time = time()
-        # Figure out how to handle the request 
+        # Figure out how to handle the request
         try:
             if req.method == 'GET' and req.path.startswith('/v1') or \
                     req.path.startswith('/auth'):
