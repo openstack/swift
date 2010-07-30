@@ -14,9 +14,7 @@
 # limitations under the License.
 
 import os
-import sys
 from os.path import isdir, join
-from ConfigParser import ConfigParser
 import random
 import shutil
 import time
@@ -385,7 +383,7 @@ class ObjectReplicator(object):
                                      remote_hash.get(suffix, -1)]
                     if not suffixes:
                         continue
-                    success = self.rsync(node, job, suffixes)
+                    self.rsync(node, job, suffixes)
                     recalculate_hashes(job['path'], suffixes,
                                        reclaim_age=self.reclaim_age)
                     with Timeout(60):
@@ -409,7 +407,6 @@ class ObjectReplicator(object):
         """
         if self.replication_count:
             rate = self.replication_count / (time.time() - self.start)
-            left = int((self.job_count - self.replication_count) / rate)
             self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f "
                              "seconds (%.2f/sec, %s remaining)"
                     % (self.replication_count, self.job_count,

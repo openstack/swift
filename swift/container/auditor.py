@@ -87,7 +87,6 @@ class ContainerAuditor(object):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            pids = []
             for device in os.listdir(self.devices):
                 if self.mount_check and not\
                         os.path.ismount(os.path.join(self.devices, device)):
@@ -184,7 +183,6 @@ class ContainerAuditor(object):
                     resp = conn.getresponse()
                     body = resp.read()
                 if 200 <= resp.status <= 299:
-                    good_reponse = True
                     for cname in body.split('\n'):
                         if cname == info['container']:
                             found = True

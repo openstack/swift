@@ -15,7 +15,6 @@
 
 import cPickle as pickle
 from gzip import GzipFile
-from hashlib import md5
 from os.path import getmtime
 from struct import unpack_from
 from time import time

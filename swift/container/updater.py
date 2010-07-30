@@ -13,11 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
 import logging
 import os
 import signal
-import socket
 import sys
 import time
 from random import random, shuffle
@@ -67,7 +65,6 @@ class ContainerUpdater(object):
         :returns: a list of paths
         """
         paths = []
-        ips = whataremyips()
         for device in os.listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not os.path.ismount(dev_path):

@@ -27,7 +27,6 @@ import cPickle as pickle
 import errno
 from random import randint
 from tempfile import mkstemp
-import math
 
 from eventlet import sleep
 import sqlite3
@@ -332,7 +331,7 @@ class DatabaseBroker(object):
         :param delete_timestamp: delete timestamp
         """
         with self.get() as conn:
-            row = conn.execute('''
+            conn.execute('''
                 UPDATE %s_stat SET created_at=MIN(?, created_at),
                                    put_timestamp=MAX(?, put_timestamp),
                                    delete_timestamp=MAX(?, delete_timestamp)
@@ -919,7 +918,7 @@ class ContainerBroker(DatabaseBroker):
         with self.get() as conn:
             max_rowid = -1
             for rec in item_list:
-                curs = conn.execute('''
+                conn.execute('''
                     DELETE FROM object WHERE name = ? AND
                         (created_at < ?)
                 ''', (rec['name'], rec['created_at']))

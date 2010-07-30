@@ -14,9 +14,8 @@
 # limitations under the License.
 
 from __future__ import with_statement
-import errno
+
 import os
-import socket
 import time
 import traceback
 from urllib import unquote
@@ -25,20 +24,19 @@ from datetime import datetime
 
 import simplejson
 from eventlet.timeout import Timeout
-from eventlet import TimeoutError
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
-    HTTPCreated, HTTPException, HTTPInternalServerError, HTTPNoContent, \
+    HTTPCreated, HTTPInternalServerError, HTTPNoContent, \
     HTTPNotFound, HTTPPreconditionFailed, HTTPMethodNotAllowed
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    storage_directory, split_path, mkdirs
+    storage_directory, split_path
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_xml_encodable
 from swift.common.bufferedhttp import http_connect
 from swift.common.healthcheck import healthcheck
-from swift.common.exceptions import ConnectionTimeout, MessageTimeout
+from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
 
 DATADIR = 'containers'
