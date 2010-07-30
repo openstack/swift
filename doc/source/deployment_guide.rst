@@ -51,6 +51,8 @@ Load balancing and network design is left as an excercise to the reader,
 but this is a very important part of the cluster, so time should be spent
 designing the network for a Swift cluster.
 
+.. _ring-preparing:
+
 ------------------
 Preparing the Ring
 ------------------
@@ -320,7 +322,7 @@ per_diff            1000
 concurrency         8           Number of replication workers to spawn
 run_pause           30          Time in seconds to wait between replication
                                 passes
-node_timeout        10           Request timeout to external services
+node_timeout        10          Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
 reclaim_age         604800      Time elapsed in seconds before a account
                                 can be reclaimed
@@ -352,6 +354,99 @@ interval            3600        Minimum time for a pass to take
 node_timeout        10          Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
 ==================  ==========  ===========================================
+
+--------------------------
+Proxy Server Configuration
+--------------------------
+
+[proxy-server]
+
+============================  ===============  =============================
+Option                        Default          Description
+----------------------------  ---------------  -----------------------------
+log_facility                  LOG_LOCAL0       Syslog log facility
+log_level                     INFO             Log level
+bind_ip                       0.0.0.0          IP Address for server to
+                                               bind to
+bind_port                     80               Port for server to bind to
+cert_file                                      Path to the ssl .crt 
+key_file                                       Path to the ssl .key
+swift_dir                     /etc/swift       Swift configuration directory
+log_headers                   True             If True, log headers in each
+                                               request
+workers                       1                Number of workers to fork
+user                          swift            User to run as
+recheck_account_existence     60               Cache timeout in seconds to
+                                               send memcached for account
+                                               existance
+recheck_container_existence   60               Cache timeout in seconds to
+                                               send memcached for container
+                                               existance
+object_chunk_size             65536            Chunk size to read from
+                                               object servers
+client_chunk_size             65536            Chunk size to read from
+                                               clients
+memcache_servers              127.0.0.1:11211  Comma separated list of
+                                               memcached servers ip:port
+node_timeout                  10               Request timeout to external
+                                               services
+client_timeout                60               Timeout to read one chunk
+                                               from a client
+conn_timeout                  0.5              Connection timeout to
+                                               external services
+error_suppression_interval    60               Time in seconds that must
+                                               elapse since the last error
+                                               for a node to be considered
+                                               no longer error limited
+error_suppression_limit       10               Error count to consider a
+                                               node error limited
+rate_limit                    20000.0          Max container level ops per
+                                               second
+account_rate_limit            200.0            Max account level ops per
+                                               second
+rate_limit_account_whitelist                   Comma separated list of 
+                                               account name hashes to not
+                                               rate limit
+rate_limit_account_blacklist                   Comma separated list of
+                                               account name hashes to block
+                                               completly
+============================  ===============  =============================
+
+[auth-server]
+
+============  ===================================  ========================
+Option        Default                              Description
+------------  -----------------------------------  ------------------------
+class         swift.common.auth.DevAuthMiddleware  Auth wsgi middleware
+                                                   to use
+ip            127.0.0.1                            IP address of auth
+                                                   server
+port          11000                                Port of auth server
+node_timeout  10                                   Request timeout
+============  ===================================  ========================
+
+------------------------
+Memcached Considerations
+------------------------
+
+Several of the Services rely on Memcached for caching certain types of
+lookups, such as auth tokens, and container/account existance.  Swift does
+not do any caching of actual object data.  Memcached should be able to run
+on any servers that have available RAM and CPU.  At Rackspace, we run 
+Memcached on the proxy servers.  The `memcache_servers` config option
+in the `proxy-server.conf` should contain all memcached servers.
+
+-----------
+System Time
+-----------
+
+Time may be relative but it is relatively important for Swift!  Sift uses
+timestamps to determine which is the most recent version of an object.
+It is very important for the system time on each server in the cluster to
+by synced as closely as possible (more so for the proxy server, but in general
+it is a good idea for all the servers).  At Rackspace, we use NTP with a local
+NTP server to ensure that the system times are as close as possible.  This
+should also be monitored to ensure that the times do not vary too much.
 
 ----------------------
 General Service Tuning
