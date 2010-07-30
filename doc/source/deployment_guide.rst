@@ -440,7 +440,7 @@ in the `proxy-server.conf` should contain all memcached servers.
 System Time
 -----------
 
-Time may be relative but it is relatively important for Swift!  Sift uses
+Time may be relative but it is relatively important for Swift!  Swift uses
 timestamps to determine which is the most recent version of an object.
 It is very important for the system time on each server in the cluster to
 by synced as closely as possible (more so for the proxy server, but in general
