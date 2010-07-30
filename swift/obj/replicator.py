@@ -123,7 +123,7 @@ def invalidate_hash(suffix_dir):
     Invalidates the hash for a suffix_dir in the partition's hashes file.
 
     :param suffix_dir: absolute path to suffix dir whose hash needs
-    invalidating
+                       invalidating
     """
 
     suffix = os.path.basename(suffix_dir)

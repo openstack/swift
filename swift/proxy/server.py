@@ -949,9 +949,6 @@ class BaseApplication(object):
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
-        self.container_chunk_size = \
-            int(conf.get('container_chunk_size', 65536))
-        self.account_chunk_size = int(conf.get('account_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
         self.log_headers = conf.get('log_headers') == 'True'
         self.error_suppression_interval = \
@@ -979,8 +976,6 @@ class BaseApplication(object):
         self.rate_limit_blacklist = [x.strip() for x in
             conf.get('rate_limit_account_blacklist', '').split(',')
             if x.strip()]
-        self.container_put_lock_timeout = \
-            int(conf.get('container_put_lock_timeout', 5))
 
     def get_controller(self, path):
         """

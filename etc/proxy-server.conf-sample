@@ -12,8 +12,6 @@
 # recheck_account_existence = 60
 # recheck_container_existence = 60
 # object_chunk_size = 8192
-# container_chunk_size = 8192
-# account_chunk_size = 8192
 # client_chunk_size = 8192
 # Default for memcache_servers is below, but you can specify multiple servers
 # with the format: 10.1.2.3:11211,10.1.2.4:11211
@@ -32,7 +30,6 @@
 # account_rate_limit = 200.0
 # rate_limit_account_whitelist = acct1,acct2,etc
 # rate_limit_account_blacklist = acct3,acct4,etc
-# container_put_lock_timeout = 5
 
 # [auth-server]
 # class = swift.common.auth.DevAuthMiddleware

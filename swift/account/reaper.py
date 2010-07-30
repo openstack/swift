@@ -201,10 +201,14 @@ class AccountReaper(object):
         :param partition: The partition in the account ring the account is on.
         :param nodes: The primary node dicts for the account to delete.
 
-        * See also: :class:`swift.common.db.AccountBroker` for the broker
-        class.
-        * See also: :func:`swift.common.ring.Ring.get_nodes` for a description
-          of the node dicts.
+        .. seealso::
+
+            :class:`swift.common.db.AccountBroker` for the broker class.
+
+        .. seealso::
+
+            :func:`swift.common.ring.Ring.get_nodes` for a description
+            of the node dicts.
         """
         begin = time()
         account = broker.get_info()['account']
