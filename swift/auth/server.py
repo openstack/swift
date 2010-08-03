@@ -27,7 +27,7 @@ from webob.exc import HTTPBadRequest, HTTPNoContent, HTTPUnauthorized, \
                       HTTPServiceUnavailable, HTTPNotFound
 
 from swift.common.bufferedhttp import http_connect
-from swift.common.db import DatabaseConnectionError, get_db_connection
+from swift.common.db import get_db_connection
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, normalize_timestamp, split_path
 

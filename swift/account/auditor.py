@@ -17,7 +17,6 @@ import os
 import socket
 import time
 from random import choice, random
-from urllib import quote
 
 from eventlet import Timeout
 
@@ -72,7 +71,6 @@ class AccountAuditor(object):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            pids = []
             for device in os.listdir(self.devices):
                 if self.mount_check and not \
                         os.path.ismount(os.path.join(self.devices, device)):

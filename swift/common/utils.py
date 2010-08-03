@@ -67,6 +67,7 @@ def load_libc_function(func_name):
     except AttributeError:
         logging.warn("Unable to locate %s in libc.  Leaving as a no-op."
                      % func_name)
+
         def noop_libc_function(*args):
             return 0
         return noop_libc_function

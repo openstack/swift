@@ -19,7 +19,6 @@ from __future__ import with_statement
 import cPickle as pickle
 import errno
 import os
-import socket
 import time
 import traceback
 from datetime import datetime
@@ -30,13 +29,12 @@ from contextlib import contextmanager
 
 from webob import Request, Response, UTC
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
-    HTTPInternalServerError, HTTPLengthRequired, HTTPNoContent, HTTPNotFound, \
-    HTTPNotImplemented, HTTPNotModified, HTTPPreconditionFailed, \
+    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
+    HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout
 
-from swift.common.exceptions import MessageTimeout
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, get_logger, renamer, fallocate, \
     split_path, drop_buffer_cache
@@ -331,12 +329,12 @@ class ObjectController(object):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, disk_chunk_size=self.disk_chunk_size)
-        deleted = file.is_deleted()
+
         if file.is_deleted():
             response_class = HTTPNotFound
         else:
             response_class = HTTPAccepted
-        old_metadata = file.metadata
+
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))

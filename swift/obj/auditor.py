@@ -13,10 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
 import os
 import socket
-import sys
 import time
 from hashlib import md5
 from random import choice, random
@@ -71,7 +69,6 @@ class ObjectAuditor(object):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            pids = []
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
             for device in os.listdir(self.devices):
@@ -192,7 +189,6 @@ class ObjectAuditor(object):
                     resp = conn.getresponse()
                     body = resp.read()
                 if 200 <= resp.status <= 299:
-                    good_reponse = True
                     for oname in body.split('\n'):
                         if oname == obj:
                             found = True

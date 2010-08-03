@@ -14,24 +14,22 @@
 # limitations under the License.
 
 from __future__ import with_statement
-import errno
+
 import os
 import time
 import traceback
-from datetime import datetime
+
 from urllib import unquote
 from swift.common.utils import get_logger
 
-import sqlite3
 from webob import Request, Response
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
+from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, HTTPPreconditionFailed
 import simplejson
 from xml.sax import saxutils
 
 from swift.common.db import AccountBroker
-from swift.common.exceptions import MessageTimeout
 from swift.common.utils import get_param, split_path, storage_directory, \
     hash_path
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \

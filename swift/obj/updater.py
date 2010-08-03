@@ -14,8 +14,6 @@
 # limitations under the License.
 
 import cPickle as pickle
-import errno
-import logging
 import os
 import signal
 import sys
@@ -28,7 +26,6 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer
-from swift.common.db_replicator import ReplConnection
 from swift.obj.server import ASYNCDIR
 
 
@@ -149,7 +146,7 @@ class ObjectUpdater(object):
         """
         try:
             update = pickle.load(open(update_path, 'rb'))
-        except Exception, err:
+        except Exception:
             self.logger.exception(
                 'ERROR Pickle problem, quarantining %s' % update_path)
             renamer(update_path, os.path.join(device,
