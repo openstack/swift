@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from array import array
-from bisect import bisect
 from random import randint
 from time import time
 

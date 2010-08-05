@@ -38,8 +38,6 @@ CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
 
 
-
-
 def check_metadata(req):
     """
     Check metadata sent for objects in the request headers.

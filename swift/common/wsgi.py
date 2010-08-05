@@ -58,7 +58,6 @@ def monkey_patch_mimetools():
 # We might be able to pull pieces of this out to test, but right now it seems
 # like more work than it's worth.
 
-
 def run_wsgi(app, conf, *args, **kwargs):   # pragma: no cover
     """
     Loads common settings from conf, then instantiates app and runs

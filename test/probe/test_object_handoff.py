@@ -40,11 +40,12 @@ class TestObjectHandoff(unittest.TestCase):
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
         apart, anodes = self.account_ring.get_nodes(self.account)
-        anode = anodes[0]
+
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
         obj = 'object-%s' % uuid4()
-        opart, onodes = self.object_ring.get_nodes(self.account, container, obj)
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, container, obj)
         onode = onodes[0]
         kill(self.pids[self.port2server[onode['port']]], SIGTERM)
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
@@ -126,7 +127,8 @@ class TestObjectHandoff(unittest.TestCase):
         kill(self.pids[self.port2server[onode['port']]], SIGTERM)
         client.post_object(self.url, self.token, container, obj,
                            {'probe': 'value'})
-        ometadata = client.head_object(self.url, self.token, container, obj)[-1]
+        ometadata = client.head_object(
+            self.url, self.token, container, obj)[-1]
         if ometadata.get('probe') != 'value':
             raise Exception('Metadata incorrect, was %s' % repr(ometadata))
         exc = False
@@ -180,8 +182,8 @@ class TestObjectHandoff(unittest.TestCase):
             raise Exception('Container listing still knew about object')
         for cnode in cnodes:
             objs = [o['name'] for o in
-                    direct_client.direct_get_container(cnode, cpart,
-                                                       self.account, container)]
+                    direct_client.direct_get_container(
+                        cnode, cpart, self.account, container)]
             if obj in objs:
                 raise Exception(
                     'Container server %s:%s still knew about object' %

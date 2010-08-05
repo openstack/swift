@@ -14,22 +14,18 @@
 # limitations under the License.
 
 from __future__ import with_statement
-import errno
 import mimetypes
 import os
-import socket
 import time
-from ConfigParser import ConfigParser, NoOptionError
+from ConfigParser import ConfigParser
 from urllib import unquote, quote
 import uuid
-import sys
 import functools
 
 from eventlet.timeout import Timeout
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
-    HTTPCreated, HTTPLengthRequired, HTTPMethodNotAllowed, HTTPNoContent, \
-    HTTPNotFound, HTTPNotModified, HTTPPreconditionFailed, \
-    HTTPRequestTimeout, HTTPServiceUnavailable, HTTPUnauthorized, \
+from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
+    HTTPNotFound, HTTPPreconditionFailed, \
+    HTTPRequestTimeout, HTTPServiceUnavailable, \
     HTTPUnprocessableEntity, HTTPRequestEntityTooLarge, HTTPServerError, \
     status_map
 from webob import Request, Response
