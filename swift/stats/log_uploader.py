@@ -1,0 +1,135 @@
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import with_statement
+import os
+import hashlib
+import time
+import gzip
+import glob
+
+from swift.common.internal_proxy import InternalProxy
+
+class LogUploader(object):
+    '''
+    Given a local directory, a swift account, and a container name, LogParser
+    will upload all files in the local directory to the given account/container.
+    All but the newest files will be uploaded, and the files' md5 sum will be
+    computed. The hash is used to prevent duplicate data from being uploaded
+    multiple times in different files (ex: log lines). Since the hash is
+    computed, it is also used as the uploaded object's etag to ensure data
+    integrity.
+    
+    Note that after the file is successfully uploaded, it will be unlinked.
+    
+    The given proxy server config is used to instantiate a proxy server for
+    the object uploads.
+    '''
+
+    def __init__(self, log_dir, swift_account, container_name, filename_format,
+            proxy_server_conf, logger):
+        if not log_dir.endswith('/'):
+            log_dir = log_dir + '/'
+        self.log_dir = log_dir
+        self.swift_account = swift_account
+        self.container_name = container_name
+        self.filename_format = filename_format
+        self.internal_proxy = InternalProxy(proxy_server_conf, logger)
+        self.logger = logger
+
+    def upload_all_logs(self):
+        i = [(c,self.filename_format.index(c)) for c in '%Y %m %d %H'.split()]
+        i.sort()
+        year_offset = month_offset = day_offset = hour_offset = None
+        for c, start in i:
+            if c == '%Y':
+                year_offset = start, start+4
+            elif c == '%m':
+                month_offset = start, start+2
+            elif c == '%d':
+                day_offset = start, start+2
+            elif c == '%H':
+                hour_offset = start, start+2
+        if not (year_offset and month_offset and day_offset and hour_offset):
+            # don't have all the parts, can't upload anything
+            return
+        glob_pattern = self.filename_format
+        glob_pattern = glob_pattern.replace('%Y', '????')
+        glob_pattern = glob_pattern.replace('%m', '??')
+        glob_pattern = glob_pattern.replace('%d', '??')
+        glob_pattern = glob_pattern.replace('%H', '??')
+        filelist = glob.iglob(os.path.join(self.log_dir, glob_pattern))
+        current_hour = int(time.strftime('%H'))
+        today = int(time.strftime('%Y%m%d'))
+        self.internal_proxy.create_container(self.swift_account,
+                                            self.container_name)
+        for filename in filelist:
+            try:
+                # From the filename, we need to derive the year, month, day,
+                # and hour for the file. These values are used in the uploaded
+                # object's name, so they should be a reasonably accurate
+                # representation of the time for which the data in the file was
+                # collected. The file's last modified time is not a reliable
+                # representation of the data in the file. For example, an old
+                # log file (from hour A) may be uploaded or moved into the
+                # log_dir in hour Z. The file's modified time will be for hour
+                # Z, and therefore the object's name in the system will not
+                # represent the data in it.
+                # If the filename doesn't match the format, it shouldn't be
+                # uploaded.
+                year = filename[slice(*year_offset)]
+                month = filename[slice(*month_offset)]
+                day = filename[slice(*day_offset)]
+                hour = filename[slice(*hour_offset)]
+            except IndexError:
+                # unexpected filename format, move on
+                self.logger.error("Unexpected log: %s" % filename)
+                continue
+            if (time.time() - os.stat(filename).st_mtime) < 7200:
+                # don't process very new logs
+                self.logger.debug("Skipping log: %s (< 2 hours old)" % filename)
+                continue
+            self.upload_one_log(filename, year, month, day, hour)
+
+    def upload_one_log(self, filename, year, month, day, hour):
+        if os.path.getsize(filename) == 0:
+            self.logger.debug("Log %s is 0 length, skipping" % filename)
+            return
+        self.logger.debug("Processing log: %s" % filename)
+        filehash = hashlib.md5()
+        already_compressed = True if filename.endswith('.gz') else False
+        opener = gzip.open if already_compressed else open
+        f = opener(filename, 'rb')
+        try:
+            for line in f:
+                # filter out bad lines here?
+                filehash.update(line)
+        finally:
+            f.close()
+        filehash = filehash.hexdigest()
+        # By adding a hash to the filename, we ensure that uploaded files
+        # have unique filenames and protect against uploading one file
+        # more than one time. By using md5, we get an etag for free.
+        target_filename = '/'.join([year, month, day, hour, filehash+'.gz'])
+        if self.internal_proxy.upload_file(filename,
+                                          self.swift_account,
+                                          self.container_name,
+                                          target_filename,
+                                          compress=(not already_compressed)):
+            self.logger.debug("Uploaded log %s to %s" %
+                (filename, target_filename))
+            os.unlink(filename)
+        else:
+            self.logger.error("ERROR: Upload of log %s failed!" % filename)

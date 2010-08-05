@@ -1,0 +1,83 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import signal
+import sys
+import time
+from ConfigParser import ConfigParser
+
+from swift.stats.log_uploader import LogUploader
+from swift.common.utils import get_logger
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print "Usage: swift-log-uploader CONFIG_FILE plugin"
+        sys.exit()
+
+    c = ConfigParser()
+    if not c.read(sys.argv[1]):
+        print "Unable to read config file."
+        sys.exit(1)
+
+    if c.has_section('log-processor'):
+        parser_conf = dict(c.items('log-processor'))
+    else:
+        print "Unable to find log-processor config section in %s." % sys.argv[1]
+        sys.exit(1)
+    
+    plugin = sys.argv[2]
+    section_name = 'log-processor-%s' % plugin
+    if c.has_section(section_name):
+        uploader_conf.update(dict(c.items(section_name)))
+    else:
+        print "Unable to find %s config section in %s." % (section_name,
+                                                           sys.argv[1])
+        sys.exit(1)
+
+    try:
+        os.setsid()
+    except OSError:
+        pass
+
+    logger = get_logger(uploader_conf, 'swift-log-uploader')
+
+    def kill_children(*args):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        os.killpg(0, signal.SIGTERM)
+        sys.exit()
+
+    signal.signal(signal.SIGTERM, kill_children)
+
+    log_dir = uploader_conf.get('log_dir', '/var/log/swift/')
+    swift_account = uploader_conf['swift_account']
+    container_name = uploader_conf['container_name']
+    source_filename_format = uploader_conf['source_filename_format']
+    proxy_server_conf_loc = uploader_conf.get('proxy_server_conf',
+                                              '/etc/swift/proxy-server.conf')
+    try:
+        c = ConfigParser()
+        c.read(proxy_server_conf_loc)
+        proxy_server_conf = dict(c.items('proxy-server'))
+    except:
+        proxy_server_conf = None
+    uploader = LogUploader(log_dir, swift_account, container_name,
+        source_filename_format, proxy_server_conf, logger)
+    logger.info("Uploading logs")
+    start = time.time()
+    uploader.upload_all_logs()
+    logger.info("Uploading logs complete (%0.2f minutes)" %
+        ((time.time()-start)/60))
