@@ -24,3 +24,4 @@ swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 container_name = account_stats
 source_filename_format = %Y%m%d%H*
 class_path = swift.stats.stats_processor
+# account_server_conf = /etc/swift/account-server.conf
