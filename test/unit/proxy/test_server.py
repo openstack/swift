@@ -50,7 +50,7 @@ logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 def fake_http_connect(*code_iter, **kwargs):
     class FakeConn(object):
-        def __init__(self, status, etag=None):
+        def __init__(self, status, etag=None, body=''):
             self.status = status
             self.reason = 'Fake'
             self.host = '1.2.3.4'
@@ -58,6 +58,7 @@ def fake_http_connect(*code_iter, **kwargs):
             self.sent = 0
             self.received = 0
             self.etag = etag
+            self.body = body
         def getresponse(self):
             if 'raise_exc' in kwargs:
                 raise Exception('test')
@@ -65,7 +66,7 @@ def fake_http_connect(*code_iter, **kwargs):
         def getexpect(self):
             return FakeConn(100)
         def getheaders(self):
-            headers = {'content-length': 0,
+            headers = {'content-length': len(self.body),
                        'content-type': 'x-application/test',
                        'x-timestamp': '1',
                        'x-object-meta-test': 'testing',
@@ -87,7 +88,9 @@ def fake_http_connect(*code_iter, **kwargs):
                     self.sent += 1
                     sleep(0.1)
                     return ' '
-            return ''
+            rv = self.body[:amt]
+            self.body = self.body[amt:]
+            return rv
         def send(self, amt=None):
             if 'slow' in kwargs:
                 if self.received < 4:
@@ -111,7 +114,7 @@ def fake_http_connect(*code_iter, **kwargs):
         etag = etag_iter.next()
         if status == -1:
             raise HTTPException()
-        return FakeConn(status, etag)
+        return FakeConn(status, etag, body=kwargs.get('body', ''))
     return connect
 
 
@@ -1458,6 +1461,72 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 422)
 
+    def test_request_bytes_transferred_attr(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '10'},
+                                body='1234567890')
+            req.account = 'a'
+            res = controller.PUT(req)
+            self.assert_(hasattr(req, 'bytes_transferred'))
+            self.assertEquals(req.bytes_transferred, 10)
+
+    def test_response_bytes_transferred_attr(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, body='1234567890')
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o')
+            req.account = 'a'
+            res = controller.GET(req)
+            res.body
+            self.assert_(hasattr(res, 'bytes_transferred'))
+            self.assertEquals(res.bytes_transferred, 10)
+
+    def test_request_client_disconnect_attr(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '10'},
+                                body='12345')
+            req.account = 'a'
+            res = controller.PUT(req)
+            self.assertEquals(req.bytes_transferred, 5)
+            self.assert_(hasattr(req, 'client_disconnect'))
+            self.assert_(req.client_disconnect)
+
+    def test_response_client_disconnect_attr(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, body='1234567890')
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o')
+            req.account = 'a'
+            orig_object_chunk_size = self.app.object_chunk_size
+            try:
+                self.app.object_chunk_size = 5
+                res = controller.GET(req)
+                ix = 0
+                for v in res.app_iter:
+                    ix += 1
+                    if ix > 1:
+                        break
+                res.app_iter.close()
+                self.assertEquals(res.bytes_transferred, 5)
+                self.assert_(hasattr(res, 'client_disconnect'))
+                self.assert_(res.client_disconnect)
+            finally: 
+                self.app.object_chunk_size = orig_object_chunk_size
+
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -1646,6 +1715,41 @@ class TestContainerController(unittest.TestCase):
             # 200: Account check, 404x3: Container check
             self.assert_status_map(controller.DELETE, (200, 404, 404, 404), 404)
 
+    def test_response_bytes_transferred_attr(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c?format=json')
+            req.account = 'a'
+            res = controller.GET(req)
+            res.body
+            self.assert_(hasattr(res, 'bytes_transferred'))
+            self.assertEquals(res.bytes_transferred, 2)
+
+    def test_response_client_disconnect_attr(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c?format=json')
+            req.account = 'a'
+            orig_object_chunk_size = self.app.object_chunk_size
+            try:
+                self.app.object_chunk_size = 1
+                res = controller.GET(req)
+                ix = 0
+                for v in res.app_iter:
+                    ix += 1
+                    if ix > 1:
+                        break
+                res.app_iter.close()
+                self.assertEquals(res.bytes_transferred, 1)
+                self.assert_(hasattr(res, 'client_disconnect'))
+                self.assert_(res.client_disconnect)
+            finally: 
+                self.app.object_chunk_size = orig_object_chunk_size
+
 
 class TestAccountController(unittest.TestCase):
 
@@ -1727,6 +1831,39 @@ class TestAccountController(unittest.TestCase):
         req.account = 'account'
         resp = controller.HEAD(req)
         self.assertEquals(resp.status_int, 503)
+
+    def test_response_bytes_transferred_attr(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/a?format=json')
+            req.account = 'a'
+            res = controller.GET(req)
+            res.body
+            self.assert_(hasattr(res, 'bytes_transferred'))
+            self.assertEquals(res.bytes_transferred, 2)
+
+    def test_response_client_disconnect_attr(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/a?format=json')
+            req.account = 'a'
+            orig_object_chunk_size = self.app.object_chunk_size
+            try:
+                self.app.object_chunk_size = 1
+                res = controller.GET(req)
+                ix = 0
+                for v in res.app_iter:
+                    ix += 1
+                    if ix > 1:
+                        break
+                res.app_iter.close()
+                self.assertEquals(res.bytes_transferred, 1)
+                self.assert_(hasattr(res, 'client_disconnect'))
+                self.assert_(res.client_disconnect)
+            finally: 
+                self.app.object_chunk_size = orig_object_chunk_size
 
 
 if __name__ == '__main__':
