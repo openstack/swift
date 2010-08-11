@@ -545,24 +545,41 @@ class DatabaseBroker(object):
         if not self.metadata:
             return
         with self.get() as conn:
-            try:
-                md = conn.execute('SELECT metadata FROM %s_stat' %
-                                  self.db_type).fetchone()[0]
-                if md:
-                    md = json.loads(md)
-                    keys_to_delete = []
-                    for key, (value, value_timestamp) in md.iteritems():
-                        if value == '' and value_timestamp < timestamp:
-                            keys_to_delete.append(key)
-                    if keys_to_delete:
-                        for key in keys_to_delete:
-                            del md[key]
-                        conn.execute('UPDATE %s_stat SET metadata = ?' %
-                                     self.db_type, (json.dumps(md),))
-                        conn.commit()
-            except sqlite3.OperationalError, err:
-                if 'no such column: metadata' not in str(err):
-                    raise
+            if self._reclaim(conn, timestamp):
+                conn.commit()
+
+    def _reclaim(self, conn, timestamp):
+        """
+        Removes any empty metadata values older than the timestamp using the
+        given database connection. This function will not call commit on the
+        conn, but will instead return True if the database needs committing.
+        This function was created as a worker to limit transactions and commits
+        from other related functions.
+
+        :param conn: Database connection to reclaim metadata within.
+        :param timestamp: Empty metadata items last updated before this
+                          timestamp will be removed.
+        :returns: True if conn.commit() should be called
+        """
+        try:
+            md = conn.execute('SELECT metadata FROM %s_stat' %
+                              self.db_type).fetchone()[0]
+            if md:
+                md = json.loads(md)
+                keys_to_delete = []
+                for key, (value, value_timestamp) in md.iteritems():
+                    if value == '' and value_timestamp < timestamp:
+                        keys_to_delete.append(key)
+                if keys_to_delete:
+                    for key in keys_to_delete:
+                        del md[key]
+                    conn.execute('UPDATE %s_stat SET metadata = ?' %
+                                 self.db_type, (json.dumps(md),))
+                    return True
+        except sqlite3.OperationalError, err:
+            if 'no such column: metadata' not in str(err):
+                raise
+        return False
 
 
 class ContainerBroker(DatabaseBroker):
@@ -751,7 +768,7 @@ class ContainerBroker(DatabaseBroker):
         from incoming_sync and outgoing_sync where the updated_at timestamp is
         < sync_timestamp.
 
-        In addition, this calls the DatabaseBroker's :func:reclaim method.
+        In addition, this calls the DatabaseBroker's :func:_reclaim method.
 
         :param object_timestamp: max created_at timestamp of object rows to
                                  delete
@@ -774,8 +791,8 @@ class ContainerBroker(DatabaseBroker):
                 # Old dbs didn't have updated_at in the _sync tables.
                 if 'no such column: updated_at' not in str(err):
                     raise
+            DatabaseBroker._reclaim(self, conn, object_timestamp)
             conn.commit()
-        DatabaseBroker.reclaim(self, object_timestamp)
 
     def delete_object(self, name, timestamp):
         """
@@ -1230,7 +1247,7 @@ class AccountBroker(DatabaseBroker):
         from incoming_sync and outgoing_sync where the updated_at timestamp is
         < sync_timestamp.
 
-        In addition, this calls the DatabaseBroker's :func:reclaim method.
+        In addition, this calls the DatabaseBroker's :func:_reclaim method.
 
         :param object_timestamp: max created_at timestamp of container rows to
                                  delete
@@ -1254,8 +1271,8 @@ class AccountBroker(DatabaseBroker):
                 # Old dbs didn't have updated_at in the _sync tables.
                 if 'no such column: updated_at' not in str(err):
                     raise
+            DatabaseBroker._reclaim(self, conn, container_timestamp)
             conn.commit()
-        DatabaseBroker.reclaim(self, container_timestamp)
 
     def get_container_timestamp(self, container_name):
         """
