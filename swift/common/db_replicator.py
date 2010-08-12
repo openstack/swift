@@ -53,7 +53,7 @@ def quarantine_db(object_file, server_type):
 
 class ReplConnection(BufferedHTTPConnection):
     """
-    Helper to simplify POSTing to a remote server.
+    Helper to simplify REPLICATEing to a remote server.
     """
 
     def __init__(self, node, partition, hash_, logger):
@@ -63,9 +63,9 @@ class ReplConnection(BufferedHTTPConnection):
         BufferedHTTPConnection.__init__(self, '%(ip)s:%(port)s' % node)
         self.path = '/%s/%s/%s' % (node['device'], partition, hash_)
 
-    def post(self, *args):
+    def replicate(self, *args):
         """
-        Make an HTTP POST request
+        Make an HTTP REPLICATE request
 
         :param args: list of json-encodable objects
 
@@ -73,7 +73,7 @@ class ReplConnection(BufferedHTTPConnection):
         """
         try:
             body = simplejson.dumps(args)
-            self.request('POST', self.path, body,
+            self.request('REPLICATE', self.path, body,
                     {'Content-Type': 'application/json'})
             response = self.getresponse()
             response.data = response.read()
@@ -158,7 +158,7 @@ class Replicator(object):
         return proc.returncode == 0
 
     def _rsync_db(self, broker, device, http, local_id,
-            post_method='complete_rsync', post_timeout=None):
+            replicate_method='complete_rsync', replicate_timeout=None):
         """
         Sync a whole db using rsync.
 
@@ -166,8 +166,8 @@ class Replicator(object):
         :param device: device to sync to
         :param http: ReplConnection object
         :param local_id: unique ID of the local database replica
-        :param post_method: remote operation to perform after rsync
-        :param post_timeout: timeout to wait in seconds
+        :param replicate_method: remote operation to perform after rsync
+        :param replicate_timeout: timeout to wait in seconds
         """
         if self.vm_test_mode:
             remote_file = '%s::%s%s/%s/tmp/%s' % (device['ip'],
@@ -186,8 +186,8 @@ class Replicator(object):
             with broker.lock():
                 if not self._rsync_file(broker.db_file, remote_file, False):
                     return False
-        with Timeout(post_timeout or self.node_timeout):
-            response = http.post(post_method, local_id)
+        with Timeout(replicate_timeout or self.node_timeout):
+            response = http.replicate(replicate_method, local_id)
         return response and response.status >= 200 and response.status < 300
 
     def _usync_db(self, point, broker, http, remote_id, local_id):
@@ -208,7 +208,7 @@ class Replicator(object):
         objects = broker.get_items_since(point, self.per_diff)
         while len(objects):
             with Timeout(self.node_timeout):
-                response = http.post('merge_items', objects, local_id)
+                response = http.replicate('merge_items', objects, local_id)
             if not response or response.status >= 300 or response.status < 200:
                 if response:
                     self.logger.error('ERROR Bad response %s from %s' %
@@ -217,7 +217,7 @@ class Replicator(object):
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
         with Timeout(self.node_timeout):
-            response = http.post('merge_syncs', sync_table)
+            response = http.replicate('merge_syncs', sync_table)
         if response and response.status >= 200 and response.status < 300:
             broker.merge_syncs([{'remote_id': remote_id,
                     'sync_point': point}], incoming=False)
@@ -266,7 +266,8 @@ class Replicator(object):
         :param broker: DB broker for the DB to be replication
         :param partition: partition on the node to replicate to
         :param info: DB info as a dictionary of {'max_row', 'hash', 'id',
-                     'created_at', 'put_timestamp', 'delete_timestamp'}
+                     'created_at', 'put_timestamp', 'delete_timestamp',
+                     'metadata'}
 
         :returns: True if successful, False otherwise
         """
@@ -277,9 +278,9 @@ class Replicator(object):
                 'ERROR Unable to connect to remote server: %s' % node)
             return False
         with Timeout(self.node_timeout):
-            response = http.post('sync', info['max_row'], info['hash'],
+            response = http.replicate('sync', info['max_row'], info['hash'],
                 info['id'], info['created_at'], info['put_timestamp'],
-                info['delete_timestamp'])
+                info['delete_timestamp'], info['metadata'])
         if not response:
             return False
         elif response.status == HTTPNotFound.code:  # completely missing, rsync
@@ -297,8 +298,8 @@ class Replicator(object):
             if rinfo['max_row'] / float(info['max_row']) < 0.5:
                 self.stats['remote_merge'] += 1
                 return self._rsync_db(broker, node, http, info['id'],
-                        post_method='rsync_then_merge',
-                        post_timeout=(info['count'] / 2000))
+                        replicate_method='rsync_then_merge',
+                        replicate_timeout=(info['count'] / 2000))
             # else send diffs over to the remote server
             return self._usync_db(max(rinfo['point'], local_sync),
                         broker, http, rinfo['id'], info['id'])
@@ -445,11 +446,11 @@ class ReplicatorRpc(object):
         self.broker_class = broker_class
         self.mount_check = mount_check
 
-    def dispatch(self, post_args, args):
+    def dispatch(self, replicate_args, args):
         if not hasattr(args, 'pop'):
             return HTTPBadRequest(body='Invalid object type')
         op = args.pop(0)
-        drive, partition, hsh = post_args
+        drive, partition, hsh = replicate_args
         if self.mount_check and \
                 not os.path.ismount(os.path.join(self.root, drive)):
             return Response(status='507 %s is not mounted' % drive)
@@ -469,7 +470,7 @@ class ReplicatorRpc(object):
 
     def sync(self, broker, args):
         (remote_sync, hash_, id_, created_at, put_timestamp,
-         delete_timestamp) = args
+         delete_timestamp, metadata) = args
         try:
             info = broker.get_replication_info()
         except Exception, e:
@@ -479,6 +480,8 @@ class ReplicatorRpc(object):
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()
             raise
+        if metadata:
+            broker.metadata = simplejson.loads(metadata)
         if info['put_timestamp'] != put_timestamp or \
                     info['created_at'] != created_at or \
                     info['delete_timestamp'] != delete_timestamp:

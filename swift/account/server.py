@@ -20,7 +20,6 @@ import time
 import traceback
 
 from urllib import unquote
-from swift.common.utils import get_logger
 
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \
@@ -30,8 +29,8 @@ import simplejson
 from xml.sax import saxutils
 
 from swift.common.db import AccountBroker
-from swift.common.utils import get_param, split_path, storage_directory, \
-    hash_path
+from swift.common.utils import get_logger, get_param, hash_path, \
+    normalize_timestamp, split_path, storage_directory
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_xml_encodable
 from swift.common.healthcheck import healthcheck
@@ -100,13 +99,26 @@ class AccountController(object):
             else:
                 return HTTPCreated(request=req)
         else:   # put account
+            timestamp = normalize_timestamp(req.headers['x-timestamp'])
             if not os.path.exists(broker.db_file):
-                broker.initialize(req.headers['x-timestamp'])
-                return HTTPCreated(request=req)
+                broker.initialize(timestamp)
+                created = True
             elif broker.is_status_deleted():
                 return HTTPForbidden(request=req, body='Recently deleted')
             else:
-                broker.update_put_timestamp(req.headers['x-timestamp'])
+                created = broker.is_deleted()
+                broker.update_put_timestamp(timestamp)
+                if broker.is_deleted():
+                    return HTTPConflict(request=req)
+            metadata = {}
+            metadata.update((key, (value, timestamp))
+                for key, value in req.headers.iteritems()
+                if key.lower().startswith('x-account-meta-'))
+            if metadata:
+                broker.metadata = metadata
+            if created:
+                return HTTPCreated(request=req)
+            else:
                 return HTTPAccepted(request=req)
 
     def HEAD(self, req):
@@ -142,6 +154,9 @@ class AccountController(object):
             container_ts = broker.get_container_timestamp(container)
             if container_ts is not None:
                 headers['X-Container-Timestamp'] = container_ts
+        headers.update((key, value)
+            for key, (value, timestamp) in broker.metadata.iteritems()
+            if value != '')
         return HTTPNoContent(request=req, headers=headers)
 
     def GET(self, req):
@@ -165,6 +180,9 @@ class AccountController(object):
             'X-Account-Bytes-Used': info['bytes_used'],
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp']}
+        resp_headers.update((key, value)
+            for key, (value, timestamp) in broker.metadata.iteritems()
+            if value != '')
         try:
             prefix = get_param(req, 'prefix')
             delimiter = get_param(req, 'delimiter')
@@ -229,9 +247,9 @@ class AccountController(object):
         ret.charset = 'utf8'
         return ret
 
-    def POST(self, req):
+    def REPLICATE(self, req):
         """
-        Handle HTTP POST request.
+        Handle HTTP REPLICATE request.
         Handler for RPC calls for account replication.
         """
         try:
@@ -249,6 +267,31 @@ class AccountController(object):
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req
         return ret
+
+    def POST(self, req):
+        """Handle HTTP POST request."""
+        try:
+            drive, part, account = split_path(unquote(req.path), 3)
+        except ValueError, err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain',
+                                  request=req)
+        if 'x-timestamp' not in req.headers or \
+                not check_float(req.headers['x-timestamp']):
+            return HTTPBadRequest(body='Missing or bad timestamp',
+                request=req, content_type='text/plain')
+        if self.mount_check and not check_mount(self.root, drive):
+            return Response(status='507 %s is not mounted' % drive)
+        broker = self._get_account_broker(drive, part, account)
+        if broker.is_deleted():
+            return HTTPNotFound(request=req)
+        timestamp = normalize_timestamp(req.headers['x-timestamp'])
+        metadata = {}
+        metadata.update((key, (value, timestamp))
+            for key, value in req.headers.iteritems()
+            if key.lower().startswith('x-account-meta-'))
+        if metadata:
+            broker.metadata = metadata
+        return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):
         start_time = time.time()
@@ -283,7 +326,7 @@ class AccountController(object):
             req.referer or '-', req.user_agent or '-',
             trans_time,
             additional_info)
-        if req.method.upper() == 'POST':
+        if req.method.upper() == 'REPLICATE':
             self.logger.debug(log_message)
         else:
             self.logger.info(log_message)

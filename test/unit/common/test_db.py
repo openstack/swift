@@ -367,6 +367,161 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.merge_syncs([{'sync_point': 5, 'remote_id': uuid2}])
         self.assertEquals(broker.get_sync(uuid2), 5)
 
+    def test_get_replication_info(self):
+        self.get_replication_info_tester(metadata=False)
+
+    def test_get_replication_info_with_metadata(self):
+        self.get_replication_info_tester(metadata=True)
+
+    def get_replication_info_tester(self, metadata=False):
+        broker = DatabaseBroker(':memory:', account='a')
+        broker.db_type = 'test'
+        broker.db_contains_type = 'test'
+        broker_creation = normalize_timestamp(1)
+        broker_uuid = str(uuid4())
+        broker_metadata = metadata and simplejson.dumps(
+                {'Test': ('Value', normalize_timestamp(1))}) or ''
+        def _initialize(conn, put_timestamp):
+            if put_timestamp is None:
+                put_timestamp = normalize_timestamp(0)
+            conn.executescript('''
+                CREATE TABLE test (
+                    ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE,
+                    created_at TEXT
+                );
+                CREATE TRIGGER test_insert AFTER INSERT ON test
+                BEGIN
+                    UPDATE test_stat
+                    SET test_count = test_count + 1,
+                        hash = chexor(hash, new.name, new.created_at);
+                END;
+                CREATE TRIGGER test_update BEFORE UPDATE ON test
+                BEGIN
+                    SELECT RAISE(FAIL,
+                                 'UPDATE not allowed; DELETE and INSERT');
+                END;
+                CREATE TRIGGER test_delete AFTER DELETE ON test
+                BEGIN
+                    UPDATE test_stat
+                    SET test_count = test_count - 1,
+                        hash = chexor(hash, old.name, old.created_at);
+                END;
+                CREATE TABLE test_stat (
+                    account TEXT,
+                    created_at TEXT,
+                    put_timestamp TEXT DEFAULT '0',
+                    delete_timestamp TEXT DEFAULT '0',
+                    test_count INTEGER,
+                    hash TEXT default '00000000000000000000000000000000',
+                    id TEXT
+                    %s
+                );
+                INSERT INTO test_stat (test_count) VALUES (0);
+            ''' % (metadata and ", metadata TEXT DEFAULT ''" or ""))
+            conn.execute('''
+                UPDATE test_stat
+                SET account = ?, created_at = ?,  id = ?, put_timestamp = ?
+            ''', (broker.account, broker_creation, broker_uuid, put_timestamp))
+            if metadata:
+                conn.execute('UPDATE test_stat SET metadata = ?',
+                             (broker_metadata,))
+            conn.commit()
+        broker._initialize = _initialize
+        put_timestamp = normalize_timestamp(2)
+        broker.initialize(put_timestamp)
+        info = broker.get_replication_info()
+        self.assertEquals(info, {'count': 0,
+            'hash': '00000000000000000000000000000000',
+            'created_at': broker_creation, 'put_timestamp': put_timestamp,
+            'delete_timestamp': '0', 'max_row': -1, 'id': broker_uuid,
+            'metadata': broker_metadata})
+        insert_timestamp = normalize_timestamp(3)
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO test (name, created_at) VALUES ('test', ?)
+            ''', (insert_timestamp,))
+            conn.commit()
+        info = broker.get_replication_info()
+        self.assertEquals(info, {'count': 1,
+            'hash': 'bdc4c93f574b0d8c2911a27ce9dd38ba',
+            'created_at': broker_creation, 'put_timestamp': put_timestamp,
+            'delete_timestamp': '0', 'max_row': 1, 'id': broker_uuid,
+            'metadata': broker_metadata})
+        with broker.get() as conn:
+            conn.execute('DELETE FROM test')
+            conn.commit()
+        info = broker.get_replication_info()
+        self.assertEquals(info, {'count': 0,
+            'hash': '00000000000000000000000000000000',
+            'created_at': broker_creation, 'put_timestamp': put_timestamp,
+            'delete_timestamp': '0', 'max_row': 1, 'id': broker_uuid,
+            'metadata': broker_metadata})
+        return broker
+
+    def test_metadata(self):
+        # Initializes a good broker for us
+        broker = self.get_replication_info_tester(metadata=True)
+        # Add our first item
+        first_timestamp = normalize_timestamp(1)
+        first_value = '1'
+        broker.metadata = {'First': [first_value, first_timestamp]}
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        # Add our second item
+        second_timestamp = normalize_timestamp(2)
+        second_value = '2'
+        broker.metadata = {'Second': [second_value, second_timestamp]}
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' in broker.metadata)
+        self.assertEquals(broker.metadata['Second'],
+                          [second_value, second_timestamp])
+        # Update our first item
+        first_timestamp = normalize_timestamp(3)
+        first_value = '1b'
+        broker.metadata = {'First': [first_value, first_timestamp]}
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' in broker.metadata)
+        self.assertEquals(broker.metadata['Second'],
+                          [second_value, second_timestamp])
+        # Delete our second item (by setting to empty string)
+        second_timestamp = normalize_timestamp(4)
+        second_value = ''
+        broker.metadata = {'Second': [second_value, second_timestamp]}
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' in broker.metadata)
+        self.assertEquals(broker.metadata['Second'],
+                          [second_value, second_timestamp])
+        # Reclaim at point before second item was deleted
+        broker.reclaim(normalize_timestamp(3))
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' in broker.metadata)
+        self.assertEquals(broker.metadata['Second'],
+                          [second_value, second_timestamp])
+        # Reclaim at point second item was deleted
+        broker.reclaim(normalize_timestamp(4))
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' in broker.metadata)
+        self.assertEquals(broker.metadata['Second'],
+                          [second_value, second_timestamp])
+        # Reclaim after point second item was deleted
+        broker.reclaim(normalize_timestamp(5))
+        self.assert_('First' in broker.metadata)
+        self.assertEquals(broker.metadata['First'],
+                          [first_value, first_timestamp])
+        self.assert_('Second' not in broker.metadata)
+
 
 class TestContainerBroker(unittest.TestCase):
     """ Tests for swift.common.db.ContainerBroker """
@@ -1119,6 +1274,78 @@ class TestContainerBroker(unittest.TestCase):
                 self.assertEquals(rec['content_type'], 'text/plain')
 
 
+def premetadata_create_container_stat_table(self, conn, put_timestamp=None):
+    """
+    Copied from swift.common.db.ContainerBroker before the metadata column was
+    added; used for testing with TestContainerBrokerBeforeMetadata.
+
+    Create the container_stat table which is specifc to the container DB.
+
+    :param conn: DB connection object
+    :param put_timestamp: put timestamp
+    """
+    if put_timestamp is None:
+        put_timestamp = normalize_timestamp(0)
+    conn.executescript("""
+        CREATE TABLE container_stat (
+            account TEXT,
+            container TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            object_count INTEGER,
+            bytes_used INTEGER,
+            reported_put_timestamp TEXT DEFAULT '0',
+            reported_delete_timestamp TEXT DEFAULT '0',
+            reported_object_count INTEGER DEFAULT 0,
+            reported_bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0'
+        );
+
+        INSERT INTO container_stat (object_count, bytes_used)
+            VALUES (0, 0);
+    """)
+    conn.execute('''
+        UPDATE container_stat
+        SET account = ?, container = ?, created_at = ?, id = ?,
+            put_timestamp = ?
+    ''', (self.account, self.container, normalize_timestamp(time()),
+          str(uuid4()), put_timestamp))
+
+
+class TestContainerBrokerBeforeMetadata(TestContainerBroker):
+    """
+    Tests for swift.common.db.ContainerBroker against databases created before
+    the metadata column was added.
+    """
+
+    def setUp(self):
+        self._imported_create_container_stat_table = \
+            ContainerBroker.create_container_stat_table
+        ContainerBroker.create_container_stat_table = \
+            premetadata_create_container_stat_table
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'))
+        exc = None
+        with broker.get() as conn:
+            try:
+                conn.execute('SELECT metadata FROM container_stat')
+            except BaseException, err:
+                exc = err
+        self.assert_('no such column: metadata' in str(exc))
+
+    def tearDown(self):
+        ContainerBroker.create_container_stat_table = \
+            self._imported_create_container_stat_table
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'))
+        with broker.get() as conn:
+            conn.execute('SELECT metadata FROM container_stat')
+
+
 class TestAccountBroker(unittest.TestCase):
     """ Tests for swift.common.db.AccountBroker """
 
@@ -1573,6 +1800,71 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEquals(len(items), 3)
         self.assertEquals(['a', 'b', 'c'],
                           sorted([rec['name'] for rec in items]))
+
+
+def premetadata_create_account_stat_table(self, conn, put_timestamp):
+    """
+    Copied from swift.common.db.AccountBroker before the metadata column was
+    added; used for testing with TestAccountBrokerBeforeMetadata.
+
+    Create account_stat table which is specific to the account DB.
+
+    :param conn: DB connection object
+    :param put_timestamp: put timestamp
+    """
+    conn.executescript("""
+        CREATE TABLE account_stat (
+            account TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            container_count INTEGER,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0'
+        );
+
+        INSERT INTO account_stat (container_count) VALUES (0);
+    """)
+
+    conn.execute('''
+        UPDATE account_stat SET account = ?, created_at = ?, id = ?,
+               put_timestamp = ?
+        ''', (self.account, normalize_timestamp(time()), str(uuid4()),
+        put_timestamp))
+
+
+class TestAccountBrokerBeforeMetadata(TestAccountBroker):
+    """
+    Tests for swift.common.db.AccountBroker against databases created before
+    the metadata column was added.
+    """
+
+    def setUp(self):
+        self._imported_create_account_stat_table = \
+            AccountBroker.create_account_stat_table
+        AccountBroker.create_account_stat_table = \
+            premetadata_create_account_stat_table
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(normalize_timestamp('1'))
+        exc = None
+        with broker.get() as conn:
+            try:
+                conn.execute('SELECT metadata FROM account_stat')
+            except BaseException, err:
+                exc = err
+        self.assert_('no such column: metadata' in str(exc))
+
+    def tearDown(self):
+        AccountBroker.create_account_stat_table = \
+            self._imported_create_account_stat_table
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(normalize_timestamp('1'))
+        with broker.get() as conn:
+            conn.execute('SELECT metadata FROM account_stat')
 
 
 if __name__ == '__main__':
