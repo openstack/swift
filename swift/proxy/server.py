@@ -385,7 +385,8 @@ class Controller(object):
                     source.read()
                     continue
             if req.method == 'GET' and source.status in (200, 206):
-
+                res = Response(request=req, conditional_response=True)
+                res.bytes_transferred = 0
                 def file_iter():
                     try:
                         while True:
@@ -394,9 +395,9 @@ class Controller(object):
                             if not chunk:
                                 break
                             yield chunk
-                            req.sent_size += len(chunk)
+                            res.bytes_transferred += len(chunk)
                     except GeneratorExit:
-                        req.client_disconnect = True
+                        res.client_disconnect = True
                         self.app.logger.info(
                             'Client disconnected on read transaction %s' %
                             self.trans_id)
@@ -404,9 +405,7 @@ class Controller(object):
                         self.exception_occurred(node, 'Object',
                             'Trying to read during GET of %s' % req.path)
                         raise
-
-                res = Response(app_iter=file_iter(), request=req,
-                               conditional_response=True)
+                res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
@@ -622,7 +621,7 @@ class ObjectController(Controller):
                 (len(conns), len(nodes) / 2 + 1, self.trans_id))
             return HTTPServiceUnavailable(request=req)
         try:
-            req.creation_size = 0
+            req.bytes_transferred = 0
             while True:
                 with ChunkReadTimeout(self.app.client_timeout):
                     try:
@@ -633,9 +632,8 @@ class ObjectController(Controller):
                         else:
                             break
                 len_chunk = len(chunk)
-                req.creation_size += len_chunk
-                if req.creation_size > MAX_FILE_SIZE:
-                    req.creation_size = 0
+                req.bytes_transferred += len_chunk
+                if req.bytes_transferred > MAX_FILE_SIZE:
                     return HTTPRequestEntityTooLarge(request=req)
                 for conn in conns:
                     try:
@@ -655,10 +653,12 @@ class ObjectController(Controller):
                 'ERROR Client read timeout (%ss)' % err.seconds)
             return HTTPRequestTimeout(request=req)
         except:
+            req.client_disconnect = True
             self.app.logger.exception(
                 'ERROR Exception causing client disconnect')
             return Response(status='499 Client Disconnect')
-        if req.content_length and req.creation_size < req.content_length:
+        if req.content_length and req.bytes_transferred < req.content_length:
+            req.client_disconnect = True
             self.app.logger.info(
                 'Client disconnected without sending enough data %s' %
                 self.trans_id)
@@ -1027,8 +1027,7 @@ class BaseApplication(object):
         pass
 
     def update_request(self, req):
-        req.creation_size = '-'
-        req.sent_size = 0
+        req.bytes_transferred = '-'
         req.client_disconnect = False
         req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
@@ -1099,9 +1098,6 @@ class Application(BaseApplication):
     def posthooklogger(self, env, req):
         response = req.response
         trans_time = '%.4f' % (time.time() - req.start_time)
-        if not response.content_length and response.app_iter and \
-                    hasattr(response.app_iter, '__len__'):
-            response.content_length = sum(map(len, response.app_iter))
         the_request = quote(unquote(req.path))
         if req.query_string:
             the_request = the_request + '?' + req.query_string
@@ -1110,20 +1106,14 @@ class Application(BaseApplication):
         if not client and 'x-forwarded-for' in req.headers:
             # remote user for other lbs
             client = req.headers['x-forwarded-for'].split(',')[0].strip()
-        raw_in = req.content_length or 0
-        if req.creation_size != '-':
-            raw_in = req.creation_size
-        raw_out = 0
-        if req.method != 'HEAD':
-            if response.content_length:
-                raw_out = response.content_length
-            if req.sent_size or req.client_disconnect:
-                raw_out = req.sent_size
         logged_headers = None
         if self.log_headers:
             logged_headers = '\n'.join('%s: %s' % (k, v)
                 for k, v in req.headers.items())
-        status_int = req.client_disconnect and 499 or response.status_int
+        status_int = response.status_int
+        if getattr(req, 'client_disconnect', False) or \
+                getattr(response, 'client_disconnect', False):
+            status_int = 499
         self.logger.info(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',
@@ -1135,8 +1125,8 @@ class Application(BaseApplication):
                 req.referer or '-',
                 req.user_agent or '-',
                 req.headers.get('x-auth-token', '-'),
-                raw_in or '-',
-                raw_out or '-',
+                getattr(req, 'bytes_transferred', 0) or '-',
+                getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),
                 req.headers.get('x-cf-trans-id', '-'),
                 logged_headers or '-',

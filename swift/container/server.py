@@ -31,7 +31,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    storage_directory, split_path
+    normalize_timestamp, storage_directory, split_path
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_xml_encodable
 from swift.common.bufferedhttp import http_connect
@@ -175,23 +175,29 @@ class ContainerController(object):
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
+        timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
-            broker.put_object(obj, req.headers['x-timestamp'],
-                int(req.headers['x-size']), req.headers['x-content-type'],
-                req.headers['x-etag'])
+            broker.put_object(obj, timestamp, int(req.headers['x-size']),
+                req.headers['x-content-type'], req.headers['x-etag'])
             return HTTPCreated(request=req)
         else:   # put container
             if not os.path.exists(broker.db_file):
-                broker.initialize(req.headers['x-timestamp'])
+                broker.initialize(timestamp)
                 created = True
             else:
                 created = broker.is_deleted()
-                broker.update_put_timestamp(req.headers['x-timestamp'])
+                broker.update_put_timestamp(timestamp)
                 if broker.is_deleted():
                     return HTTPConflict(request=req)
+            metadata = {}
+            metadata.update((key, (value, timestamp))
+                for key, value in req.headers.iteritems()
+                if key.lower().startswith('x-container-meta-'))
+            if metadata:
+                broker.metadata = metadata
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -222,6 +228,9 @@ class ContainerController(object):
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
+        headers.update((key, value)
+            for key, (value, timestamp) in broker.metadata.iteritems()
+            if value != '')
         return HTTPNoContent(request=req, headers=headers)
 
     def GET(self, req):
@@ -246,6 +255,9 @@ class ContainerController(object):
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
+        resp_headers.update((key, value)
+            for key, (value, timestamp) in broker.metadata.iteritems()
+            if value != '')
         try:
             path = get_param(req, 'path')
             prefix = get_param(req, 'prefix')
@@ -324,9 +336,9 @@ class ContainerController(object):
         ret.charset = 'utf8'
         return ret
 
-    def POST(self, req):
+    def REPLICATE(self, req):
         """
-        Handle HTTP POST request (json-encoded RPC calls for replication.)
+        Handle HTTP REPLICATE request (json-encoded RPC calls for replication.)
         """
         try:
             post_args = split_path(unquote(req.path), 3)
@@ -343,6 +355,31 @@ class ContainerController(object):
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req
         return ret
+
+    def POST(self, req):
+        """Handle HTTP POST request."""
+        try:
+            drive, part, account, container = split_path(unquote(req.path), 4)
+        except ValueError, err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain',
+                                  request=req)
+        if 'x-timestamp' not in req.headers or \
+                not check_float(req.headers['x-timestamp']):
+            return HTTPBadRequest(body='Missing or bad timestamp',
+                request=req, content_type='text/plain')
+        if self.mount_check and not check_mount(self.root, drive):
+            return Response(status='507 %s is not mounted' % drive)
+        broker = self._get_container_broker(drive, part, account, container)
+        if broker.is_deleted():
+            return HTTPNotFound(request=req)
+        timestamp = normalize_timestamp(req.headers['x-timestamp'])
+        metadata = {}
+        metadata.update((key, (value, timestamp))
+            for key, value in req.headers.iteritems()
+            if key.lower().startswith('x-container-meta-'))
+        if metadata:
+            broker.metadata = metadata
+        return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):
         start_time = time.time()
@@ -373,7 +410,7 @@ class ContainerController(object):
             req.headers.get('x-cf-trans-id', '-'),
             req.referer or '-', req.user_agent or '-',
             trans_time)
-        if req.method.upper() == 'POST':
+        if req.method.upper() == 'REPLICATE':
             self.logger.debug(log_message)
         else:
             self.logger.info(log_message)

@@ -19,7 +19,7 @@ import os
 import logging
 
 from swift.common import db_replicator
-from swift.common import db, utils
+from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 
 
@@ -61,13 +61,13 @@ def _mock_process(*args):
     yield
     db_replicator.subprocess.Popen = orig_process
 
-class PostReplHttp:
+class ReplHttp:
     def __init__(self, response=None):
         self.response = response
-    posted = False
+    replicated = False
     host = 'localhost'
-    def post(self, *args):
-        self.posted = True
+    def replicate(self, *args):
+        self.replicated = True
         class Response:
             status = 200
             data = self.response
@@ -125,18 +125,18 @@ class TestDBReplicator(unittest.TestCase):
         conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
                     logging.getLogger())
         def req(method, path, body, headers):
-            self.assertEquals(method, 'POST')
+            self.assertEquals(method, 'REPLICATE')
             self.assertEquals(headers['Content-Type'], 'application/json')
         class Resp:
             def read(self): return 'data'
         resp = Resp()
         conn.request = req
         conn.getresponse = lambda *args: resp
-        self.assertEquals(conn.post(1, 2, 3), resp)
+        self.assertEquals(conn.replicate(1, 2, 3), resp)
         def other_req(method, path, body, headers):
             raise Exception('blah')
         conn.request = other_req
-        self.assertEquals(conn.post(1, 2, 3), None)
+        self.assertEquals(conn.replicate(1, 2, 3), None)
 
     def test_rsync_file(self):
         replicator = TestReplicator({}, {})
@@ -153,7 +153,7 @@ class TestDBReplicator(unittest.TestCase):
         replicator = TestReplicator({}, {})
         replicator._rsync_file = lambda *args: True
         fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
-        replicator._rsync_db(FakeBroker(), fake_device, PostReplHttp(), 'abcd')
+        replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
 
     def test_in_sync(self):
         replicator = TestReplicator({}, {})
@@ -175,7 +175,7 @@ class TestDBReplicator(unittest.TestCase):
         replicator.replicate_once()
 
     def test_usync(self):
-        fake_http = PostReplHttp()
+        fake_http = ReplHttp()
         replicator = TestReplicator({}, {})
         replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890')
 
@@ -184,8 +184,9 @@ class TestDBReplicator(unittest.TestCase):
         fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
         fake_info = {'id': 'a', 'point': -1, 'max_row': 0, 'hash': 'b',
                     'created_at': 100, 'put_timestamp': 0,
-                    'delete_timestamp': 0}
-        replicator._http_connect = lambda *args: PostReplHttp('{"id": 3, "point": -1}')
+                    'delete_timestamp': 0,
+                    'metadata': {'Test': ('Value', normalize_timestamp(1))}}
+        replicator._http_connect = lambda *args: ReplHttp('{"id": 3, "point": -1}')
         self.assertEquals(replicator._repl_to_node(
             fake_node, FakeBroker(), '0', fake_info), True)
 
