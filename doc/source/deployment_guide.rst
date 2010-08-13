@@ -92,7 +92,7 @@ by number, beginning with 1.
 
 You can now start building the ring with::
 
-    swift-ring_builder <builder_file> create <part_power> <replicas> <min_part_hours>
+    swift-ring-builder <builder_file> create <part_power> <replicas> <min_part_hours>
 
 This will start the ring build process creating the <builder_file> with 
 2^<part_power> partitions. <min_part_hours> is the time in hours before a
@@ -100,7 +100,7 @@ specific partition can be moved in succession (24 is a good value for this).
 
 Devices can be added to the ring with::
 
-    swift-ring_builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
+    swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
 
 This will add a device to the ring where <builder_file> is the name of the
 builder file that was created previously, <zone> is the number of the zone
@@ -114,7 +114,7 @@ Add each device that will be initially in the cluster.
 
 Once all of the devices are added to the ring, run::
 
-    swift_ring_builder <builder_file> rebalance
+    swift-ring-builder <builder_file> rebalance
 
 This will distribute the partitions across the drives in the ring. It is
 important whenever making changes to the ring to make all the changes
@@ -126,7 +126,7 @@ The above process should be done to make a ring for each storage serivce
 changes to the ring, so it is very important that these be kept and backed up.
 The resulting .tar.gz ring file should be pushed to all of the servers in the
 cluster. For more information about building rings, running
-swift_ring_builder with no options will display help text with available
+swift-ring-builder with no options will display help text with available
 commands and options. More information on how the ring works internally
 can be found in the :doc:`Ring Overview <overview_ring>`.
 

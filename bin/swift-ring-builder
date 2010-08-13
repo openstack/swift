@@ -111,28 +111,28 @@ SEARCH_VALUE_HELP = '''
 '''.strip()
 
 CREATE_HELP = '''
-ring_builder <builder_file> create <part_power> <replicas> <min_part_hours>
+swift-ring-builder <builder_file> create <part_power> <replicas> <min_part_hours>
     Creates <builder_file> with 2^<part_power> partitions and <replicas>.
     <min_part_hours> is number of hours to restrict moving a partition more
     than once.
 '''.strip()
 
 SEARCH_HELP = '''
-ring_builder <builder_file> search <search-value>
+swift-ring-builder <builder_file> search <search-value>
     Shows information about matching devices.
 
     %(SEARCH_VALUE_HELP)s
 '''.strip() % globals()
 
 ADD_HELP = '''
-ring_builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <wght>
+swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <wght>
     Adds a device to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
     can make multiple device changes and rebalance them all just once.
 '''.strip()
 
 SET_WEIGHT_HELP = '''
-ring_builder <builder_file> set_weight <search-value> <weight>
+swift-ring-builder <builder_file> set_weight <search-value> <weight>
     Resets the device's weight. No partitions will be reassigned to or from the
     device until after running 'rebalance'. This is so you can make multiple
     device changes and rebalance them all just once.
@@ -141,7 +141,7 @@ ring_builder <builder_file> set_weight <search-value> <weight>
 '''.strip() % globals()
 
 SET_INFO_HELP = '''
-ring_builder <builder_file> set_info <search-value>
+swift-ring-builder <builder_file> set_info <search-value>
                                      <ip>:<port>/<device_name>_<meta>
     Resets the device's information. This information isn't used to assign
     partitions, so you can use 'write_ring' afterward to rewrite the current
@@ -154,7 +154,7 @@ ring_builder <builder_file> set_info <search-value>
 '''.strip() % globals()
 
 REMOVE_HELP = '''
-ring_builder <builder_file> remove <search-value>
+swift-ring-builder <builder_file> remove <search-value>
     Removes the device(s) from the ring. This should normally just be used for
     a device that has failed. For a device you wish to decommission, it's best
     to set its weight to 0, wait for it to drain all its data, then use this
@@ -166,7 +166,7 @@ ring_builder <builder_file> remove <search-value>
 '''.strip() % globals()
 
 SET_MIN_PART_HOURS_HELP = '''
-ring_builder <builder_file> set_min_part_hours <hours>
+swift-ring-builder <builder_file> set_min_part_hours <hours>
     Changes the <min_part_hours> to the given <hours>. This should be set to
     however long a full replication/update cycle takes. We're working on a way
     to determine this more easily than scanning logs.
@@ -176,11 +176,11 @@ ring_builder <builder_file> set_min_part_hours <hours>
 if __name__ == '__main__':
     if len(argv) < 2:
         print '''
-ring_builder %(MAJOR_VERSION)s.%(MINOR_VERSION)s
+swift-ring-builder %(MAJOR_VERSION)s.%(MINOR_VERSION)s
 
 %(CREATE_HELP)s
 
-ring_builder <builder_file>
+swift-ring-builder <builder_file>
     Shows information about the ring and the devices within.
 
 %(SEARCH_HELP)s
@@ -193,14 +193,14 @@ ring_builder <builder_file>
 
 %(REMOVE_HELP)s
 
-ring_builder <builder_file> rebalance
+swift-ring-builder <builder_file> rebalance
     Attempts to rebalance the ring by reassigning partitions that haven't been
     recently reassigned.
 
-ring_builder <builder_file> validate
+swift-ring-builder <builder_file> validate
     Just runs the validation routines on the ring.
 
-ring_builder <builder_file> write_ring
+swift-ring-builder <builder_file> write_ring
     Just rewrites the distributable ring file. This is done automatically after
     a successful rebalance, so really this is only useful after one or more
     'set_info' calls when no rebalance is needed but you want to send out the
