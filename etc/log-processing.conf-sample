@@ -17,6 +17,7 @@ source_filename_format = %Y%m%d%H*
 class_path = swift.stats.access_processor.AccessLogProcessor
 # service ips is for client ip addresses that should be counted as servicenet
 # service_ips =
+# server_name = proxy
 
 [log-processor-stats]
 # log_dir = /var/log/swift/

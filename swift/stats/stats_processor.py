@@ -37,7 +37,6 @@ class StatsLogProcessor(object):
                 container_count = int(container_count.strip('"'))
                 object_count = int(object_count.strip('"'))
                 bytes_used = int(bytes_used.strip('"'))
-                aggr_key = account
                 aggr_key = (account, year, month, day, hour)
                 d = account_totals.get(aggr_key, {})
                 d['count'] = d.setdefault('count', 0) + 1
