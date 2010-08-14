@@ -30,8 +30,8 @@ from urllib import quote
 import logging
 import time
 
-from eventlet.green.httplib import HTTPConnection, HTTPResponse, _UNKNOWN, \
-            CONTINUE, HTTPMessage
+from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
+    HTTPResponse, HTTPSConnection, _UNKNOWN
 
 
 class BufferedHTTPResponse(HTTPResponse):
@@ -106,10 +106,11 @@ class BufferedHTTPConnection(HTTPConnection):
 
 
 def http_connect(ipaddr, port, device, partition, method, path,
-                 headers=None, query_string=None):
+                 headers=None, query_string=None, ssl=False):
     """
-    Helper function to create a HTTPConnection object that is buffered
-    for backend Swift services.
+    Helper function to create an HTTPConnection object. If ssl is set True,
+    HTTPSConnection will be used. However, if ssl=False, BufferedHTTPConnection
+    will be used, which is buffered for backend Swift services.
 
     :param ipaddr: IPv4 address to connect to
     :param port: port to connect to
@@ -119,9 +120,13 @@ def http_connect(ipaddr, port, device, partition, method, path,
     :param path: request path
     :param headers: dictionary of headers
     :param query_string: request query string
+    :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
-    conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
+    if ssl:
+        conn = HTTPSConnection('%s:%s' % (ipaddr, port))
+    else:
+        conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
     path = quote('/' + device + '/' + str(partition) + path)
     if query_string:
         path += '?' + query_string
@@ -135,9 +140,11 @@ def http_connect(ipaddr, port, device, partition, method, path,
 
 
 def http_connect_raw(ipaddr, port, method, path, headers=None,
-                     query_string=None):
+                     query_string=None, ssl=False):
     """
-    Helper function to create a HTTPConnection object that is buffered.
+    Helper function to create an HTTPConnection object. If ssl is set True,
+    HTTPSConnection will be used. However, if ssl=False, BufferedHTTPConnection
+    will be used, which is buffered for backend Swift services.
 
     :param ipaddr: IPv4 address to connect to
     :param port: port to connect to
@@ -145,9 +152,13 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     :param path: request path
     :param headers: dictionary of headers
     :param query_string: request query string
+    :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
-    conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
+    if ssl:
+        conn = HTTPSConnection('%s:%s' % (ipaddr, port))
+    else:
+        conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
     if query_string:
         path += '?' + query_string
     conn.path = path

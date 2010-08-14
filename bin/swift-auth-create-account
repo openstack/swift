@@ -36,8 +36,10 @@ if __name__ == '__main__':
     conf = dict(c.items('auth-server'))
     host = conf.get('bind_ip', '127.0.0.1')
     port = int(conf.get('bind_port', 11000))
+    ssl = conf.get('cert_file') is not None
     path = '/account/%s/%s' % (new_account, new_user)
-    conn = http_connect(host, port, 'PUT', path, {'x-auth-key':new_password})
+    conn = http_connect(host, port, 'PUT', path, {'x-auth-key':new_password},
+                        ssl=ssl)
     resp = conn.getresponse()
     if resp.status == 204:
         print resp.getheader('x-storage-url')

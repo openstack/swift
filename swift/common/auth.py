@@ -35,6 +35,8 @@ class DevAuthMiddleware(object):
         self.conf = conf
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
+        self.ssl = \
+            conf.get('ssl', 'false').lower() in ('true', 'on', '1', 'yes')
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
@@ -78,7 +80,7 @@ class DevAuthMiddleware(object):
         try:
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                    '/token/%s/%s' % (account, token))
+                    '/token/%s/%s' % (account, token), ssl=self.ssl)
                 resp = conn.getresponse()
                 resp.read()
                 conn.close()
