@@ -3,7 +3,7 @@ Talking to Swift with Cyberduck
 ===============================
 
 .. note::
-    Put together by Caleb Tennis, thanks Celeb!
+    Put together by Caleb Tennis, thanks Caleb!
 
 
 #.  Install Swift, or have credentials for an existing Swift installation. If
