@@ -38,19 +38,22 @@ CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
 
 
-def check_metadata(req):
+def check_metadata(req, target_type):
     """
-    Check metadata sent for objects in the request headers.
+    Check metadata sent in the request headers.
 
     :param req: request object
+    :param target_type: str: one of: object, container, or account: indicates
+                        which type the target storage for the metadata is
     :raises HTTPBadRequest: bad metadata
     """
+    prefix = 'x-%s-meta-' % target_type.lower()
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.iteritems():
-        if not key.lower().startswith('x-object-meta-'):
+        if not key.lower().startswith(prefix):
             continue
-        key = key[len('x-object-meta-'):]
+        key = key[len(prefix):]
         if not key:
             return HTTPBadRequest(body='Metadata name cannot be empty',
                     request=req, content_type='text/plain')
@@ -106,7 +109,7 @@ def check_object_creation(req, object_name):
     if not check_xml_encodable(req.headers['Content-Type']):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                     content_type='text/plain')
-    return check_metadata(req)
+    return check_metadata(req, 'object')
 
 
 def check_mount(root, drive):

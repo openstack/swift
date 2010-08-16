@@ -115,7 +115,7 @@ class AccountController(object):
                 for key, value in req.headers.iteritems()
                 if key.lower().startswith('x-account-meta-'))
             if metadata:
-                broker.metadata = metadata
+                broker.update_metadata(metadata)
             if created:
                 return HTTPCreated(request=req)
             else:
@@ -290,7 +290,7 @@ class AccountController(object):
             for key, value in req.headers.iteritems()
             if key.lower().startswith('x-account-meta-'))
         if metadata:
-            broker.metadata = metadata
+            broker.update_metadata(metadata)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

@@ -465,14 +465,14 @@ class TestDatabaseBroker(unittest.TestCase):
         # Add our first item
         first_timestamp = normalize_timestamp(1)
         first_value = '1'
-        broker.metadata = {'First': [first_value, first_timestamp]}
+        broker.update_metadata({'First': [first_value, first_timestamp]})
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
         # Add our second item
         second_timestamp = normalize_timestamp(2)
         second_value = '2'
-        broker.metadata = {'Second': [second_value, second_timestamp]}
+        broker.update_metadata({'Second': [second_value, second_timestamp]})
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
@@ -482,7 +482,7 @@ class TestDatabaseBroker(unittest.TestCase):
         # Update our first item
         first_timestamp = normalize_timestamp(3)
         first_value = '1b'
-        broker.metadata = {'First': [first_value, first_timestamp]}
+        broker.update_metadata({'First': [first_value, first_timestamp]})
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
@@ -492,7 +492,7 @@ class TestDatabaseBroker(unittest.TestCase):
         # Delete our second item (by setting to empty string)
         second_timestamp = normalize_timestamp(4)
         second_value = ''
-        broker.metadata = {'Second': [second_value, second_timestamp]}
+        broker.update_metadata({'Second': [second_value, second_timestamp]})
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])

@@ -481,7 +481,7 @@ class ReplicatorRpc(object):
                 return HTTPNotFound()
             raise
         if metadata:
-            broker.metadata = simplejson.loads(metadata)
+            broker.update_metadata(simplejson.loads(metadata))
         if info['put_timestamp'] != put_timestamp or \
                     info['created_at'] != created_at or \
                     info['delete_timestamp'] != delete_timestamp:
