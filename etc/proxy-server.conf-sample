@@ -35,4 +35,5 @@
 # class = swift.common.auth.DevAuthMiddleware
 # ip = 127.0.0.1
 # port = 11000
+# ssl = false
 # node_timeout = 10

@@ -41,6 +41,13 @@ Deployment:
     deployment_guide
     admin_guide
 
+End User Guides:
+
+.. toctree::
+    :maxdepth: 1
+
+    howto_cyberduck
+
 Source:
 
 .. toctree::
