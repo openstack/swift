@@ -483,7 +483,7 @@ class ObjectController(Controller):
     @public
     def POST(self, req):
         """HTTP POST request handler."""
-        error_response = check_metadata(req)
+        error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
         container_partition, containers = \
@@ -789,6 +789,9 @@ class ContainerController(Controller):
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
+        error_response = check_metadata(req, 'container')
+        if error_response:
+            return error_response
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -803,6 +806,8 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-cf-trans-id': self.trans_id}
+        headers.update(value for value in req.headers.iteritems()
+            if value[0].lower().startswith('x-container-meta-'))
         statuses = []
         reasons = []
         bodies = []
@@ -844,6 +849,56 @@ class ContainerController(Controller):
         self.app.memcache.delete('container%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container PUT')
+
+    @public
+    def POST(self, req):
+        """HTTP POST request handler."""
+        error_response = check_metadata(req, 'container')
+        if error_response:
+            return error_response
+        account_partition, accounts = self.account_info(self.account_name)
+        if not accounts:
+            return HTTPNotFound(request=req)
+        container_partition, containers = self.app.container_ring.get_nodes(
+            self.account_name, self.container_name)
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'x-cf-trans-id': self.trans_id}
+        headers.update(value for value in req.headers.iteritems()
+            if value[0].lower().startswith('x-container-meta-'))
+        statuses = []
+        reasons = []
+        bodies = []
+        for node in self.iter_nodes(container_partition, containers,
+                                    self.app.container_ring):
+            if self.error_limited(node):
+                continue
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], container_partition, 'POST',
+                            req.path_info, headers)
+                with Timeout(self.app.node_timeout):
+                    source = conn.getresponse()
+                    body = source.read()
+                    if 200 <= source.status < 300 \
+                            or 400 <= source.status < 500:
+                        statuses.append(source.status)
+                        reasons.append(source.reason)
+                        bodies.append(body)
+                    elif source.status == 507:
+                        self.error_limit(node)
+            except:
+                self.exception_occurred(node, 'Container',
+                    'Trying to POST %s' % req.path)
+            if len(statuses) >= len(containers):
+                break
+        while len(statuses) < len(containers):
+            statuses.append(503)
+            reasons.append('')
+            bodies.append('')
+        self.app.memcache.delete('container%s' % req.path_info.rstrip('/'))
+        return self.best_response(req, statuses, reasons, bodies,
+                                  'Container POST')
 
     @public
     def DELETE(self, req):
@@ -925,6 +980,53 @@ class AccountController(Controller):
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         return self.GETorHEAD_base(req, 'Account', partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
+
+    @public
+    def POST(self, req):
+        """HTTP POST request handler."""
+        error_response = check_metadata(req, 'account')
+        if error_response:
+            return error_response
+        account_partition, accounts = \
+            self.app.account_ring.get_nodes( self.account_name)
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'X-CF-Trans-Id': self.trans_id}
+        headers.update(value for value in req.headers.iteritems()
+            if value[0].lower().startswith('x-account-meta-'))
+        statuses = []
+        reasons = []
+        bodies = []
+        for node in self.iter_nodes(account_partition, accounts,
+                                    self.app.account_ring):
+            if self.error_limited(node):
+                continue
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], account_partition, 'POST',
+                            req.path_info, headers)
+                with Timeout(self.app.node_timeout):
+                    source = conn.getresponse()
+                    body = source.read()
+                    if 200 <= source.status < 300 \
+                            or 400 <= source.status < 500:
+                        statuses.append(source.status)
+                        reasons.append(source.reason)
+                        bodies.append(body)
+                    elif source.status == 507:
+                        self.error_limit(node)
+            except:
+                self.exception_occurred(node, 'Account',
+                    'Trying to POST %s' % req.path)
+            if len(statuses) >= len(accounts):
+                break
+        while len(statuses) < len(accounts):
+            statuses.append(503)
+            reasons.append('')
+            bodies.append('')
+        self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        return self.best_response(req, statuses, reasons, bodies,
+                                  'Account POST')
 
 
 class BaseApplication(object):

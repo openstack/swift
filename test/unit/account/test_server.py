@@ -207,6 +207,17 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
+        # Set another metadata header, ensuring old one doesn't disappear
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(1),
+                     'X-Account-Meta-Test2': 'Value2'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
+        self.assertEquals(resp.headers.get('x-account-meta-test2'), 'Value2')
         # Update metadata header
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(3),

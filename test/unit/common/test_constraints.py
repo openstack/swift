@@ -27,47 +27,47 @@ class TestConstraints(unittest.TestCase):
     def test_check_metadata_empty(self):
         headers = {}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
 
     def test_check_metadata_good(self):
         headers = {'X-Object-Meta-Name': 'Value'}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
         self.assert_(constraints.check_metadata(Request.blank('/',
-            headers=headers)), HTTPBadRequest)
+            headers=headers), 'object'), HTTPBadRequest)
 
     def test_check_metadata_name_length(self):
         name = 'a' * constraints.MAX_META_NAME_LENGTH
         headers = {'X-Object-Meta-%s' % name: 'v'}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
         name = 'a' * (constraints.MAX_META_NAME_LENGTH + 1)
         headers = {'X-Object-Meta-%s' % name: 'v'}
         self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers)), HTTPBadRequest))
+            headers=headers), 'object'), HTTPBadRequest))
 
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
         headers = {'X-Object-Meta-Name': value}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
         value = 'a' * (constraints.MAX_META_VALUE_LENGTH + 1)
         headers = {'X-Object-Meta-Name': value}
         self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers)), HTTPBadRequest))
+            headers=headers), 'object'), HTTPBadRequest))
 
     def test_check_metadata_count(self):
         headers = {}
         for x in xrange(constraints.MAX_META_COUNT):
             headers['X-Object-Meta-%d' % x] = 'v'
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
         headers['X-Object-Meta-Too-Many'] = 'v'
         self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers)), HTTPBadRequest))
+            headers=headers), 'object'), HTTPBadRequest))
 
     def test_check_metadata_size(self):
         headers = {}
@@ -82,12 +82,12 @@ class TestConstraints(unittest.TestCase):
             size += chunk
             x += 1
         self.assertEquals(constraints.check_metadata(Request.blank('/',
-            headers=headers)), None)
+            headers=headers), 'object'), None)
         headers['X-Object-Meta-9999%s' %
                 ('a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
                     'v' * constraints.MAX_META_VALUE_LENGTH
         self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers)), HTTPBadRequest))
+            headers=headers), 'object'), HTTPBadRequest))
 
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),

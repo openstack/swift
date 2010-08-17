@@ -197,7 +197,7 @@ class ContainerController(object):
                 for key, value in req.headers.iteritems()
                 if key.lower().startswith('x-container-meta-'))
             if metadata:
-                broker.metadata = metadata
+                broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -378,7 +378,7 @@ class ContainerController(object):
             for key, value in req.headers.iteritems()
             if key.lower().startswith('x-container-meta-'))
         if metadata:
-            broker.metadata = metadata
+            broker.update_metadata(metadata)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

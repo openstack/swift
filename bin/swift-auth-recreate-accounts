@@ -31,8 +31,9 @@ if __name__ == '__main__':
     conf = dict(c.items('auth-server'))
     host = conf.get('bind_ip', '127.0.0.1')
     port = int(conf.get('bind_port', 11000))
+    ssl = conf.get('cert_file') is not None
     path = '/recreate_accounts'
-    conn = http_connect(host, port, 'POST', path)
+    conn = http_connect(host, port, 'POST', path, ssl=ssl)
     resp = conn.getresponse()
     if resp.status == 200:
         print resp.read()
