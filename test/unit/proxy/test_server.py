@@ -110,6 +110,8 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['content-type'])
             else:
                 kwargs['give_content_type']('')
+        if 'give_connect' in kwargs:
+            kwargs['give_connect'](*args, **ckwargs)
         status = code_iter.next()
         etag = etag_iter.next()
         if status == -1:
@@ -1750,6 +1752,137 @@ class TestContainerController(unittest.TestCase):
             finally: 
                 self.app.object_chunk_size = orig_object_chunk_size
 
+    def test_PUT_metadata(self):
+        self.metadata_helper('PUT')
+
+    def test_POST_metadata(self):
+        self.metadata_helper('POST')
+
+    def metadata_helper(self, method):
+        for test_header, test_value in (
+                ('X-Container-Meta-TestHeader', 'TestValue'),
+                ('X-Container-Meta-TestHeader', '')):
+            test_errors = []
+            def test_connect(ipaddr, port, device, partition, method, path,
+                             headers=None, query_string=None):
+                if path == '/a/c':
+                    for k, v in headers.iteritems():
+                        if k.lower() == test_header.lower() and \
+                                v == test_value:
+                            break
+                    else:
+                        test_errors.append('%s: %s not in %s' %
+                                           (test_header, test_value, headers))
+            with save_globals():
+                controller = \
+                    proxy_server.ContainerController(self.app, 'a', 'c')
+                proxy_server.http_connect = fake_http_connect(200, 201, 201,
+                    201, give_connect=test_connect)
+                req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                        headers={test_header: test_value})
+                req.account = 'a'
+                req.container = 'c'
+                res = getattr(controller, method)(req)
+                self.assertEquals(test_errors, [])
+
+    def test_PUT_bad_metadata(self):
+        self.bad_metadata_helper('PUT')
+
+    def test_POST_bad_metadata(self):
+        self.bad_metadata_helper('POST')
+
+    def bad_metadata_helper(self, method):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+            proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method})
+            req.account = 'a'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 201)
+
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                    headers={'X-Container-Meta-' +
+                                ('a' * MAX_META_NAME_LENGTH): 'v'})
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 201)
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                    headers={'X-Container-Meta-' +
+                                ('a' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                    headers={'X-Container-Meta-Too-Long':
+                                'a' * MAX_META_VALUE_LENGTH})
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 201)
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                    headers={'X-Container-Meta-Too-Long':
+                                'a' * (MAX_META_VALUE_LENGTH + 1)})
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            headers = {}
+            for x in xrange(MAX_META_COUNT):
+                headers['X-Container-Meta-%d' % x] = 'v'
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                                headers=headers)
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 201)
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            headers = {}
+            for x in xrange(MAX_META_COUNT + 1):
+                headers['X-Container-Meta-%d' % x] = 'v'
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                                headers=headers)
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            headers = {}
+            header_value = 'a' * MAX_META_VALUE_LENGTH
+            size = 0
+            x = 0
+            while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
+                size += 4 + MAX_META_VALUE_LENGTH
+                headers['X-Container-Meta-%04d' % x] = header_value
+                x += 1
+            if MAX_META_OVERALL_SIZE - size > 1:
+                headers['X-Container-Meta-a'] = \
+                    'a' * (MAX_META_OVERALL_SIZE - size - 1)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                                headers=headers)
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 201)
+            proxy_server.http_connect = fake_http_connect(201, 201, 201)
+            headers['X-Container-Meta-a'] = \
+                'a' * (MAX_META_OVERALL_SIZE - size)
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': method},
+                                headers=headers)
+            req.account = 'a'
+            req.container = 'c'
+            resp = getattr(controller, method)(req)
+            self.assertEquals(resp.status_int, 400)
+
 
 class TestAccountController(unittest.TestCase):
 
@@ -1864,6 +1997,115 @@ class TestAccountController(unittest.TestCase):
                 self.assert_(res.client_disconnect)
             finally: 
                 self.app.object_chunk_size = orig_object_chunk_size
+
+    def test_POST_metadata(self):
+        for test_header, test_value in (
+                ('X-Account-Meta-TestHeader', 'TestValue'),
+                ('X-Account-Meta-TestHeader', '')):
+            test_errors = []
+            def test_connect(ipaddr, port, device, partition, method, path,
+                             headers=None, query_string=None):
+                for k, v in headers.iteritems():
+                    if k.lower() == test_header.lower() and \
+                            v == test_value:
+                        break
+                else:
+                    test_errors.append('%s: %s not in %s' %
+                                       (test_header, test_value, headers))
+            with save_globals():
+                controller = \
+                    proxy_server.AccountController(self.app, 'a')
+                proxy_server.http_connect = fake_http_connect(201, 201, 201,
+                    give_connect=test_connect)
+                req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                        headers={test_header: test_value})
+                req.account = 'a'
+                res = controller.POST(req)
+                self.assertEquals(test_errors, [])
+
+    def test_POST_bad_metadata(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'a')
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'})
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 204)
+
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                    headers={'X-Account-Meta-' +
+                                ('a' * MAX_META_NAME_LENGTH): 'v'})
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 204)
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                    headers={'X-Account-Meta-' +
+                                ('a' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                    headers={'X-Account-Meta-Too-Long':
+                                'a' * MAX_META_VALUE_LENGTH})
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 204)
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                    headers={'X-Account-Meta-Too-Long':
+                                'a' * (MAX_META_VALUE_LENGTH + 1)})
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            headers = {}
+            for x in xrange(MAX_META_COUNT):
+                headers['X-Account-Meta-%d' % x] = 'v'
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                                headers=headers)
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 204)
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            headers = {}
+            for x in xrange(MAX_META_COUNT + 1):
+                headers['X-Account-Meta-%d' % x] = 'v'
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                                headers=headers)
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 400)
+
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            headers = {}
+            header_value = 'a' * MAX_META_VALUE_LENGTH
+            size = 0
+            x = 0
+            while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
+                size += 4 + MAX_META_VALUE_LENGTH
+                headers['X-Account-Meta-%04d' % x] = header_value
+                x += 1
+            if MAX_META_OVERALL_SIZE - size > 1:
+                headers['X-Account-Meta-a'] = \
+                    'a' * (MAX_META_OVERALL_SIZE - size - 1)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                                headers=headers)
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 204)
+            proxy_server.http_connect = fake_http_connect(204, 204, 204)
+            headers['X-Account-Meta-a'] = \
+                'a' * (MAX_META_OVERALL_SIZE - size)
+            req = Request.blank('/a', environ={'REQUEST_METHOD': 'POST'},
+                                headers=headers)
+            req.account = 'a'
+            resp = controller.POST(req)
+            self.assertEquals(resp.status_int, 400)
 
 
 if __name__ == '__main__':

@@ -503,8 +503,7 @@ class DatabaseBroker(object):
             metadata = {}
         return metadata
 
-    @metadata.setter
-    def metadata(self, new_metadata):
+    def update_metadata(self, metadata_updates):
         """
         Updates the metadata dict for the database. The metadata dict values
         are tuples of (value, timestamp) where the timestamp indicates when
@@ -514,8 +513,8 @@ class DatabaseBroker(object):
         :func:reclaim
         """
         old_metadata = self.metadata
-        if set(new_metadata).issubset(set(old_metadata)):
-            for key, (value, timestamp) in new_metadata.iteritems():
+        if set(metadata_updates).issubset(set(old_metadata)):
+            for key, (value, timestamp) in metadata_updates.iteritems():
                 if timestamp > old_metadata[key][1]:
                     break
             else:
@@ -532,7 +531,7 @@ class DatabaseBroker(object):
                     ALTER TABLE %s_stat
                     ADD COLUMN metadata TEXT DEFAULT '' """ % self.db_type)
                 md = {}
-            for key, value_timestamp in new_metadata.iteritems():
+            for key, value_timestamp in metadata_updates.iteritems():
                 value, timestamp = value_timestamp
                 if key not in md or timestamp > md[key][1]:
                     md[key] = value_timestamp
