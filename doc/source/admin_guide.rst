@@ -108,8 +108,100 @@ different distro or OS, some care should be taken before using in production.
 Cluster Health
 --------------
 
-TODO: Greg, add docs here about how to use swift-stats-populate, and
-swift-stats-report
+There is a swift-stats-report tool for measuring overall cluster health. This
+is accomplished by checking if a set of deliberately distributed containers and
+objects are currently in their proper places within the cluster.
+
+For instance, a common deployment has three replicas of each object. The health
+of that object can be measured by checking if each replica is in its proper
+place. If only 2 of the 3 is in place the object's heath can be said to be at
+66.66%, where 100% would be perfect.
+
+A single object's health, especially an older object, usually reflects the
+health of that entire partition the object is in. If we make enough objects on
+a distinct percentage of the partitions in the cluster, we can get a pretty
+valid estimate of the overall cluster health. In practice, about 1% partition
+coverage seems to balance well between accuracy and the amount of time it takes
+to gather results.
+
+The first thing that needs to be done to provide this health value is create a
+new account solely for this usage. Next, we need to place the containers and
+objects throughout the system so that they are on distinct partitions. The
+swift-stats-populate tool does this by making up random container and object
+names until they fall on distinct partitions. Last, and repeatedly for the life
+of the cluster, we need to run the swift-stats-report tool to check the health
+of each of these containers and objects.
+
+These tools need direct access to the entire cluster and to the ring files
+(installing them on an auth server or a proxy server will probably do). Both
+swift-stats-populate and swift-stats-report use the same configuration file,
+/etc/swift/stats.conf. Example conf file::
+
+    [stats]
+    auth_url = http://saio:11000/v1.0
+    auth_user = test:tester
+    auth_key = testing
+
+There are also options for the conf file for specifying the dispersion coverage
+(defaults to 1%), retries, concurrency, CSV output file, etc. though usually
+the defaults are fine.
+
+Once the configuration is in place, run `swift-stats-populate -d` to populate
+the containers and objects throughout the cluster.
+
+Now that those containers and objects are in place, you can run
+`swift-stats-report -d` to get a dispersion report, or the overall health of
+the cluster. Here is an example of a cluster in perfect health::
+
+    $ swift-stats-report -d
+    Queried 2621 containers for dispersion reporting, 19s, 0 retries
+    100.00% of container copies found (7863 of 7863)
+    Sample represents 1.00% of the container partition space
+    
+    Queried 2619 objects for dispersion reporting, 7s, 0 retries
+    100.00% of object copies found (7857 of 7857)
+    Sample represents 1.00% of the object partition space
+
+Now I'll deliberately double the weight of a device in the object ring (with
+replication turned off) and rerun the dispersion report to show what impact
+that has::
+
+    $ swift-ring-builder object.builder set_weight d0 200
+    $ swift-ring-builder object.builder rebalance
+    ...
+    $ swift-stats-report -d
+    Queried 2621 containers for dispersion reporting, 8s, 0 retries
+    100.00% of container copies found (7863 of 7863)
+    Sample represents 1.00% of the container partition space
+    
+    Queried 2619 objects for dispersion reporting, 7s, 0 retries
+    There were 1763 partitions missing one copy.
+    77.56% of object copies found (6094 of 7857)
+    Sample represents 1.00% of the object partition space
+
+You can see the health of the objects in the cluster has gone down
+significantly. Of course, I only have four devices in this test environment, in
+a production environment with many many devices the impact of one device change
+is much less. Next, I'll run the replicators to get everything put back into
+place and then rerun the dispersion report::
+
+    ... start object replicators and monitor logs until they're caught up ...
+    $ swift-stats-report -d
+    Queried 2621 containers for dispersion reporting, 17s, 0 retries
+    100.00% of container copies found (7863 of 7863)
+    Sample represents 1.00% of the container partition space
+
+    Queried 2619 objects for dispersion reporting, 7s, 0 retries
+    100.00% of object copies found (7857 of 7857)
+    Sample represents 1.00% of the object partition space
+
+So that's a summation of how to use swift-stats-report to monitor the health of
+a cluster. There are a few other things it can do, such as performance
+monitoring, but those are currently in their infancy and little used. For
+instance, you can run `swift-stats-populate -p` and `swift-stats-report -p` to
+get performance timings (warning: the initial populate takes a while). These
+timings are dumped into a CSV file (/etc/swift/stats.csv by default) and can
+then be graphed to see how cluster performance is trending.
 
 ------------------------
 Debugging Tips and Tools
