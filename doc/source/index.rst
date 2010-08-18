@@ -40,6 +40,7 @@ Deployment:
 
     deployment_guide
     admin_guide
+    debian_package_guide
 
 End User Guides:
 
