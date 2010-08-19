@@ -164,6 +164,7 @@ def get_auth(url, user, key, snet=False):
     conn.request('GET', parsed.path, '',
                  {'X-Auth-User': user, 'X-Auth-Key': key})
     resp = conn.getresponse()
+    resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Auth GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,
@@ -246,6 +247,7 @@ def head_account(url, token, http_conn=None):
         parsed, conn = http_connection(url)
     conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
+    resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Account HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,

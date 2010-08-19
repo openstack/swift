@@ -153,6 +153,14 @@ class MockHttpTest(unittest.TestCase):
                 def request(*args, **kwargs):
                     return
                 conn.request = request
+
+                conn.has_been_read = False
+                _orig_read = conn.read
+                def read(*args, **kwargs):
+                    conn.has_been_read = True
+                    return _orig_read(*args, **kwargs)
+                conn.read = read
+
                 return parsed, conn
             return wrapper
         self.fake_http_connection = fake_http_connection
@@ -178,6 +186,11 @@ class TestGetAccount(MockHttpTest):
         self.assertEquals(value, [])
         
 class TestHeadAccount(MockHttpTest):
+
+    def test_ok(self):
+        c.http_connection = self.fake_http_connection(200)
+        value = c.head_account('http://www.tests.com', 'asdf')
+        self.assertEquals(value, (0, 0, 0))
 
     def test_server_error(self):
         c.http_connection = self.fake_http_connection(500)
@@ -273,6 +286,62 @@ class TestConnection(MockHttpTest):
         conn = c.Connection('http://www.test.com', 'asdf', 'asdf')
         self.assertRaises(c.ClientException, conn.head_account)
         self.assertEquals(conn.attempts, conn.retries + 1)
+
+    def test_resp_read_on_server_error(self):
+        c.http_connection = self.fake_http_connection(500)
+        conn = c.Connection('http://www.test.com', 'asdf', 'asdf', retries=0)
+        def get_auth(*args, **kwargs):
+            return 'http://www.new.com', 'new'
+        conn.get_auth = get_auth
+        self.url, self.token = conn.get_auth()
+
+        method_signatures = (
+            (conn.head_account, []),
+            (conn.get_account, []),
+            (conn.head_container, ('asdf',)),
+            (conn.get_container, ('asdf',)),
+            (conn.put_container, ('asdf',)),
+            (conn.delete_container, ('asdf',)),
+            (conn.head_object, ('asdf', 'asdf')),
+            (conn.get_object, ('asdf', 'asdf')),
+            (conn.put_object, ('asdf', 'asdf', 'asdf')),
+            (conn.post_object, ('asdf', 'asdf', {})),
+            (conn.delete_object, ('asdf', 'asdf')),
+        )
+
+        for method, args in method_signatures:
+            self.assertRaises(c.ClientException, method, *args) 
+            try:
+                self.assertTrue(conn.http_conn[1].has_been_read)
+            except AssertionError:
+                self.fail('%s did not read the resp on server error' % method.__name__)
+
+    def test_reauth(self):
+        c.http_connection = self.fake_http_connection(401)
+        def get_auth(*args, **kwargs):
+            return 'http://www.new.com', 'new'
+        def swap_sleep(*args):
+            self.swap_sleep_called = True
+            c.get_auth = get_auth
+            c.http_connection = self.fake_http_connection(200)
+        c.sleep = swap_sleep
+        self.swap_sleep_called = False
+
+        conn = c.Connection('http://www.test.com', 'asdf', 'asdf',
+                            preauthurl = 'http://www.old.com',
+                            preauthtoken = 'old'
+                           )
+
+        self.assertEquals(conn.attempts, 0)
+        self.assertEquals(conn.url, 'http://www.old.com')
+        self.assertEquals(conn.token, 'old')
+
+        value = conn.head_account()
+
+        self.assertTrue(self.swap_sleep_called)
+        self.assertEquals(conn.attempts, 2)
+        self.assertEquals(conn.url, 'http://www.new.com')
+        self.assertEquals(conn.token, 'new')
 
 if __name__ == '__main__':
     unittest.main()
