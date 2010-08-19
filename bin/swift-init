@@ -180,7 +180,7 @@ if command == 'restart':
     for server in servers:
         do_start(server)
 
-if command == 'reload':
+if command == 'reload' or command == 'force-reload':
     for server in servers:
         do_stop(server, graceful=True)
         do_start(server)
