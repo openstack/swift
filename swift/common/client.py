@@ -629,6 +629,9 @@ class Connection(object):
         self.attempts = 0
         self.snet = snet
 
+    def get_auth(self):
+        return get_auth(self.authurl, self.user, self.key, snet=self.snet)
+
     def _retry(self, func, *args, **kwargs):
         kwargs['http_conn'] = self.http_conn
         self.attempts = 0
@@ -637,9 +640,7 @@ class Connection(object):
             self.attempts += 1
             try:
                 if not self.url or not self.token:
-                    self.url, self.token = \
-                        get_auth(self.authurl, self.user, self.key,
-                                 snet=self.snet)
+                    self.url, self.token = self.get_auth()
                     self.http_conn = None
                 if not self.http_conn:
                     self.http_conn = http_connection(self.url)
