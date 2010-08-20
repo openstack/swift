@@ -17,17 +17,26 @@ import unittest
 
 from webob import Request
 
-from swift.common import healthcheck
+from swift.common.middleware import cache
+from swift.common.memcached import MemcacheRing
 
+class FakeApp(object):
+    def __call__(self, env, start_response):
+        return env
 
-class TestHealthCheck(unittest.TestCase):
+def start_response(*args):
+    pass
 
-    def test_healthcheck(self):
-        controller = healthcheck.HealthCheckController()
-        req = Request.blank('/any/path', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.GET(req)
-        self.assertEquals(resp.status_int, 200)
+class TestCacheMiddleware(unittest.TestCase):
 
+    def setUp(self):
+        self.app = cache.CacheMiddleware(FakeApp(), {})
+
+    def test_cache_middleware(self):
+        req = Request.blank('/something', environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertTrue('swift.cache' in resp)
+        self.assertTrue(isinstance(resp['swift.cache'], MemcacheRing))
 
 if __name__ == '__main__':
     unittest.main()

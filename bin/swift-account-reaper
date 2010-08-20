@@ -34,21 +34,20 @@ if __name__ == '__main__':
         print "Unable to read config file."
         sys.exit(1)
 
-    server_conf = dict(c.items('account-server'))
     if c.has_section('account-reaper'):
-        reaper_conf = dict(c.items('account-reaper'))
+        conf = dict(c.items('account-reaper'))
     else:
         print "Unable to find account-reaper config section in %s." % \
                 sys.argv[1]
         sys.exit(1)
 
-    logger = utils.get_logger(reaper_conf, 'account-reaper')
+    logger = utils.get_logger(conf)
     # log uncaught exceptions
     sys.excepthook = lambda *exc_info: \
                 logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
     sys.stdout = sys.stderr = utils.LoggerFileObject(logger)
 
-    utils.drop_privileges(server_conf.get('user', 'swift'))
+    utils.drop_privileges(conf.get('user', 'swift'))
 
     try:
         os.setsid()
@@ -62,7 +61,7 @@ if __name__ == '__main__':
 
     signal.signal(signal.SIGTERM, kill_children)
 
-    reaper = AccountReaper(server_conf, reaper_conf)
+    reaper = AccountReaper(conf)
     if once:
         reaper.reap_once()
     else:

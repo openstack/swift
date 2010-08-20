@@ -34,15 +34,14 @@ if __name__ == '__main__':
         print "Unable to read config file."
         sys.exit(1)
 
-    server_conf = dict(c.items('container-server'))
     if c.has_section('container-updater'):
-        updater_conf = dict(c.items('container-updater'))
+        conf = dict(c.items('container-updater'))
     else:
         print "Unable to find container-updater config section in %s." % \
                 sys.argv[1]
         sys.exit(1)
 
-    utils.drop_privileges(server_conf.get('user', 'swift'))
+    utils.drop_privileges(conf.get('user', 'swift'))
 
     try:
         os.setsid()
@@ -56,7 +55,7 @@ if __name__ == '__main__':
 
     signal.signal(signal.SIGTERM, kill_children)
 
-    updater = ContainerUpdater(server_conf, updater_conf)
+    updater = ContainerUpdater(conf)
     if once:
         updater.update_once_single_threaded()
     else:

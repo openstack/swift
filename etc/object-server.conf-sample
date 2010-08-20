@@ -1,24 +1,30 @@
-[object-server]
-# swift_dir = /etc/swift
-# devices = /srv/node
-# mount_check = true
+[DEFAULT]
+log_name = object
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # bind_ip = 0.0.0.0
 # bind_port = 6000
 # workers = 1
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_requests = True
 # user = swift
+# swift_dir = /etc/swift
+# devices = /srv/node
+# mount_check = true
+
+[pipeline:main]
+pipeline = object-server
+
+[app:object-server]
+use = egg:swift#object
+# log_requests = True
 # node_timeout = 3
 # conn_timeout = 0.5
-# network_chunk_size = 8192
-# disk_chunk_size = 32768
+# network_chunk_size = 65536
+# disk_chunk_size = 65536
 # max_upload_time = 86400
 # slow = 1
 
 [object-replicator]
-# log_facility = LOG_LOCAL0
-# log_level = INFO
+log_name = object-replicator
 # daemonize = on
 # run_pause = 30
 # concurrency = 1
@@ -28,19 +34,17 @@
 # reclaim_age = 604800
 
 [object-updater]
+log_name = object-updater
 # interval = 300
 # concurrency = 1
 # node_timeout = 10
 # conn_timeout = 0.5
 # slowdown will sleep that amount between objects
 # slowdown = 0.01
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 
 [object-auditor]
+log_name = object-auditor
 # Will audit, at most, 1 object per device per interval
 # interval = 1800
 # node_timeout = 10
 # conn_timeout = 0.5
-# log_facility = LOG_LOCAL0
-# log_level = INFO

@@ -894,33 +894,6 @@ class TestAccountController(unittest.TestCase):
                         listing.append(node2.firstChild.nodeValue)
         self.assertEquals(listing, ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
-    def test_healthcheck(self):
-        inbuf = StringIO()
-        errbuf = StringIO()
-        outbuf = StringIO()
-
-        def start_response(*args):
-            """ Sends args to outbuf """
-            outbuf.writelines(args)
-
-        self.controller.__call__({'REQUEST_METHOD': 'GET',
-                                         'SCRIPT_NAME': '',
-                                         'PATH_INFO': '/healthcheck',
-                                         'SERVER_NAME': '127.0.0.1',
-                                         'SERVER_PORT': '8080',
-                                         'SERVER_PROTOCOL': 'HTTP/1.0',
-                                         'CONTENT_LENGTH': '0',
-                                         'wsgi.version': (1, 0),
-                                         'wsgi.url_scheme': 'http',
-                                         'wsgi.input': inbuf,
-                                         'wsgi.errors': errbuf,
-                                         'wsgi.multithread': False,
-                                         'wsgi.multiprocess': False,
-                                         'wsgi.run_once': False},
-                                        start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '200 ')
-
     def test_through_call(self):
         inbuf = StringIO()
         errbuf = StringIO()

@@ -215,7 +215,7 @@ class ObjectReplicator(object):
                 'vm_test_mode', 'no').lower() in ('yes', 'true', 'on', '1')
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.port = int(conf.get('bind_port', 6000))
-        self.concurrency = int(conf.get('replication_concurrency', 1))
+        self.concurrency = int(conf.get('concurrency', 1))
         self.timeout = conf['timeout']
         self.stats_interval = int(conf['stats_interval'])
         self.object_ring = Ring(join(self.swift_dir, 'object.ring.gz'))

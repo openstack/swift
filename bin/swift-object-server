@@ -14,17 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ConfigParser import ConfigParser
 import sys
 
 from swift.common.wsgi import run_wsgi
-from swift.obj.server import ObjectController
 
 if __name__ == '__main__':
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file."
-        sys.exit(1)
-    conf = dict(c.items('object-server'))
-    run_wsgi(ObjectController, conf, default_port=6000)
-
+    if len(sys.argv) != 2:
+        print "Usage: %s CONFIG_FILE"
+    run_wsgi(sys.argv[1], default_port=6000)

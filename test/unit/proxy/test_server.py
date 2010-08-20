@@ -1105,17 +1105,6 @@ class TestObjectController(unittest.TestCase):
             obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
             obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
             try:
-                # healthcheck test
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /healthcheck HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                body = fd.read()
-                self.assertEquals(body, 'OK')
                 # Check bad version
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
@@ -1133,15 +1122,6 @@ class TestObjectController(unittest.TestCase):
                 fd.flush()
                 headers = readuntil2crlfs(fd)
                 exp = 'HTTP/1.1 404'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check bad method
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('LICK /healthcheck HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 405'
                 self.assertEquals(headers[:len(exp)], exp)
                 # Check blacklist
                 prosrv.rate_limit_blacklist = ['a']
