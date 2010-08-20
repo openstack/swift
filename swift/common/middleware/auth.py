@@ -21,6 +21,8 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import split_path
 from swift.common.bufferedhttp import http_connect_raw as http_connect
+from swift.common.utils import get_logger, cache_from_env
+from swift.common.memcached import MemcacheRing
 
 
 class DevAuthMiddleware(object):
@@ -28,33 +30,37 @@ class DevAuthMiddleware(object):
     Auth Middleware that uses the dev auth server
     """
 
-    def __init__(self, app, conf, memcache_client, logger):
+    def __init__(self, app, conf, memcache_client=None, logger=None):
         self.app = app
         self.memcache_client = memcache_client
-        self.logger = logger
+        if logger is None:
+            self.logger = get_logger(conf)
+        else:
+            self.logger = logger
         self.conf = conf
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
+        if self.memcache_client is None:
+            self.memcache_client = cache_from_env(env)
         req = Request(env)
-        if req.path != '/healthcheck':
-            if 'x-storage-token' in req.headers and \
-                    'x-auth-token' not in req.headers:
-                req.headers['x-auth-token'] = req.headers['x-storage-token']
+        if 'x-storage-token' in req.headers and \
+                'x-auth-token' not in req.headers:
+            req.headers['x-auth-token'] = req.headers['x-storage-token']
+        try:
             version, account, container, obj = split_path(req.path, 1, 4, True)
-            if account is None:
-                return HTTPPreconditionFailed(request=req, body='Bad URL')(
-                    env, start_response)
-            if not req.headers.get('x-auth-token'):
-                return HTTPPreconditionFailed(request=req,
-                    body='Missing Auth Token')(env, start_response)
-                if account is None:
-                    return HTTPPreconditionFailed(
-                        request=req, body='Bad URL')(env, start_response)
-            if not self.auth(account, req.headers['x-auth-token']):
-                return HTTPUnauthorized(request=req)(env, start_response)
+        except ValueError, e:
+            version = account = container = obj = None
+        if account is None:
+            return HTTPPreconditionFailed(request=req, body='Bad URL')(
+                env, start_response)
+        if not req.headers.get('x-auth-token'):
+            return HTTPPreconditionFailed(request=req,
+                body='Missing Auth Token')(env, start_response)
+        if not self.auth(account, req.headers['x-auth-token']):
+            return HTTPUnauthorized(request=req)(env, start_response)
 
         # If we get here, then things should be good.
         return self.app(env, start_response)
@@ -95,3 +101,8 @@ class DevAuthMiddleware(object):
             val = (now, validated)
             self.memcache_client.set(key, val, timeout=validated)
             return True
+
+def filter_factory(global_conf, **local_conf):
+    def auth_filter(app):
+        return DevAuthMiddleware(app, local_conf)
+    return auth_filter

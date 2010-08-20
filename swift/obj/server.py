@@ -36,9 +36,8 @@ from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
-    storage_directory, hash_path, get_logger, renamer, fallocate, \
-    split_path, drop_buffer_cache
-from swift.common.healthcheck import healthcheck
+    storage_directory, hash_path, renamer, fallocate, \
+    split_path, drop_buffer_cache, get_logger
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_xml_encodable
@@ -242,8 +241,6 @@ class DiskFile(object):
 class ObjectController(object):
     """Implements the WSGI application for the Swift Object Server."""
 
-    log_name = 'object'
-
     def __init__(self, conf):
         """
         Creates a new WSGI application for the Swift Object Server. An
@@ -251,7 +248,7 @@ class ObjectController(object):
         <source-dir>/etc/object-server.conf-sample or
         /etc/swift/object-server.conf-sample.
         """
-        self.logger = get_logger(conf, self.log_name)
+        self.logger = get_logger(conf)
         self.devices = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -560,9 +557,7 @@ class ObjectController(object):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
         req = Request(env)
-        if req.path_info == '/healthcheck':
-            return healthcheck(req)(env, start_response)
-        elif not check_xml_encodable(req.path_info):
+        if not check_xml_encodable(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
@@ -596,3 +591,9 @@ class ObjectController(object):
             if slow > 0:
                 sleep(slow)
         return res(env, start_response)
+
+def app_factory(global_conf, **local_conf):
+    """paste.deploy app factory for creating WSGI object server apps"""
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    return ObjectController(conf)

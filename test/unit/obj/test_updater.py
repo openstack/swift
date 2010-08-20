@@ -53,10 +53,14 @@ class TestObjectUpdater(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def test_creation(self):
-        cu = object_updater.ObjectUpdater(
-            {'devices': self.devices_dir, 'mount_check': 'false',
-             'swift_dir': self.testdir},
-            {'interval': '1', 'concurrency': '2', 'node_timeout': '5'})
+        cu = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '2',
+            'node_timeout': '5',
+            })
         self.assert_(hasattr(cu, 'logger'))
         self.assert_(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
@@ -66,10 +70,14 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(cu.get_container_ring() is not None)
 
     def test_update_once_single_threaded(self):
-        cu = object_updater.ObjectUpdater(
-            {'devices': self.devices_dir, 'mount_check': 'false',
-             'swift_dir': self.testdir},
-            {'interval': '1', 'concurrency': '1', 'node_timeout': '15'})
+        cu = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            })
         cu.update_once_single_threaded()
         async_dir = os.path.join(self.sda1, object_server.ASYNCDIR)
         os.mkdir(async_dir)

@@ -24,6 +24,7 @@ import mimetools
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
+from paste.deploy import loadapp, appconfig
 
 # Hook to ensure connection resets don't blow up our servers.
 # Remove with next release of Eventlet that has it in the set already.
@@ -58,18 +59,24 @@ def monkey_patch_mimetools():
 # We might be able to pull pieces of this out to test, but right now it seems
 # like more work than it's worth.
 
-def run_wsgi(app, conf, *args, **kwargs):   # pragma: no cover
+def run_wsgi(conf_file, *args, **kwargs):   # pragma: no cover
     """
     Loads common settings from conf, then instantiates app and runs
     the server using the specified number of workers.
 
-    :param app: WSGI callable
-    :param conf: Configuration dictionary
+    :param conf_file: Path to paste.deploy style configuration file
     """
+
+    try:
+        app = loadapp('config:%s' % conf_file)
+        conf = appconfig('config:%s' % conf_file)
+    except Exception, e:
+        print "Error trying to load config %s: %s" % (conf_file, e)
+        return
     if 'logger' in kwargs:
         logger = kwargs['logger']
     else:
-        logger = get_logger(conf, app.log_name)
+        logger = get_logger(conf)
 
     # log uncaught exceptions
     sys.excepthook = lambda * exc_info: \
@@ -103,9 +110,6 @@ def run_wsgi(app, conf, *args, **kwargs):   # pragma: no cover
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
     worker_count = int(conf.get('workers', '1'))
     drop_privileges(conf.get('user', 'swift'))
-    if isinstance(app, type):
-        # Instantiate app if it hasn't been already
-        app = app(conf, *args)
 
     def run_server():
         wsgi.HttpProtocol.default_request_version = "HTTP/1.0"

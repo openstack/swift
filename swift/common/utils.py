@@ -323,7 +323,7 @@ class NamedLogger(object):
         call('%s %s: %s' % (self.server, msg, emsg), *args)
 
 
-def get_logger(conf, name):
+def get_logger(conf, name=None):
     """
     Get the current system logger using config settings.
 
@@ -342,6 +342,8 @@ def get_logger(conf, name):
     if conf is None:
         root_logger.setLevel(logging.INFO)
         return NamedLogger(root_logger, name)
+    if name is None:
+        name = conf.get('log_name', 'swift')
     get_logger.handler = SysLogHandler(address='/dev/log',
         facility=getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
                          SysLogHandler.LOG_LOCAL0))
@@ -513,3 +515,12 @@ def unlink_older_than(path, mtime):
                     os.unlink(fpath)
             except OSError:
                 pass
+
+def item_from_env(env, item_name):
+    item = env.get(item_name, None)
+    if item is None:
+        logging.error("ERROR: %s could not be found in env!" % item_name)
+    return item
+
+def cache_from_env(env):
+    return item_from_env(env, 'swift.cache')

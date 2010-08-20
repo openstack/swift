@@ -89,28 +89,28 @@ class Replicator(object):
     Implements the logic for directing db replication.
     """
 
-    def __init__(self, server_conf, replicator_conf):
+    def __init__(self, conf):
         self.logger = \
-            get_logger(replicator_conf, '%s-replicator' % self.server_type)
+            get_logger(conf)
         # log uncaught exceptions
         sys.excepthook = lambda * exc_info: \
                 self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
         sys.stdout = sys.stderr = LoggerFileObject(self.logger)
-        self.root = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
+        self.root = conf.get('devices', '/srv/node')
+        self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.port = int(server_conf.get('bind_port', self.default_port))
-        concurrency = int(replicator_conf.get('concurrency', 8))
+        self.port = int(conf.get('bind_port', self.default_port))
+        concurrency = int(conf.get('concurrency', 8))
         self.cpool = GreenPool(size=concurrency)
-        swift_dir = server_conf.get('swift_dir', '/etc/swift')
+        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring = ring.Ring(os.path.join(swift_dir, self.ring_file))
-        self.per_diff = int(replicator_conf.get('per_diff', 1000))
-        self.run_pause = int(replicator_conf.get('run_pause', 30))
-        self.vm_test_mode = replicator_conf.get(
+        self.per_diff = int(conf.get('per_diff', 1000))
+        self.run_pause = int(conf.get('run_pause', 30))
+        self.vm_test_mode = conf.get(
             'vm_test_mode', 'no').lower() in ('yes', 'true', 'on', '1')
-        self.node_timeout = int(replicator_conf.get('node_timeout', 10))
-        self.conn_timeout = float(replicator_conf.get('conn_timeout', 0.5))
-        self.reclaim_age = float(replicator_conf.get('reclaim_age', 86400 * 7))
+        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         self._zero_stats()
 
     def _zero_stats(self):

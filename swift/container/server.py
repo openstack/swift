@@ -31,11 +31,10 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    storage_directory, split_path
+    storage_directory, split_path, get_logger
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_xml_encodable
 from swift.common.bufferedhttp import http_connect
-from swift.common.healthcheck import healthcheck
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
 
@@ -45,10 +44,8 @@ DATADIR = 'containers'
 class ContainerController(object):
     """WSGI Controller for the container server."""
 
-    log_name = 'container'
-
     def __init__(self, conf):
-        self.logger = get_logger(conf, self.log_name)
+        self.logger = get_logger(conf)
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -347,9 +344,7 @@ class ContainerController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        if req.path_info == '/healthcheck':
-            return healthcheck(req)(env, start_response)
-        elif not check_xml_encodable(req.path_info):
+        if not check_xml_encodable(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
@@ -378,3 +373,9 @@ class ContainerController(object):
         else:
             self.logger.info(log_message)
         return res(env, start_response)
+
+def app_factory(global_conf, **local_conf):
+    """paste.deploy app factory for creating WSGI container server apps"""
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    return ContainerController(conf)

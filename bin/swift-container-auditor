@@ -34,21 +34,20 @@ if __name__ == '__main__':
         print "Unable to read config file."
         sys.exit(1)
 
-    server_conf = dict(c.items('container-server'))
     if c.has_section('container-auditor'):
-        auditor_conf = dict(c.items('container-auditor'))
+        conf = dict(c.items('container-auditor'))
     else:
         print "Unable to find container-auditor config section in %s." % \
                 sys.argv[1]
         sys.exit(1)
 
-    logger = utils.get_logger(auditor_conf, 'container-auditor')
+    logger = utils.get_logger(conf)
     # log uncaught exceptions
     sys.excepthook = lambda *exc_info: \
                 logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
     sys.stdout = sys.stderr = utils.LoggerFileObject(logger)
 
-    utils.drop_privileges(server_conf.get('user', 'swift'))
+    utils.drop_privileges(onf.get('user', 'swift'))
 
     try:
         os.setsid()
@@ -62,7 +61,7 @@ if __name__ == '__main__':
 
     signal.signal(signal.SIGTERM, kill_children)
 
-    auditor = ContainerAuditor(server_conf, auditor_conf)
+    auditor = ContainerAuditor(conf)
     if once:
         auditor.audit_once()
     else:

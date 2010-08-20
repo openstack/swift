@@ -31,10 +31,9 @@ from xml.sax import saxutils
 
 from swift.common.db import AccountBroker
 from swift.common.utils import get_param, split_path, storage_directory, \
-    hash_path
+    hash_path, get_logger
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_xml_encodable
-from swift.common.healthcheck import healthcheck
 from swift.common.db_replicator import ReplicatorRpc
 
 
@@ -43,10 +42,9 @@ DATADIR = 'accounts'
 
 class AccountController(object):
     """WSGI controller for the account server."""
-    log_name = 'account'
 
     def __init__(self, conf):
-        self.logger = get_logger(conf, self.log_name)
+        self.logger = get_logger(conf)
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -253,9 +251,7 @@ class AccountController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        if req.path_info == '/healthcheck':
-            return healthcheck(req)(env, start_response)
-        elif not check_xml_encodable(req.path_info):
+        if not check_xml_encodable(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
@@ -288,3 +284,9 @@ class AccountController(object):
         else:
             self.logger.info(log_message)
         return res(env, start_response)
+
+def app_factory(global_conf, **local_conf):
+    """paste.deploy app factory for creating WSGI account server apps"""
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    return AccountController(conf)

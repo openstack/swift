@@ -35,19 +35,19 @@ class AuditException(Exception):
 class AccountAuditor(object):
     """Audit accounts."""
 
-    def __init__(self, server_conf, auditor_conf):
-        self.logger = get_logger(auditor_conf, 'account-auditor')
-        self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
+    def __init__(self, conf):
+        self.logger = get_logger(conf, 'account-auditor')
+        self.devices = conf.get('devices', '/srv/node')
+        self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.interval = int(auditor_conf.get('interval', 1800))
-        swift_dir = server_conf.get('swift_dir', '/etc/swift')
+        self.interval = int(conf.get('interval', 1800))
+        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
         self.container_ring = None
-        self.node_timeout = int(auditor_conf.get('node_timeout', 10))
-        self.conn_timeout = float(auditor_conf.get('conn_timeout', 0.5))
+        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.max_container_count = \
-            int(auditor_conf.get('max_container_count', 100))
+            int(conf.get('max_container_count', 100))
         self.container_passes = 0
         self.container_failures = 0
         self.container_errors = 0

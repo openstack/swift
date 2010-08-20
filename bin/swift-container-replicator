@@ -41,17 +41,16 @@ if __name__ == '__main__':
         sys.exit(1)
     once = len(args) > 1 and args[1] == 'once'
 
-    server_conf = dict(c.items('container-server'))
     if c.has_section('container-replicator'):
-        replicator_conf = dict(c.items('container-replicator'))
+        conf = dict(c.items('container-replicator'))
     else:
         print "Unable to find container-replicator config section in %s." % \
                 args[0]
         sys.exit(1)
 
-    utils.drop_privileges(server_conf.get('user', 'swift'))
+    utils.drop_privileges(conf.get('user', 'swift'))
     if once or '--once' in [opt[0] for opt in optlist]:
-        ContainerReplicator(server_conf, replicator_conf).replicate_once()
+        ContainerReplicator(conf).replicate_once()
     else:
-        ContainerReplicator(server_conf, replicator_conf).replicate_forever()
+        ContainerReplicator(conf).replicate_forever()
 

@@ -50,25 +50,23 @@ class AccountReaper(object):
     configuration parameters.
     """
 
-    log_name = 'account-reaper'
-
-    def __init__(self, server_conf, reaper_conf):
-        self.logger = get_logger(reaper_conf, self.log_name)
-        self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
+    def __init__(self, conf):
+        self.logger = get_logger(conf)
+        self.devices = conf.get('devices', '/srv/node')
+        self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.interval = int(reaper_conf.get('interval', 3600))
-        swift_dir = server_conf.get('swift_dir', '/etc/swift')
+        self.interval = int(conf.get('interval', 3600))
+        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
         self.object_ring_path = os.path.join(swift_dir, 'object.ring.gz')
         self.account_ring = None
         self.container_ring = None
         self.object_ring = None
-        self.node_timeout = int(reaper_conf.get('node_timeout', 10))
-        self.conn_timeout = float(reaper_conf.get('conn_timeout', 0.5))
+        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.myips = whataremyips()
-        self.concurrency = int(reaper_conf.get('concurrency', 25))
+        self.concurrency = int(conf.get('concurrency', 25))
         self.container_concurrency = self.object_concurrency = \
             sqrt(self.concurrency)
         self.container_pool = GreenPool(size=self.container_concurrency)
