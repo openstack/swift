@@ -47,7 +47,7 @@ if __name__ == '__main__':
                 logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
     sys.stdout = sys.stderr = utils.LoggerFileObject(logger)
 
-    utils.drop_privileges(onf.get('user', 'swift'))
+    utils.drop_privileges(conf.get('user', 'swift'))
 
     try:
         os.setsid()

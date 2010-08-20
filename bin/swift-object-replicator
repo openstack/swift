@@ -32,8 +32,8 @@ if __name__ == '__main__':
         print "Usage: object-replicator CONFIG_FILE [once]"
         sys.exit()
     c = ConfigParser()
-    if not c.read(conf_file):
-        print "Unable to read config file: %s" % conf_file
+    if not c.read(sys.argv[1]):
+        print "Unable to read config file"
         sys.exit(1)
     if c.has_section('object-replicator'):
         conf = dict(c.items('object-replicator'))
