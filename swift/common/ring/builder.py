@@ -100,9 +100,12 @@ class RingBuilder(object):
                     continue
                 devs[dev['id']] = dict((k, v) for k, v in dev.items()
                                        if k not in ('parts', 'parts_wanted'))
-            self._ring = \
-                RingData([array('H', p2d) for p2d in self._replica2part2dev],
-                         devs, 32 - self.part_power)
+            if not self._replica2part2dev:
+                self._ring = RingData([], devs, 32 - self.part_power)
+            else:
+                self._ring = \
+                RingData([array('H', p2d) for p2d in self._replica2part2dev], 
+                         devs, 32 - self.part_power) 
         return self._ring
 
     def add_dev(self, dev):
