@@ -172,7 +172,7 @@ Option              Default     Description
 ------------------  ----------  ---------------------------------------------
 use                             paste.deploy entrypoint for the object
                                 server.  For most cases, this should be
-                                `egg:swfit#object`.
+                                `egg:swift#object`.
 log_requests        True        Weather or not to log each request
 user                swift       User to run as
 node_timeout        3           Request timeout to external services
@@ -260,7 +260,7 @@ Option              Default     Description
 ------------------  ----------  --------------------------------------------
 use                             paste.deploy entrypoint for the container
                                 server.  For most cases, this should be
-                                `egg:swfit#container`.
+                                `egg:swift#container`.
 node_timeout        3           Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
 ==================  ==========  ============================================
@@ -337,7 +337,7 @@ Option              Default     Description
 ------------------  ----------  ---------------------------------------------
 use                             paste.deploy entrypoint for the account
                                 server.  For most cases, this should be
-                                `egg:swfit#account`.
+                                `egg:swift#account`.
 ==================  ==========  =============================================
 
 [account-replicator]
