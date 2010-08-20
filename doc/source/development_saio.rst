@@ -164,195 +164,341 @@ good idea what to do on other environments.
   #. `. ~/.bashrc`
   #. Create `/etc/swift/auth-server.conf`::
 
-        [auth-server]
-        default_cluster_url = http://127.0.0.1:8080/v1
+        [DEFAULT]
+        log_name = auth
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = auth-server
+
+        [app:auth-server]
+        use = egg:swift#auth
+        default_cluster_url = http://127.0.0.1:8080/v1
 
   #. Create `/etc/swift/proxy-server.conf`::
 
-        [proxy-server]
+        [DEFAULT]
+        log_name = proxy
         bind_port = 8080
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = healthcheck cache auth proxy
+        
+        [app:proxy]
+        use = egg:swift#proxy
+
+        [filter:auth]
+        use = egg:swift#auth
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:cache]
+        use = egg:swift#cache
+
   #. Create `/etc/swift/account-server/1.conf`::
 
-        [account-server]
+        [DEFAULT]
+        log_name = account
         devices = /srv/1/node
         mount_check = false
         bind_port = 6012
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
+
         [account-replicator]
+        log_name = account-replicator
         vm_test_mode = yes
 
         [account-auditor]
+        log_name = account-auditor
 
         [account-reaper]
+        log_name = account-reaper
 
   #. Create `/etc/swift/account-server/2.conf`::
 
-        [account-server]
+        [DEFAULT]
+        log_name = account
         devices = /srv/2/node
         mount_check = false
         bind_port = 6022
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
+
         [account-replicator]
+        log_name = account-replicator
         vm_test_mode = yes
 
         [account-auditor]
+        log_name = account-auditor
 
         [account-reaper]
+        log_name = account-reaper
 
   #. Create `/etc/swift/account-server/3.conf`::
 
-        [account-server]
+        [DEFAULT]
+        log_name = account
         devices = /srv/3/node
         mount_check = false
         bind_port = 6032
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
+
         [account-replicator]
+        log_name = account-replicator
         vm_test_mode = yes
 
         [account-auditor]
+        log_name = account-auditor
 
         [account-reaper]
+        log_name = account-reaper
 
   #. Create `/etc/swift/account-server/4.conf`::
 
-        [account-server]
+        [DEFAULT]
+        log_name = account
         devices = /srv/4/node
         mount_check = false
         bind_port = 6042
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
+
         [account-replicator]
+        log_name = account-replicator
         vm_test_mode = yes
 
         [account-auditor]
+        log_name = account-auditor
 
         [account-reaper]
+        log_name = account-reaper
 
   #. Create `/etc/swift/container-server/1.conf`::
 
-        [container-server]
+        [DEFAULT]
+        log_name = container
         devices = /srv/1/node
         mount_check = false
         bind_port = 6011
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
+        log_name = container-replicator
         vm_test_mode = yes
 
         [container-updater]
+        log_name = container-updater
 
         [container-auditor]
+        log_name = container-auditor
 
   #. Create `/etc/swift/container-server/2.conf`::
 
-        [container-server]
+        [DEFAULT]
+        log_name = container
         devices = /srv/2/node
         mount_check = false
         bind_port = 6021
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
+        log_name = container-replicator
         vm_test_mode = yes
 
         [container-updater]
+        log_name = container-updater
 
         [container-auditor]
+        log_name = container-auditor
+
 
   #. Create `/etc/swift/container-server/3.conf`::
 
-        [container-server]
+        [DEFAULT]
+        log_name = container
         devices = /srv/3/node
         mount_check = false
         bind_port = 6031
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
+        log_name = container-replicator
         vm_test_mode = yes
 
         [container-updater]
+        log_name = container-updater
 
         [container-auditor]
+        log_name = container-auditor
+
 
   #. Create `/etc/swift/container-server/4.conf`::
 
-        [container-server]
+        [DEFAULT]
+        log_name = container
         devices = /srv/4/node
         mount_check = false
         bind_port = 6041
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
+        log_name = container-replicator
         vm_test_mode = yes
 
         [container-updater]
+        log_name = container-updater
 
         [container-auditor]
+        log_name = container-auditor
+
 
   #. Create `/etc/swift/object-server/1.conf`::
 
-        [object-server]
+        [DEFAULT]
+        log_name = object
         devices = /srv/1/node
         mount_check = false
         bind_port = 6010
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+
         [object-replicator]
+        log_name = object-replicator
         vm_test_mode = yes
 
         [object-updater]
+        log_name = object-updater
 
         [object-auditor]
+        log_name = object-auditor
 
   #. Create `/etc/swift/object-server/2.conf`::
 
-        [object-server]
+        [DEFAULT]
+        log_name = object
         devices = /srv/2/node
         mount_check = false
         bind_port = 6020
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+
         [object-replicator]
+        log_name = object-replicator
         vm_test_mode = yes
 
         [object-updater]
+        log_name = object-updater
 
         [object-auditor]
+        log_name = object-auditor
 
   #. Create `/etc/swift/object-server/3.conf`::
 
-        [object-server]
+        [DEFAULT]
+        log_name = object
         devices = /srv/3/node
         mount_check = false
         bind_port = 6030
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+
         [object-replicator]
+        log_name = object-replicator
         vm_test_mode = yes
 
         [object-updater]
+        log_name = object-updater
 
         [object-auditor]
+        log_name = object-auditor
 
   #. Create `/etc/swift/object-server/4.conf`::
 
-        [object-server]
+        [DEFAULT]
+        log_name = object
         devices = /srv/4/node
         mount_check = false
         bind_port = 6040
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+
         [object-replicator]
+        log_name = object-replicator
         vm_test_mode = yes
 
         [object-updater]
+        log_name = object-updater
 
         [object-auditor]
+        log_name = object-auditor
 
   #. Create `~/bin/resetswift`::
 

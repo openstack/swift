@@ -130,6 +130,14 @@ swift-ring-builder with no options will display help text with available
 commands and options. More information on how the ring works internally
 can be found in the :doc:`Ring Overview <overview_ring>`.
 
+----------------------------
+General Server Configuration
+----------------------------
+
+Swift uses paste.deploy to manage server configurations. Default configuration
+options are set in the `[DEFAULT]` section, and any options specidifed there
+can be overriden in any of the other sections.
+
 ---------------------------
 Object Server Configuration
 ---------------------------
@@ -139,11 +147,14 @@ etc/object-server.conf-sample in the source code repository.
 
 The following configuration options are available:
 
-[object-server]
+[DEFAULT]
 
 ==================  ==========  =============================================
 Option              Default     Description
 ------------------  ----------  ---------------------------------------------
+log_name            swift       Label used when logging
+log_facility        LOG_LOCAL0  Syslog log facility
+log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent directory of where devices are mounted
 mount_check         true        Weather or not check if the devices are
@@ -152,8 +163,16 @@ mount_check         true        Weather or not check if the devices are
 bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6000        Port for server to bind to
 workers             1           Number of workers to fork
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
+==================  ==========  =============================================
+
+[object-server]
+
+==================  ==========  =============================================
+Option              Default     Description
+------------------  ----------  ---------------------------------------------
+use                             paste.deploy entrypoint for the object
+                                server.  For most cases, this should be
+                                `egg:swfit#object`.
 log_requests        True        Weather or not to log each request
 user                swift       User to run as
 node_timeout        3           Request timeout to external services
@@ -171,8 +190,6 @@ slow                0           If > 0, Minimum time in seconds for a PUT
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 daemonize           yes         Weather or not to run replication as a
                                 daemon
 run_pause           30          Time in seconds to wait between replication
@@ -191,8 +208,6 @@ reclaim_age         604800      Time elapsed in seconds before an object
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 interval            300         Minimum time for a pass to take
 concurrency         1           Number of updater workers to spawn
 node_timeout        10          Request timeout to external services
@@ -205,8 +220,6 @@ slowdown            0.01        Time in seconds to wait between objects
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 interval            1800        Minimum time for a pass to take
 node_timeout        10          Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
@@ -221,11 +234,12 @@ etc/container-server.conf-sample in the source code repository.
 
 The following configuration options are available:
 
-[container-server]
+[DEFAULT]
 
 ==================  ==========  ============================================
 Option              Default     Description
 ------------------  ----------  --------------------------------------------
+log_name            swift       Label used when logging
 log_facility        LOG_LOCAL0  Syslog log facility
 log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
@@ -237,6 +251,16 @@ bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6001        Port for server to bind to
 workers             1           Number of workers to fork
 user                swift       User to run as
+==================  ==========  ============================================
+
+[container-server]
+
+==================  ==========  ============================================
+Option              Default     Description
+------------------  ----------  --------------------------------------------
+use                             paste.deploy entrypoint for the container
+                                server.  For most cases, this should be
+                                `egg:swfit#container`.
 node_timeout        3           Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
 ==================  ==========  ============================================
@@ -246,8 +270,6 @@ conn_timeout        0.5         Connection timeout to external services
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 per_diff            1000
 concurrency         8           Number of replication workers to spawn
 run_pause           30          Time in seconds to wait between replication
@@ -263,8 +285,6 @@ reclaim_age         604800      Time elapsed in seconds before a container
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 interval            300         Minimum time for a pass to take
 concurrency         4           Number of updater workers to spawn
 node_timeout        3           Request timeout to external services
@@ -277,8 +297,6 @@ slowdown            0.01        Time in seconds to wait between containers
 ==================  ==========  ===========================================
 Option              Default     Description
 ------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 interval            1800        Minimum time for a pass to take
 node_timeout        10          Request timeout to external services
 conn_timeout        0.5         Connection timeout to external services
@@ -293,11 +311,12 @@ etc/account-server.conf-sample in the source code repository.
 
 The following configuration options are available:
 
-[account-server]
+[DEFAULT]
 
 ==================  ==========  =============================================
 Option              Default     Description
 ------------------  ----------  ---------------------------------------------
+log_name            swift       Label used when logging
 log_facility        LOG_LOCAL0  Syslog log facility
 log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
@@ -309,6 +328,16 @@ bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6002        Port for server to bind to
 workers             1           Number of workers to fork
 user                swift       User to run as
+==================  ==========  =============================================
+
+[account-server]
+
+==================  ==========  =============================================
+Option              Default     Description
+------------------  ----------  ---------------------------------------------
+use                             paste.deploy entrypoint for the account
+                                server.  For most cases, this should be
+                                `egg:swfit#account`.
 ==================  ==========  =============================================
 
 [account-replicator]
@@ -359,7 +388,7 @@ conn_timeout        0.5         Connection timeout to external services
 Proxy Server Configuration
 --------------------------
 
-[proxy-server]
+[DEFAULT]
 
 ============================  ===============  =============================
 Option                        Default          Description
@@ -369,13 +398,24 @@ log_level                     INFO             Log level
 bind_ip                       0.0.0.0          IP Address for server to
                                                bind to
 bind_port                     80               Port for server to bind to
-cert_file                                      Path to the ssl .crt 
-key_file                                       Path to the ssl .key
 swift_dir                     /etc/swift       Swift configuration directory
-log_headers                   True             If True, log headers in each
-                                               request
 workers                       1                Number of workers to fork
 user                          swift            User to run as
+cert_file                                      Path to the ssl .crt 
+key_file                                       Path to the ssl .key
+============================  ===============  =============================
+
+[proxy-server]
+
+============================  ===============  =============================
+Option                        Default          Description
+----------------------------  ---------------  -----------------------------
+use                                            paste.deploy entrypoint for
+                                               the proxy server.  For most
+                                               cases, this should be
+                                               `egg:swift#proxy`.
+log_headers                   True             If True, log headers in each
+                                               request
 recheck_account_existence     60               Cache timeout in seconds to
                                                send memcached for account
                                                existance
@@ -412,16 +452,21 @@ rate_limit_account_blacklist                   Comma separated list of
                                                completly
 ============================  ===============  =============================
 
-[auth-server]
+[auth]
 
 ============  ===================================  ========================
 Option        Default                              Description
 ------------  -----------------------------------  ------------------------
-class         swift.common.auth.DevAuthMiddleware  Auth wsgi middleware
-                                                   to use
+use                                                paste.deploy entrypoint
+                                                   to use for auth.  To
+                                                   use the swift def auth,
+                                                   set to:
+                                                   `egg:swift#auth`
 ip            127.0.0.1                            IP address of auth
                                                    server
 port          11000                                Port of auth server
+ssl           False                                If True, use SSL to
+                                                   connect to auth
 node_timeout  10                                   Request timeout
 ============  ===================================  ========================
 
