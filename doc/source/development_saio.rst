@@ -11,8 +11,12 @@ virtual machine will emulate running a four node Swift cluster. It assumes
 you're using *VMware Fusion 3* on *Mac OS X Snow Leopard*, but should give a
 good idea what to do on other environments.
 
-* Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image from: 
-  http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso
+* Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
+
+  - Ubuntu Server ISO: http://releases.ubuntu.com/10.04/ubuntu-10.04.1-server-amd64.iso (682 MB)
+  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
+  - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
+
 * Create guest virtual machine:
 
   #. `Continue without disc`
