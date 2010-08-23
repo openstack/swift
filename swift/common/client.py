@@ -164,6 +164,7 @@ def get_auth(url, user, key, snet=False):
     conn.request('GET', parsed.path, '',
                  {'X-Auth-User': user, 'X-Auth-Key': key})
     resp = conn.getresponse()
+    resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Auth GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,
@@ -246,6 +247,7 @@ def head_account(url, token, http_conn=None):
         parsed, conn = http_connection(url)
     conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
+    resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Account HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,
@@ -629,21 +631,24 @@ class Connection(object):
         self.attempts = 0
         self.snet = snet
 
+    def get_auth(self):
+        return get_auth(self.authurl, self.user, self.key, snet=self.snet)
+
+    def http_connection(self):
+        return http_connection(self.url)
+
     def _retry(self, func, *args, **kwargs):
-        kwargs['http_conn'] = self.http_conn
         self.attempts = 0
         backoff = 1
         while self.attempts <= self.retries:
             self.attempts += 1
             try:
                 if not self.url or not self.token:
-                    self.url, self.token = \
-                        get_auth(self.authurl, self.user, self.key,
-                                 snet=self.snet)
+                    self.url, self.token = self.get_auth()
                     self.http_conn = None
                 if not self.http_conn:
-                    self.http_conn = http_connection(self.url)
-                    kwargs['http_conn'] = self.http_conn
+                    self.http_conn = self.http_connection()
+                kwargs['http_conn'] = self.http_conn
                 rv = func(self.url, self.token, *args, **kwargs)
                 return rv
             except (socket.error, HTTPException):
