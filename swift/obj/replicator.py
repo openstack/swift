@@ -34,8 +34,6 @@ from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
 from swift.common.bufferedhttp import http_connect
 
 
-REPLICAS = 3
-MAX_HANDOFFS = 5
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
@@ -340,7 +338,8 @@ class ObjectReplicator(object):
                                 '/' + '-'.join(suffixes),
                           headers={'Content-Length': '0'}).getresponse().read()
                     responses.append(success)
-            if not suffixes or (len(responses) == REPLICAS and all(responses)):
+            if not suffixes or (len(responses) == \
+                        self.object_ring.replica_count and all(responses)):
                 self.logger.info("Removing partition: %s" % job['path'])
                 tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
         except (Exception, Timeout):
@@ -364,7 +363,7 @@ class ObjectReplicator(object):
             successes = 0
             nodes = itertools.chain(job['nodes'],
                         self.object_ring.get_more_nodes(int(job['partition'])))
-            while successes < (REPLICAS - 1):
+            while successes < (self.object_ring.replica_count - 1):
                 node = next(nodes)
                 try:
                     with Timeout(60):
