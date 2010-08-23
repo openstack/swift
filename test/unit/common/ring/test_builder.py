@@ -43,7 +43,6 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_get_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
-        self.assertRaises(Exception, rb.get_ring)
         rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
                     'port': 10000, 'device': 'sda1'})
         rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
