@@ -56,7 +56,7 @@ setup(
         'Programming Language :: Python :: 2.6',
         'Environment :: No Input/Output (Daemon)',
         ],
-    install_requires=[], # removed for better compat
+    install_requires=[],  # removed for better compat
     scripts=[
         'bin/st', 'bin/swift-account-auditor',
         'bin/swift-account-audit', 'bin/swift-account-reaper',
@@ -76,14 +76,14 @@ setup(
         'bin/swift-stats-report'
         ],
     entry_points={
-        'paste.app_factory' : [
+        'paste.app_factory': [
             'proxy=swift.proxy.server:app_factory',
             'object=swift.obj.server:app_factory',
             'container=swift.container.server:app_factory',
             'account=swift.account.server:app_factory',
             'auth=swift.auth.server:app_factory',
             ],
-        'paste.filter_factory' : [
+        'paste.filter_factory': [
             'auth=swift.common.middleware.auth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'cache=swift.common.middleware.cache:filter_factory',

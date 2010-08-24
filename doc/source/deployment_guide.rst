@@ -135,8 +135,8 @@ General Server Configuration
 ----------------------------
 
 Swift uses paste.deploy to manage server configurations. Default configuration
-options are set in the `[DEFAULT]` section, and any options specidifed there
-can be overriden in any of the other sections.
+options are set in the `[DEFAULT]` section, and any options specified there
+can be overridden in any of the other sections.
 
 ---------------------------
 Object Server Configuration
@@ -167,7 +167,7 @@ workers             1           Number of workers to fork
 ==================  =============  ===========================================
 Option              Default        Description
 ------------------  -------------  -------------------------------------------
-use                                paste.deploy entrypoint for the object
+use                                paste.deploy entry point for the object
                                    server.  For most cases, this should be
                                    `egg:swift#object`.
 log_name            object-server  Label used when logging
@@ -264,9 +264,9 @@ user                swift       User to run as
 ==================  ================  ========================================
 Option              Default           Description
 ------------------  ----------------  ----------------------------------------
-use                                   paste.deploy entrypoint for the container
-                                      server.  For most cases, this should be
-                                      `egg:swift#container`.
+use                                   paste.deploy entry point for the 
+                                      container server.  For most cases, this 
+                                      should be `egg:swift#container`.
 log_name            container-server  Label used when logging
 log_facility        LOG_LOCAL0        Syslog log facility
 log_level           INFO              Logging level
@@ -353,7 +353,7 @@ user                swift       User to run as
 ==================  ==============  ==========================================
 Option              Default         Description
 ------------------  --------------  ------------------------------------------
-use                                 paste.deploy entrypoint for the account
+use                                 paste.deploy entry point for the account
                                     server.  For most cases, this should be
                                     `egg:swift#account`.
 log_name            account-server  Label used when logging
@@ -432,7 +432,7 @@ key_file                                       Path to the ssl .key
 ============================  ===============  =============================
 Option                        Default          Description
 ----------------------------  ---------------  -----------------------------
-use                                            paste.deploy entrypoint for
+use                                            paste.deploy entry point for
                                                the proxy server.  For most
                                                cases, this should be
                                                `egg:swift#proxy`.
@@ -482,9 +482,9 @@ rate_limit_account_blacklist                   Comma separated list of
 ============  ===================================  ========================
 Option        Default                              Description
 ------------  -----------------------------------  ------------------------
-use                                                paste.deploy entrypoint
+use                                                paste.deploy entry point
                                                    to use for auth.  To
-                                                   use the swift def auth,
+                                                   use the swift dev auth,
                                                    set to:
                                                    `egg:swift#auth`
 ip            127.0.0.1                            IP address of auth
