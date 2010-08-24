@@ -181,9 +181,9 @@ good idea what to do on other environments.
         user = <your-user-name>
 
         [pipeline:main]
-        pipeline = healthcheck cache auth proxy
+        pipeline = healthcheck cache auth proxy-server
         
-        [app:proxy]
+        [app:proxy-server]
         use = egg:swift#proxy
 
         [filter:auth]
