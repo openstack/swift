@@ -38,7 +38,7 @@ Utils
 Auth
 ====
 
-.. automodule:: swift.common.auth
+.. automodule:: swift.common.middleware.auth
     :members:
     :show-inheritance:
 
@@ -85,7 +85,7 @@ Buffered HTTP
 Healthcheck
 ===========
 
-.. automodule:: swift.common.healthcheck
+.. automodule:: swift.common.middleware.healthcheck
     :members:
     :show-inheritance:
 

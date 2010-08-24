@@ -32,26 +32,14 @@ if __name__ == '__main__':
     optlist, args = getopt.getopt(sys.argv[1:], '', ['once'])
 
     if not args:
-        print "Usage: account-replicator <--once> CONFIG_FILE [once]"
+        print "Usage: swift-account-replicator <--once> CONFIG_FILE [once]"
         sys.exit()
 
-    c = ConfigParser()
-    if not c.read(args[0]):
-        print "Unable to read config file."
-        sys.exit(1)
     once = len(args) > 1 and args[1] == 'once'
-
-    server_conf = dict(c.items('account-server'))
-    if c.has_section('account-replicator'):
-        replicator_conf = dict(c.items('account-replicator'))
-    else:
-        print "Unable to find account-replicator config section in %s." % \
-                args[0]
-        sys.exit(1)
-
-    utils.drop_privileges(server_conf.get('user', 'swift'))
+    conf = utils.readconf(sys.argv[1], 'account-replicator')
+    utils.drop_privileges(conf.get('user', 'swift'))
     if once or '--once' in [opt[0] for opt in optlist]:
-        AccountReplicator(server_conf, replicator_conf).replicate_once()
+        AccountReplicator(conf).replicate_once()
     else:
-        AccountReplicator(server_conf, replicator_conf).replicate_forever()
+        AccountReplicator(conf).replicate_forever()
 

@@ -1,21 +1,25 @@
-[proxy-server]
+[DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 80
+# swift_dir = /etc/swift
+# workers = 1
+# user = swift
 # cert_file = /etc/swift/proxy.crt
 # key_file = /etc/swift/proxy.key
-# swift_dir = /etc/swift
+
+[pipeline:main]
+pipeline = healthcheck cache auth proxy
+
+[app:proxy]
+use = egg:swift#proxy
+# log_name = proxy-server
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_headers = False
-# workers = 1
-# user = swift
 # recheck_account_existence = 60
 # recheck_container_existence = 60
 # object_chunk_size = 8192
 # client_chunk_size = 8192
-# Default for memcache_servers is below, but you can specify multiple servers
-# with the format: 10.1.2.3:11211,10.1.2.4:11211
-# memcache_servers = 127.0.0.1:11211
 # node_timeout = 10
 # client_timeout = 60
 # conn_timeout = 0.5
@@ -31,9 +35,18 @@
 # rate_limit_account_whitelist = acct1,acct2,etc
 # rate_limit_account_blacklist = acct3,acct4,etc
 
-# [auth-server]
-# class = swift.common.auth.DevAuthMiddleware
+[filter:auth]
+use = egg:swift#auth
 # ip = 127.0.0.1
 # port = 11000
 # ssl = false
 # node_timeout = 10
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+
+[filter:cache]
+use = egg:swift#memcache
+# Default for memcache_servers is below, but you can specify multiple servers
+# with the format: 10.1.2.3:11211,10.1.2.4:11211
+# memcache_servers = 127.0.0.1:11211

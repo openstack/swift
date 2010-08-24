@@ -61,10 +61,14 @@ class TestContainerUpdater(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def test_creation(self):
-        cu = container_updater.ContainerUpdater(
-            {'devices': self.devices_dir, 'mount_check': 'false',
-             'swift_dir': self.testdir},
-            {'interval': '1', 'concurrency': '2', 'node_timeout': '5'})
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '2',
+            'node_timeout': '5',
+            })
         self.assert_(hasattr(cu, 'logger'))
         self.assert_(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
@@ -74,10 +78,14 @@ class TestContainerUpdater(unittest.TestCase):
         self.assert_(cu.get_account_ring() is not None)
 
     def test_update_once_single_threaded(self):
-        cu = container_updater.ContainerUpdater(
-            {'devices': self.devices_dir, 'mount_check': 'false',
-             'swift_dir': self.testdir},
-            {'interval': '1', 'concurrency': '1', 'node_timeout': '15'})
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            })
         cu.update_once_single_threaded()
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
         os.mkdir(containers_dir)
@@ -152,10 +160,14 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEquals(info['reported_bytes_used'], 3)
 
     def test_unicode(self):
-        cu = container_updater.ContainerUpdater(
-            {'devices': self.devices_dir, 'mount_check': 'false',
-             'swift_dir': self.testdir},
-            {'interval': '1', 'concurrency': '1', 'node_timeout': '15'})
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            })
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
         os.mkdir(containers_dir)
         subdir = os.path.join(containers_dir, 'subdir')

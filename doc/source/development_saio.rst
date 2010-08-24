@@ -39,7 +39,7 @@ good idea what to do on other environments.
   #. `apt-get install curl gcc bzr memcached python-configobj
      python-coverage python-dev python-nose python-setuptools python-simplejson
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
-     python-greenlet`
+     python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
@@ -168,23 +168,50 @@ good idea what to do on other environments.
   #. `. ~/.bashrc`
   #. Create `/etc/swift/auth-server.conf`::
 
-        [auth-server]
-        default_cluster_url = http://127.0.0.1:8080/v1
+        [DEFAULT]
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = auth-server
+
+        [app:auth-server]
+        use = egg:swift#auth
+        default_cluster_url = http://127.0.0.1:8080/v1
 
   #. Create `/etc/swift/proxy-server.conf`::
 
-        [proxy-server]
+        [DEFAULT]
         bind_port = 8080
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = healthcheck cache auth proxy-server
+        
+        [app:proxy-server]
+        use = egg:swift#proxy
+
+        [filter:auth]
+        use = egg:swift#auth
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:cache]
+        use = egg:swift#memcache
+
   #. Create `/etc/swift/account-server/1.conf`::
 
-        [account-server]
+        [DEFAULT]
         devices = /srv/1/node
         mount_check = false
         bind_port = 6012
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
 
         [account-replicator]
         vm_test_mode = yes
@@ -195,11 +222,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/account-server/2.conf`::
 
-        [account-server]
+        [DEFAULT]
         devices = /srv/2/node
         mount_check = false
         bind_port = 6022
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
 
         [account-replicator]
         vm_test_mode = yes
@@ -210,11 +243,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/account-server/3.conf`::
 
-        [account-server]
+        [DEFAULT]
         devices = /srv/3/node
         mount_check = false
         bind_port = 6032
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
 
         [account-replicator]
         vm_test_mode = yes
@@ -225,11 +264,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/account-server/4.conf`::
 
-        [account-server]
+        [DEFAULT]
         devices = /srv/4/node
         mount_check = false
         bind_port = 6042
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = account-server
+
+        [app:account-server]
+        use = egg:swift#account
 
         [account-replicator]
         vm_test_mode = yes
@@ -240,11 +285,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/container-server/1.conf`::
 
-        [container-server]
+        [DEFAULT]
         devices = /srv/1/node
         mount_check = false
         bind_port = 6011
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
 
         [container-replicator]
         vm_test_mode = yes
@@ -255,12 +306,18 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/container-server/2.conf`::
 
-        [container-server]
+        [DEFAULT]
         devices = /srv/2/node
         mount_check = false
         bind_port = 6021
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
         vm_test_mode = yes
 
@@ -268,14 +325,21 @@ good idea what to do on other environments.
 
         [container-auditor]
 
+
   #. Create `/etc/swift/container-server/3.conf`::
 
-        [container-server]
+        [DEFAULT]
         devices = /srv/3/node
         mount_check = false
         bind_port = 6031
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
         vm_test_mode = yes
 
@@ -283,14 +347,21 @@ good idea what to do on other environments.
 
         [container-auditor]
 
+
   #. Create `/etc/swift/container-server/4.conf`::
 
-        [container-server]
+        [DEFAULT]
         devices = /srv/4/node
         mount_check = false
         bind_port = 6041
         user = <your-user-name>
 
+        [pipeline:main]
+        pipeline = container-server
+
+        [app:container-server]
+        use = egg:swift#container
+
         [container-replicator]
         vm_test_mode = yes
 
@@ -298,13 +369,20 @@ good idea what to do on other environments.
 
         [container-auditor]
 
+
   #. Create `/etc/swift/object-server/1.conf`::
 
-        [object-server]
+        [DEFAULT]
         devices = /srv/1/node
         mount_check = false
         bind_port = 6010
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
 
         [object-replicator]
         vm_test_mode = yes
@@ -315,11 +393,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/object-server/2.conf`::
 
-        [object-server]
+        [DEFAULT]
         devices = /srv/2/node
         mount_check = false
         bind_port = 6020
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
 
         [object-replicator]
         vm_test_mode = yes
@@ -330,11 +414,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/object-server/3.conf`::
 
-        [object-server]
+        [DEFAULT]
         devices = /srv/3/node
         mount_check = false
         bind_port = 6030
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
 
         [object-replicator]
         vm_test_mode = yes
@@ -345,11 +435,17 @@ good idea what to do on other environments.
 
   #. Create `/etc/swift/object-server/4.conf`::
 
-        [object-server]
+        [DEFAULT]
         devices = /srv/4/node
         mount_check = false
         bind_port = 6040
         user = <your-user-name>
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
 
         [object-replicator]
         vm_test_mode = yes

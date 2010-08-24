@@ -23,7 +23,7 @@ from contextlib import contextmanager
 import eventlet
 from webob import Request
 
-from swift.common import auth
+from swift.common.middleware import auth
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))

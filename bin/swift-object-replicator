@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import sys
-from ConfigParser import ConfigParser
 import logging
 import time
 
@@ -23,42 +22,18 @@ from eventlet import sleep, hubs
 hubs.use_hub('poll')
 
 from swift.obj.replicator import ObjectReplicator
-from swift.common.utils import get_logger, drop_privileges, LoggerFileObject
+from swift.common.utils import get_logger, drop_privileges, LoggerFileObject, \
+    readconf
 
 TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes'))
 
-def read_configs(conf_file):
-    c = ConfigParser()
-    if not c.read(conf_file):
-        print "Unable to read config file: %s" % conf_file
-        sys.exit(1)
-    conf = dict(c.items('object-server'))
-    repl_conf = dict(c.items('object-replicator'))
-    if not repl_conf:
-        sys.exit()
-    conf['replication_concurrency'] = repl_conf.get('concurrency',1)
-    conf['vm_test_mode'] = repl_conf.get('vm_test_mode', 'no')
-    conf['daemonize'] = repl_conf.get('daemonize', 'yes')
-    conf['run_pause'] = repl_conf.get('run_pause', '30')
-    conf['log_facility'] = repl_conf.get('log_facility', 'LOG_LOCAL1')
-    conf['log_level'] = repl_conf.get('log_level', 'INFO')
-    conf['timeout'] = repl_conf.get('timeout', '5')
-    conf['stats_interval'] = repl_conf.get('stats_interval', '3600')
-    conf['reclaim_age'] = int(repl_conf.get('reclaim_age', 86400))
-
-    return conf
-
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print "Usage: object-replicator CONFIG_FILE [once]"
+        print "Usage: swift-object-replicator CONFIG_FILE [once]"
         sys.exit()
-    try:
-        conf = read_configs(sys.argv[1])
-    except:
-        print "Problem reading the config.  Aborting object replication."
-        sys.exit()
+    conf = readconf(sys.argv[1], "object-replicator")
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    logger = get_logger(conf, 'object-replicator')
+    logger = get_logger(conf)
     # log uncaught exceptions
     sys.excepthook = lambda *exc_info: \
                 logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)

@@ -33,7 +33,7 @@ if __name__ == '__main__':
     c = ConfigParser()
     if not c.read(f):
         exit('Unable to read conf file: %s' % f)
-    conf = dict(c.items('auth-server'))
+    conf = dict(c.items('app:auth-server'))
     host = conf.get('bind_ip', '127.0.0.1')
     port = int(conf.get('bind_port', 11000))
     ssl = conf.get('cert_file') is not None
