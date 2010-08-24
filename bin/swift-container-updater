@@ -28,7 +28,7 @@ if __name__ == '__main__':
         sys.exit()
 
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    conf = readconf(sys.argv[1], 'container-updater')
+    conf = utils.readconf(sys.argv[1], 'container-updater')
     utils.drop_privileges(conf.get('user', 'swift'))
 
     try:
