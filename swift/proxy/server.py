@@ -47,7 +47,7 @@ def update_headers(response, headers):
     Helper function to update headers in the response.
 
     :param response: webob.Response object
-    :parm headers: dictionary headers
+    :param headers: dictionary headers
     """
     if hasattr(headers, 'items'):
         headers = headers.items()
@@ -1264,7 +1264,7 @@ class Application(BaseApplication):
         return None
 
 def app_factory(global_conf, **local_conf):
+    """paste.deploy app factory for creating WSGI proxy apps."""
     conf = global_conf.copy()
     conf.update(local_conf)
-    """paste.deploy app factory for creating WSGI proxy apps."""
     return Application(conf)
