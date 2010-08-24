@@ -86,7 +86,7 @@ setup(
         'paste.filter_factory': [
             'auth=swift.common.middleware.auth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
-            'cache=swift.common.middleware.cache:filter_factory',
+            'memcache=swift.common.middleware.memcache:filter_factory',
             ],
         },
     )

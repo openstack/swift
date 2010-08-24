@@ -46,7 +46,7 @@ use = egg:swift#auth
 use = egg:swift#healthcheck
 
 [filter:cache]
-use = egg:swift#cache
+use = egg:swift#memcache
 # Default for memcache_servers is below, but you can specify multiple servers
 # with the format: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211

@@ -17,7 +17,7 @@ import unittest
 
 from webob import Request
 
-from swift.common.middleware import cache
+from swift.common.middleware import memcache
 from swift.common.memcached import MemcacheRing
 
 class FakeApp(object):
@@ -30,7 +30,7 @@ def start_response(*args):
 class TestCacheMiddleware(unittest.TestCase):
 
     def setUp(self):
-        self.app = cache.CacheMiddleware(FakeApp(), {})
+        self.app = memcache.MemcacheMiddleware(FakeApp(), {})
 
     def test_cache_middleware(self):
         req = Request.blank('/something', environ={'REQUEST_METHOD': 'GET'})

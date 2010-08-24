@@ -14,7 +14,7 @@
 
 from swift.common.memcached import MemcacheRing
 
-class CacheMiddleware(object):
+class MemcacheMiddleware(object):
     """
     Caching middleware that manages caching in swift.
     """
@@ -32,5 +32,5 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     def cache_filter(app):
-        return CacheMiddleware(app, conf)
+        return MemcacheMiddleware(app, conf)
     return cache_filter
