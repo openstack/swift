@@ -93,7 +93,7 @@ class AuthController(object):
         self.logger = get_logger(conf)
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.default_cluster_url = \
-            conf.get('default_cluster_url', 'http://127.0.0.1:9000/v1')
+            conf.get('default_cluster_url', 'http://127.0.0.1:8080/v1')
         self.token_life = int(conf.get('token_life', 86400))
         self.log_headers = conf.get('log_headers') == 'True'
         if ring:
