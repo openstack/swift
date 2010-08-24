@@ -193,7 +193,7 @@ good idea what to do on other environments.
         use = egg:swift#healthcheck
 
         [filter:cache]
-        use = egg:swift#cache
+        use = egg:swift#memcache
 
   #. Create `/etc/swift/account-server/1.conf`::
 
