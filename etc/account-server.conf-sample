@@ -18,6 +18,7 @@ use = egg:swift#account
 
 [account-replicator]
 # log_name = account-replicator
+# vm_test_mode = no
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # per_diff = 1000

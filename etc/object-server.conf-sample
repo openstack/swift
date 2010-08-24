@@ -25,6 +25,7 @@ use = egg:swift#object
 
 [object-replicator]
 # log_name = object-replicator
+# vm_test_mode = no
 # daemonize = on
 # run_pause = 30
 # concurrency = 1
