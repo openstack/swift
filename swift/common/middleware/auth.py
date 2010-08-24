@@ -105,6 +105,8 @@ class DevAuthMiddleware(object):
             return True
 
 def filter_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
     def auth_filter(app):
-        return DevAuthMiddleware(app, local_conf)
+        return DevAuthMiddleware(app, conf)
     return auth_filter

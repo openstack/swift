@@ -1,9 +1,6 @@
 [DEFAULT]
-log_name = auth
 # bind_ip = 0.0.0.0
 # bind_port = 11000
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # workers = 1
 # user = swift
 # swift_dir = /etc/swift
@@ -15,6 +12,9 @@ pipeline = auth-server
 
 [app:auth-server]
 use = egg:swift#auth
+# log_name = auth-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # reseller_prefix = AUTH
 # default_cluster_url = http://127.0.0.1:9000/v1
 # token_life = 86400

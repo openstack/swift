@@ -20,5 +20,5 @@ from swift.common.wsgi import run_wsgi
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        print "Usage: %s CONFIG_FILE"
-    run_wsgi(sys.argv[1], default_port=6000)
+        print "Usage: %s CONFIG_FILE" % sys.argv[0]
+    run_wsgi(sys.argv[1], 'object-server', default_port=6000)

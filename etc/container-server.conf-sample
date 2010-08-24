@@ -1,7 +1,4 @@
 [DEFAULT]
-log_name = container
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # bind_ip = 0.0.0.0
 # bind_port = 6001
 # workers = 1
@@ -15,11 +12,14 @@ pipeline = container-server
 
 [app:container-server]
 use = egg:swift#container
+# log_name = container-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # node_timeout = 3
 # conn_timeout = 0.5
 
 [container-replicator]
-log_name = container-replicator
+# log_name = container-replicator
 # per_diff = 1000
 # concurrency = 8
 # run_pause = 30
@@ -29,7 +29,7 @@ log_name = container-replicator
 # reclaim_age = 604800
 
 [container-updater]
-log_name = container-updater
+# log_name = container-updater
 # interval = 300
 # concurrency = 4
 # node_timeout = 3
@@ -38,7 +38,7 @@ log_name = container-updater
 # slowdown = 0.01
 
 [container-auditor]
-log_name = container-auditor
+# log_name = container-auditor
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
 # Maximum objects randomly picked for a given container audit

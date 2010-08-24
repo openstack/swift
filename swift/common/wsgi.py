@@ -59,25 +59,27 @@ def monkey_patch_mimetools():
 # We might be able to pull pieces of this out to test, but right now it seems
 # like more work than it's worth.
 
-def run_wsgi(conf_file, *args, **kwargs):   # pragma: no cover
+def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
     """
     Loads common settings from conf, then instantiates app and runs
     the server using the specified number of workers.
 
     :param conf_file: Path to paste.deploy style configuration file
+    :param app_section: App name from conf file to load config from
     """
 
     try:
-        app = loadapp('config:%s' % conf_file)
-        conf = appconfig('config:%s' % conf_file)
+        conf = appconfig('config:%s' % conf_file, name=app_section)
+        log_name = conf.get('log_name', app_section)
+        app = loadapp('config:%s' % conf_file,
+            global_conf={'log_name':log_name})
     except Exception, e:
         print "Error trying to load config %s: %s" % (conf_file, e)
         return
     if 'logger' in kwargs:
         logger = kwargs['logger']
     else:
-        logger = get_logger(conf)
-
+        logger = get_logger(conf, log_name)
     # log uncaught exceptions
     sys.excepthook = lambda * exc_info: \
         logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)

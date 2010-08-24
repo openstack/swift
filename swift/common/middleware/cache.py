@@ -29,6 +29,8 @@ class CacheMiddleware(object):
         return self.app(env, start_response)
 
 def filter_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
     def cache_filter(app):
-        return CacheMiddleware(app, local_conf)
+        return CacheMiddleware(app, conf)
     return cache_filter

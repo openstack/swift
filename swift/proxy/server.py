@@ -1264,5 +1264,7 @@ class Application(BaseApplication):
         return None
 
 def app_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
     """paste.deploy app factory for creating WSGI proxy apps."""
-    return Application(local_conf)
+    return Application(conf)

@@ -1,7 +1,4 @@
 [DEFAULT]
-log_name = object
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # bind_ip = 0.0.0.0
 # bind_port = 6000
 # workers = 1
@@ -15,6 +12,9 @@ pipeline = object-server
 
 [app:object-server]
 use = egg:swift#object
+# log_name = object-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # log_requests = True
 # node_timeout = 3
 # conn_timeout = 0.5
@@ -24,7 +24,7 @@ use = egg:swift#object
 # slow = 1
 
 [object-replicator]
-log_name = object-replicator
+# log_name = object-replicator
 # daemonize = on
 # run_pause = 30
 # concurrency = 1
@@ -34,7 +34,7 @@ log_name = object-replicator
 # reclaim_age = 604800
 
 [object-updater]
-log_name = object-updater
+# log_name = object-updater
 # interval = 300
 # concurrency = 1
 # node_timeout = 10
@@ -43,7 +43,7 @@ log_name = object-updater
 # slowdown = 0.01
 
 [object-auditor]
-log_name = object-auditor
+# log_name = object-auditor
 # Will audit, at most, 1 object per device per interval
 # interval = 1800
 # node_timeout = 10

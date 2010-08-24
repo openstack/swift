@@ -24,23 +24,11 @@ from swift.common import utils
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print "Usage: container-updater CONFIG_FILE [once]"
+        print "Usage: swift-container-updater CONFIG_FILE [once]"
         sys.exit()
 
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file."
-        sys.exit(1)
-
-    if c.has_section('container-updater'):
-        conf = dict(c.items('container-updater'))
-    else:
-        print "Unable to find container-updater config section in %s." % \
-                sys.argv[1]
-        sys.exit(1)
-
+    conf = readconf(sys.argv[1], 'container-updater')
     utils.drop_privileges(conf.get('user', 'swift'))
 
     try:

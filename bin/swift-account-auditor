@@ -24,23 +24,12 @@ from swift.common import utils
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print "Usage: account-auditor CONFIG_FILE [once]"
+        print "Usage: swift-account-auditor CONFIG_FILE [once]"
         sys.exit()
 
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
 
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file."
-        sys.exit(1)
-
-    if c.has_section('account-auditor'):
-        conf = dict(c.items('account-auditor'))
-    else:
-        print "Unable to find account-auditor config section in %s." % \
-                sys.argv[1]
-        sys.exit(1)
-
+    conf = utils.readconf(sys.argv[1], 'account-auditor')
     logger = utils.get_logger(conf)
     # log uncaught exceptions
     sys.excepthook = lambda *exc_info: \

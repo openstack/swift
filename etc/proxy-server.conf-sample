@@ -1,7 +1,4 @@
 [DEFAULT]
-log_name = proxy
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # bind_ip = 0.0.0.0
 # bind_port = 80
 # swift_dir = /etc/swift
@@ -15,6 +12,9 @@ pipeline = healthcheck cache auth proxy
 
 [app:proxy]
 use = egg:swift#proxy
+# log_name = proxy-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # log_headers = False
 # recheck_account_existence = 60
 # recheck_container_existence = 60

@@ -152,9 +152,6 @@ The following configuration options are available:
 ==================  ==========  =============================================
 Option              Default     Description
 ------------------  ----------  ---------------------------------------------
-log_name            swift       Label used when logging
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent directory of where devices are mounted
 mount_check         true        Weather or not check if the devices are
@@ -167,63 +164,75 @@ workers             1           Number of workers to fork
 
 [object-server]
 
-==================  ==========  =============================================
-Option              Default     Description
-------------------  ----------  ---------------------------------------------
-use                             paste.deploy entrypoint for the object
-                                server.  For most cases, this should be
-                                `egg:swift#object`.
-log_requests        True        Weather or not to log each request
-user                swift       User to run as
-node_timeout        3           Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-network_chunk_size  65536       Size of chunks to read/write over the
-                                network
-disk_chunk_size     65536       Size of chunks to read/write to disk
-max_upload_time     86400       Maximum time allowed to upload an object
-slow                0           If > 0, Minimum time in seconds for a PUT
-                                or DELETE request to complete
-==================  ==========  =============================================
+==================  =============  ===========================================
+Option              Default        Description
+------------------  -------------  -------------------------------------------
+use                                paste.deploy entrypoint for the object
+                                   server.  For most cases, this should be
+                                   `egg:swift#object`.
+log_name            object-server  Label used when logging
+log_facility        LOG_LOCAL0     Syslog log facility
+log_level           INFO           Logging level
+log_requests        True           Weather or not to log each request
+user                swift          User to run as
+node_timeout        3              Request timeout to external services
+conn_timeout        0.5            Connection timeout to external services
+network_chunk_size  65536          Size of chunks to read/write over the
+                                   network
+disk_chunk_size     65536          Size of chunks to read/write to disk
+max_upload_time     86400          Maximum time allowed to upload an object
+slow                0              If > 0, Minimum time in seconds for a PUT
+                                   or DELETE request to complete
+==================  =============  ===========================================
 
 [object-replicator]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-daemonize           yes         Weather or not to run replication as a
-                                daemon
-run_pause           30          Time in seconds to wait between replication
-                                passes
-concurrency         1           Number of replication workers to spawn
-timeout             5           Timeout value sent to rsync --timeout and
-                                --contimeout options
-stats_interval      3600        Interval in seconds between logging
-                                replication statistics
-reclaim_age         604800      Time elapsed in seconds before an object
-                                can be reclaimed
-==================  ==========  ===========================================
+==================  =================  =======================================
+Option              Default            Description
+------------------  -----------------  ---------------------------------------
+log_name            object-replicator  Label used when logging
+log_facility        LOG_LOCAL0         Syslog log facility
+log_level           INFO               Logging level
+daemonize           yes                Weather or not to run replication as a
+                                       daemon
+run_pause           30                 Time in seconds to wait between 
+                                       replication passes
+concurrency         1                  Number of replication workers to spawn
+timeout             5                  Timeout value sent to rsync --timeout 
+                                       and --contimeout options
+stats_interval      3600               Interval in seconds between logging
+                                       replication statistics
+reclaim_age         604800             Time elapsed in seconds before an 
+                                       object can be reclaimed
+==================  =================  =======================================
 
 [object-updater]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-interval            300         Minimum time for a pass to take
-concurrency         1           Number of updater workers to spawn
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-slowdown            0.01        Time in seconds to wait between objects
-==================  ==========  ===========================================
+==================  ==============  ==========================================
+Option              Default         Description
+------------------  --------------  ------------------------------------------
+log_name            object-updater  Label used when logging
+log_facility        LOG_LOCAL0      Syslog log facility
+log_level           INFO            Logging level
+interval            300             Minimum time for a pass to take
+concurrency         1               Number of updater workers to spawn
+node_timeout        10              Request timeout to external services
+conn_timeout        0.5             Connection timeout to external services
+slowdown            0.01            Time in seconds to wait between objects
+==================  ==============  ==========================================
 
 [object-auditor]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-interval            1800        Minimum time for a pass to take
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-==================  ==========  ===========================================
+==================  ==============  ==========================================
+Option              Default         Description
+------------------  --------------  ------------------------------------------
+log_name            object-auditor  Label used when logging
+log_facility        LOG_LOCAL0      Syslog log facility
+log_level           INFO            Logging level
+interval            1800            Minimum time for a pass to take
+node_timeout        10              Request timeout to external services
+conn_timeout        0.5             Connection timeout to external services
+==================  ==============  ==========================================
 
 ------------------------------
 Container Server Configuration
@@ -239,9 +248,6 @@ The following configuration options are available:
 ==================  ==========  ============================================
 Option              Default     Description
 ------------------  ----------  --------------------------------------------
-log_name            swift       Label used when logging
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent irectory of where devices are mounted
 mount_check         true        Weather or not check if the devices are
@@ -255,52 +261,67 @@ user                swift       User to run as
 
 [container-server]
 
-==================  ==========  ============================================
-Option              Default     Description
-------------------  ----------  --------------------------------------------
-use                             paste.deploy entrypoint for the container
-                                server.  For most cases, this should be
-                                `egg:swift#container`.
-node_timeout        3           Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-==================  ==========  ============================================
+==================  ================  ========================================
+Option              Default           Description
+------------------  ----------------  ----------------------------------------
+use                                   paste.deploy entrypoint for the container
+                                      server.  For most cases, this should be
+                                      `egg:swift#container`.
+log_name            container-server  Label used when logging
+log_facility        LOG_LOCAL0        Syslog log facility
+log_level           INFO              Logging level
+node_timeout        3                 Request timeout to external services
+conn_timeout        0.5               Connection timeout to external services
+==================  ================  ========================================
 
 [container-replicator]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
+==================  ====================  ====================================
+Option              Default               Description
+------------------  --------------------  ------------------------------------
+log_name            container-replicator  Label used when logging
+log_facility        LOG_LOCAL0            Syslog log facility
+log_level           INFO                  Logging level
 per_diff            1000
-concurrency         8           Number of replication workers to spawn
-run_pause           30          Time in seconds to wait between replication
-                                passes
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-reclaim_age         604800      Time elapsed in seconds before a container
-                                can be reclaimed
-==================  ==========  ===========================================
+concurrency         8                     Number of replication workers to 
+                                          spawn
+run_pause           30                    Time in seconds to wait between 
+                                          replication passes
+node_timeout        10                    Request timeout to external services
+conn_timeout        0.5                   Connection timeout to external 
+                                          services
+reclaim_age         604800                Time elapsed in seconds before a 
+                                          container can be reclaimed
+==================  ====================  ====================================
 
 [container-updater]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-interval            300         Minimum time for a pass to take
-concurrency         4           Number of updater workers to spawn
-node_timeout        3           Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-slowdown            0.01        Time in seconds to wait between containers
-==================  ==========  ===========================================
+==================  =================  =======================================
+Option              Default            Description
+------------------  -----------------  ---------------------------------------
+log_name            container-updater  Label used when logging
+log_facility        LOG_LOCAL0         Syslog log facility
+log_level           INFO               Logging level
+interval            300                Minimum time for a pass to take
+concurrency         4                  Number of updater workers to spawn
+node_timeout        3                  Request timeout to external services
+conn_timeout        0.5                Connection timeout to external services
+slowdown            0.01               Time in seconds to wait between 
+                                       containers
+==================  =================  =======================================
 
 [container-auditor]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-interval            1800        Minimum time for a pass to take
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-==================  ==========  ===========================================
+==================  =================  =======================================
+Option              Default            Description
+------------------  -----------------  ---------------------------------------
+log_name            container-auditor  Label used when logging
+log_facility        LOG_LOCAL0         Syslog log facility
+log_level           INFO               Logging level
+interval            1800               Minimum time for a pass to take
+node_timeout        10                 Request timeout to external services
+conn_timeout        0.5                Connection timeout to external services
+==================  =================  =======================================
 
 ----------------------------
 Account Server Configuration
@@ -316,9 +337,6 @@ The following configuration options are available:
 ==================  ==========  =============================================
 Option              Default     Description
 ------------------  ----------  ---------------------------------------------
-log_name            swift       Label used when logging
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent directory or where devices are mounted
 mount_check         true        Weather or not check if the devices are
@@ -332,57 +350,63 @@ user                swift       User to run as
 
 [account-server]
 
-==================  ==========  =============================================
-Option              Default     Description
-------------------  ----------  ---------------------------------------------
-use                             paste.deploy entrypoint for the account
-                                server.  For most cases, this should be
-                                `egg:swift#account`.
-==================  ==========  =============================================
+==================  ==============  ==========================================
+Option              Default         Description
+------------------  --------------  ------------------------------------------
+use                                 paste.deploy entrypoint for the account
+                                    server.  For most cases, this should be
+                                    `egg:swift#account`.
+log_name            account-server  Label used when logging
+log_facility        LOG_LOCAL0      Syslog log facility
+log_level           INFO            Logging level
+==================  ==============  ==========================================
 
 [account-replicator]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
+==================  ==================  ======================================
+Option              Default             Description
+------------------  ------------------  --------------------------------------
+log_name            account-replicator  Label used when logging
+log_facility        LOG_LOCAL0          Syslog log facility
+log_level           INFO                Logging level
 per_diff            1000
-concurrency         8           Number of replication workers to spawn
-run_pause           30          Time in seconds to wait between replication
-                                passes
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-reclaim_age         604800      Time elapsed in seconds before a account
-                                can be reclaimed
-==================  ==========  ===========================================
+concurrency         8                   Number of replication workers to spawn
+run_pause           30                  Time in seconds to wait between 
+                                        replication passes
+node_timeout        10                  Request timeout to external services
+conn_timeout        0.5                 Connection timeout to external services
+reclaim_age         604800              Time elapsed in seconds before an 
+                                        account can be reclaimed
+==================  ==================  ======================================
 
 [account-auditor]
 
-====================  ==========  ===========================================
-Option                Default     Description
---------------------  ----------  -------------------------------------------
-log_facility          LOG_LOCAL0  Syslog log facility
-log_level             INFO        Logging level
-interval              1800        Minimum time for a pass to take
-max_container_count   100         Maximum containers randomly picked for
-                                  a given account audit
-node_timeout          10          Request timeout to external services
-conn_timeout          0.5         Connection timeout to external services
-====================  ==========  ===========================================
+====================  ===============  =======================================
+Option                Default          Description
+--------------------  ---------------  ---------------------------------------
+log_name              account-auditor  Label used when logging
+log_facility          LOG_LOCAL0       Syslog log facility
+log_level             INFO             Logging level
+interval              1800             Minimum time for a pass to take
+max_container_count   100              Maximum containers randomly picked for
+                                       a given account audit
+node_timeout          10               Request timeout to external services
+conn_timeout          0.5              Connection timeout to external services
+====================  ===============  =======================================
 
 [account-reaper]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Logging level
-concurrency         25          Number of replication workers to spawn
-interval            3600        Minimum time for a pass to take
-node_timeout        10          Request timeout to external services
-conn_timeout        0.5         Connection timeout to external services
-==================  ==========  ===========================================
+==================  ===============  =========================================
+Option              Default          Description
+------------------  ---------------  -----------------------------------------
+log_name            account-auditor  Label used when logging
+log_facility        LOG_LOCAL0       Syslog log facility
+log_level           INFO             Logging level
+concurrency         25               Number of replication workers to spawn
+interval            3600             Minimum time for a pass to take
+node_timeout        10               Request timeout to external services
+conn_timeout        0.5              Connection timeout to external services
+==================  ===============  =========================================
 
 --------------------------
 Proxy Server Configuration
@@ -393,8 +417,6 @@ Proxy Server Configuration
 ============================  ===============  =============================
 Option                        Default          Description
 ----------------------------  ---------------  -----------------------------
-log_facility                  LOG_LOCAL0       Syslog log facility
-log_level                     INFO             Log level
 bind_ip                       0.0.0.0          IP Address for server to
                                                bind to
 bind_port                     80               Port for server to bind to
@@ -414,6 +436,9 @@ use                                            paste.deploy entrypoint for
                                                the proxy server.  For most
                                                cases, this should be
                                                `egg:swift#proxy`.
+log_name                      proxy-server     Label used when logging
+log_facility                  LOG_LOCAL0       Syslog log facility
+log_level                     INFO             Log level
 log_headers                   True             If True, log headers in each
                                                request
 recheck_account_existence     60               Cache timeout in seconds to

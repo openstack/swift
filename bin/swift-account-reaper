@@ -29,18 +29,7 @@ if __name__ == '__main__':
 
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
 
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file."
-        sys.exit(1)
-
-    if c.has_section('account-reaper'):
-        conf = dict(c.items('account-reaper'))
-    else:
-        print "Unable to find account-reaper config section in %s." % \
-                sys.argv[1]
-        sys.exit(1)
-
+    conf = utils.readconf(sys.argv[1], 'account-reaper')
     logger = utils.get_logger(conf)
     # log uncaught exceptions
     sys.excepthook = lambda *exc_info: \

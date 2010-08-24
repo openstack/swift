@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import sys
-from ConfigParser import ConfigParser
 import logging
 import time
 
@@ -23,25 +22,16 @@ from eventlet import sleep, hubs
 hubs.use_hub('poll')
 
 from swift.obj.replicator import ObjectReplicator
-from swift.common.utils import get_logger, drop_privileges, LoggerFileObject
+from swift.common.utils import get_logger, drop_privileges, LoggerFileObject, \
+    readconf
 
 TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes'))
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print "Usage: object-replicator CONFIG_FILE [once]"
+        print "Usage: swift-object-replicator CONFIG_FILE [once]"
         sys.exit()
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file"
-        sys.exit(1)
-    if c.has_section('object-replicator'):
-        conf = dict(c.items('object-replicator'))
-    else:
-        print "Unable to find object-replicator config section in %s" % \
-            sys.argv[1]
-        sys.exit(1)
-
+    conf = readconf(sys.argv[1], "object-replicator")
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
     logger = get_logger(conf)
     # log uncaught exceptions

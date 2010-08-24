@@ -1,7 +1,4 @@
 [DEFAULT]
-log_name = account
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # bind_ip = 0.0.0.0
 # bind_port = 6002
 # workers = 1
@@ -15,9 +12,12 @@ pipeline = account-server
 
 [app:account-server]
 use = egg:swift#account
+# log_name = account-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 
 [account-replicator]
-log_name = account-replicator
+# log_name = account-replicator
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # per_diff = 1000
@@ -34,7 +34,7 @@ log_name = account-replicator
 # reclaim_age = 86400
 
 [account-stats]
-log_name = account-stats
+# log_name = account-stats
 # cf_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 # container_name = account_stats
 # proxy_server_conf = /etc/swift/proxy-server.conf
@@ -42,7 +42,7 @@ log_name = account-stats
 # log_level = INFO
 
 [account-auditor]
-log_name = account-auditor
+# log_name = account-auditor
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
 # Maximum containers randomly picked for a given account audit
@@ -53,7 +53,7 @@ log_name = account-auditor
 # log_level = INFO
 
 [account-reaper]
-log_name = account-reaper
+# log_name = account-reaper
 # concurrency = 25
 # interval = 3600
 # node_timeout = 10
