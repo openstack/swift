@@ -31,9 +31,9 @@ from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
 from webob import Request, Response
 
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, normalize_timestamp, split_path
+from swift.common.utils import get_logger, normalize_timestamp, split_path, \
+    cache_from_env
 from swift.common.bufferedhttp import http_connect
-from swift.common.healthcheck import HealthCheckController
 from swift.common.constraints import check_object_creation, check_metadata, \
     MAX_FILE_SIZE, check_xml_encodable
 from swift.common.exceptions import ChunkReadTimeout, \
@@ -1032,14 +1032,12 @@ class AccountController(Controller):
 class BaseApplication(object):
     """Base WSGI application for the proxy server"""
 
-    log_name = 'base_application'
-
-    def __init__(self, conf, memcache, logger=None, account_ring=None,
+    def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
-        if logger:
-            self.logger = logger
+        if logger is None:
+            self.logger = get_logger(conf)
         else:
-            self.logger = get_logger(conf, self.log_name)
+            self.logger = logger
         if conf is None:
             conf = {}
         swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -1093,8 +1091,6 @@ class BaseApplication(object):
             return ContainerController, d
         elif account and not container and not obj:
             return AccountController, d
-        elif version and version == 'healthcheck':
-            return HealthCheckController, d
         return None, d
 
     def __call__(self, env, start_response):
@@ -1106,6 +1102,8 @@ class BaseApplication(object):
         :param start_response: WSGI callable
         """
         try:
+            if self.memcache is None:
+                self.memcache = cache_from_env(env)
             req = self.update_request(Request(env))
             if 'eventlet.posthooks' in env:
                 env['eventlet.posthooks'].append(
@@ -1149,13 +1147,6 @@ class BaseApplication(object):
                 controller, path_parts = self.get_controller(req.path)
             except ValueError:
                 return HTTPNotFound(request=req)
-            if controller == HealthCheckController:
-                controller = controller(self, **path_parts)
-                controller.trans_id = req.headers.get('x-cf-trans-id', '-')
-                if req.method == 'GET':
-                    return controller.GET(req)
-                return HTTPMethodNotAllowed(request=req)
-
             if not check_xml_encodable(req.path_info):
                 return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             if not controller:
@@ -1186,8 +1177,6 @@ class BaseApplication(object):
 
 class Application(BaseApplication):
     """WSGI application for the proxy server."""
-
-    log_name = 'proxy'
 
     def handle_request(self, req):
         """
@@ -1273,3 +1262,9 @@ class Application(BaseApplication):
                     return Response(status='498 Rate Limited',
                         body='Slow down', request=req)
         return None
+
+def app_factory(global_conf, **local_conf):
+    """paste.deploy app factory for creating WSGI proxy apps."""
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    return Application(conf)

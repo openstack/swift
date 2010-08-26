@@ -139,7 +139,7 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEquals(conn.replicate(1, 2, 3), None)
 
     def test_rsync_file(self):
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         with _mock_process(-1):
             fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
             self.assertEquals(False,
@@ -150,13 +150,13 @@ class TestDBReplicator(unittest.TestCase):
                     replicator._rsync_file('/some/file', 'remote:/some/file'))
 
     def test_rsync_db(self):
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         replicator._rsync_file = lambda *args: True
         fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
         replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
 
     def test_in_sync(self):
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         self.assertEquals(replicator._in_sync(
             {'id': 'a', 'point': -1, 'max_row': 0, 'hash': 'b'},
             {'id': 'a', 'point': -1, 'max_row': 0, 'hash': 'b'},
@@ -171,16 +171,16 @@ class TestDBReplicator(unittest.TestCase):
             FakeBroker(), -1)), False)
 
     def test_replicate_once(self):
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         replicator.replicate_once()
 
     def test_usync(self):
         fake_http = ReplHttp()
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890')
 
     def test_repl_to_node(self):
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
         fake_info = {'id': 'a', 'point': -1, 'max_row': 0, 'hash': 'b',
                     'created_at': 100, 'put_timestamp': 0,
@@ -193,13 +193,13 @@ class TestDBReplicator(unittest.TestCase):
     def test_stats(self):
         # I'm not sure how to test that this logs the right thing,
         # but we can at least make sure it gets covered.
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         replicator._zero_stats()
         replicator._report_stats()
 
     def test_replicate_object(self):
         db_replicator.lock_parent_directory = lock_parent_directory
-        replicator = TestReplicator({}, {})
+        replicator = TestReplicator({})
         replicator._replicate_object('0', 'file', 'node_id')
 
 

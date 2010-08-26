@@ -14,17 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ConfigParser import ConfigParser
 import sys
 
 from swift.common.wsgi import run_wsgi
-from swift.container.server import ContainerController
 
 if __name__ == '__main__':
-    c = ConfigParser()
-    if not c.read(sys.argv[1]):
-        print "Unable to read config file."
-        sys.exit(1)
-    conf = dict(c.items('container-server'))
-    run_wsgi(ContainerController, conf, default_port=6001)
-
+    if len(sys.argv) != 2:
+        sys.exit("Usage: %s CONFIG_FILE" % sys.argv[0])
+    run_wsgi(sys.argv[1], 'container-server', default_port=6001)

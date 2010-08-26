@@ -36,20 +36,20 @@ class AuditException(Exception):
 class ContainerAuditor(object):
     """Audit containers."""
 
-    def __init__(self, server_conf, auditor_conf):
-        self.logger = get_logger(auditor_conf, 'container-auditor')
-        self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
+    def __init__(self, conf):
+        self.logger = get_logger(conf)
+        self.devices = conf.get('devices', '/srv/node')
+        self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.interval = int(auditor_conf.get('interval', 1800))
-        swift_dir = server_conf.get('swift_dir', '/etc/swift')
+        self.interval = int(conf.get('interval', 1800))
+        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.account_ring = None
         self.object_ring_path = os.path.join(swift_dir, 'object.ring.gz')
         self.object_ring = None
-        self.node_timeout = int(auditor_conf.get('node_timeout', 10))
-        self.conn_timeout = float(auditor_conf.get('conn_timeout', 0.5))
-        self.max_object_count = int(auditor_conf.get('max_object_count', 100))
+        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.max_object_count = int(conf.get('max_object_count', 100))
         self.account_passes = 0
         self.account_failures = 0
         self.account_errors = 0

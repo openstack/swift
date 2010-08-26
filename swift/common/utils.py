@@ -31,6 +31,7 @@ import ctypes
 import ctypes.util
 import fcntl
 import struct
+from ConfigParser import ConfigParser
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
@@ -323,7 +324,7 @@ class NamedLogger(object):
         call('%s %s: %s' % (self.server, msg, emsg), *args)
 
 
-def get_logger(conf, name):
+def get_logger(conf, name=None):
     """
     Get the current system logger using config settings.
 
@@ -331,6 +332,7 @@ def get_logger(conf, name):
 
         log_facility = LOG_LOCAL0
         log_level = INFO
+        log_name = swift
 
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger
@@ -342,8 +344,11 @@ def get_logger(conf, name):
     if conf is None:
         root_logger.setLevel(logging.INFO)
         return NamedLogger(root_logger, name)
+    if name is None:
+        name = conf.get('log_name', 'swift')
     get_logger.handler = SysLogHandler(address='/dev/log',
-        facility=getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
+        facility=getattr(SysLogHandler,
+                         conf.get('log_facility', 'LOG_LOCAL0'),
                          SysLogHandler.LOG_LOCAL0))
     root_logger.addHandler(get_logger.handler)
     root_logger.setLevel(
@@ -513,3 +518,29 @@ def unlink_older_than(path, mtime):
                     os.unlink(fpath)
             except OSError:
                 pass
+
+def item_from_env(env, item_name):
+    item = env.get(item_name, None)
+    if item is None:
+        logging.error("ERROR: %s could not be found in env!" % item_name)
+    return item
+
+def cache_from_env(env):
+    return item_from_env(env, 'swift.cache')
+
+def readconf(conf, section_name, log_name=None):
+    c = ConfigParser()
+    if not c.read(conf):
+        print "Unable to read config file %s" % conf
+        sys.exit(1)
+    if c.has_section(section_name):
+        conf = dict(c.items(section_name))
+    else:
+        print "Unable to find %s config section in %s" % (section_name, conf)
+        sys.exit(1)
+    if "log_name" not in conf:
+        if log_name is not None:
+            conf['log_name'] = log_name
+        else:
+            conf['log_name'] = section_name
+    return conf

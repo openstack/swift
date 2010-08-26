@@ -75,7 +75,7 @@ class TestAuthServer(unittest.TestCase):
                         'auth_server')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
-        self.conf = {'swift_dir': self.testdir}
+        self.conf = {'swift_dir': self.testdir, 'log_name': 'auth'}
         self.controller = auth_server.AuthController(self.conf, FakeRing())
 
     def tearDown(self):

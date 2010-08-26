@@ -89,13 +89,11 @@ class AuthController(object):
     configuration parameters.
     """
 
-    log_name = 'auth'
-
     def __init__(self, conf, ring=None):
-        self.logger = get_logger(conf, self.log_name)
+        self.logger = get_logger(conf)
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.default_cluster_url = \
-            conf.get('default_cluster_url', 'http://127.0.0.1:9000/v1')
+            conf.get('default_cluster_url', 'http://127.0.0.1:8080/v1')
         self.token_life = int(conf.get('token_life', 86400))
         self.log_headers = conf.get('log_headers') == 'True'
         if ring:
@@ -500,3 +498,8 @@ class AuthController(object):
     def __call__(self, env, start_response):
         """ Used by the eventlet.wsgi.server """
         return self.handleREST(env, start_response)
+
+def app_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    return AuthController(conf)

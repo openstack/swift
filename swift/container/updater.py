@@ -33,19 +33,19 @@ from swift.common.utils import get_logger, whataremyips
 class ContainerUpdater(object):
     """Update container information in account listings."""
 
-    def __init__(self, server_conf, updater_conf):
-        self.logger = get_logger(updater_conf, 'container-updater')
-        self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
+    def __init__(self, conf):
+        self.logger = get_logger(conf, 'container-updater')
+        self.devices = conf.get('devices', '/srv/node')
+        self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        swift_dir = server_conf.get('swift_dir', '/etc/swift')
-        self.interval = int(updater_conf.get('interval', 300))
+        swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.interval = int(conf.get('interval', 300))
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.account_ring = None
-        self.concurrency = int(updater_conf.get('concurrency', 4))
-        self.slowdown = float(updater_conf.get('slowdown', 0.01))
-        self.node_timeout = int(updater_conf.get('node_timeout', 3))
-        self.conn_timeout = float(updater_conf.get('conn_timeout', 0.5))
+        self.concurrency = int(conf.get('concurrency', 4))
+        self.slowdown = float(conf.get('slowdown', 0.01))
+        self.node_timeout = int(conf.get('node_timeout', 3))
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.no_changes = 0
         self.successes = 0
         self.failures = 0
