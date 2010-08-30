@@ -61,7 +61,7 @@ Instructions for Building Debian Packages for Swift
        apt-get install curl gcc bzr python-configobj python-coverage python-dev 
        python-nose python-setuptools python-simplejson python-xattr  
        python-webob python-eventlet python-greenlet debhelper python-sphinx 
-       python-all python-openssl
+       python-all python-openssl python-pastedeploy
 
 * As you
 
