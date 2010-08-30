@@ -102,10 +102,9 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(os.path.exists(op_path))
 
         bindsock = listen(('127.0.0.1', 0))
-        def accept(return_code):
+        def accepter(sock, return_code):
             try:
                 with Timeout(3):
-                    sock, addr = bindsock.accept()
                     inc = sock.makefile('rb')
                     out = sock.makefile('wb')
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
@@ -123,15 +122,28 @@ class TestObjectUpdater(unittest.TestCase):
             except BaseException, err:
                 return err
             return None
-        events = [spawn(accept, 201), spawn(accept, 201)]
+        def accept(return_code):
+            try:
+                events = []
+                for x in xrange(2):
+                    with Timeout(3):
+                        sock, addr = bindsock.accept()
+                        events.append(spawn(accepter, sock, return_code))
+                for event in events:
+                    err = event.wait()
+                    if err:
+                        raise err
+            except BaseException, err:
+                return err
+            return None
+        event = spawn(accept, 201)
         for dev in cu.get_container_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
         cu.update_once_single_threaded()
-        for event in events:
-            err = event.wait()
-            if err:
-                raise err
+        err = event.wait()
+        if err:
+            raise err
         self.assert_(not os.path.exists(op_path))
 
 
