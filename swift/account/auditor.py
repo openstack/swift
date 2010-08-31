@@ -26,16 +26,18 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger
+from swift.common.daemon import Daemon
 
 
 class AuditException(Exception):
     pass
 
 
-class AccountAuditor(object):
+class AccountAuditor(Daemon):
     """Audit accounts."""
 
     def __init__(self, conf):
+        self.conf = conf
         self.logger = get_logger(conf, 'account-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
@@ -60,12 +62,11 @@ class AccountAuditor(object):
         """
         if not self.container_ring:
             self.logger.debug(
-
                 'Loading container ring from %s' % self.container_ring_path)
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
-    def audit_forever(self):    # pragma: no cover
+    def run_forever(self):    # pragma: no cover
         """Run the account audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
@@ -92,7 +93,7 @@ class AccountAuditor(object):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def audit_once(self):
+    def run_once(self):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = time.time()

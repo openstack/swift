@@ -15,54 +15,15 @@
 # limitations under the License.
 
 import sys
-import logging
-import time
-
-from eventlet import sleep, hubs
-hubs.use_hub('poll')
 
 from swift.obj.replicator import ObjectReplicator
-from swift.common.utils import get_logger, drop_privileges, LoggerFileObject, \
-    readconf
-
-TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes'))
+from swift.common import utils
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "Usage: swift-object-replicator CONFIG_FILE [once]"
         sys.exit()
-    conf = readconf(sys.argv[1], "object-replicator")
-    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    logger = get_logger(conf)
-    # log uncaught exceptions
-    sys.excepthook = lambda *exc_info: \
-                logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-    sys.stdout = sys.stderr = LoggerFileObject(logger)
-    drop_privileges(conf.get('user', 'swift'))
-    if not once and conf.get('daemonize', 'true') in TRUE_VALUES:
-        logger.info("Starting object replicator in daemon mode.")
-        # Run the replicator continually
-        while True:
-            start = time.time()
-            logger.info("Starting object replication pass.")
-            # Run the replicator
-            replicator = ObjectReplicator(conf, logger)
-            replicator.run()
-            total = (time.time() - start)/60
-            # Reload the config
-            logger.info("Object replication complete. (%.02f minutes)" % total)
-            conf = read_configs(sys.argv[1])
-            if conf.get('daemonize', 'true') not in TRUE_VALUES:
-                # Stop running
-                logger.info("Daemon mode turned off in config, stopping.")
-                break
-            logger.debug('Replication sleeping for %s seconds.' %
-                conf['run_pause'])
-            sleep(int(conf['run_pause']))
-    else:
-        start = time.time()
-        logger.info("Running object replicator in script mode.")
-        replicator = ObjectReplicator(conf, logger)
-        replicator.run()
-        total = (time.time() - start)/60
-        logger.info("Object replication complete. (%.02f minutes)" % total)
+    conf = utils.readconf(sys.argv[1], "object-replicator")
+    once = (len(sys.argv) > 2 and sys.argv[2] == 'once') or \
+            conf.get('daemonize', 'true') not in utils.TRUE_VALUES
+    ObjectReplicator(conf).run(once)

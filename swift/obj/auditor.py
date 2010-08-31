@@ -28,13 +28,15 @@ from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer
 from swift.common.exceptions import AuditException
+from swift.common.daemon import Daemon
 
 
-class ObjectAuditor(object):
+class ObjectAuditor(Daemon):
     """Audit objects."""
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.conf = conf
+        self.logger = get_logger(conf, 'object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -63,7 +65,7 @@ class ObjectAuditor(object):
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
-    def audit_forever(self):    # pragma: no cover
+    def run_forever(self):    # pragma: no cover
         """Run the object audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
@@ -97,7 +99,7 @@ class ObjectAuditor(object):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def audit_once(self):
+    def run_once(self):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
         begin = time.time()

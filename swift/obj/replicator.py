@@ -24,15 +24,17 @@ import itertools
 import cPickle as pickle
 
 import eventlet
-from eventlet import GreenPool, tpool, Timeout, sleep
+from eventlet import GreenPool, tpool, Timeout, sleep, hubs
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        renamer, compute_eta
+        renamer, compute_eta, get_logger
 from swift.common.bufferedhttp import http_connect
+from swift.common.daemon import Daemon
 
+hubs.use_hub('poll')
 
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
@@ -190,22 +192,22 @@ def get_hashes(partition_dir, do_listdir=True, reclaim_age=ONE_WEEK):
         return hashed, hashes
 
 
-class ObjectReplicator(object):
+class ObjectReplicator(Daemon):
     """
     Replicate objects.
 
     Encapsulates most logic and data needed by the object replication process.
-    Each call to .run() performs one replication pass.  It's up to the caller
-    to do this in a loop.
+    Each call to .replicate() performs one replication pass.  It's up to the 
+    caller to do this in a loop.
     """
 
-    def __init__(self, conf, logger):
+    def __init__(self, conf):
         """
         :param conf: configuration object obtained from ConfigParser
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = logger
+        self.logger = get_logger(conf, 'object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -221,6 +223,7 @@ class ObjectReplicator(object):
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
+        self.run_pause = int(conf.get('run_pause', 30))
 
     def _rsync(self, args):
         """
@@ -450,7 +453,7 @@ class ObjectReplicator(object):
             eventlet.sleep(300)
             self.stats_line()
 
-    def run(self):
+    def replicate(self):
         """Run a replication pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -506,3 +509,26 @@ class ObjectReplicator(object):
             self.kill_coros()
         self.stats_line()
         stats.kill()
+
+    def run_once(self):
+        start = time.time()
+        self.logger.info("Running object replicator in script mode.")
+        self.replicate()
+        total = (time.time() - start)/60
+        self.logger.info(
+            "Object replication complete. (%.02f minutes)" % total)
+
+    def run_forever(self):
+        self.logger.info("Starting object replicator in daemon mode.")
+        # Run the replicator continually
+        while True:
+            start = time.time()
+            self.logger.info("Starting object replication pass.")
+            # Run the replicator
+            self.replicate()
+            total = (time.time() - start)/60
+            self.logger.info(
+                "Object replication complete. (%.02f minutes)" % total)
+            self.logger.debug('Replication sleeping for %s seconds.' %
+                self.run_pause)
+            sleep(self.run_pause)

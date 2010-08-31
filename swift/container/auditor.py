@@ -27,16 +27,18 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger
+from swift.common.daemon import Daemon
 
 
 class AuditException(Exception):
     pass
 
 
-class ContainerAuditor(object):
+class ContainerAuditor(Daemon):
     """Audit containers."""
 
     def __init__(self, conf):
+        self.conf = conf
         self.logger = get_logger(conf)
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
@@ -81,7 +83,7 @@ class ContainerAuditor(object):
             self.object_ring = Ring(self.object_ring_path)
         return self.object_ring
 
-    def audit_forever(self):  # pragma: no cover
+    def run_forever(self):  # pragma: no cover
         """Run the container audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
@@ -114,7 +116,7 @@ class ContainerAuditor(object):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def audit_once(self):
+    def run_once(self):
         """Run the container audit once."""
         self.logger.info('Begin container audit "once" mode')
         begin = time.time()

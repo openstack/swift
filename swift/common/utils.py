@@ -55,6 +55,8 @@ _posix_fadvise = None
 # will end up with would also require knowing this suffix.
 HASH_PATH_SUFFIX = os.environ.get('SWIFT_HASH_PATH_SUFFIX', 'endcap')
 
+# Used when reading config values
+TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes'))
 
 def load_libc_function(func_name):
     """

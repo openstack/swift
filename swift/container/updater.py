@@ -28,12 +28,14 @@ from swift.common.db import ContainerBroker
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips
+from swift.common.daemon import Daemon
 
 
-class ContainerUpdater(object):
+class ContainerUpdater(Daemon):
     """Update container information in account listings."""
 
     def __init__(self, conf):
+        self.conf = conf
         self.logger = get_logger(conf, 'container-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
@@ -78,7 +80,7 @@ class ContainerUpdater(object):
         shuffle(paths)
         return paths
 
-    def update_forever(self):   # pragma: no cover
+    def run_forever(self):   # pragma: no cover
         """
         Run the updator continuously.
         """
@@ -118,7 +120,7 @@ class ContainerUpdater(object):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def update_once_single_threaded(self):
+    def run_once(self):
         """
         Run the updater once.
         """

@@ -27,9 +27,10 @@ from swift.common.direct_client import ClientException, \
     direct_delete_container, direct_delete_object, direct_get_container
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips
+from swift.common.daemon import Daemon
 
 
-class AccountReaper(object):
+class AccountReaper(Daemon):
     """
     Removes data from status=DELETED accounts. These are accounts that have
     been asked to be removed by the reseller via services
@@ -51,6 +52,7 @@ class AccountReaper(object):
     """
 
     def __init__(self, conf):
+        self.conf = conf
         self.logger = get_logger(conf)
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
@@ -95,7 +97,7 @@ class AccountReaper(object):
             self.object_ring = Ring(self.object_ring_path)
         return self.object_ring
 
-    def reap_forever(self):
+    def run_forever(self):
         """
         Main entry point when running the reaper in its normal daemon mode.
         This repeatedly calls :func:`reap_once` no quicker than the
@@ -110,7 +112,7 @@ class AccountReaper(object):
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
 
-    def reap_once(self):
+    def run_once(self):
         """
         Main entry point when running the reaper in 'once' mode, where it will
         do a single pass over all accounts on the server. This is called
