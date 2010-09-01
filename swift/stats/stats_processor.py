@@ -21,7 +21,6 @@ class StatsLogProcessor(object):
     def process(self, obj_stream):
         '''generate hourly groupings of data from one stats log file'''
         account_totals = {}
-        year, month, day, hour, _ = item.split('/')
         for line in obj_stream:
             if not line:
                 continue
@@ -32,13 +31,11 @@ class StatsLogProcessor(object):
                 bytes_used,
                 created_at) = line.split(',')
                 account = account.strip('"')
-                if account_name and account_name != account:
-                    continue
                 container_count = int(container_count.strip('"'))
                 object_count = int(object_count.strip('"'))
                 bytes_used = int(bytes_used.strip('"'))
-                aggr_key = (account, year, month, day, hour)
-                d = account_totals.get(aggr_key, {})
+                created_at = created_at.strip('"')
+                d = account_totals.get(account, {})
                 d['count'] = d.setdefault('count', 0) + 1
                 d['container_count'] = d.setdefault('container_count', 0) + \
                                        container_count
@@ -47,8 +44,8 @@ class StatsLogProcessor(object):
                 d['bytes_used'] = d.setdefault('bytes_used', 0) + \
                                   bytes_used
                 d['created_at'] = created_at
-                account_totals[aggr_key] = d
+                account_totals[account] = d
             except (IndexError, ValueError):
                 # bad line data
                 pass
-        return account_totals, item
+        return account_totals

@@ -38,7 +38,7 @@ class TestLogProcessor(unittest.TestCase):
                     '/v1/acct/foo/bar?format=json&foo HTTP/1.0 200 - '\
                     'curl tk4e350daf-9338-4cc6-aabb-090e49babfbd '\
                     '6 95 - txfa431231-7f07-42fd-8fc7-7da9d8cc1f90 - 0.0262'
-    stats_test_line = 'account,1,2,3'
+    stats_test_line = 'account,1,2,3,1283378584.881391'
     proxy_config = {'log-processor': {
                       
                     }
@@ -106,21 +106,6 @@ class TestLogProcessor(unittest.TestCase):
                     'prefix_query': 0}}
         self.assertEquals(result, expected)
 
-    def test_process_one_stats_file(self):
-        return
-        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        def get_object_data(*a,**kw):
-            return [self.stats_test_line]
-        p.get_object_data = get_object_data
-        result = p.process_one_stats_file('y/m/d/h/f', None)
-        expected = ({('account', 'y', 'm', 'd', 'h'):
-                    {'count': 1,
-                    'object_count': 2,
-                    'container_count': 1,
-                    'bytes_used': 3}},
-                    'y/m/d/h/f')
-        self.assertEquals(result, expected)
-
     def test_get_container_listing(self):
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
         p.internal_proxy = DumbInternalProxy()
@@ -152,38 +137,22 @@ class TestLogProcessor(unittest.TestCase):
         self.assertEquals(result, expected)
 
     def test_get_stat_totals(self):
-        return
-        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
+        stats_proxy_config = self.proxy_config
+        stats_proxy_config.update({
+                        'log-processor-stats': {
+                            'class_path':
+                                'swift.stats.stats_processor.StatsLogProcessor'
+                        }})
+        p = log_processor.LogProcessor(stats_proxy_config, DumbLogger())
         p.internal_proxy = DumbInternalProxy()
         def get_object_data(*a,**kw):
             return [self.stats_test_line]
         p.get_object_data = get_object_data
-        result = list(p.get_stat_totals())
-        expected = [({('account', '2010', '03', '14', '13'):
+        result = p.process_one_file('stats', 'a', 'c', 'o')
+        expected = {'account':
                     {'count': 1,
                     'object_count': 2,
                     'container_count': 1,
-                    'bytes_used': 3}},
-                    '2010/03/14/13/obj1')]
-        self.assertEquals(result, expected)
-
-    def test_get_aggr_access_logs(self):
-        return
-        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        p.internal_proxy = DumbInternalProxy()
-        def get_object_data(*a,**kw):
-            return [self.access_test_line]
-        p.get_object_data = get_object_data
-        result = list(p.get_aggr_access_logs())
-        expected = [({('AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31', '2010', '07', '09', '04'):
-                    {('public', 'object', 'GET', '2xx'): 1,
-                    ('public', 'bytes_out'): 95,
-                    'marker_query': 0,
-                    'format_query': 1,
-                    'delimiter_query': 0,
-                    'path_query': 0,
-                    ('public', 'bytes_in'): 0,
-                    'prefix_query': 0}},
-                    '2010/03/14/13/obj1',
-                    {})]
+                    'bytes_used': 3,
+                    'created_at': '1283378584.881391'}}
         self.assertEquals(result, expected)
