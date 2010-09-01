@@ -432,7 +432,7 @@ class Replicator(Daemon):
         """
         while True:
             try:
-                self.replicate_once()
+                self.run_once()
             except:
                 self.logger.exception('ERROR trying to replicate')
             sleep(self.run_pause)

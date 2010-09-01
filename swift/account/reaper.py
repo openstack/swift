@@ -107,7 +107,7 @@ class AccountReaper(Daemon):
         sleep(random.random() * self.interval)
         while True:
             begin = time()
-            self.reap_once()
+            self.run_once()
             elapsed = time() - begin
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
@@ -116,7 +116,7 @@ class AccountReaper(Daemon):
         """
         Main entry point when running the reaper in 'once' mode, where it will
         do a single pass over all accounts on the server. This is called
-        repeatedly by :func:`reap_forever`. This will call :func:`reap_device`
+        repeatedly by :func:`run_forever`. This will call :func:`reap_device`
         once for each device on the server.
         """
         self.logger.debug('Begin devices pass: %s' % self.devices)
