@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # Copyright (c) 2010 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+from swift.account import server as account_server
+from swift.common import db, db_replicator
 
-from swift.account.reaper import AccountReaper
-from swift.common import utils
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: account-reaper CONFIG_FILE [once]"
-        sys.exit()
-    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    conf = utils.readconf(sys.argv[1], 'account-reaper')
-    reaper = AccountReaper(conf).run(once)
+class AccountReplicator(db_replicator.Replicator):
+    server_type = 'account'
+    ring_file = 'account.ring.gz'
+    brokerclass = db.AccountBroker
+    datadir = account_server.DATADIR
+    default_port = 6002
+

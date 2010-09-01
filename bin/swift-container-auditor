@@ -14,10 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import signal
 import sys
-from ConfigParser import ConfigParser
 
 from swift.container.auditor import ContainerAuditor
 from swift.common import utils
@@ -26,32 +23,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "Usage: swift-container-auditor CONFIG_FILE [once]"
         sys.exit()
-
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-
     conf = utils.readconf(sys.argv[1], 'container-auditor')
-    logger = utils.get_logger(conf)
-    # log uncaught exceptions
-    sys.excepthook = lambda *exc_info: \
-                logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-    sys.stdout = sys.stderr = utils.LoggerFileObject(logger)
-
-    utils.drop_privileges(conf.get('user', 'swift'))
-
-    try:
-        os.setsid()
-    except OSError:
-        pass
-
-    def kill_children(*args):
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        os.killpg(0, signal.SIGTERM)
-        sys.exit()
-
-    signal.signal(signal.SIGTERM, kill_children)
-
-    auditor = ContainerAuditor(conf)
-    if once:
-        auditor.audit_once()
-    else:
-        auditor.audit_forever()
+    ContainerAuditor(conf).run(once)

@@ -69,7 +69,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEquals(cu.node_timeout, 5)
         self.assert_(cu.get_container_ring() is not None)
 
-    def test_update_once_single_threaded(self):
+    def test_run_once(self):
         cu = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -78,15 +78,15 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15',
             })
-        cu.update_once_single_threaded()
+        cu.run_once()
         async_dir = os.path.join(self.sda1, object_server.ASYNCDIR)
         os.mkdir(async_dir)
-        cu.update_once_single_threaded()
+        cu.run_once()
         self.assert_(os.path.exists(async_dir))
 
         odd_dir = os.path.join(async_dir, 'not really supposed to be here')
         os.mkdir(odd_dir)
-        cu.update_once_single_threaded()
+        cu.run_once()
         self.assert_(os.path.exists(async_dir))
         self.assert_(not os.path.exists(odd_dir))
 
@@ -98,7 +98,7 @@ class TestObjectUpdater(unittest.TestCase):
         pickle.dump({'op': 'PUT', 'account': 'a', 'container': 'c', 'obj': 'o',
             'headers': {'X-Container-Timestamp': normalize_timestamp(0)}},
             open(op_path, 'wb'))
-        cu.update_once_single_threaded()
+        cu.run_once()
         self.assert_(os.path.exists(op_path))
 
         bindsock = listen(('127.0.0.1', 0))
@@ -140,7 +140,7 @@ class TestObjectUpdater(unittest.TestCase):
         for dev in cu.get_container_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
-        cu.update_once_single_threaded()
+        cu.run_once()
         err = event.wait()
         if err:
             raise err

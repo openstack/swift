@@ -8,9 +8,9 @@
 # key_file = /etc/swift/proxy.key
 
 [pipeline:main]
-pipeline = healthcheck cache auth proxy
+pipeline = healthcheck cache auth proxy-server
 
-[app:proxy]
+[app:proxy-server]
 use = egg:swift#proxy
 # log_name = proxy-server
 # log_facility = LOG_LOCAL0

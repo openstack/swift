@@ -33,6 +33,7 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
 from swift.common import ring
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
+from swift.common.daemon import Daemon
 
 
 def quarantine_db(object_file, server_type):
@@ -84,14 +85,14 @@ class ReplConnection(BufferedHTTPConnection):
             return None
 
 
-class Replicator(object):
+class Replicator(Daemon):
     """
     Implements the logic for directing db replication.
     """
 
     def __init__(self, conf):
-        self.logger = \
-            get_logger(conf)
+        self.conf = conf
+        self.logger = get_logger(conf)
         # log uncaught exceptions
         sys.excepthook = lambda * exc_info: \
                 self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
@@ -396,7 +397,7 @@ class Replicator(object):
                 except StopIteration:
                     its.remove(it)
 
-    def replicate_once(self):
+    def run_once(self):
         """Run a replication pass once."""
         self._zero_stats()
         dirs = []
@@ -425,13 +426,13 @@ class Replicator(object):
         self.logger.info('Replication run OVER')
         self._report_stats()
 
-    def replicate_forever(self):
+    def run_forever(self):
         """
         Replicate dbs under the given root in an infinite loop.
         """
         while True:
             try:
-                self.replicate_once()
+                self.run_once()
             except:
                 self.logger.exception('ERROR trying to replicate')
             sleep(self.run_pause)

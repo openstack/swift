@@ -105,7 +105,7 @@ class TestObjectReplicator(unittest.TestCase):
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1')
         self.replicator = object_replicator.ObjectReplicator(
-            self.conf, null_logger)
+            self.conf)
 
 #    def test_check_ring(self):
 #        self.replicator.collect_jobs('sda', 0, self.ring)
@@ -184,11 +184,11 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_run(self):
         with _mock_process([(0,'')]*100):
-            self.replicator.run()
+            self.replicator.replicate()
 
     def test_run_withlog(self):
         with _mock_process([(0,"stuff in log")]*100):
-            self.replicator.run()
+            self.replicator.replicate()
 
 if __name__ == '__main__':
     unittest.main()

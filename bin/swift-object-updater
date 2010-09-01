@@ -14,8 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import signal
 import sys
 
 from swift.obj.updater import ObjectUpdater
@@ -25,27 +23,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "Usage: swift-object-updater CONFIG_FILE [once]"
         sys.exit(1)
-
     once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-
     conf = utils.readconf(sys.argv[1], 'object-updater')
-    utils.drop_privileges(conf.get('user', 'swift'))
-
-    try:
-        os.setsid()
-    except OSError:
-        pass
-
-    def kill_children(*args):
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        os.killpg(0, signal.SIGTERM)
-        sys.exit()
-
-    signal.signal(signal.SIGTERM, kill_children)
-
-    updater = ObjectUpdater(conf)
-    if once:
-        updater.update_once_single_threaded()
-    else:
-        updater.update_forever()
-
+    ObjectUpdater(conf).run(once)

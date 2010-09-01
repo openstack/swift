@@ -15,31 +15,14 @@
 # limitations under the License.
 
 import sys
-from ConfigParser import ConfigParser
-import getopt
 
-from swift.account import server as account_server
-from swift.common import db, db_replicator, utils
-
-class AccountReplicator(db_replicator.Replicator):
-    server_type = 'account'
-    ring_file = 'account.ring.gz'
-    brokerclass = db.AccountBroker
-    datadir = account_server.DATADIR
-    default_port = 6002
+from swift.common import utils
+from swift.account.replicator import AccountReplicator
 
 if __name__ == '__main__':
-    optlist, args = getopt.getopt(sys.argv[1:], '', ['once'])
-
-    if not args:
-        print "Usage: swift-account-replicator <--once> CONFIG_FILE [once]"
-        sys.exit()
-
-    once = len(args) > 1 and args[1] == 'once'
+    if len(sys.argv) < 2:
+        print "Usage: swift-account-replicator CONFIG_FILE [once]"
+        sys.exit(1)
+    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
     conf = utils.readconf(sys.argv[1], 'account-replicator')
-    utils.drop_privileges(conf.get('user', 'swift'))
-    if once or '--once' in [opt[0] for opt in optlist]:
-        AccountReplicator(conf).replicate_once()
-    else:
-        AccountReplicator(conf).replicate_forever()
-
+    AccountReplicator(conf).run(once)

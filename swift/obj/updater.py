@@ -26,14 +26,16 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer
+from swift.common.daemon import Daemon
 from swift.obj.server import ASYNCDIR
 
 
-class ObjectUpdater(object):
+class ObjectUpdater(Daemon):
     """Update object information in container listings."""
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.conf = conf
+        self.logger = get_logger(conf, 'object-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -56,7 +58,7 @@ class ObjectUpdater(object):
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
-    def update_forever(self):   # pragma: no cover
+    def run_forever(self):   # pragma: no cover
         """Run the updater continuously."""
         time.sleep(random() * self.interval)
         while True:
@@ -95,7 +97,7 @@ class ObjectUpdater(object):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def update_once_single_threaded(self):
+    def run_once(self):
         """Run the updater once"""
         self.logger.info('Begin object update single threaded sweep')
         begin = time.time()
