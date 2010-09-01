@@ -170,9 +170,9 @@ class TestDBReplicator(unittest.TestCase):
             {'id': 'a', 'point': -1, 'max_row': 10, 'hash': 'd'},
             FakeBroker(), -1)), False)
 
-    def test_replicate_once(self):
+    def test_run_once(self):
         replicator = TestReplicator({})
-        replicator.replicate_once()
+        replicator.run_once()
 
     def test_usync(self):
         fake_http = ReplHttp()

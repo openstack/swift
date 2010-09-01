@@ -15,31 +15,15 @@
 # limitations under the License.
 
 import sys
-from ConfigParser import ConfigParser
-import getopt
 
-from swift.container import server as container_server
-from swift.common import db, db_replicator, utils
-
-class ContainerReplicator(db_replicator.Replicator):
-    server_type = 'container'
-    ring_file = 'container.ring.gz'
-    brokerclass = db.ContainerBroker
-    datadir = container_server.DATADIR
-    default_port = 6001
+from swift.common import db, utils
+from swift.container.replicator import ContainerReplicator
 
 if __name__ == '__main__':
-    optlist, args = getopt.getopt(sys.argv[1:], '', ['once'])
-
-    if not args:
-        print "Usage: swift-container-replicator <--once> CONFIG_FILE [once]"
+    if len(sys.argv) < 2:
+        print "Usage: swift-container-replicator CONFIG_FILE [once]"
         sys.exit(1)
-
-    once = len(args) > 1 and args[1] == 'once'
-    conf = utils.readconf(args[0], 'container-replicator')
-    utils.drop_privileges(conf.get('user', 'swift'))
-    if once or '--once' in [opt[0] for opt in optlist]:
-        ContainerReplicator(conf).replicate_once()
-    else:
-        ContainerReplicator(conf).replicate_forever()
+    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
+    conf = utils.readconf(sys.argv[1], 'container-replicator')
+    ContainerReplicator(conf).run(once)
 

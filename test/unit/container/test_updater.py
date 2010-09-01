@@ -77,7 +77,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEquals(cu.node_timeout, 5)
         self.assert_(cu.get_account_ring() is not None)
 
-    def test_update_once_single_threaded(self):
+    def test_run_once(self):
         cu = container_updater.ContainerUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -86,17 +86,17 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15',
             })
-        cu.update_once_single_threaded()
+        cu.run_once()
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
         os.mkdir(containers_dir)
-        cu.update_once_single_threaded()
+        cu.run_once()
         self.assert_(os.path.exists(containers_dir))
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='c')
         cb.initialize(normalize_timestamp(1))
-        cu.update_once_single_threaded()
+        cu.run_once()
         info = cb.get_info()
         self.assertEquals(info['object_count'], 0)
         self.assertEquals(info['bytes_used'], 0)
@@ -105,7 +105,7 @@ class TestContainerUpdater(unittest.TestCase):
 
         cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
-        cu.update_once_single_threaded()
+        cu.run_once()
         info = cb.get_info()
         self.assertEquals(info['object_count'], 1)
         self.assertEquals(info['bytes_used'], 3)
@@ -148,7 +148,7 @@ class TestContainerUpdater(unittest.TestCase):
         for dev in cu.get_account_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
-        cu.update_once_single_threaded()
+        cu.run_once()
         for event in spawned.wait():
             err = event.wait()
             if err:
@@ -202,7 +202,7 @@ class TestContainerUpdater(unittest.TestCase):
         for dev in cu.get_account_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
-        cu.update_once_single_threaded()
+        cu.run_once()
         for event in spawned.wait():
             err = event.wait()
             if err:
