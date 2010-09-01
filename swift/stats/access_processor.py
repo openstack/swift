@@ -13,12 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
+from urllib import unquote
+
+from swift.common.utils import split_path
+
+month_map = '_ Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()
+
 class AccessLogProcessor(object):
 
     def __init__(self, conf):
         self.server_name = conf.get('server_name', 'proxy')
+        self.lb_private_ips = [x.strip() for x in \
+                               conf.get('lb_private_ips', '').split(',')\
+                               if x.strip()]
+        self.service_ips = [x.strip() for x in \
+                            conf.get('service_ips', '').split(',')\
+                            if x.strip()]
 
-    def _log_line_parser(self, raw_log):
+    def log_line_parser(self, raw_log):
         '''given a raw access log line, return a dict of the good parts'''
         d = {}
         try:
@@ -106,11 +119,8 @@ class AccessLogProcessor(object):
     def process(self, obj_stream):
         '''generate hourly groupings of data from one access log file'''
         hourly_aggr_info = {}
-        aggr_account_logs = {}
-        container_line_counts = collections.defaultdict(int)
-        log_buffer = collections.defaultdict(list)
         for line in obj_stream:
-            line_data = self._log_line_parser(line)
+            line_data = self.log_line_parser(line)
             if not line_data:
                 continue
             account = line_data['account']
@@ -165,4 +175,4 @@ class AccessLogProcessor(object):
             d[key] = d.setdefault(key, 0) + 1
 
             hourly_aggr_info[aggr_key] = d
-        return hourly_aggr_info, item, aggr_account_logs
+        return hourly_aggr_info

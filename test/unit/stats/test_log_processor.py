@@ -35,7 +35,7 @@ class TestLogProcessor(unittest.TestCase):
     
     access_test_line = 'Jul  9 04:14:30 saio proxy 1.2.3.4 4.5.6.7 '\
                     '09/Jul/2010/04/14/30 GET '\
-                    '/v1/AUTH_acct/foo/bar?format=json&foo HTTP/1.0 200 - '\
+                    '/v1/acct/foo/bar?format=json&foo HTTP/1.0 200 - '\
                     'curl tk4e350daf-9338-4cc6-aabb-090e49babfbd '\
                     '6 95 - txfa431231-7f07-42fd-8fc7-7da9d8cc1f90 - 0.0262'
     stats_test_line = 'account,1,2,3'
@@ -44,10 +44,16 @@ class TestLogProcessor(unittest.TestCase):
                     }
                    }
 
-    def test_log_line_parser(self):
-        return
-        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        result = p.log_line_parser(self.access_test_line)
+    def test_access_log_line_parser(self):
+        access_proxy_config = self.proxy_config
+        access_proxy_config.update({
+                        'log-processor-access': {
+                            'source_filename_format':'%Y%m%d%H*',
+                            'class_path':
+                                'swift.stats.access_processor.AccessLogProcessor'
+                        }})
+        p = log_processor.LogProcessor(access_proxy_config, DumbLogger())
+        result = p.plugins['access']['instance'].log_line_parser(self.access_test_line)
         self.assertEquals(result, {'code': 200,
            'processing_time': '0.0262',
            'auth_token': 'tk4e350daf-9338-4cc6-aabb-090e49babfbd',
@@ -69,22 +75,27 @@ class TestLogProcessor(unittest.TestCase):
            'day': '09',
            'minute': '14',
            'account': 'acct',
-           'reseller': 'AUTH',
            'hour': '04',
            'referrer': '-',
-           'request': '/v1/AUTH_acct',
+           'request': '/v1/acct/foo/bar',
            'user_agent': 'curl',
            'bytes_in': 6,
            'lb_ip': '4.5.6.7'})
 
     def test_process_one_access_file(self):
-        return
-        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        def get_object_data(*a,**kw):
+        access_proxy_config = self.proxy_config
+        access_proxy_config.update({
+                        'log-processor-access': {
+                            'source_filename_format':'%Y%m%d%H*',
+                            'class_path':
+                                'swift.stats.access_processor.AccessLogProcessor'
+                        }})
+        p = log_processor.LogProcessor(access_proxy_config, DumbLogger())
+        def get_object_data(*a, **kw):
             return [self.access_test_line]
         p.get_object_data = get_object_data
-        result = p.process_one_access_file('yarr', None)
-        expected = ({('AUTH_acct', '2010', '07', '09', '04'):
+        result = p.process_one_file('access', 'a', 'c', 'o')
+        expected = {('acct', '2010', '07', '09', '04'):
                     {('public', 'object', 'GET', '2xx'): 1,
                     ('public', 'bytes_out'): 95,
                     'marker_query': 0,
@@ -92,8 +103,7 @@ class TestLogProcessor(unittest.TestCase):
                     'delimiter_query': 0,
                     'path_query': 0,
                     ('public', 'bytes_in'): 6,
-                    'prefix_query': 0}},
-                    'yarr', {})
+                    'prefix_query': 0}}
         self.assertEquals(result, expected)
 
     def test_process_one_stats_file(self):
