@@ -13,6 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from swift.common.internal_proxy import InternalProxy
+from swift.common.exceptions import ChunkReadTimeout
+from swift.common.utils import get_logger
+
+class ConfigError(Exception):
+    pass
+
+class MissingProxyConfig(ConfigError):
+    pass
+
 class LogProcessor(object):
 
     def __init__(self, conf, logger):
@@ -29,12 +39,15 @@ class LogProcessor(object):
             c.read(proxy_server_conf_loc)
             proxy_server_conf = dict(c.items('proxy-server'))
         except:
-            proxy_server_conf = None
+            raise MissingProxyConfig()
         self.proxy_server_conf = proxy_server_conf
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
         else:
             self.logger = logger
+        self.internal_proxy = InternalProxy(self.proxy_server_conf,
+                                            self.logger,
+                                            retries=3)
         
         # load the processing plugins
         self.plugins = {}
@@ -113,7 +126,7 @@ class LogProcessor(object):
                 pass
             else:
                 end_key = '/'.join(date_parts)
-        container_listing = self.private_proxy.get_container_list(
+        container_listing = self.internal_proxy.get_container_list(
                                     swift_account,
                                     container_name,
                                     marker=search_key)
@@ -132,27 +145,16 @@ class LogProcessor(object):
     def get_object_data(self, swift_account, container_name, object_name,
                         compressed=False):
         '''reads an object and yields its lines'''
-        o = self.private_proxy.get_object(swift_account,
-                                          container_name,
-                                          object_name)
-        tmp_file = tempfile.TemporaryFile(dir=self.working_dir)
-        with tmp_file as f:
-            bad_file = False
-            try:
-                for chunk in o:
-                    f.write(chunk)
-            except ChunkReadTimeout:
-                bad_file = True
-            if bad_file:
-                raise BadFileDownload()
-            f.flush()
-            f.seek(0) # rewind to start reading
-            last_part = ''
-            last_compressed_part = ''
-            # magic in the following zlib.decompressobj argument is courtesy of
-            # http://stackoverflow.com/questions/2423866/python-decompressing-gzip-chunk-by-chunk
-            d = zlib.decompressobj(16+zlib.MAX_WBITS)
-            for chunk in iter(lambda: f.read(16384), ''):
+        o = self.internal_proxy.get_object(swift_account,
+                                           container_name,
+                                           object_name)
+        last_part = ''
+        last_compressed_part = ''
+        # magic in the following zlib.decompressobj argument is courtesy of
+        # http://stackoverflow.com/questions/2423866/python-decompressing-gzip-chunk-by-chunk
+        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        try:
+            for chunk in o:
                 if compressed:
                     try:
                         chunk = d.decompress(chunk)
@@ -165,6 +167,8 @@ class LogProcessor(object):
                 last_part = parts[-1]
             if last_part:
                 yield last_part
+        except ChunkReadTimeout:
+            raise BadFileDownload()
 
 def multiprocess_collate(processor_args,
                          start_date=None,
