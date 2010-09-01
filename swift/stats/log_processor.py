@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from ConfigParser import ConfigParser
+import zlib
+
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
 from swift.common.utils import get_logger
@@ -39,6 +42,7 @@ class LogProcessor(object):
             c.read(proxy_server_conf_loc)
             proxy_server_conf = dict(c.items('proxy-server'))
         except:
+            raise
             raise MissingProxyConfig()
         self.proxy_server_conf = proxy_server_conf
         if isinstance(logger, tuple):
