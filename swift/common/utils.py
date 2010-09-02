@@ -442,7 +442,7 @@ def lock_parent_directory(filename, timeout=10):
     :param filename: file path of the parent directory to be locked
     :param timeout: timeout (in seconds)
     """
-    return lock_path(os.path.dirname(filename))
+    return lock_path(os.path.dirname(filename), timeout=timeout)
 
 
 def get_time_units(time_amount):
