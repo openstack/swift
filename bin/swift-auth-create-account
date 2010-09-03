@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from ConfigParser import ConfigParser
+from os.path import basename
 from sys import argv, exit
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
@@ -22,11 +23,27 @@ from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 if __name__ == '__main__':
     f = '/etc/swift/auth-server.conf'
-    if len(argv) == 5:
-        f = argv[4]
-    elif len(argv) != 4:
-        exit('Syntax: %s <new_account> <new_user> <new_password> [conf_file]' %
-             argv[0])
+    good = False
+    noaccess = False
+    if len(argv) == 6 and argv[4] == 'noaccess':
+        good = True
+        noaccess = True
+        f = argv[5]
+    elif len(argv) == 5:
+        good = True
+        if argv[4] == 'noaccess':
+            noaccess = True
+        else:
+            f = argv[4]
+    elif len(argv) == 4:
+        good = True
+    if not good:
+        exit('''
+Syntax: %s <new_account> <new_user> <new_password> [noaccess] [conf_file]
+The noaccess keyword will create a user with no access to the account; another
+user for the account will have to add the user to the ACLs for a container to
+grant some access.
+             '''.strip() % basename(argv[0]))
     new_account = argv[1]
     new_user = argv[2]
     new_password = argv[3]
@@ -38,8 +55,10 @@ if __name__ == '__main__':
     port = int(conf.get('bind_port', 11000))
     ssl = conf.get('cert_file') is not None
     path = '/account/%s/%s' % (new_account, new_user)
-    conn = http_connect(host, port, 'PUT', path, {'x-auth-key':new_password},
-                        ssl=ssl)
+    headers = {'X-Auth-Key': new_password}
+    if noaccess:
+        headers['X-User-No-Access'] = 'true'
+    conn = http_connect(host, port, 'PUT', path, headers, ssl=ssl)
     resp = conn.getresponse()
     if resp.status == 204:
         print resp.getheader('x-storage-url')

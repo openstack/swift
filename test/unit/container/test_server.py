@@ -55,6 +55,51 @@ class TestContainerController(unittest.TestCase):
         """ Tear down for testing swift.object_server.ObjectController """
         rmtree(self.testdir, ignore_errors=1)
 
+    def test_acl_container(self):
+        # Ensure no acl by default
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '0'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        response = self.controller.HEAD(req)
+        self.assert_(response.status.startswith('204'))
+        self.assert_('x-container-read' not in response.headers)
+        self.assert_('x-container-write' not in response.headers)
+        # Ensure POSTing acls works
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': '1', 'X-Container-Read': '.ref:any',
+                     'X-Container-Write': 'account:user'})
+        self.controller.POST(req)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        response = self.controller.HEAD(req)
+        self.assert_(response.status.startswith('204'))
+        self.assertEquals(response.headers.get('x-container-read'),
+                          '.ref:any')
+        self.assertEquals(response.headers.get('x-container-write'),
+                          'account:user')
+        # Ensure we can clear acls on POST
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': '3', 'X-Container-Read': '',
+                     'X-Container-Write': ''})
+        self.controller.POST(req)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        response = self.controller.HEAD(req)
+        self.assert_(response.status.startswith('204'))
+        self.assert_('x-container-read' not in response.headers)
+        self.assert_('x-container-write' not in response.headers)
+        # Ensure PUTing acls works
+        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '4', 'X-Container-Read': '.ref:any',
+                     'X-Container-Write': 'account:user'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'HEAD'})
+        response = self.controller.HEAD(req)
+        self.assert_(response.status.startswith('204'))
+        self.assertEquals(response.headers.get('x-container-read'),
+                          '.ref:any')
+        self.assertEquals(response.headers.get('x-container-write'),
+                          'account:user')
+
     def test_HEAD(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})

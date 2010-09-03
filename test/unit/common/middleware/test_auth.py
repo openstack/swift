@@ -100,77 +100,58 @@ def start_response(*args):
     pass
 
 class TestAuth(unittest.TestCase):
+    # TODO: With the auth refactor, these tests have to be refactored as well.
+    # I brought some over from another refactor I've been trying, but these
+    # also need work.
 
-    def setUp(self):
-        self.test_auth = auth.DevAuthMiddleware(
-            FakeApp(), {}, FakeMemcache(), Logger())
+    def test_clean_acl(self):
+        devauth = auth.DevAuthorization(None, None)
+        value = devauth.clean_acl('header', '.ref:any')
+        self.assertEquals(value, '.ref:any')
+        value = devauth.clean_acl('header', '.ref:specific.host')
+        self.assertEquals(value, '.ref:specific.host')
+        value = devauth.clean_acl('header', '.ref:.ending.with')
+        self.assertEquals(value, '.ref:.ending.with')
+        value = devauth.clean_acl('header', '.ref:one,.ref:two')
+        self.assertEquals(value, '.ref:one,.ref:two')
+        value = devauth.clean_acl('header', '.ref:any,.ref:-specific.host')
+        self.assertEquals(value, '.ref:any,.ref:-specific.host')
+        value = devauth.clean_acl('header', '.ref:any,.ref:-.ending.with')
+        self.assertEquals(value, '.ref:any,.ref:-.ending.with')
+        value = devauth.clean_acl('header', '.ref:one,.ref:-two')
+        self.assertEquals(value, '.ref:one,.ref:-two')
+        value = devauth.clean_acl('header', 
+                    ' .ref : one , ,, .ref:two , .ref : - three ')
+        self.assertEquals(value, '.ref:one,.ref:two,.ref:-three')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header', '.ref:')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header', ' .ref : ')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header',
+                          'user , .ref : ')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header', '.ref:-')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header',
+                          ' .ref : - ')
+        self.assertRaises(ValueError, devauth.clean_acl, 'header',
+                          'user , .ref : - ')
 
-    def test_auth_fail(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(404)
-            self.assertFalse(self.test_auth.auth('a','t'))
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_auth_success(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            self.assertTrue(self.test_auth.auth('a','t'))
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_auth_memcache(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            self.assertTrue(self.test_auth.auth('a','t'))
-            auth.http_connect = mock_http_connect(404)
-            # Should still be in memcache
-            self.assertTrue(self.test_auth.auth('a','t'))
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_middleware_success(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            req = Request.blank('/v/a/c/o', headers={'x-auth-token':'t'})
-            resp = self.test_auth(req.environ, start_response)
-            self.assertEquals(resp, 'OK')
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_middleware_no_header(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            req = Request.blank('/v/a/c/o')
-            resp = self.test_auth(req.environ, start_response)
-            self.assertEquals(resp, ['Missing Auth Token'])
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_middleware_storage_token(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            req = Request.blank('/v/a/c/o', headers={'x-storage-token':'t'})
-            resp = self.test_auth(req.environ, start_response)
-            self.assertEquals(resp, 'OK')
-        finally:
-            auth.http_connect = old_http_connect
-
-    def test_middleware_only_version(self):
-        old_http_connect = auth.http_connect
-        try:
-            auth.http_connect = mock_http_connect(204, {'x-auth-ttl':'1234'})
-            req = Request.blank('/v', headers={'x-auth-token':'t'})
-            resp = self.test_auth(req.environ, start_response)
-            self.assertEquals(resp, ['Bad URL'])
-        finally:
-            auth.http_connect = old_http_connect
+    def test_parse_acl(self):
+        devauth = auth.DevAuthorization(None, None)
+        self.assertEquals(devauth.parse_acl(None), None)
+        self.assertEquals(devauth.parse_acl(''), None)
+        self.assertEquals(devauth.parse_acl('.ref:ref1'),
+                          (['ref1'], [], []))
+        self.assertEquals(devauth.parse_acl('.ref:-ref1'),
+                          (['-ref1'], [], []))
+        self.assertEquals(devauth.parse_acl('account:user'),
+                          ([], [], ['account:user']))
+        self.assertEquals(devauth.parse_acl('account'),
+                          ([], ['account'], []))
+        self.assertEquals(
+            devauth.parse_acl('acc1,acc2:usr2,.ref:ref3,.ref:-ref4'),
+            (['ref3', '-ref4'], ['acc1'], ['acc2:usr2']))
+        self.assertEquals(devauth.parse_acl(
+            'acc1,acc2:usr2,.ref:ref3,acc3,acc4:usr4,.ref:ref5,.ref:-ref6'),
+            (['ref3', 'ref5', '-ref6'], ['acc1', 'acc3'],
+             ['acc2:usr2', 'acc4:usr4']))
 
 
 if __name__ == '__main__':
