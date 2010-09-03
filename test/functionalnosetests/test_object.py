@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import unittest
+from nose import SkipTest
 from uuid import uuid4
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
@@ -13,7 +14,7 @@ class TestObject(unittest.TestCase):
 
     def setUp(self):
         if skip:
-            return
+            raise SkipTest
         self.container = uuid4().hex
         def put(url, token, parsed, conn):
             conn.request('PUT', parsed.path + '/' + self.container, '',
@@ -33,7 +34,7 @@ class TestObject(unittest.TestCase):
 
     def tearDown(self):
         if skip:
-            return
+            raise SkipTest
         def delete(url, token, parsed, conn):
             conn.request('DELETE', '%s/%s/%s' % (parsed.path, self.container,
                 self.obj), '', {'X-Auth-Token': token})
@@ -51,7 +52,7 @@ class TestObject(unittest.TestCase):
 
     def test_public_object(self):
         if skip:
-            return
+            raise SkipTest
         def get(url, token, parsed, conn):
             conn.request('GET',
                          '%s/%s/%s' % (parsed.path, self.container, self.obj))

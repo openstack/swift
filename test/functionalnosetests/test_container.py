@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from nose import SkipTest
 from uuid import uuid4
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
@@ -15,7 +16,7 @@ class TestContainer(unittest.TestCase):
 
     def setUp(self):
         if skip:
-            return
+            raise SkipTest
         self.name = uuid4().hex
         def put(url, token, parsed, conn):
             conn.request('PUT', parsed.path + '/' + self.name, '',
@@ -27,7 +28,7 @@ class TestContainer(unittest.TestCase):
 
     def tearDown(self):
         if skip:
-            return
+            raise SkipTest
         def get(url, token, parsed, conn):
             conn.request('GET', parsed.path + '/' + self.name + '?format=json',
                          '', {'X-Auth-Token': token})
@@ -58,7 +59,7 @@ class TestContainer(unittest.TestCase):
 
     def test_multi_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, name, value):
             conn.request('POST', parsed.path + '/' + self.name, '',
                 {'X-Auth-Token': token, name: value})
@@ -85,7 +86,7 @@ class TestContainer(unittest.TestCase):
 
     def test_PUT_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def put(url, token, parsed, conn, name, value):
             conn.request('PUT', parsed.path + '/' + name, '',
                 {'X-Auth-Token': token, 'X-Container-Meta-Test': value})
@@ -132,7 +133,7 @@ class TestContainer(unittest.TestCase):
 
     def test_POST_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, value):
             conn.request('POST', parsed.path + '/' + self.name, '',
                 {'X-Auth-Token': token, 'X-Container-Meta-Test': value})
@@ -167,7 +168,7 @@ class TestContainer(unittest.TestCase):
 
     def test_PUT_bad_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def put(url, token, parsed, conn, name, extra_headers):
             headers = {'X-Auth-Token': token}
             headers.update(extra_headers)
@@ -262,7 +263,7 @@ class TestContainer(unittest.TestCase):
 
     def test_POST_bad_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, extra_headers):
             headers = {'X-Auth-Token': token}
             headers.update(extra_headers)
@@ -321,7 +322,7 @@ class TestContainer(unittest.TestCase):
 
     def test_public_container(self):
         if skip:
-            return
+            raise SkipTest
         def get(url, token, parsed, conn):
             conn.request('GET', parsed.path + '/' + self.name)
             return check_response(conn)
@@ -356,7 +357,7 @@ class TestContainer(unittest.TestCase):
 
     def test_cross_account_container(self):
         if skip or skip2:
-            return
+            raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
         def get1(url, token, parsed, conn):
@@ -404,7 +405,7 @@ class TestContainer(unittest.TestCase):
 
     def test_cross_account_public_container(self):
         if skip or skip2:
-            return
+            raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
         def get1(url, token, parsed, conn):
@@ -463,7 +464,7 @@ class TestContainer(unittest.TestCase):
 
     def test_noaccess_user(self):
         if skip or skip3:
-            return
+            raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
         def get1(url, token, parsed, conn):
