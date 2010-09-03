@@ -22,6 +22,7 @@ from time import gmtime, strftime, time
 from urllib import unquote, quote
 from uuid import uuid4
 
+import sqlite3
 from webob import Request, Response
 from webob.exc import HTTPBadRequest, HTTPNoContent, HTTPUnauthorized, \
                       HTTPServiceUnavailable, HTTPNotFound
@@ -58,10 +59,10 @@ class AuthController(object):
     * The user makes a ReST call to the Swift cluster using the url given with
       the token as the X-Auth-Token header.
     * The Swift cluster makes an ReST call to the auth server to validate the
-      token for the given account hash, caching the result for future requests
-      up to the expiration the auth server returns.
-    * The auth server validates the token / account hash given and returns the
-      expiration for the token.
+      token, caching the result for future requests up to the expiration the
+      auth server returns.
+    * The auth server validates the token given and returns the expiration for
+      the token.
     * The Swift cluster completes the user's request.
 
     Another use case is creating a new account:
@@ -103,17 +104,33 @@ class AuthController(object):
                 Ring(os.path.join(self.swift_dir, 'account.ring.gz'))
         self.db_file = os.path.join(self.swift_dir, 'auth.db')
         self.conn = get_db_connection(self.db_file, okay_to_create=True)
+        try:
+            self.conn.execute('SELECT noaccess FROM account LIMIT 1')
+        except sqlite3.OperationalError, err:
+            if str(err) == 'no such column: noaccess':
+                self.conn.execute(
+                    'ALTER TABLE account ADD COLUMN noaccess TEXT')
         self.conn.execute('''CREATE TABLE IF NOT EXISTS account (
                                 account TEXT, url TEXT, cfaccount TEXT,
-                                user TEXT, password TEXT)''')
+                                user TEXT, password TEXT, noaccess TEXT)''')
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
                              ON account (account)''')
+        try:
+            self.conn.execute('SELECT user FROM token LIMIT 1')
+        except sqlite3.OperationalError, err:
+            if str(err) == 'no such column: user':
+                self.conn.execute('DROP INDEX IF EXISTS ix_token_created')
+                self.conn.execute('DROP INDEX IF EXISTS ix_token_cfaccount')
+                self.conn.execute('DROP TABLE IF EXISTS token')
         self.conn.execute('''CREATE TABLE IF NOT EXISTS token (
-                                cfaccount TEXT, token TEXT, created FLOAT)''')
-        self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_cfaccount
-                             ON token (cfaccount)''')
+                                token TEXT, created FLOAT,
+                                account TEXT, user TEXT, cfaccount TEXT)''')
+        self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_token
+                             ON token (token)''')
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_created
                              ON token (created)''')
+        self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_account
+                             ON token (account)''')
         self.conn.commit()
 
     def add_storage_account(self, account_name=''):
@@ -202,38 +219,36 @@ class AuthController(object):
                          (time() - self.token_life,))
             conn.commit()
 
-    def validate_token(self, token, account_hash):
+    def validate_token(self, token):
         """
         Tests if the given token is a valid token
 
         :param token: The token to validate
-        :param account_hash: The account hash the token is being used with
-        :returns: TTL if valid, False otherwise
+        :returns: (TTL, account, user, cfaccount) if valid, False otherwise
         """
         begin = time()
         self.purge_old_tokens()
         rv = False
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT created FROM token
-                WHERE cfaccount = ? AND token = ?''',
-                (account_hash, token)).fetchone()
+                SELECT created, account, user, cfaccount FROM token
+                WHERE token = ?''',
+                (token,)).fetchone()
             if row is not None:
                 created = row[0]
                 if time() - created >= self.token_life:
                     conn.execute('''
-                        DELETE FROM token
-                        WHERE cfaccount = ? AND token = ?''',
-                        (account_hash, token))
+                        DELETE FROM token WHERE token = ?''', (token,))
                     conn.commit()
                 else:
-                    rv = self.token_life - (time() - created)
-        self.logger.info('validate_token(%s, %s, _, _) = %s [%.02f]' %
-                         (repr(token), repr(account_hash), repr(rv),
-                          time() - begin))
+                    rv = (self.token_life - (time() - created), row[1], row[2],
+                          row[3])
+        self.logger.info('validate_token(%s, _, _) = %s [%.02f]' %
+                         (repr(token), repr(rv), time() - begin))
         return rv
 
-    def create_account(self, new_account, new_user, new_password):
+    def create_account(self, new_account, new_user, new_password,
+                       noaccess=False):
         """
         Handles the create_account call for developers, used to request
         an account be created both on a Swift cluster and in the auth server
@@ -251,28 +266,51 @@ class AuthController(object):
         :param new_account: The name for the new account
         :param new_user: The name for the new user
         :param new_password: The password for the new account
+        :param noaccess: If true, the user will be granted no access to the
+                         account by default; another user will have to add the
+                         user to the ACLs for containers to grant access.
 
-        :returns: False if the create fails, storage url if successful
+        :returns: False if the create fails, 'already exists' if the user
+                  already exists, or storage url if successful
         """
         begin = time()
         if not all((new_account, new_user, new_password)):
             return False
-        account_hash = self.add_storage_account()
-        if not account_hash:
-            self.logger.info(
-                'FAILED create_account(%s, %s, _,) [%.02f]' %
-                (repr(new_account), repr(new_user), time() - begin))
-            return False
-        url = self.default_cluster_url.rstrip('/') + '/' + account_hash
         with self.get_conn() as conn:
+            row = conn.execute(
+                'SELECT url FROM account WHERE account = ? AND user = ?',
+                (new_account, new_user)).fetchone()
+            if row:
+                self.logger.info(
+                    'ALREADY EXISTS create_account(%s, %s, _, %s) [%.02f]' %
+                    (repr(new_account), repr(new_user), repr(noaccess),
+                     time() - begin))
+                return 'already exists'
+            row = conn.execute(
+                'SELECT url, cfaccount FROM account WHERE account = ?',
+                (new_account,)).fetchone()
+            if row:
+                url = row[0]
+                account_hash = row[1]
+            else:
+                account_hash = self.add_storage_account()
+                if not account_hash:
+                    self.logger.info(
+                        'FAILED create_account(%s, %s, _, %s) [%.02f]' %
+                        (repr(new_account), repr(new_user), repr(noaccess),
+                         time() - begin))
+                    return False
+                url = self.default_cluster_url.rstrip('/') + '/' + account_hash
             conn.execute('''INSERT INTO account
-                (account, url, cfaccount, user, password)
-                VALUES (?, ?, ?, ?, ?)''',
-                (new_account, url, account_hash, new_user, new_password))
+                (account, url, cfaccount, user, password, noaccess)
+                VALUES (?, ?, ?, ?, ?, ?)''',
+                (new_account, url, account_hash, new_user, new_password,
+                 noaccess and 't' or ''))
             conn.commit()
         self.logger.info(
-            'SUCCESS create_account(%s, %s, _) = %s [%.02f]' %
-            (repr(new_account), repr(new_user), repr(url), time() - begin))
+            'SUCCESS create_account(%s, %s, _, %s) = %s [%.02f]' %
+            (repr(new_account), repr(new_user), repr(noaccess), repr(url),
+             time() - begin))
         return url
 
     def recreate_accounts(self):
@@ -285,8 +323,8 @@ class AuthController(object):
         """
         begin = time()
         with self.get_conn() as conn:
-            account_hashes = [r[0] for r in
-                conn.execute('SELECT cfaccount FROM account').fetchall()]
+            account_hashes = [r[0] for r in conn.execute(
+                'SELECT distinct(cfaccount) FROM account').fetchall()]
         failures = []
         for i, account_hash in enumerate(account_hashes):
             if not self.add_storage_account(account_hash):
@@ -301,7 +339,7 @@ class AuthController(object):
         Hanles ReST request from Swift to validate tokens
 
         Valid URL paths:
-            * GET /token/<account-hash>/<token>
+            * GET /token/<token>
 
         If the HTTP equest returns with a 204, then the token is valid,
         and the TTL of the token will be available in the X-Auth-Ttl header.
@@ -309,13 +347,14 @@ class AuthController(object):
         :param request: webob.Request object
         """
         try:
-            _, account_hash, token = split_path(request.path, minsegs=3)
+            _, token = split_path(request.path, minsegs=2)
         except ValueError:
             return HTTPBadRequest()
-        ttl = self.validate_token(token, account_hash)
-        if not ttl:
+        validation = self.validate_token(token)
+        if not validation:
             return HTTPNotFound()
-        return HTTPNoContent(headers={'x-auth-ttl': ttl})
+        return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
+                                      'X-Auth-User': ':'.join(validation[1:])})
 
     def handle_account_create(self, request):
         """
@@ -339,7 +378,10 @@ class AuthController(object):
         if 'X-Auth-Key' not in request.headers:
             return HTTPBadRequest('X-Auth-Key is required')
         password = request.headers['x-auth-key']
-        storage_url = self.create_account(account_name, user_name, password)
+        storage_url = self.create_account(account_name, user_name, password,
+                        request.headers.get('x-user-no-access'))
+        if storage_url == 'already exists':
+            return HTTPBadRequest(storage_url)
         if not storage_url:
             return HTTPServiceUnavailable()
         return HTTPNoContent(headers={'x-storage-url': storage_url})
@@ -414,23 +456,25 @@ class AuthController(object):
         self.purge_old_tokens()
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT cfaccount, url FROM account
+                SELECT cfaccount, url, noaccess FROM account
                 WHERE account = ? AND user = ? AND password = ?''',
                 (account, user, password)).fetchone()
             if row is None:
                 return HTTPUnauthorized()
-            cfaccount = row[0]
+            cfaccount = row[2] and '.none' or row[0]
             url = row[1]
-            row = conn.execute('SELECT token FROM token WHERE cfaccount = ?',
-                               (cfaccount,)).fetchone()
+            row = conn.execute('''
+                SELECT token FROM token WHERE account = ? AND user = ?''',
+                (account, user)).fetchone()
             if row:
                 token = row[0]
             else:
                 token = 'tk' + str(uuid4())
                 conn.execute('''
-                    INSERT INTO token (cfaccount, token, created)
-                    VALUES (?, ?, ?)''',
-                    (cfaccount, token, time()))
+                    INSERT INTO token
+                    (token, created, account, user, cfaccount)
+                    VALUES (?, ?, ?, ?, ?)''',
+                    (token, time(), account, user, cfaccount))
                 conn.commit()
             return HTTPNoContent(headers={'x-auth-token': token,
                                           'x-storage-token': token,

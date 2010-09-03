@@ -106,9 +106,12 @@ class Base(unittest.TestCase):
         self.assert_(response_body == body,
            'Body returned: %s' % (response_body))
 
-    def assert_status(self, status):
-        self.assert_(self.env.conn.response.status == status,
-           'Status returned: %d' % (self.env.conn.response.status))
+    def assert_status(self, status_or_statuses):
+        self.assert_(self.env.conn.response.status == status_or_statuses or
+                     (hasattr(status_or_statuses, '__iter__') and
+                      self.env.conn.response.status in status_or_statuses),
+           'Status returned: %d Expected: %s' %
+           (self.env.conn.response.status, status_or_statuses))
 
 class Base2(object):
     def setUp(self):
@@ -148,11 +151,11 @@ class TestAccount(Base):
     def testNoAuthToken(self):
         self.assertRaises(ResponseError, self.env.account.info,
             cfg={'no_auth_token':True})
-        self.assert_status(412)
+        self.assert_status([401, 412])
 
         self.assertRaises(ResponseError, self.env.account.containers,
             cfg={'no_auth_token':True})
-        self.assert_status(412)
+        self.assert_status([401, 412])
 
     def testInvalidUTF8Path(self):
         invalid_utf8 = Utils.create_utf8_name()[::-1]
@@ -1123,7 +1126,8 @@ class TestFile(Base):
         self.assert_status(400)
 
         # bad request types
-        for req in ('LICK', 'GETorHEAD_base', 'container_info', 'best_response'):
+        #for req in ('LICK', 'GETorHEAD_base', 'container_info', 'best_response'):
+        for req in ('LICK', 'GETorHEAD_base'):
             self.env.account.conn.make_request(req)
             self.assert_status(405)
 

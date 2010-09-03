@@ -44,6 +44,9 @@ DATADIR = 'containers'
 class ContainerController(object):
     """WSGI Controller for the container server."""
 
+    # Ensure these are all lowercase
+    save_headers = ['x-container-read', 'x-container-write']
+
     def __init__(self, conf):
         self.logger = get_logger(conf)
         self.root = conf.get('devices', '/srv/node/')
@@ -192,7 +195,8 @@ class ContainerController(object):
             metadata = {}
             metadata.update((key, (value, timestamp))
                 for key, value in req.headers.iteritems()
-                if key.lower().startswith('x-container-meta-'))
+                if key.lower() in self.save_headers or
+                   key.lower().startswith('x-container-meta-'))
             if metadata:
                 broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
@@ -373,7 +377,8 @@ class ContainerController(object):
         metadata = {}
         metadata.update((key, (value, timestamp))
             for key, value in req.headers.iteritems()
-            if key.lower().startswith('x-container-meta-'))
+            if key.lower() in self.save_headers or
+               key.lower().startswith('x-container-meta-'))
         if metadata:
             broker.update_metadata(metadata)
         return HTTPNoContent(request=req)
