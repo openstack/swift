@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import unittest
+from nose import SkipTest
 from ConfigParser import ConfigParser
 from contextlib import contextmanager
 from cStringIO import StringIO
@@ -1052,7 +1053,7 @@ class TestObjectController(unittest.TestCase):
                 'pointing to a valid directory.\n' \
                 'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
                 'system for testing.'
-            return
+            raise SkipTest
         testdir = \
             os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
         mkdirs(testdir)

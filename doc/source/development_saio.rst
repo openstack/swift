@@ -534,25 +534,7 @@ good idea what to do on other environments.
   #. `swift-auth-create-account test tester3 testing3 noaccess`
   #. Create `/etc/swift/func_test.conf`::
 
-        auth_host = 127.0.0.1
-        auth_port = 11000
-        auth_ssl = no
-
-        # Primary functional test account
-        account = test
-        username = tester
-        password = testing
-
-        # User on a second account
-        account2 = test2
-        username2 = tester2
-        password2 = testing2
-
-        # User on same account as first, but with noaccess
-        username3 = tester3
-        password3 = testing3
-
-        collate = C
+        cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf
 
   #. `cd ~/swift/trunk; ./.functests`
   #. `cd ~/swift/trunk; ./.probetests` (Note for future reference: probe tests
