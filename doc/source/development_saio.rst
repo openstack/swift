@@ -530,17 +530,11 @@ good idea what to do on other environments.
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
+  #. `swift-auth-create-account test2 tester2 testing2`
+  #. `swift-auth-create-account test tester3 testing3 noaccess`
   #. Create `/etc/swift/func_test.conf`::
 
-        auth_host = 127.0.0.1
-        auth_port = 11000
-        auth_ssl = no
-
-        account = test
-        username = tester
-        password = testing
-
-        collate = C
+        cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf
 
   #. `cd ~/swift/trunk; ./.functests`
   #. `cd ~/swift/trunk; ./.probetests` (Note for future reference: probe tests

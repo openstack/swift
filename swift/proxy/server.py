@@ -17,6 +17,7 @@ from __future__ import with_statement
 import mimetypes
 import os
 import time
+import traceback
 from ConfigParser import ConfigParser
 from urllib import unquote, quote
 import uuid
@@ -66,6 +67,22 @@ def public(func):
     :param func: function to make public
     """
     func.publicly_accessible = True
+
+    @functools.wraps(func)
+    def wrapped(*a, **kw):
+        return func(*a, **kw)
+    return wrapped
+
+
+def delay_denial(func):
+    """
+    Decorator to declare which methods should have any swift.authorize call
+    delayed. This is so the method can load the Request object up with
+    additional information that may be needed by the authorization system.
+
+    :param func: function to delay authorization on
+    """
+    func.delay_denial = True
 
     @functools.wraps(func)
     def wrapped(*a, **kw):
@@ -206,19 +223,28 @@ class Controller(object):
 
         :param account: account name for the container
         :param container: container name to look up
-        :returns: tuple of (container partition, container nodes) or
-                           (None, None) if the container does not exist
+        :returns: tuple of (container partition, container nodes, container
+                  read acl, container write acl) or (None, None, None, None) if
+                  the container does not exist
         """
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
         path = '/%s/%s' % (account, container)
         cache_key = 'container%s' % path
+        # Older memcache values (should be treated as if they aren't there):
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache.get(cache_key) == 200:
-            return partition, nodes
+        # Newer memcache values:
+        # [older status value from above, read acl, write acl]
+        cache_value = self.app.memcache.get(cache_key)
+        if hasattr(cache_value, '__iter__'):
+            status, read_acl, write_acl = cache_value
+            if status == 200:
+                return partition, nodes, read_acl, write_acl
         if not self.account_info(account)[1]:
-            return (None, None)
+            return (None, None, None, None)
         result_code = 0
+        read_acl = None
+        write_acl = None
         attempts_left = self.app.container_ring.replica_count
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.container_ring):
@@ -233,6 +259,8 @@ class Controller(object):
                     body = resp.read()
                     if 200 <= resp.status <= 299:
                         result_code = 200
+                        read_acl = resp.getheader('x-container-read')
+                        write_acl = resp.getheader('x-container-write')
                         break
                     elif resp.status == 404:
                         result_code = 404 if not result_code else -1
@@ -251,10 +279,11 @@ class Controller(object):
             cache_timeout = self.app.recheck_container_existence
         else:
             cache_timeout = self.app.recheck_container_existence * 0.1
-        self.app.memcache.set(cache_key, result_code, timeout=cache_timeout)
+        self.app.memcache.set(cache_key, (result_code, read_acl, write_acl),
+                              timeout=cache_timeout)
         if result_code == 200:
-            return partition, nodes
-        return (None, None)
+            return partition, nodes, read_acl, write_acl
+        return (None, None, None, None)
 
     def iter_nodes(self, partition, nodes, ring):
         """
@@ -474,6 +503,12 @@ class ObjectController(Controller):
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
+        if 'swift.authorize' in req.environ:
+            req.acl = \
+                self.container_info(self.account_name, self.container_name)[2]
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         return self.GETorHEAD_base(req, 'Object', partition,
@@ -481,13 +516,30 @@ class ObjectController(Controller):
                 req.path_info, self.app.object_ring.replica_count)
 
     @public
+    @delay_denial
+    def GET(self, req):
+        """Handler for HTTP GET requests."""
+        return self.GETorHEAD(req)
+
+    @public
+    @delay_denial
+    def HEAD(self, req):
+        """Handler for HTTP HEAD requests."""
+        return self.GETorHEAD(req)
+
+    @public
+    @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
         error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
-        container_partition, containers = \
+        container_partition, containers, _, req.acl = \
             self.container_info(self.account_name, self.container_name)
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         if not containers:
             return HTTPNotFound(request=req)
         containers = self.get_update_nodes(container_partition, containers,
@@ -521,10 +573,15 @@ class ObjectController(Controller):
                 bodies, 'Object POST')
 
     @public
+    @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
-        container_partition, containers = \
+        container_partition, containers, _, req.acl = \
             self.container_info(self.account_name, self.container_name)
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         if not containers:
             return HTTPNotFound(request=req)
         containers = self.get_update_nodes(container_partition, containers,
@@ -701,10 +758,15 @@ class ObjectController(Controller):
         return resp
 
     @public
+    @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        container_partition, containers = \
+        container_partition, containers, _, req.acl = \
             self.container_info(self.account_name, self.container_name)
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         if not containers:
             return HTTPNotFound(request=req)
         containers = self.get_update_nodes(container_partition, containers,
@@ -771,10 +833,24 @@ class ObjectController(Controller):
 class ContainerController(Controller):
     """WSGI controller for container requests"""
 
+    # Ensure these are all lowercase
+    pass_through_headers = ['x-container-read', 'x-container-write']
+
     def __init__(self, app, account_name, container_name, **kwargs):
         Controller.__init__(self, app)
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
+
+    def clean_acls(self, req):
+        if 'swift.clean_acl' in req.environ:
+            for header in ('x-container-read', 'x-container-write'):
+                if header in req.headers:
+                    try:
+                        req.headers[header] = \
+                            req.environ['swift.clean_acl'](header,
+                                                           req.headers[header])
+                    except ValueError, err:
+                        return HTTPBadRequest(request=req, body=str(err))
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
@@ -784,7 +860,24 @@ class ContainerController(Controller):
                         self.account_name, self.container_name)
         resp = self.GETorHEAD_base(req, 'Container', part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
+        if 'swift.authorize' in req.environ:
+            req.acl = resp.headers.get('x-container-read')
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         return resp
+
+    @public
+    @delay_denial
+    def GET(self, req):
+        """Handler for HTTP GET requests."""
+        return self.GETorHEAD(req)
+
+    @public
+    @delay_denial
+    def HEAD(self, req):
+        """Handler for HTTP HEAD requests."""
+        return self.GETorHEAD(req)
 
     @public
     def PUT(self, req):
@@ -806,8 +899,10 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-cf-trans-id': self.trans_id}
+        self.clean_acls(req)
         headers.update(value for value in req.headers.iteritems()
-            if value[0].lower().startswith('x-container-meta-'))
+            if value[0].lower() in self.pass_through_headers or
+               value[0].lower().startswith('x-container-meta-'))
         statuses = []
         reasons = []
         bodies = []
@@ -863,8 +958,10 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-cf-trans-id': self.trans_id}
+        self.clean_acls(req)
         headers.update(value for value in req.headers.iteritems()
-            if value[0].lower().startswith('x-container-meta-'))
+            if value[0].lower() in self.pass_through_headers or
+               value[0].lower().startswith('x-container-meta-'))
         statuses = []
         reasons = []
         bodies = []
@@ -1118,7 +1215,8 @@ class BaseApplication(object):
                 self.posthooklogger(env, req)
                 return response
         except:
-            print "EXCEPTION IN __call__: %s" % env
+            print "EXCEPTION IN __call__: %s: %s" % \
+                  (traceback.format_exc(), env)
             start_response('500 Server Error',
                     [('Content-Type', 'text/plain')])
             return ['Internal server error.\n']
@@ -1160,12 +1258,28 @@ class BaseApplication(object):
             controller.trans_id = req.headers.get('x-cf-trans-id', '-')
             try:
                 handler = getattr(controller, req.method)
-                if getattr(handler, 'publicly_accessible'):
-                    if path_parts['version']:
-                        req.path_info_pop()
-                    return handler(req)
+                if not getattr(handler, 'publicly_accessible'):
+                    handler = None
             except AttributeError:
+                handler = None
+            if not handler:
                 return HTTPMethodNotAllowed(request=req)
+            if path_parts['version']:
+                req.path_info_pop()
+            if 'swift.authorize' in req.environ:
+                # We call authorize before the handler, always. If authorized,
+                # we remove the swift.authorize hook so isn't ever called
+                # again. If not authorized, we return the denial unless the
+                # controller's method indicates it'd like to gather more
+                # information and try again later.
+                resp = req.environ['swift.authorize'](req)
+                if resp:
+                    if not getattr(handler, 'delay_denial', None) and \
+                            'swift.authorize' in req.environ:
+                        return resp
+                else:
+                    del req.environ['swift.authorize']
+            return handler(req)
         except Exception:
             self.logger.exception('ERROR Unhandled exception in request')
             return HTTPServerError(request=req)
@@ -1187,7 +1301,9 @@ class Application(BaseApplication):
         return req.response
 
     def posthooklogger(self, env, req):
-        response = req.response
+        response = getattr(req, 'response', None)
+        if not response:
+            return
         trans_time = '%.4f' % (time.time() - req.start_time)
         the_request = quote(unquote(req.path))
         if req.query_string:
@@ -1215,7 +1331,8 @@ class Application(BaseApplication):
                 status_int,
                 req.referer or '-',
                 req.user_agent or '-',
-                req.headers.get('x-auth-token', '-'),
+                '%s:%s' % (req.remote_user or '',
+                           req.headers.get('x-auth-token', '-')),
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),

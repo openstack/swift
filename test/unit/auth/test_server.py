@@ -113,20 +113,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        self.assertEquals(self.controller.validate_token(token + 'bad',
-            cfaccount), False)
-
-    def test_validate_token_non_existant_cfaccount(self):
-        auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
-            'test', 'tester', 'testing').split('/')[-1]
-        res = self.controller.handle_auth(Request.blank('/v1/test/auth',
-                environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Storage-User': 'tester',
-                         'X-Storage-Pass': 'testing'}))
-        token = res.headers['x-storage-token']
-        self.assertEquals(self.controller.validate_token(token,
-            cfaccount + 'bad'), False)
+        self.assertEquals(self.controller.validate_token(token + 'bad'), False)
 
     def test_validate_token_good(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
@@ -137,7 +124,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_validate_token_expired(self):
@@ -152,12 +139,10 @@ class TestAuthServer(unittest.TestCase):
                     headers={'X-Storage-User': 'tester',
                              'X-Storage-Pass': 'testing'}))
             token = res.headers['x-storage-token']
-            ttl = self.controller.validate_token(
-                token, cfaccount)
+            ttl = self.controller.validate_token(token)
             self.assert_(ttl > 0, repr(ttl))
             auth_server.time = lambda: 1 + self.controller.token_life
-            self.assertEquals(self.controller.validate_token(
-                token, cfaccount), False)
+            self.assertEquals(self.controller.validate_token(token), False)
         finally:
             auth_server.time = orig_time
 
@@ -244,7 +229,7 @@ class TestAuthServer(unittest.TestCase):
         rv = self.controller.recreate_accounts()
         self.assertEquals(rv.split()[0], '4', repr(rv))
         failed = rv.split('[', 1)[-1][:-1].split(', ')
-        self.assertEquals(failed, [repr(a) for a in cfaccounts])
+        self.assertEquals(set(failed), set(repr(a) for a in cfaccounts))
 
     def test_recreate_accounts_several_fail_some(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
@@ -266,11 +251,8 @@ class TestAuthServer(unittest.TestCase):
         rv = self.controller.recreate_accounts()
         self.assertEquals(rv.split()[0], '4', repr(rv))
         failed = rv.split('[', 1)[-1][:-1].split(', ')
-        expected = []
-        for i, value in enumerate(cfaccounts):
-            if not i % 2:
-                expected.append(repr(value))
-        self.assertEquals(failed, expected)
+        self.assertEquals(
+            len(set(repr(a) for a in cfaccounts) - set(failed)), 2)
 
     def test_auth_bad_path(self):
         self.assertRaises(ValueError, self.controller.handle_auth,
@@ -349,7 +331,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_good_Mosso_headers(self):
@@ -361,7 +343,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_bad_Mosso_headers(self):
@@ -469,7 +451,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_Mosso_good_SOSO_header_names(self):
@@ -481,7 +463,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'test:tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_basic_logging(self):
@@ -493,8 +475,8 @@ class TestAuthServer(unittest.TestCase):
             auth_server.http_connect = fake_http_connect(201, 201, 201)
             url = self.controller.create_account('test', 'tester', 'testing')
             self.assertEquals(log.getvalue().rsplit(' ', 1)[0],
-                "auth SUCCESS create_account('test', 'tester', _) = %s" %
-                repr(url))
+                "auth SUCCESS create_account('test', 'tester', _, False) = %s"
+                % repr(url))
             log.truncate(0)
             def start_response(*args):
                 pass
