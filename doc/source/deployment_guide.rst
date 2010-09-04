@@ -67,7 +67,7 @@ For example, imagine we are building a cluster that will have no more than
 5,000 drives. That would mean that we would have a total number of 500,000
 partitions, which is pretty close to 2^19, rounded up.
 
-It is also a good idea to keep the number of partitions small (realatively).
+It is also a good idea to keep the number of partitions small (relatively).
 The more partitions there are, the more work that has to be done by the
 replicators and other backend jobs and the more memory the rings consume in
 process. The goal is to find a good balance between small rings and maximum
@@ -81,7 +81,7 @@ less likely you are to lose data.
 It is also important to determine how many zones the cluster should have. It is
 recommended to start with a minimum of 5 zones. You can start with fewer, but
 our testing has shown that having at least five zones is optimal when failures
-occur. We also recommend trying to configure the zones as high a level as
+occur. We also recommend trying to configure the zones at as high a level as
 possible to create as much isolation as possible. Some example things to take
 into consideration can include physical location, power availability, and
 network connectivity. For example, in a small cluster you might decide to
@@ -121,7 +121,7 @@ important whenever making changes to the ring to make all the changes
 required before running rebalance. This will ensure that the ring stays as
 balanced as possible, and as few partitions are moved as possible.
 
-The above process should be done to make a ring for each storage serivce
+The above process should be done to make a ring for each storage service
 (Account, Container and Object). The builder files will be needed in future
 changes to the ring, so it is very important that these be kept and backed up.
 The resulting .tar.gz ring file should be pushed to all of the servers in the
