@@ -75,7 +75,7 @@ class TestObjectHandoff(unittest.TestCase):
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
         objs = [o['name'] for o in
-                client.get_container(self.url, self.token, container)]
+                client.get_container(self.url, self.token, container)[1]]
         if obj not in objs:
             raise Exception('Container listing did not know about object')
         for cnode in cnodes:
@@ -126,10 +126,9 @@ class TestObjectHandoff(unittest.TestCase):
 
         kill(self.pids[self.port2server[onode['port']]], SIGTERM)
         client.post_object(self.url, self.token, container, obj,
-                           {'probe': 'value'})
-        ometadata = client.head_object(
-            self.url, self.token, container, obj)[-1]
-        if ometadata.get('probe') != 'value':
+                           headers={'x-object-meta-probe': 'value'})
+        ometadata = client.head_object(self.url, self.token, container, obj)
+        if ometadata.get('x-object-meta-probe') != 'value':
             raise Exception('Metadata incorrect, was %s' % repr(ometadata))
         exc = False
         try:
@@ -177,7 +176,7 @@ class TestObjectHandoff(unittest.TestCase):
         if not exc:
             raise Exception('Regular object HEAD was still successful')
         objs = [o['name'] for o in
-                client.get_container(self.url, self.token, container)]
+                client.get_container(self.url, self.token, container)[1]]
         if obj in objs:
             raise Exception('Container listing still knew about object')
         for cnode in cnodes:

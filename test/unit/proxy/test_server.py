@@ -82,7 +82,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 pass
             if 'slow' in kwargs:
                 headers['content-length'] = '4'
-            return headers
+            return headers.items()
         def read(self, amt=None):
             if 'slow' in kwargs:
                 if self.sent < 4:
@@ -98,7 +98,7 @@ def fake_http_connect(*code_iter, **kwargs):
                     self.received += 1
                     sleep(0.1)
         def getheader(self, name, default=None):
-            return self.getheaders().get(name.lower(), default)
+            return dict(self.getheaders()).get(name.lower(), default)
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
     x = kwargs.get('missing_container', [False] * len(code_iter))
     if not isinstance(x, (tuple, list)):
