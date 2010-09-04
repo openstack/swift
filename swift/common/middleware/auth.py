@@ -24,6 +24,7 @@ from swift.common.utils import cache_from_env, split_path
 
 
 class DevAuth(object):
+    """Auth Middleware that uses the dev auth server."""
 
     def __init__(self, app, conf):
         self.app = app
@@ -35,6 +36,11 @@ class DevAuth(object):
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
+        """
+        Accepts a standard WSGI application call, authenticating the request
+        and installing callback hooks for authorization and ACL header
+        validation.
+        """
         user = None
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token:
@@ -64,13 +70,17 @@ class DevAuth(object):
         return self.app(env, start_response)
 
     def authorize(self, req):
+        """
+        Returns None if the request is authorized to continue or a standard
+        WSGI response callable if not.
+        """
         version, account, container, obj = split_path(req.path, 1, 4, True)
         if not account:
             return self.denied_response(req)
         if req.remote_user and account in req.remote_user.split(','):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
-        if referrer_allowed(req, referrers):
+        if referrer_allowed(req.referer, referrers):
             return None
         if not req.remote_user:
             return self.denied_response(req)
@@ -80,6 +90,10 @@ class DevAuth(object):
         return self.denied_response(req)
 
     def denied_response(self, req):
+        """
+        Returns a standard WSGI response callable with the status of 403 or 401
+        depending on whether the REMOTE_USER is set or not.
+        """
         if req.remote_user:
             return HTTPForbidden(request=req)
         else:
@@ -87,6 +101,7 @@ class DevAuth(object):
 
 
 def filter_factory(global_conf, **local_conf):
+    """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
     def auth_filter(app):
