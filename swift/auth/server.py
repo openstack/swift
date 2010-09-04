@@ -353,8 +353,10 @@ class AuthController(object):
         validation = self.validate_token(token)
         if not validation:
             return HTTPNotFound()
+        # X-Auth-User: account:user,account,cfaccount
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
-                                      'X-Auth-User': ':'.join(validation[1:])})
+            'X-Auth-User': '%s:%s,%s,%s' %
+                (validation[1], validation[2], validation[1], validation[3])})
 
     def handle_account_create(self, request):
         """

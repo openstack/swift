@@ -23,7 +23,7 @@ from contextlib import contextmanager
 import eventlet
 from webob import Request
 
-from swift.common.middleware import auth
+from swift.common.middleware import acl
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -100,8 +100,50 @@ def start_response(*args):
     pass
 
 class TestAuth(unittest.TestCase):
-    # TODO: With the auth refactor, these tests have to be refactored as well.
-    pass
+    # I brought these over from another refactor I've been trying, but they
+    # need work.
+
+    def test_clean_acl(self):
+        value = acl.clean_acl('header', '.ref:any')
+        self.assertEquals(value, '.ref:any')
+        value = acl.clean_acl('header', '.ref:specific.host')
+        self.assertEquals(value, '.ref:specific.host')
+        value = acl.clean_acl('header', '.ref:.ending.with')
+        self.assertEquals(value, '.ref:.ending.with')
+        value = acl.clean_acl('header', '.ref:one,.ref:two')
+        self.assertEquals(value, '.ref:one,.ref:two')
+        value = acl.clean_acl('header', '.ref:any,.ref:-specific.host')
+        self.assertEquals(value, '.ref:any,.ref:-specific.host')
+        value = acl.clean_acl('header', '.ref:any,.ref:-.ending.with')
+        self.assertEquals(value, '.ref:any,.ref:-.ending.with')
+        value = acl.clean_acl('header', '.ref:one,.ref:-two')
+        self.assertEquals(value, '.ref:one,.ref:-two')
+        value = acl.clean_acl('header', 
+                              ' .ref : one , ,, .ref:two , .ref : - three ')
+        self.assertEquals(value, '.ref:one,.ref:two,.ref:-three')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.ref:')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .ref : ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header',
+                          'user , .ref : ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.ref:-')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .ref : - ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header',
+                          'user , .ref : - ')
+
+    def test_parse_acl(self):
+        self.assertEquals(acl.parse_acl(None), ([], []))
+        self.assertEquals(acl.parse_acl(''), ([], []))
+        self.assertEquals(acl.parse_acl('.ref:ref1'), (['ref1'], []))
+        self.assertEquals(acl.parse_acl('.ref:-ref1'), (['-ref1'], []))
+        self.assertEquals(acl.parse_acl('account:user'),
+                          ([], ['account:user']))
+        self.assertEquals(acl.parse_acl('account'), ([], ['account']))
+        self.assertEquals(acl.parse_acl('acc1,acc2:usr2,.ref:ref3,.ref:-ref4'),
+                          (['ref3', '-ref4'], ['acc1', 'acc2:usr2']))
+        self.assertEquals(acl.parse_acl(
+            'acc1,acc2:usr2,.ref:ref3,acc3,acc4:usr4,.ref:ref5,.ref:-ref6'),
+            (['ref3', 'ref5', '-ref6'],
+             ['acc1', 'acc2:usr2', 'acc3', 'acc4:usr4']))
 
 
 if __name__ == '__main__':
