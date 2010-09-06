@@ -31,7 +31,7 @@ if __name__ == '__main__':
         'auth server (default: %s).' % default_conf)
     parser.add_option('-a', '--admin', dest='admin', action='store_true',
         default=False, help='Give the user administrator access; otherwise '
-        'the user will only have access to container specifically allowed '
+        'the user will only have access to containers specifically allowed '
         'with ACLs.')
     args = argv[1:]
     if not args:

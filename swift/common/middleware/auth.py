@@ -39,19 +39,20 @@ class DevAuth(object):
         """
         Accepts a standard WSGI application call, authenticating the request
         and installing callback hooks for authorization and ACL header
-        validation.
+        validation. For an authenticated request, REMOTE_USER will be set to a
+        comma separated list of the user's groups.
         """
-        user = None
+        groups = None
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token:
             memcache_client = cache_from_env(env)
             key = 'devauth/%s' % token
             cached_auth_data = memcache_client.get(key)
             if cached_auth_data:
-                start, expiration, user = cached_auth_data
+                start, expiration, groups = cached_auth_data
                 if time() - start > expiration:
-                    user = None
-            if not user:
+                    groups = None
+            if not groups:
                 with Timeout(self.timeout):
                     conn = http_connect(self.auth_host, self.auth_port, 'GET',
                                         '/token/%s' % token, ssl=self.ssl)
@@ -61,10 +62,10 @@ class DevAuth(object):
                 if resp.status // 100 != 2:
                     return HTTPUnauthorized()(env, start_response)
                 expiration = float(resp.getheader('x-auth-ttl'))
-                user = resp.getheader('x-auth-user')
-                memcache_client.set(key, (time(), expiration, user),
+                groups = resp.getheader('x-auth-groups')
+                memcache_client.set(key, (time(), expiration, groups),
                                     timeout=expiration)
-        env['REMOTE_USER'] = user
+        env['REMOTE_USER'] = groups
         env['swift.authorize'] = self.authorize
         env['swift.clean_acl'] = clean_acl
         return self.app(env, start_response)

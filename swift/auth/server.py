@@ -108,8 +108,8 @@ class AuthController(object):
             self.conn.execute('SELECT admin FROM account LIMIT 1')
         except sqlite3.OperationalError, err:
             if str(err) == 'no such column: admin':
-                self.conn.execute(
-                    "ALTER TABLE account ADD COLUMN admin TEXT DEFAULT 't'")
+                self.conn.execute("ALTER TABLE account ADD COLUMN admin TEXT")
+                self.conn.execute("UPDATE account SET admin = 't'")
         self.conn.execute('''CREATE TABLE IF NOT EXISTS account (
                                 account TEXT, url TEXT, cfaccount TEXT,
                                 user TEXT, password TEXT, admin TEXT)''')
@@ -248,25 +248,22 @@ class AuthController(object):
                          (repr(token), repr(rv), time() - begin))
         return rv
 
-    def create_account(self, new_account, new_user, new_password,
-                       admin=False):
+    def create_user(self, account, user, password, admin=False):
         """
-        Handles the create_account call for developers, used to request
-        an account be created both on a Swift cluster and in the auth server
-        database.
+        Handles the create_user call for developers, used to request a user be
+        added in the auth server database. If the account does not yet exist,
+        it will be created on the Swift cluster and the details recorded in the
+        auth server database.
 
-        This will make ReST requests to the Swift cluster's account servers
-        to have an account created on its side. The resulting account hash
-        along with the URL to use to access the account, the account name, the
-        user name, and the password is recorded in the auth server's database.
-        The url is constructed now and stored separately to support changing
-        the configuration file's default_cluster_url for directing new accounts
-        to a different Swift cluster while still supporting old accounts going
-        to the Swift clusters they were created on.
+        The url for the storage account is constructed now and stored
+        separately to support changing the configuration file's
+        default_cluster_url for directing new accounts to a different Swift
+        cluster while still supporting old accounts going to the Swift clusters
+        they were created on.
 
-        :param new_account: The name for the new account
-        :param new_user: The name for the new user
-        :param new_password: The password for the new account
+        :param account: The name for the new account
+        :param user: The name for the new user
+        :param password: The password for the new account
         :param admin: If true, the user will be granted full access to the
                       account; otherwise, another user will have to add the
                       user to the ACLs for containers to grant access.
@@ -275,21 +272,21 @@ class AuthController(object):
                   already exists, or storage url if successful
         """
         begin = time()
-        if not all((new_account, new_user, new_password)):
+        if not all((account, user, password)):
             return False
         with self.get_conn() as conn:
             row = conn.execute(
                 'SELECT url FROM account WHERE account = ? AND user = ?',
-                (new_account, new_user)).fetchone()
+                (account, user)).fetchone()
             if row:
                 self.logger.info(
-                    'ALREADY EXISTS create_account(%s, %s, _, %s) [%.02f]' %
-                    (repr(new_account), repr(new_user), repr(admin),
+                    'ALREADY EXISTS create_user(%s, %s, _, %s) [%.02f]' %
+                    (repr(account), repr(user), repr(admin),
                      time() - begin))
                 return 'already exists'
             row = conn.execute(
                 'SELECT url, cfaccount FROM account WHERE account = ?',
-                (new_account,)).fetchone()
+                (account,)).fetchone()
             if row:
                 url = row[0]
                 account_hash = row[1]
@@ -297,20 +294,20 @@ class AuthController(object):
                 account_hash = self.add_storage_account()
                 if not account_hash:
                     self.logger.info(
-                        'FAILED create_account(%s, %s, _, %s) [%.02f]' %
-                        (repr(new_account), repr(new_user), repr(admin),
+                        'FAILED create_user(%s, %s, _, %s) [%.02f]' %
+                        (repr(account), repr(user), repr(admin),
                          time() - begin))
                     return False
                 url = self.default_cluster_url.rstrip('/') + '/' + account_hash
             conn.execute('''INSERT INTO account
                 (account, url, cfaccount, user, password, admin)
                 VALUES (?, ?, ?, ?, ?, ?)''',
-                (new_account, url, account_hash, new_user, new_password,
+                (account, url, account_hash, user, password,
                  admin and 't' or ''))
             conn.commit()
         self.logger.info(
-            'SUCCESS create_account(%s, %s, _, %s) = %s [%.02f]' %
-            (repr(new_account), repr(new_user), repr(admin), repr(url),
+            'SUCCESS create_user(%s, %s, _, %s) = %s [%.02f]' %
+            (repr(account), repr(user), repr(admin), repr(url),
              time() - begin))
         return url
 
@@ -342,8 +339,10 @@ class AuthController(object):
         Valid URL paths:
             * GET /token/<token>
 
-        If the HTTP equest returns with a 204, then the token is valid,
-        and the TTL of the token will be available in the X-Auth-Ttl header.
+        If the HTTP request returns with a 204, then the token is valid, the
+        TTL of the token will be available in the X-Auth-Ttl header, and a
+        comma separated list of the "groups" the user belongs to will be in the
+        X-Auth-Groups header.
 
         :param request: webob.Request object
         """
@@ -359,7 +358,7 @@ class AuthController(object):
         if validation[3]: # admin access to a cfaccount
             groups.append(validation[3])
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
-            'X-Auth-User': ','.join(groups)})
+                                      'X-Auth-Groups': ','.join(groups)})
 
     def handle_add_user(self, request):
         """
@@ -387,7 +386,7 @@ class AuthController(object):
         if 'X-Auth-User-Key' not in request.headers:
             return HTTPBadRequest('X-Auth-User-Key is required')
         password = request.headers['x-auth-user-key']
-        storage_url = self.create_account(account_name, user_name, password,
+        storage_url = self.create_user(account_name, user_name, password,
                         request.headers.get('x-auth-user-admin') == 'true')
         if storage_url == 'already exists':
             return HTTPBadRequest(storage_url)

@@ -532,12 +532,9 @@ good idea what to do on other environments.
   #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
   #. `swift-auth-add-user --admin test2 tester2 testing2`
   #. `swift-auth-add-user test tester3 testing3`
-  #. Create `/etc/swift/func_test.conf`::
-
-        cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf
-
+  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
   #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
-     everything in the configured account.)
+     everything in the configured accounts.)
   #. `cd ~/swift/trunk; ./.probetests` (Note: probe tests will reset your
      environment as they call `resetswift` for each test.)
 
