@@ -626,12 +626,12 @@ def put_object(url, token, container, name, contents, content_length=None,
 
 def post_object(url, token, container, name, headers, http_conn=None):
     """
-    Change object metadata
+    Update object metadata
 
     :param url: storage URL
     :param token: auth token
     :param container: container name that the object is in
-    :param name: object name to change
+    :param name: name of the object to update
     :param headers: additional headers to include in the request
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)

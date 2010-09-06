@@ -65,11 +65,12 @@ class AuthController(object):
       the token.
     * The Swift cluster completes the user's request.
 
-    Another use case is creating a new account:
+    Another use case is creating a new user:
 
-    * The developer makes a ReST call to create a new account.
-    * The auth server makes ReST calls to the Swift cluster's account servers
-      to create a new account on its end.
+    * The developer makes a ReST call to create a new user.
+    * If the account for the user does not yet exist, the auth server makes
+      ReST calls to the Swift cluster's account servers to create a new account
+      on its end.
     * The auth server records the information in its database.
 
     A last use case is recreating existing accounts; this is really only useful
@@ -261,6 +262,9 @@ class AuthController(object):
         cluster while still supporting old accounts going to the Swift clusters
         they were created on.
 
+        Currently, updating a user's information (password, admin access) must
+        be done by directly updating the sqlite database.
+
         :param account: The name for the new account
         :param user: The name for the new user
         :param password: The password for the new account
@@ -334,7 +338,7 @@ class AuthController(object):
 
     def handle_token(self, request):
         """
-        Hanles ReST request from Swift to validate tokens
+        Handles ReST requests from Swift to validate tokens
 
         Valid URL paths:
             * GET /token/<token>
