@@ -21,10 +21,11 @@ from StringIO import StringIO
 from uuid import uuid4
 from logging import StreamHandler
 
+import sqlite3
 from webob import Request
 
 from swift.auth import server as auth_server
-from swift.common.db import DatabaseConnectionError
+from swift.common.db import DatabaseConnectionError, get_db_connection
 from swift.common.utils import get_logger
 
 
@@ -575,6 +576,58 @@ class TestAuthServer(unittest.TestCase):
         finally:
             auth_server.Request = orig_Request
             logger.logger.handlers.remove(log_handler)
+
+    def test_upgrading_from_db1(self):
+        swift_dir = '/tmp/swift_test_auth_%s' % uuid4().hex
+        os.mkdir(swift_dir)
+        try:
+            # Create db1
+            db_file = os.path.join(swift_dir, 'auth.db')
+            conn = get_db_connection(db_file, okay_to_create=True)
+            conn.execute('''CREATE TABLE IF NOT EXISTS account (
+                            account TEXT, url TEXT, cfaccount TEXT,
+                            user TEXT, password TEXT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
+                            ON account (account)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS token (
+                            cfaccount TEXT, token TEXT, created FLOAT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_cfaccount
+                            ON token (cfaccount)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_created
+                            ON token (created)''')
+            conn.execute('''INSERT INTO account
+                            (account, url, cfaccount, user, password)
+                            VALUES ('act', 'url', 'cfa', 'usr', 'pas')''')
+            conn.execute('''INSERT INTO token (cfaccount, token, created)
+                            VALUES ('cfa', 'tok', '1')''')
+            conn.commit()
+            conn.close()
+            # Upgrade to current db
+            conf = {'swift_dir': swift_dir}
+            controller = auth_server.AuthController(conf, FakeRing())
+            # Check new items exist and are correct
+            conn = get_db_connection(db_file)
+            row = conn.execute('SELECT admin FROM account').fetchone()
+            self.assertEquals(row[0], 't')
+            row = conn.execute('SELECT user FROM token').fetchone()
+            self.assert_(not row)
+        finally:
+            rmtree(swift_dir)
+
+    def test_create_user_twice(self):
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        self.controller.create_user('test', 'tester', 'testing')
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        self.assertEquals(
+            self.controller.create_user('test', 'tester', 'testing'),
+            'already exists')
+
+    def test_create_2users_1account(self):
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        url = self.controller.create_user('test', 'tester', 'testing')
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        url2 = self.controller.create_user('test', 'tester2', 'testing2')
+        self.assertEquals(url, url2)
 
 
 if __name__ == '__main__':

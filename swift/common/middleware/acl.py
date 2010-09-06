@@ -139,7 +139,10 @@ def referrer_allowed(referrer, referrer_acl):
         else:
             parts = referrer.split('//', 1)
             if len(parts) == 2:
-                rhost = parts[1].split('/', 1)[0].split(':', 1)[0].lower()
+                rhost = parts[1].split('/', 1)[0]
+                if '@' in rhost:
+                    rhost = rhost.rsplit('@', 1)[1]
+                rhost = rhost.split(':', 1)[0].lower()
             else:
                 rhost = 'unknown'
         for mhost in referrer_acl:

@@ -13,95 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
-import logging
-import os
-import sys
 import unittest
-from contextlib import contextmanager
-
-import eventlet
-from webob import Request
 
 from swift.common.middleware import acl
 
-# mocks
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-
-class FakeMemcache(object):
-    def __init__(self):
-        self.store = {}
-
-    def get(self, key):
-        return self.store.get(key)
-
-    def set(self, key, value, timeout=0):
-        self.store[key] = value
-        return True
-
-    def incr(self, key, timeout=0):
-        self.store[key] = self.store.setdefault(key, 0) + 1
-        return self.store[key]
-
-    @contextmanager
-    def soft_lock(self, key, timeout=0, retries=5):
-        yield True
-
-    def delete(self, key):
-        try:
-            del self.store[key]
-        except:
-            pass
-        return True
-
-
-def mock_http_connect(response, headers=None, with_exc=False):
-    class FakeConn(object):
-        def __init__(self, status, headers, with_exc):
-            self.status = status
-            self.reason = 'Fake'
-            self.host = '1.2.3.4'
-            self.port = '1234'
-            self.with_exc = with_exc
-            self.headers = headers
-            if self.headers is None:
-                self.headers = {}
-        def getresponse(self):
-            if self.with_exc:
-                raise Exception('test')
-            return self
-        def getheader(self, header):
-            return self.headers[header]
-        def read(self, amt=None):
-            return ''
-        def close(self):
-            return
-    return lambda *args, **kwargs: FakeConn(response, headers, with_exc)
-
-
-class Logger(object):
-    def __init__(self):
-        self.error_value = None
-        self.exception_value = None
-    def error(self, msg, *args, **kwargs):
-        self.error_value = (msg, args, kwargs)
-    def exception(self, msg, *args, **kwargs):
-        _, exc, _ = sys.exc_info()
-        self.exception_value = (msg,
-            '%s %s' % (exc.__class__.__name__, str(exc)), args, kwargs)
-# tests
-
-class FakeApp(object):
-    def __call__(self, env, start_response):
-        return "OK"
-
-def start_response(*args):
-    pass
-
-class TestAuth(unittest.TestCase):
-    # I brought these over from another refactor I've been trying, but they
-    # need work.
+class TestACL(unittest.TestCase):
 
     def test_clean_acl(self):
         value = acl.clean_acl('header', '.ref:any')
@@ -118,6 +35,9 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(value, '.ref:any,.ref:-.ending.with')
         value = acl.clean_acl('header', '.ref:one,.ref:-two')
         self.assertEquals(value, '.ref:one,.ref:-two')
+        value = acl.clean_acl('header',
+                              '.ref:one,.ref:-two,account,account:user')
+        self.assertEquals(value, '.ref:one,.ref:-two,account,account:user')
         value = acl.clean_acl('header', 
                               ' .ref : one , ,, .ref:two , .ref : - three ')
         self.assertEquals(value, '.ref:one,.ref:two,.ref:-three')
@@ -129,6 +49,7 @@ class TestAuth(unittest.TestCase):
         self.assertRaises(ValueError, acl.clean_acl, 'header', ' .ref : - ')
         self.assertRaises(ValueError, acl.clean_acl, 'header',
                           'user , .ref : - ')
+        self.assertRaises(ValueError, acl.clean_acl, 'write-header', '.ref:r')
 
     def test_parse_acl(self):
         self.assertEquals(acl.parse_acl(None), ([], []))
@@ -144,6 +65,46 @@ class TestAuth(unittest.TestCase):
             'acc1,acc2:usr2,.ref:ref3,acc3,acc4:usr4,.ref:ref5,.ref:-ref6'),
             (['ref3', 'ref5', '-ref6'],
              ['acc1', 'acc2:usr2', 'acc3', 'acc4:usr4']))
+
+    def test_referrer_allowed(self):
+        self.assert_(not acl.referrer_allowed('host', None))
+        self.assert_(not acl.referrer_allowed('host', []))
+        self.assert_(acl.referrer_allowed(None, ['any']))
+        self.assert_(acl.referrer_allowed('', ['any']))
+        self.assert_(not acl.referrer_allowed(None, ['specific.host']))
+        self.assert_(not acl.referrer_allowed('', ['specific.host']))
+        self.assert_(acl.referrer_allowed('http://www.example.com/index.html',
+                                          ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://user@www.example.com/index.html', ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://user:pass@www.example.com/index.html', ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://www.example.com:8080/index.html', ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://user@www.example.com:8080/index.html', ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://user:pass@www.example.com:8080/index.html',
+            ['.example.com']))
+        self.assert_(acl.referrer_allowed(
+            'http://user:pass@www.example.com:8080', ['.example.com']))
+        self.assert_(acl.referrer_allowed('http://www.example.com',
+                                          ['.example.com']))
+        self.assert_(not acl.referrer_allowed('http://thief.example.com',
+            ['.example.com', '-thief.example.com']))
+        self.assert_(not acl.referrer_allowed('http://thief.example.com',
+            ['any', '-thief.example.com']))
+        self.assert_(acl.referrer_allowed('http://www.example.com',
+            ['.other.com', 'www.example.com']))
+        self.assert_(acl.referrer_allowed('http://www.example.com',
+            ['-.example.com', 'www.example.com']))
+        # This is considered a relative uri to the request uri, a mode not
+        # currently supported.
+        self.assert_(not acl.referrer_allowed('www.example.com',
+                                              ['.example.com']))
+        self.assert_(not acl.referrer_allowed('../index.html',
+                                              ['.example.com']))
+        self.assert_(acl.referrer_allowed('www.example.com', ['any']))
 
 
 if __name__ == '__main__':

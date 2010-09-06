@@ -34,6 +34,7 @@ from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
 from eventlet.timeout import Timeout
 import simplejson
 from webob import Request
+from webob.exc import HTTPUnauthorized
 
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.proxy import server as proxy_server
@@ -207,6 +208,35 @@ class TestProxyServer(unittest.TestCase):
         app.update_request(req)
         resp = app.handle_request(req)
         self.assertEquals(resp.status_int, 500)
+
+    def test_calls_authorize_allow(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a')
+            req.environ['swift.authorize'] = authorize
+            app.update_request(req)
+            resp = app.handle_request(req)
+        self.assert_(called[0])
+
+    def test_calls_authorize_deny(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        app = proxy_server.Application(None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing(),
+            object_ring=FakeRing())
+        req = Request.blank('/v1/a')
+        req.environ['swift.authorize'] = authorize
+        app.update_request(req)
+        resp = app.handle_request(req)
+        self.assert_(called[0])
 
 
 class TestObjectController(unittest.TestCase):
@@ -1510,6 +1540,73 @@ class TestObjectController(unittest.TestCase):
             finally: 
                 self.app.object_chunk_size = orig_object_chunk_size
 
+    def test_GET_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o')
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.GET(req)
+        self.assert_(called[0])
+
+    def test_HEAD_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', {'REQUEST_METHOD': 'HEAD'})
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.HEAD(req)
+        self.assert_(called[0])
+
+    def test_POST_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                                headers={'Content-Length': '5'}, body='12345')
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.POST(req)
+        self.assert_(called[0])
+
+    def test_PUT_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '5'}, body='12345')
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.PUT(req)
+        self.assert_(called[0])
+
+
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -1854,6 +1951,92 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
+
+    def test_POST_calls_clean_acl(self):
+        called = [False]
+        def clean_acl(header, value):
+            called[0] = True
+            raise ValueError('fake error')
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'POST'},
+                                headers={'X-Container-Read': '.ref:any'})
+            req.environ['swift.clean_acl'] = clean_acl
+            self.app.update_request(req)
+            res = controller.POST(req)
+        self.assert_(called[0])
+        called[0] = False
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'POST'},
+                                headers={'X-Container-Write': '.ref:any'})
+            req.environ['swift.clean_acl'] = clean_acl
+            self.app.update_request(req)
+            res = controller.POST(req)
+        self.assert_(called[0])
+
+    def test_PUT_calls_clean_acl(self):
+        called = [False]
+        def clean_acl(header, value):
+            called[0] = True
+            raise ValueError('fake error')
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'X-Container-Read': '.ref:any'})
+            req.environ['swift.clean_acl'] = clean_acl
+            self.app.update_request(req)
+            res = controller.PUT(req)
+        self.assert_(called[0])
+        called[0] = False
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'X-Container-Write': '.ref:any'})
+            req.environ['swift.clean_acl'] = clean_acl
+            self.app.update_request(req)
+            res = controller.PUT(req)
+        self.assert_(called[0])
+
+    def test_GET_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c')
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.GET(req)
+        self.assert_(called[0])
+
+    def test_HEAD_calls_authorize(self):
+        called = [False]
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 201, 201, 201)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c', {'REQUEST_METHOD': 'HEAD'})
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.HEAD(req)
+        self.assert_(called[0])
 
 
 class TestAccountController(unittest.TestCase):
