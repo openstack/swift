@@ -105,14 +105,14 @@ class AuthController(object):
         self.db_file = os.path.join(self.swift_dir, 'auth.db')
         self.conn = get_db_connection(self.db_file, okay_to_create=True)
         try:
-            self.conn.execute('SELECT noaccess FROM account LIMIT 1')
+            self.conn.execute('SELECT admin FROM account LIMIT 1')
         except sqlite3.OperationalError, err:
-            if str(err) == 'no such column: noaccess':
+            if str(err) == 'no such column: admin':
                 self.conn.execute(
-                    'ALTER TABLE account ADD COLUMN noaccess TEXT')
+                    "ALTER TABLE account ADD COLUMN admin TEXT DEFAULT 't'")
         self.conn.execute('''CREATE TABLE IF NOT EXISTS account (
                                 account TEXT, url TEXT, cfaccount TEXT,
-                                user TEXT, password TEXT, noaccess TEXT)''')
+                                user TEXT, password TEXT, admin TEXT)''')
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
                              ON account (account)''')
         try:
@@ -224,7 +224,8 @@ class AuthController(object):
         Tests if the given token is a valid token
 
         :param token: The token to validate
-        :returns: (TTL, account, user, cfaccount) if valid, False otherwise
+        :returns: (TTL, account, user, cfaccount) if valid, False otherwise.
+                  cfaccount will be None for users without admin access.
         """
         begin = time()
         self.purge_old_tokens()
@@ -248,7 +249,7 @@ class AuthController(object):
         return rv
 
     def create_account(self, new_account, new_user, new_password,
-                       noaccess=False):
+                       admin=False):
         """
         Handles the create_account call for developers, used to request
         an account be created both on a Swift cluster and in the auth server
@@ -266,9 +267,9 @@ class AuthController(object):
         :param new_account: The name for the new account
         :param new_user: The name for the new user
         :param new_password: The password for the new account
-        :param noaccess: If true, the user will be granted no access to the
-                         account by default; another user will have to add the
-                         user to the ACLs for containers to grant access.
+        :param admin: If true, the user will be granted full access to the
+                      account; otherwise, another user will have to add the
+                      user to the ACLs for containers to grant access.
 
         :returns: False if the create fails, 'already exists' if the user
                   already exists, or storage url if successful
@@ -283,7 +284,7 @@ class AuthController(object):
             if row:
                 self.logger.info(
                     'ALREADY EXISTS create_account(%s, %s, _, %s) [%.02f]' %
-                    (repr(new_account), repr(new_user), repr(noaccess),
+                    (repr(new_account), repr(new_user), repr(admin),
                      time() - begin))
                 return 'already exists'
             row = conn.execute(
@@ -297,19 +298,19 @@ class AuthController(object):
                 if not account_hash:
                     self.logger.info(
                         'FAILED create_account(%s, %s, _, %s) [%.02f]' %
-                        (repr(new_account), repr(new_user), repr(noaccess),
+                        (repr(new_account), repr(new_user), repr(admin),
                          time() - begin))
                     return False
                 url = self.default_cluster_url.rstrip('/') + '/' + account_hash
             conn.execute('''INSERT INTO account
-                (account, url, cfaccount, user, password, noaccess)
+                (account, url, cfaccount, user, password, admin)
                 VALUES (?, ?, ?, ?, ?, ?)''',
                 (new_account, url, account_hash, new_user, new_password,
-                 noaccess and 't' or ''))
+                 admin and 't' or ''))
             conn.commit()
         self.logger.info(
             'SUCCESS create_account(%s, %s, _, %s) = %s [%.02f]' %
-            (repr(new_account), repr(new_user), repr(noaccess), repr(url),
+            (repr(new_account), repr(new_user), repr(admin), repr(url),
              time() - begin))
         return url
 
@@ -350,25 +351,31 @@ class AuthController(object):
             _, token = split_path(request.path, minsegs=2)
         except ValueError:
             return HTTPBadRequest()
+        # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
         validation = self.validate_token(token)
         if not validation:
             return HTTPNotFound()
-        # X-Auth-User: account:user,account,cfaccount
+        groups = ['%s:%s' % (validation[1], validation[2]), validation[1]]
+        if validation[3]: # admin access to a cfaccount
+            groups.append(validation[3])
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
-            'X-Auth-User': '%s:%s,%s,%s' %
-                (validation[1], validation[2], validation[1], validation[3])})
+            'X-Auth-User': ','.join(groups)})
 
-    def handle_account_create(self, request):
+    def handle_add_user(self, request):
         """
-        Handles Rest requests from developers to have an account created.
+        Handles Rest requests from developers to have a user added. If the
+        account specified doesn't exist, it will also be added. Currently,
+        updating a user's information (password, admin access) must be done by
+        directly updating the sqlite database.
 
         Valid URL paths:
             * PUT /account/<account-name>/<user-name> - create the account
 
         Valid headers:
-            * X-Auth-Key: <password> (Only required when creating an account)
+            * X-Auth-User-Key: <password>
+            * X-Auth-User-Admin: <true|false>
 
-        If the HTTP request returns with a 204, then the account was created,
+        If the HTTP request returns with a 204, then the user was added,
         and the storage url will be available in the X-Storage-Url header.
 
         :param request: webob.Request object
@@ -377,11 +384,11 @@ class AuthController(object):
             _, account_name, user_name = split_path(request.path, minsegs=3)
         except ValueError:
             return HTTPBadRequest()
-        if 'X-Auth-Key' not in request.headers:
-            return HTTPBadRequest('X-Auth-Key is required')
-        password = request.headers['x-auth-key']
+        if 'X-Auth-User-Key' not in request.headers:
+            return HTTPBadRequest('X-Auth-User-Key is required')
+        password = request.headers['x-auth-user-key']
         storage_url = self.create_account(account_name, user_name, password,
-                        request.headers.get('x-user-no-access'))
+                        request.headers.get('x-auth-user-admin') == 'true')
         if storage_url == 'already exists':
             return HTTPBadRequest(storage_url)
         if not storage_url:
@@ -458,13 +465,14 @@ class AuthController(object):
         self.purge_old_tokens()
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT cfaccount, url, noaccess FROM account
+                SELECT cfaccount, url, admin FROM account
                 WHERE account = ? AND user = ? AND password = ?''',
                 (account, user, password)).fetchone()
             if row is None:
                 return HTTPUnauthorized()
-            cfaccount = row[2] and '.none' or row[0]
+            cfaccount = row[0]
             url = row[1]
+            admin = row[2] == 't'
             row = conn.execute('''
                 SELECT token FROM token WHERE account = ? AND user = ?''',
                 (account, user)).fetchone()
@@ -476,7 +484,7 @@ class AuthController(object):
                     INSERT INTO token
                     (token, created, account, user, cfaccount)
                     VALUES (?, ?, ?, ?, ?)''',
-                    (token, time(), account, user, cfaccount))
+                    (token, time(), account, user, admin and cfaccount or ''))
                 conn.commit()
             return HTTPNoContent(headers={'x-auth-token': token,
                                           'x-storage-token': token,
@@ -503,7 +511,7 @@ class AuthController(object):
             elif req.method == 'GET' and req.path.startswith('/token/'):
                 handler = self.handle_token
             elif req.method == 'PUT' and req.path.startswith('/account/'):
-                handler = self.handle_account_create
+                handler = self.handle_add_user
             elif req.method == 'POST' and \
                     req.path == '/recreate_accounts':
                 handler = self.handle_account_recreate

@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from ConfigParser import ConfigParser
+from optparse import OptionParser
 from os.path import basename
 from sys import argv, exit
 
@@ -22,45 +23,37 @@ from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 
 if __name__ == '__main__':
-    f = '/etc/swift/auth-server.conf'
-    good = False
-    noaccess = False
-    if len(argv) == 6 and argv[4] == 'noaccess':
-        good = True
-        noaccess = True
-        f = argv[5]
-    elif len(argv) == 5:
-        good = True
-        if argv[4] == 'noaccess':
-            noaccess = True
-        else:
-            f = argv[4]
-    elif len(argv) == 4:
-        good = True
-    if not good:
-        exit('''
-Syntax: %s <new_account> <new_user> <new_password> [noaccess] [conf_file]
-The noaccess keyword will create a user with no access to the account; another
-user for the account will have to add the user to the ACLs for a container to
-grant some access.
-             '''.strip() % basename(argv[0]))
-    new_account = argv[1]
-    new_user = argv[2]
-    new_password = argv[3]
+    default_conf = '/etc/swift/auth-server.conf'
+    parser = OptionParser(
+        usage='Usage: %prog [options] <account> <user> <password>')
+    parser.add_option('-c', '--conf', dest='conf', default=default_conf,
+        help='Configuration file to determine how to connect to the local '
+        'auth server (default: %s).' % default_conf)
+    parser.add_option('-a', '--admin', dest='admin', action='store_true',
+        default=False, help='Give the user administrator access; otherwise '
+        'the user will only have access to container specifically allowed '
+        'with ACLs.')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+    if len(args) != 3:
+        parser.parse_args(['-h'])
+    account, user, password = args
     c = ConfigParser()
-    if not c.read(f):
-        exit('Unable to read conf file: %s' % f)
+    if not c.read(options.conf):
+        exit('Unable to read conf file: %s' % options.conf)
     conf = dict(c.items('app:auth-server'))
     host = conf.get('bind_ip', '127.0.0.1')
     port = int(conf.get('bind_port', 11000))
     ssl = conf.get('cert_file') is not None
-    path = '/account/%s/%s' % (new_account, new_user)
-    headers = {'X-Auth-Key': new_password}
-    if noaccess:
-        headers['X-User-No-Access'] = 'true'
+    path = '/account/%s/%s' % (account, user)
+    headers = {'X-Auth-User-Key': password}
+    if options.admin:
+        headers['X-Auth-User-Admin'] = 'true'
     conn = http_connect(host, port, 'PUT', path, headers, ssl=ssl)
     resp = conn.getresponse()
     if resp.status == 204:
         print resp.getheader('x-storage-url')
     else:
-        print 'Account creation failed. (%d)' % resp.status
+        print 'Update failed: %s %s' % (resp.status, resp.reason)

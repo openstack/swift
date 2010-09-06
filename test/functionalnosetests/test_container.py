@@ -462,7 +462,7 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 201)
 
-    def test_noaccess_user(self):
+    def test_nonadmin_user(self):
         if skip or skip3:
             raise SkipTest
         # Obtain the first account's string

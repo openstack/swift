@@ -107,9 +107,9 @@ Installing Swift For Use With Cyberduck
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
 
-#.  Use swift-auth-create-account to create a new account::
+#.  Use swift-auth-add-user to create a new account and admin user::
 
-        ubuntu@domU-12-31-39-03-CD-06:/home/swift/swift/bin$ swift-auth-create-account a3 b3 c3
+        ubuntu@domU-12-31-39-03-CD-06:/home/swift/swift/bin$ swift-auth-add-user --admin a3 b3 c3
         https://ec2-184-72-156-130.compute-1.amazonaws.com:8080/v1/06228ccf-6d0a-4395-889e-e971e8de8781
 
     .. note::
