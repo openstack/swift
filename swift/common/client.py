@@ -504,10 +504,6 @@ def get_object(url, token, container, name, http_conn=None,
         raise ClientException('Object GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
     if resp_chunk_size:
 
         def _object_body():
@@ -550,10 +546,6 @@ def head_object(url, token, container, name, http_conn=None):
         raise ClientException('Object HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value

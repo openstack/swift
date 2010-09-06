@@ -52,7 +52,7 @@ class TestObjectAsyncUpdate(unittest.TestCase):
                     ((cnode['port'] - 6001) / 10)]).pid
         sleep(2)
         self.assert_(not direct_client.direct_get_container(cnode, cpart,
-                            self.account, container))
+                            self.account, container)[1])
         ps = []
         for n in xrange(1, 5):
             ps.append(Popen(['swift-object-updater',
@@ -60,7 +60,7 @@ class TestObjectAsyncUpdate(unittest.TestCase):
         for p in ps:
             p.wait()
         objs = [o['name'] for o in direct_client.direct_get_container(cnode,
-                                    cpart, self.account, container)]
+                                    cpart, self.account, container)[1]]
         self.assert_(obj in objs)
 
 

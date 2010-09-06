@@ -86,7 +86,7 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
                 retries_done[0] += attempts - 1
                 found = True
                 if not estimated_objects:
-                    estimated_objects = info[0]
+                    estimated_objects = int(info['x-container-object-count'])
             except ClientException, err:
                 if err.http_status not in (404, 507):
                     error_log('Giving up on /%s/%s/%s: %s' % (part, account,
