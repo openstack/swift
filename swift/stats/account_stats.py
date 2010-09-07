@@ -19,16 +19,30 @@ import time
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
 from swift.common.internal_proxy import InternalProxy
-from swift.common.utils import renamer
+from swift.common.utils import renamer, get_logger
+from swift.common.daemon import Daemon
 
-class AccountStat(object):
-    def __init__(self, filename_format, target_dir, server_conf, logger):
+class AccountStat(Daemon):
+    def __init__(self, stats_conf):
+        super(self, AccountStat).__init__(stats_conf)
+        target_dir = stats_conf.get('log_dir', '/var/log/swift')
+        account_server_conf_loc = stats_conf.get('account_server_conf',
+                                             '/etc/swift/account-server.conf')
+        server_conf = utils.readconf(account_server_conf_loc, 'account-server')
+        filename_format = stats_conf['source_filename_format']
         self.filename_format = filename_format
         self.target_dir = target_dir
         self.devices = server_conf.get('devices', '/srv/node')
         self.mount_check = server_conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.logger = logger
+        self.logger = get_logger(stats_conf, 'swift-account-stats-logger')
+
+    def run_once(self):
+        self.logger.info("Gathering account stats")
+        start = time.time()
+        self.find_and_process()
+        self.logger.info("Gathering account stats complete (%0.2f minutes)" %
+            ((time.time()-start)/60))
 
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)

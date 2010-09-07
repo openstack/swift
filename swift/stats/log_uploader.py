@@ -21,8 +21,10 @@ import gzip
 import glob
 
 from swift.common.internal_proxy import InternalProxy
+from swift.common.daemon import Daemon
+from swift.common import utils
 
-class LogUploader(object):
+class LogUploader(Daemon):
     '''
     Given a local directory, a swift account, and a container name, LogParser
     will upload all files in the local directory to the given account/container.
@@ -38,8 +40,16 @@ class LogUploader(object):
     the object uploads.
     '''
 
-    def __init__(self, log_dir, swift_account, container_name, filename_format,
-            proxy_server_conf, logger):
+    def __init__(self, uploader_conf, plugin_name):
+        super(self, LogUploader).__init__(uploader_conf)
+        log_dir = uploader_conf.get('log_dir', '/var/log/swift/')
+        swift_account = uploader_conf['swift_account']
+        container_name = uploader_conf['container_name']
+        source_filename_format = uploader_conf['source_filename_format']
+        proxy_server_conf_loc = uploader_conf.get('proxy_server_conf',
+                                            '/etc/swift/proxy-server.conf')
+        proxy_server_conf = utils.readconf(proxy_server_conf_loc,
+                                            'proxy-server')
         if not log_dir.endswith('/'):
             log_dir = log_dir + '/'
         self.log_dir = log_dir
@@ -47,7 +57,15 @@ class LogUploader(object):
         self.container_name = container_name
         self.filename_format = filename_format
         self.internal_proxy = InternalProxy(proxy_server_conf, logger)
-        self.logger = logger
+        log_name = 'swift-log-uploader-%s' % plugin_name
+        self.logger = utils.get_logger(uploader_conf, plugin_name)
+
+    def run_once(self):
+        self.logger.info("Uploading logs")
+        start = time.time()
+        self.upload_all_logs()
+        self.logger.info("Uploading logs complete (%0.2f minutes)" %
+            ((time.time()-start)/60))
 
     def upload_all_logs(self):
         i = [(c,self.filename_format.index(c)) for c in '%Y %m %d %H'.split()]
