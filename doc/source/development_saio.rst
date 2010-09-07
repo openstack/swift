@@ -2,9 +2,9 @@
 SAIO - Swift All In One
 =======================
 
------------------------------------
-Instructions for seting up a dev VM
------------------------------------
+------------------------------------
+Instructions for setting up a dev VM
+------------------------------------
 
 This documents setting up a virtual machine for doing Swift development. The
 virtual machine will emulate running a four node Swift cluster. It assumes
@@ -476,7 +476,7 @@ good idea what to do on other environments.
 
         cd /etc/swift
 
-        rm *.builder *.ring.gz backups/*.builder backups/*.ring.gz
+        rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
 
         swift-ring-builder object.builder create 18 3 1
         swift-ring-builder object.builder add z1-127.0.0.1:6010/sdb1 1
