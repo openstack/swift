@@ -882,6 +882,7 @@ class ContainerController(Controller):
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
+        self.clean_acls(req)
         error_response = check_metadata(req, 'container')
         if error_response:
             return error_response
@@ -899,7 +900,6 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-cf-trans-id': self.trans_id}
-        self.clean_acls(req)
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
@@ -948,6 +948,7 @@ class ContainerController(Controller):
     @public
     def POST(self, req):
         """HTTP POST request handler."""
+        self.clean_acls(req)
         error_response = check_metadata(req, 'container')
         if error_response:
             return error_response
@@ -958,7 +959,6 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-cf-trans-id': self.trans_id}
-        self.clean_acls(req)
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
@@ -1273,12 +1273,14 @@ class BaseApplication(object):
                 # controller's method indicates it'd like to gather more
                 # information and try again later.
                 resp = req.environ['swift.authorize'](req)
-                if resp:
-                    if not getattr(handler, 'delay_denial', None) and \
-                            'swift.authorize' in req.environ:
-                        return resp
-                else:
+                if not resp:
+                    # No resp means authorized, no delayed recheck required.
                     del req.environ['swift.authorize']
+                else:
+                    # Response indicates denial, but we might delay the denial
+                    # and recheck later. If not delayed, return the error now.
+                    if not getattr(handler, 'delay_denial', None):
+                        return resp
             return handler(req)
         except Exception:
             self.logger.exception('ERROR Unhandled exception in request')
@@ -1331,8 +1333,7 @@ class Application(BaseApplication):
                 status_int,
                 req.referer or '-',
                 req.user_agent or '-',
-                '%s:%s' % (req.remote_user or '',
-                           req.headers.get('x-auth-token', '-')),
+                req.headers.get('x-auth-token', '-'),
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),

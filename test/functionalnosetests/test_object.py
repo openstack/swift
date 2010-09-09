@@ -65,7 +65,7 @@ class TestObject(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.container, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Read': '.ref:any'})
+                          'X-Container-Read': '.r:*'})
             return check_response(conn)
         resp = retry(post)
         resp.read()

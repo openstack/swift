@@ -1417,9 +1417,8 @@ Example:
                       'general documentation for what this means).')
     parser.add_option('-r', '--read-acl', dest='read_acl',
                       help='Sets the Read ACL with post container commands. '
-                      'Quick summary of ACL syntax: .ref:any, '
-                      '.ref:-.example.com, .ref:www.example.com, account1, '
-                      'account2:user2')
+                      'Quick summary of ACL syntax: .r:*, .r:-.example.com, '
+                      '.r:www.example.com, account1, account2:user2')
     parser.add_option('-w', '--write-acl', dest='write_acl',
                       help='Sets the Write ACL with post container commands. '
                       'Quick summary of ACL syntax: account1, account2:user2')

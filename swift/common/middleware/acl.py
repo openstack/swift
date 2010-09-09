@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from urlparse import urlparse
+
+
 def clean_acl(name, value):
     """
     Returns a cleaned ACL header value, validating that it meets the formatting
@@ -27,30 +30,35 @@ def clean_acl(name, value):
 
     The referrer designation format is::
 
-        .ref:[-]value
+        .r:[-]value
 
-    The value can be "any" to specify any referrer host is allowed access, a
-    specific host name like "www.example.com", or if it has a leading period
-    "." it is a domain name specification, like ".example.com". The leading
-    minus sign "-" indicates referrer hosts that should be denied access.
+    The ``.r`` can also be ``.ref``, ``.referer``, or ``.referrer``; though it
+    will be shortened to just ``.r`` for decreased character count usage.
+
+    The value can be ``*`` to specify any referrer host is allowed access, a
+    specific host name like ``www.example.com``, or if it has a leading period
+    ``.`` or leading ``*.`` it is a domain name specification, like
+    ``.example.com`` or ``*.example.com``. The leading minus sign ``-``
+    indicates referrer hosts that should be denied access.
 
     Referrer access is applied in the order they are specified. For example,
-    .ref:.example.com,.ref:-thief.example.com would allow all hosts ending with
+    .r:.example.com,.r:-thief.example.com would allow all hosts ending with
     .example.com except for the specific host thief.example.com.
 
     Example valid ACLs::
 
-        .ref:any
-        .ref:any,.ref:-.thief.com
-        .ref:any,.ref:-.thief.com,bobs_account,sues_account:sue
+        .r:*
+        .r:*,.r:-.thief.com
+        .r:*,.r:.example.com,.r:-thief.example.com
+        .r:*,.r:-.thief.com,bobs_account,sues_account:sue
         bobs_account,sues_account:sue
 
     Example invalid ACLs::
 
-        .ref:
-        .ref:-
+        .r:
+        .r:-
 
-    Also, .ref designations aren't allowed in headers whose names include the
+    Also, .r designations aren't allowed in headers whose names include the
     word 'write'.
 
     ACLs that are "messy" will be cleaned up. Examples:
@@ -58,10 +66,11 @@ def clean_acl(name, value):
     ======================  ======================
     Original                Cleaned
     ----------------------  ----------------------
-    bob, sue                bob,sue
-    bob , sue               bob,sue
-    bob,,,sue               bob,sue
-    .ref : any              .ref:any
+    ``bob, sue``            ``bob,sue``
+    ``bob , sue``           ``bob,sue``
+    ``bob,,,sue``           ``bob,sue``
+    ``.referrer : *``       ``.r:*``
+    ``.ref:*.example.com``  ``.r:.example.com``
     ======================  ======================
 
     :param name: The name of the header being cleaned, such as X-Container-Read
@@ -71,30 +80,34 @@ def clean_acl(name, value):
     :raises ValueError: If the value does not meet the ACL formatting
                         requirements; the error message will indicate why.
     """
+    name = name.lower()
     values = []
-    for raw_value in value.lower().split(','):
+    for raw_value in value.split(','):
         raw_value = raw_value.strip()
         if raw_value:
             if ':' not in raw_value:
                 values.append(raw_value)
             else:
                 first, second = (v.strip() for v in raw_value.split(':', 1))
-                if first != '.ref':
+                if not first or first[0] != '.':
                     values.append(raw_value)
-                elif 'write' in name:
-                    raise ValueError('Referrers not allowed in write ACLs: %s'
-                                     % repr(raw_value))
-                elif not second:
-                    raise ValueError('No value after referrer designation in '
-                                     '%s' % repr(raw_value))
-                else:
-                    if second[0] == '-':
+                elif first in ('.r', '.ref', '.referer', '.referrer'):
+                    if 'write' in name:
+                        raise ValueError('Referrers not allowed in write ACL: '
+                                         '%s' % repr(raw_value))
+                    negate = False
+                    if second and second[0] == '-':
+                        negate = True
                         second = second[1:].strip()
-                        if not second:
-                            raise ValueError('No value after referrer deny '
-                                'designation in %s' % repr(raw_value))
-                        second = '-' + second
-                    values.append('%s:%s' % (first, second))
+                    if second and second != '*' and second[0] == '*':
+                        second = second[1:].strip()
+                    if not second or second == '.':
+                        raise ValueError('No host/domain value after referrer '
+                            'designation in ACL: %s' % repr(raw_value))
+                    values.append('.r:%s%s' % (negate and '-' or '', second))
+                else:
+                    raise ValueError('Unknown designator %s in ACL: %s' %
+                                     (repr(first), repr(raw_value)))
     return ','.join(values)
 
 
@@ -106,15 +119,15 @@ def parse_acl(acl_string):
 
     :param acl_string: The standard Swift ACL string to parse.
     :returns: A tuple of (referrers, groups) where referrers is a list of
-              referrer designations (without the leading .ref:) and groups is a
+              referrer designations (without the leading .r:) and groups is a
               list of groups to allow access.
     """
     referrers = []
     groups = []
     if acl_string:
         for value in acl_string.split(','):
-            if value.startswith('.ref:'):
-                referrers.append(value[len('.ref:'):])
+            if value.startswith('.r:'):
+                referrers.append(value[len('.r:'):])
             else:
                 groups.append(value)
     return referrers, groups
@@ -134,24 +147,14 @@ def referrer_allowed(referrer, referrer_acl):
     """
     allow = False
     if referrer_acl:
-        if not referrer:
-            rhost = 'unknown'
-        else:
-            parts = referrer.split('//', 1)
-            if len(parts) == 2:
-                rhost = parts[1].split('/', 1)[0]
-                if '@' in rhost:
-                    rhost = rhost.rsplit('@', 1)[1]
-                rhost = rhost.split(':', 1)[0].lower()
-            else:
-                rhost = 'unknown'
+        rhost = urlparse(referrer or '').hostname or 'unknown'
         for mhost in referrer_acl:
             if mhost[0] == '-':
                 mhost = mhost[1:]
                 if mhost == rhost or \
                        (mhost[0] == '.' and rhost.endswith(mhost)):
                     allow = False
-            elif mhost == 'any' or mhost == rhost or \
+            elif mhost == '*' or mhost == rhost or \
                     (mhost[0] == '.' and rhost.endswith(mhost)):
                 allow = True
     return allow

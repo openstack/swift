@@ -21,56 +21,71 @@ from swift.common.middleware import acl
 class TestACL(unittest.TestCase):
 
     def test_clean_acl(self):
-        value = acl.clean_acl('header', '.ref:any')
-        self.assertEquals(value, '.ref:any')
-        value = acl.clean_acl('header', '.ref:specific.host')
-        self.assertEquals(value, '.ref:specific.host')
-        value = acl.clean_acl('header', '.ref:.ending.with')
-        self.assertEquals(value, '.ref:.ending.with')
-        value = acl.clean_acl('header', '.ref:one,.ref:two')
-        self.assertEquals(value, '.ref:one,.ref:two')
-        value = acl.clean_acl('header', '.ref:any,.ref:-specific.host')
-        self.assertEquals(value, '.ref:any,.ref:-specific.host')
-        value = acl.clean_acl('header', '.ref:any,.ref:-.ending.with')
-        self.assertEquals(value, '.ref:any,.ref:-.ending.with')
-        value = acl.clean_acl('header', '.ref:one,.ref:-two')
-        self.assertEquals(value, '.ref:one,.ref:-two')
-        value = acl.clean_acl('header',
-                              '.ref:one,.ref:-two,account,account:user')
-        self.assertEquals(value, '.ref:one,.ref:-two,account,account:user')
+        value = acl.clean_acl('header', '.r:*')
+        self.assertEquals(value, '.r:*')
+        value = acl.clean_acl('header', '.r:specific.host')
+        self.assertEquals(value, '.r:specific.host')
+        value = acl.clean_acl('header', '.r:.ending.with')
+        self.assertEquals(value, '.r:.ending.with')
+        value = acl.clean_acl('header', '.r:*.ending.with')
+        self.assertEquals(value, '.r:.ending.with')
+        value = acl.clean_acl('header', '.r:-*.ending.with')
+        self.assertEquals(value, '.r:-.ending.with')
+        value = acl.clean_acl('header', '.r:one,.r:two')
+        self.assertEquals(value, '.r:one,.r:two')
+        value = acl.clean_acl('header', '.r:*,.r:-specific.host')
+        self.assertEquals(value, '.r:*,.r:-specific.host')
+        value = acl.clean_acl('header', '.r:*,.r:-.ending.with')
+        self.assertEquals(value, '.r:*,.r:-.ending.with')
+        value = acl.clean_acl('header', '.r:one,.r:-two')
+        self.assertEquals(value, '.r:one,.r:-two')
+        value = acl.clean_acl('header', '.r:one,.r:-two,account,account:user')
+        self.assertEquals(value, '.r:one,.r:-two,account,account:user')
+        value = acl.clean_acl('header', 'TEST_account')
+        self.assertEquals(value, 'TEST_account')
+        value = acl.clean_acl('header', '.ref:*')
+        self.assertEquals(value, '.r:*')
+        value = acl.clean_acl('header', '.referer:*')
+        self.assertEquals(value, '.r:*')
+        value = acl.clean_acl('header', '.referrer:*')
+        self.assertEquals(value, '.r:*')
         value = acl.clean_acl('header', 
-                              ' .ref : one , ,, .ref:two , .ref : - three ')
-        self.assertEquals(value, '.ref:one,.ref:two,.ref:-three')
-        self.assertRaises(ValueError, acl.clean_acl, 'header', '.ref:')
-        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .ref : ')
+                              ' .r : one , ,, .r:two , .r : - three ')
+        self.assertEquals(value, '.r:one,.r:two,.r:-three')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.unknown:test')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:*.')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r : * . ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:-*.')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r : - * . ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .r : ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', 'user , .r : ')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:-')
+        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .r : - ')
         self.assertRaises(ValueError, acl.clean_acl, 'header',
-                          'user , .ref : ')
-        self.assertRaises(ValueError, acl.clean_acl, 'header', '.ref:-')
-        self.assertRaises(ValueError, acl.clean_acl, 'header', ' .ref : - ')
-        self.assertRaises(ValueError, acl.clean_acl, 'header',
-                          'user , .ref : - ')
-        self.assertRaises(ValueError, acl.clean_acl, 'write-header', '.ref:r')
+                          'user , .r : - ')
+        self.assertRaises(ValueError, acl.clean_acl, 'write-header', '.r:r')
 
     def test_parse_acl(self):
         self.assertEquals(acl.parse_acl(None), ([], []))
         self.assertEquals(acl.parse_acl(''), ([], []))
-        self.assertEquals(acl.parse_acl('.ref:ref1'), (['ref1'], []))
-        self.assertEquals(acl.parse_acl('.ref:-ref1'), (['-ref1'], []))
+        self.assertEquals(acl.parse_acl('.r:ref1'), (['ref1'], []))
+        self.assertEquals(acl.parse_acl('.r:-ref1'), (['-ref1'], []))
         self.assertEquals(acl.parse_acl('account:user'),
                           ([], ['account:user']))
         self.assertEquals(acl.parse_acl('account'), ([], ['account']))
-        self.assertEquals(acl.parse_acl('acc1,acc2:usr2,.ref:ref3,.ref:-ref4'),
+        self.assertEquals(acl.parse_acl('acc1,acc2:usr2,.r:ref3,.r:-ref4'),
                           (['ref3', '-ref4'], ['acc1', 'acc2:usr2']))
         self.assertEquals(acl.parse_acl(
-            'acc1,acc2:usr2,.ref:ref3,acc3,acc4:usr4,.ref:ref5,.ref:-ref6'),
+            'acc1,acc2:usr2,.r:ref3,acc3,acc4:usr4,.r:ref5,.r:-ref6'),
             (['ref3', 'ref5', '-ref6'],
              ['acc1', 'acc2:usr2', 'acc3', 'acc4:usr4']))
 
     def test_referrer_allowed(self):
         self.assert_(not acl.referrer_allowed('host', None))
         self.assert_(not acl.referrer_allowed('host', []))
-        self.assert_(acl.referrer_allowed(None, ['any']))
-        self.assert_(acl.referrer_allowed('', ['any']))
+        self.assert_(acl.referrer_allowed(None, ['*']))
+        self.assert_(acl.referrer_allowed('', ['*']))
         self.assert_(not acl.referrer_allowed(None, ['specific.host']))
         self.assert_(not acl.referrer_allowed('', ['specific.host']))
         self.assert_(acl.referrer_allowed('http://www.example.com/index.html',
@@ -93,7 +108,7 @@ class TestACL(unittest.TestCase):
         self.assert_(not acl.referrer_allowed('http://thief.example.com',
             ['.example.com', '-thief.example.com']))
         self.assert_(not acl.referrer_allowed('http://thief.example.com',
-            ['any', '-thief.example.com']))
+            ['*', '-thief.example.com']))
         self.assert_(acl.referrer_allowed('http://www.example.com',
             ['.other.com', 'www.example.com']))
         self.assert_(acl.referrer_allowed('http://www.example.com',
@@ -104,7 +119,7 @@ class TestACL(unittest.TestCase):
                                               ['.example.com']))
         self.assert_(not acl.referrer_allowed('../index.html',
                                               ['.example.com']))
-        self.assert_(acl.referrer_allowed('www.example.com', ['any']))
+        self.assert_(acl.referrer_allowed('www.example.com', ['*']))
 
 
 if __name__ == '__main__':

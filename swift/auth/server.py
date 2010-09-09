@@ -94,6 +94,9 @@ class AuthController(object):
     def __init__(self, conf, ring=None):
         self.logger = get_logger(conf)
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
+        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
+            self.reseller_prefix += '_'
         self.default_cluster_url = \
             conf.get('default_cluster_url', 'http://127.0.0.1:8080/v1')
         self.token_life = int(conf.get('token_life', 86400))
@@ -147,7 +150,7 @@ class AuthController(object):
         begin = time()
         orig_account_name = account_name
         if not account_name:
-            account_name = str(uuid4())
+            account_name = '%s%s' % (self.reseller_prefix, uuid4().hex)
         partition, nodes = self.account_ring.get_nodes(account_name)
         headers = {'X-Timestamp': normalize_timestamp(time()),
                    'x-cf-trans-id': 'tx' + str(uuid4())}
@@ -358,7 +361,9 @@ class AuthController(object):
         validation = self.validate_token(token)
         if not validation:
             return HTTPNotFound()
-        groups = ['%s:%s' % (validation[1], validation[2]), validation[1]]
+        groups = [
+            '%s%s:%s' % (self.reseller_prefix, validation[1], validation[2]),
+            '%s%s' % (self.reseller_prefix, validation[1])]
         if validation[3]: # admin access to a cfaccount
             groups.append(validation[3])
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
@@ -482,7 +487,7 @@ class AuthController(object):
             if row:
                 token = row[0]
             else:
-                token = 'tk' + str(uuid4())
+                token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
                 conn.execute('''
                     INSERT INTO token
                     (token, created, account, user, cfaccount)

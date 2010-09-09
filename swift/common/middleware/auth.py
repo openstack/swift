@@ -29,6 +29,9 @@ class DevAuth(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
+        self.reseller_prefix = conf.get('reseller_prefix', '').strip()
+        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
+            self.reseller_prefix += '_'
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
         self.ssl = \
@@ -44,7 +47,7 @@ class DevAuth(object):
         """
         groups = None
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
-        if token:
+        if token and token.startswith(self.reseller_prefix):
             memcache_client = cache_from_env(env)
             key = 'devauth/%s' % token
             cached_auth_data = memcache_client.get(key)
@@ -68,6 +71,10 @@ class DevAuth(object):
         env['REMOTE_USER'] = groups
         env['swift.authorize'] = self.authorize
         env['swift.clean_acl'] = clean_acl
+        # We know the proxy logs the token, so we augment it just a bit to also
+        # log the authenticated user.
+        user = groups and groups.split(',', 1)[0] or ''
+        env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
         return self.app(env, start_response)
 
     def authorize(self, req):

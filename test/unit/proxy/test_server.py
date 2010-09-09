@@ -1962,7 +1962,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'POST'},
-                                headers={'X-Container-Read': '.ref:any'})
+                                headers={'X-Container-Read': '.r:*'})
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             res = controller.POST(req)
@@ -1973,7 +1973,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'POST'},
-                                headers={'X-Container-Write': '.ref:any'})
+                                headers={'X-Container-Write': '.r:*'})
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             res = controller.POST(req)
@@ -1989,7 +1989,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Container-Read': '.ref:any'})
+                                headers={'X-Container-Read': '.r:*'})
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             res = controller.PUT(req)
@@ -2000,7 +2000,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Container-Write': '.ref:any'})
+                                headers={'X-Container-Write': '.r:*'})
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             res = controller.PUT(req)

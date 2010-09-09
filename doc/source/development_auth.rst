@@ -1,10 +1,10 @@
-===============
-Auth Middleware
-===============
+==========================
+Auth Server and Middleware
+==========================
 
----------------------------------
-Creating Your Own Auth Middleware
----------------------------------
+--------------------------------------------
+Creating Your Own Auth Server and Middleware
+--------------------------------------------
 
 The included swift/common/middleware/auth.py is a good minimal example of how
 to create auth middleware. The main points are that the auth middleware can
@@ -25,6 +25,39 @@ authorization procedures need; the Swift Proxy application itself needs no
 specific information, it just passes it along. Convention has
 environ['REMOTE_USER'] set to the authenticated user string but often more
 information is needed than just that.
+
+The included DevAuth will set the REMOTE_USER to a comma separated list of
+groups the user belongs to. The first group will be the "user's group", a group
+that only the user belongs to. The second group will be the "account's group",
+a group that includes all users for that auth account (different than the
+storage account). The third group is optional and is the storage account
+string. If the user does not have admin access to the account, the third group
+will be omitted.
+
+It is highly recommended that authentication server implementers prefix their
+group names and tokens with a configurable reseller prefix (`AUTH_` by default
+with the included DevAuth). This prefix will allow deconflicting with other
+authentication servers that might be using the same Swift cluster.
+
+The only other restriction is that no group name should begin with a period '.'
+as that is reserved for internal Swift use (such as the .r for referrer
+designations as you'll see later). This shouldn't be an issue if a reseller
+prefix is in use and does not begin with a period.
+
+Example Authentication with DevAuth:
+
+    * Token AUTH_tkabcd is given to the DevAuth middleware in a request's
+      X-Auth-Token header.
+    * The DevAuth middleware makes a validate token AUTH_tkabcd call to the
+      external DevAuth server.
+    * The external DevAuth server validates the token AUTH_tkabcd and discovers
+      it matches the "tester" user within the "test" account for the storage
+      account "AUTH_storage_xyz".
+    * The external DevAuth server responds with "X-Auth-Groups:
+      AUTH_test:tester,AUTH_test,AUTH_storage_xyz"
+    * Now this user will have full access (via authorization procedures later)
+      to the AUTH_storage_xyz Swift storage account and access to anything with
+      ACLs specifying at least one of those three groups returned.
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize

@@ -253,31 +253,31 @@ class TestAuth(unittest.TestCase):
         self.assert_(resp.startswith('403'), resp)
         req = Request.blank('/v1/cfa')
         req.remote_user = 'act:usr,act'
-        req.acl = '.ref:any'
+        req.acl = '.r:*'
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/cfa')
         req.remote_user = 'act:usr,act'
-        req.acl = '.ref:.example.com'
+        req.acl = '.r:.example.com'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
         req = Request.blank('/v1/cfa')
         req.remote_user = 'act:usr,act'
-        req.referrer = 'http://www.example.com/index.html'
-        req.acl = '.ref:.example.com'
+        req.referer = 'http://www.example.com/index.html'
+        req.acl = '.r:.example.com'
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/cfa')
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('401'), resp)
         req = Request.blank('/v1/cfa')
-        req.acl = '.ref:any'
+        req.acl = '.r:*'
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/cfa')
-        req.acl = '.ref:.example.com'
+        req.acl = '.r:.example.com'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('401'), resp)
         req = Request.blank('/v1/cfa')
-        req.referrer = 'http://www.example.com/index.html'
-        req.acl = '.ref:.example.com'
+        req.referer = 'http://www.example.com/index.html'
+        req.acl = '.r:.example.com'
         self.assertEquals(self.test_auth.authorize(req), None)
 
 
