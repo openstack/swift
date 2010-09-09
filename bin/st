@@ -1354,8 +1354,15 @@ def st_upload(options, args):
     for thread in file_threads:
         thread.start()
     conn = create_connection()
+    # Try to create the container, just in case it doesn't exist. If this
+    # fails, it might just be because the user doesn't have container PUT
+    # permissions, so we'll ignore any error. If there's really a problem,
+    # it'll surface on the first object PUT.
     try:
         conn.put_container(args[0])
+    except:
+        pass
+    try:
         for arg in args[1:]:
             if isdir(arg):
                 _upload_dir(arg)
