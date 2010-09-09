@@ -35,14 +35,15 @@ string. If the user does not have admin access to the account, the third group
 will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
-group names and tokens with a configurable reseller prefix (`AUTH_` by default
-with the included DevAuth). This prefix will allow deconflicting with other
-authentication servers that might be using the same Swift cluster.
+tokens and Swift storage accounts they create with a configurable reseller
+prefix (`AUTH_` by default with the included DevAuth). This prefix will allow
+deconflicting with other authentication servers that might be using the same
+Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
+until one validates a token or all fail.
 
-The only other restriction is that no group name should begin with a period '.'
-as that is reserved for internal Swift use (such as the .r for referrer
-designations as you'll see later). This shouldn't be an issue if a reseller
-prefix is in use and does not begin with a period.
+A restriction with group names is that no group name should begin with a period
+'.' as that is reserved for internal Swift use (such as the .r for referrer
+designations as you'll see later).
 
 Example Authentication with DevAuth:
 
@@ -54,10 +55,11 @@ Example Authentication with DevAuth:
       it matches the "tester" user within the "test" account for the storage
       account "AUTH_storage_xyz".
     * The external DevAuth server responds with "X-Auth-Groups:
-      AUTH_test:tester,AUTH_test,AUTH_storage_xyz"
+      test:tester,test,AUTH_storage_xyz"
     * Now this user will have full access (via authorization procedures later)
-      to the AUTH_storage_xyz Swift storage account and access to anything with
-      ACLs specifying at least one of those three groups returned.
+      to the AUTH_storage_xyz Swift storage account and access to other storage
+      accounts with the same `AUTH_` reseller prefix and has an ACL specifying
+      at least one of those three groups returned.
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize

@@ -10,9 +10,6 @@ from swift.common.client import get_auth, http_connection
 
 
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-swift_test_auth_prefix = os.environ.get('SWIFT_TEST_AUTH_PREFIX')
-if swift_test_auth_prefix and swift_test_auth_prefix[-1] != '_':
-    swift_test_auth_prefix += '_'
 swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
 swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
 
@@ -35,9 +32,6 @@ if not all([swift_test_auth, swift_test_user[0], swift_test_key[0]]):
         if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
             swift_test_auth = 'https'
         swift_test_auth += '://%(auth_host)s:%(auth_port)s/v1.0' % conf
-        swift_test_auth_prefix = conf.get('auth_prefix', 'AUTH')
-        if swift_test_auth_prefix and swift_test_auth_prefix[-1] != '_':
-            swift_test_auth_prefix += '_'
         swift_test_user[0] = '%(account)s:%(username)s' % conf
         swift_test_key[0] = conf['password']
         try:

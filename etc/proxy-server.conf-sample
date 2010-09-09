@@ -37,10 +37,12 @@ use = egg:swift#proxy
 
 [filter:auth]
 use = egg:swift#auth
-# The reseller prefix, if set, will verify a token begins with this prefix
-# before even attempting to validate it with the external reseller. Usefull if
-# multiple auth systems are in use for one Swift cluster.
-# reseller_prefix = 
+# The reseller prefix will verify a token begins with this prefix before even
+# attempting to validate it with the external authentication server. Also, with
+# authorization, only Swift storage accounts with this prefix will be
+# authorized by this middleware. Useful if multiple auth systems are in use for
+# one Swift cluster.
+# reseller_prefix = AUTH
 # ip = 127.0.0.1
 # port = 11000
 # ssl = false

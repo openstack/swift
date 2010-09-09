@@ -109,7 +109,7 @@ class TestAuth(unittest.TestCase):
         try:
             auth.http_connect = mock_http_connect(404)
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': FakeMemcache()},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': FakeMemcache()},
                 lambda x, y: None))
             self.assert_(result.startswith('401'), result)
         finally:
@@ -119,9 +119,9 @@ class TestAuth(unittest.TestCase):
         old_http_connect = auth.http_connect
         try:
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,cfa'})
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': FakeMemcache()},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': FakeMemcache()},
                 lambda x, y: None))
             self.assert_(result.startswith('204'), result)
         finally:
@@ -132,15 +132,15 @@ class TestAuth(unittest.TestCase):
         try:
             fake_memcache = FakeMemcache()
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,cfa'})
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': fake_memcache},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
                 lambda x, y: None))
             self.assert_(result.startswith('204'), result)
             auth.http_connect = mock_http_connect(404)
             # Should still be in memcache
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': fake_memcache},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
                 lambda x, y: None))
             self.assert_(result.startswith('204'), result)
         finally:
@@ -151,15 +151,15 @@ class TestAuth(unittest.TestCase):
         try:
             fake_memcache = FakeMemcache()
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '0', 'x-auth-groups': 'act:usr,act,cfa'})
+                {'x-auth-ttl': '0', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': fake_memcache},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
                 lambda x, y: None))
             self.assert_(result.startswith('204'), result)
             auth.http_connect = mock_http_connect(404)
             # Should still be in memcache, but expired
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': fake_memcache},
+                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
                 lambda x, y: None))
             self.assert_(result.startswith('401'), result)
         finally:
@@ -169,12 +169,12 @@ class TestAuth(unittest.TestCase):
         old_http_connect = auth.http_connect
         try:
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,cfa'})
-            req = Request.blank('/v/a/c/o', headers={'x-auth-token': 't'})
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
+            req = Request.blank('/v/a/c/o', headers={'x-auth-token': 'AUTH_t'})
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))
             self.assert_(result.startswith('204'), result)
-            self.assertEquals(req.remote_user, 'act:usr,act,cfa')
+            self.assertEquals(req.remote_user, 'act:usr,act,AUTH_cfa')
         finally:
             auth.http_connect = old_http_connect
 
@@ -182,7 +182,7 @@ class TestAuth(unittest.TestCase):
         old_http_connect = auth.http_connect
         try:
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,cfa'})
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             req = Request.blank('/v/a/c/o')
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))
@@ -195,12 +195,13 @@ class TestAuth(unittest.TestCase):
         old_http_connect = auth.http_connect
         try:
             auth.http_connect = mock_http_connect(204,
-                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,cfa'})
-            req = Request.blank('/v/a/c/o', headers={'x-storage-token': 't'})
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
+            req = Request.blank('/v/a/c/o',
+                                headers={'x-storage-token': 'AUTH_t'})
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))
             self.assert_(result.startswith('204'), result)
-            self.assertEquals(req.remote_user, 'act:usr,act,cfa')
+            self.assertEquals(req.remote_user, 'act:usr,act,AUTH_cfa')
         finally:
             auth.http_connect = old_http_connect
 
@@ -209,73 +210,81 @@ class TestAuth(unittest.TestCase):
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('401'), resp)
         req = Request.blank('/badpath')
-        req.remote_user = 'act:usr,act,cfa'
+        req.remote_user = 'act:usr,act,AUTH_cfa'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
 
     def test_authorize_account_access(self):
-        req = Request.blank('/v1/cfa')
-        req.remote_user = 'act:usr,act,cfa'
+        req = Request.blank('/v1/AUTH_cfa')
+        req.remote_user = 'act:usr,act,AUTH_cfa'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
 
     def test_authorize_acl_group_access(self):
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act2'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr2'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
 
+    def test_deny_cross_reseller(self):
+        # Tests that cross-reseller is denied, even if ACLs/group names match
+        req = Request.blank('/v1/OTHER_cfa')
+        req.remote_user = 'act:usr,act,AUTH_cfa'
+        req.acl = 'act'
+        resp = str(self.test_auth.authorize(req))
+        self.assert_(resp.startswith('403'), resp)
+
     def test_authorize_acl_referrer_access(self):
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:.example.com'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('401'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.acl = '.r:*'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.acl = '.r:.example.com'
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('401'), resp)
-        req = Request.blank('/v1/cfa')
+        req = Request.blank('/v1/AUTH_cfa')
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com'
         self.assertEquals(self.test_auth.authorize(req), None)

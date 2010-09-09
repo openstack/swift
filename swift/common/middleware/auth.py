@@ -29,7 +29,7 @@ class DevAuth(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
-        self.reseller_prefix = conf.get('reseller_prefix', '').strip()
+        self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
             self.reseller_prefix += '_'
         self.auth_host = conf.get('ip', '127.0.0.1')
@@ -83,7 +83,7 @@ class DevAuth(object):
         WSGI response callable if not.
         """
         version, account, container, obj = split_path(req.path, 1, 4, True)
-        if not account:
+        if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
         if req.remote_user and account in req.remote_user.split(','):
             return None

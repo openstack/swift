@@ -9,7 +9,7 @@ from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
 
 from swift_testing import check_response, retry, skip, skip2, skip3, \
-                          swift_test_auth_prefix, swift_test_user
+                          swift_test_user
 
 
 class TestContainer(unittest.TestCase):
@@ -377,10 +377,9 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
         # Make the container accessible by the second account
         def post(url, token, parsed, conn):
-            conn.request('POST', parsed.path + '/' + self.name, '', {
-                'X-Auth-Token': token,
-                'X-Container-Read': '%stest2' % swift_test_auth_prefix,
-                'X-Container-Write': '%stest2' % swift_test_auth_prefix})
+            conn.request('POST', parsed.path + '/' + self.name, '',
+                {'X-Auth-Token': token, 'X-Container-Read': 'test2',
+                 'X-Container-Write': 'test2'})
             return check_response(conn)
         resp = retry(post)
         resp.read()
@@ -446,9 +445,8 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
         # Now make the container also writeable by the second account
         def post(url, token, parsed, conn):
-            conn.request('POST', parsed.path + '/' + self.name, '', {
-                'X-Auth-Token': token,
-                'X-Container-Write': '%stest2' % swift_test_auth_prefix})
+            conn.request('POST', parsed.path + '/' + self.name, '',
+                {'X-Auth-Token': token, 'X-Container-Write': 'test2'})
             return check_response(conn)
         resp = retry(post)
         resp.read()
@@ -485,9 +483,7 @@ class TestContainer(unittest.TestCase):
         # Make the container accessible by the third account
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
-               {'X-Auth-Token': token,
-                'X-Container-Read': '%s%s' %
-                    (swift_test_auth_prefix, swift_test_user[2])})
+               {'X-Auth-Token': token, 'X-Container-Read': swift_test_user[2]})
             return check_response(conn)
         resp = retry(post)
         resp.read()
@@ -508,8 +504,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Write': '%s%s' %
-                            (swift_test_auth_prefix, swift_test_user[2])})
+                          'X-Container-Write': swift_test_user[2]})
             return check_response(conn)
         resp = retry(post)
         resp.read()

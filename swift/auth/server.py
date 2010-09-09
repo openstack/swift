@@ -361,9 +361,7 @@ class AuthController(object):
         validation = self.validate_token(token)
         if not validation:
             return HTTPNotFound()
-        groups = [
-            '%s%s:%s' % (self.reseller_prefix, validation[1], validation[2]),
-            '%s%s' % (self.reseller_prefix, validation[1])]
+        groups = ['%s:%s' % (validation[1], validation[2]), validation[1]]
         if validation[3]: # admin access to a cfaccount
             groups.append(validation[3])
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
