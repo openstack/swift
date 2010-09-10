@@ -194,18 +194,21 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
                       conn object)
     :param full_listing: if True, return a full listing, else returns a max
                          of 10000 listings
-    :returns: a list of accounts
+    :returns: a tuple of (response headers, a list of containers) The response
+              headers will be a dict and all header names will be lowercase. 
     :raises ClientException: HTTP GET request failed
     """
     if not http_conn:
         http_conn = http_connection(url)
     if full_listing:
-        rv = []
-        listing = get_account(url, token, marker, limit, prefix, http_conn)
+        rv = get_account(url, token, marker, limit, prefix, http_conn)
+        listing = rv[1]
         while listing:
-            rv.extend(listing)
             marker = listing[-1]['name']
-            listing = get_account(url, token, marker, limit, prefix, http_conn)
+            listing = \
+                get_account(url, token, marker, limit, prefix, http_conn)[1]
+            if listing:
+                rv.extend(listing)
         return rv
     parsed, conn = http_conn
     qs = 'format=json'
@@ -218,6 +221,9 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
     conn.request('GET', '%s?%s' % (parsed.path, qs), '',
                  {'X-Auth-Token': token})
     resp = conn.getresponse()
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
     if resp.status < 200 or resp.status >= 300:
         resp.read()
         raise ClientException('Account GET failed', http_scheme=parsed.scheme,
@@ -226,8 +232,8 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
                 http_reason=resp.reason)
     if resp.status == 204:
         resp.read()
-        return []
-    return json_loads(resp.read())
+        return resp_headers, []
+    return resp_headers, json_loads(resp.read())
 
 
 def head_account(url, token, http_conn=None):
@@ -238,7 +244,8 @@ def head_account(url, token, http_conn=None):
     :param token: auth token
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
-    :returns: a tuple of (container count, object count, bytes used)
+    :returns: a dict containing the response's headers (all header names will
+              be lowercase)
     :raises ClientException: HTTP HEAD request failed
     """
     if http_conn:
@@ -253,9 +260,36 @@ def head_account(url, token, http_conn=None):
                 http_host=conn.host, http_port=conn.port,
                 http_path=parsed.path, http_status=resp.status,
                 http_reason=resp.reason)
-    return int(resp.getheader('x-account-container-count', 0)), \
-           int(resp.getheader('x-account-object-count', 0)), \
-           int(resp.getheader('x-account-bytes-used', 0))
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers
+
+
+def post_account(url, token, headers, http_conn=None):
+    """
+    Update an account's metadata.
+
+    :param url: storage URL
+    :param token: auth token
+    :param headers: additional headers to include in the request
+    :param http_conn: HTTP connection object (If None, it will create the
+                      conn object)
+    :raises ClientException: HTTP POST request failed
+    """
+    if http_conn:
+        parsed, conn = http_conn
+    else:
+        parsed, conn = http_connection(url)
+    headers['X-Auth-Token'] = token
+    conn.request('POST', parsed.path, '', headers)
+    resp = conn.getresponse()
+    resp.read()
+    if resp.status < 200 or resp.status >= 300:
+        raise ClientException('Account POST failed',
+                http_scheme=parsed.scheme, http_host=conn.host,
+                http_port=conn.port, http_path=path, http_status=resp.status,
+                http_reason=resp.reason)
 
 
 def get_container(url, token, container, marker=None, limit=None,
@@ -275,23 +309,25 @@ def get_container(url, token, container, marker=None, limit=None,
                       conn object)
     :param full_listing: if True, return a full listing, else returns a max
                          of 10000 listings
-    :returns: a list of objects
+    :returns: a tuple of (response headers, a list of objects) The response
+              headers will be a dict and all header names will be lowercase. 
     :raises ClientException: HTTP GET request failed
     """
     if not http_conn:
         http_conn = http_connection(url)
     if full_listing:
-        rv = []
-        listing = get_container(url, token, container, marker, limit, prefix,
-                                delimiter, http_conn)
+        rv = get_container(url, token, container, marker, limit, prefix,
+                           delimiter, http_conn)
+        listing = rv[1]
         while listing:
-            rv.extend(listing)
             if not delimiter:
                 marker = listing[-1]['name']
             else:
                 marker = listing[-1].get('name', listing[-1].get('subdir'))
             listing = get_container(url, token, container, marker, limit,
-                                    prefix, delimiter, http_conn)
+                                    prefix, delimiter, http_conn)[1]
+            if listing:
+                rv[1].extend(listing)
         return rv
     parsed, conn = http_conn
     path = '%s/%s' % (parsed.path, quote(container))
@@ -312,10 +348,13 @@ def get_container(url, token, container, marker=None, limit=None,
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_query=qs,
                 http_status=resp.status, http_reason=resp.reason)
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
     if resp.status == 204:
         resp.read()
-        return []
-    return json_loads(resp.read())
+        return resp_headers, []
+    return resp_headers, json_loads(resp.read())
 
 
 def head_container(url, token, container, http_conn=None):
@@ -327,7 +366,8 @@ def head_container(url, token, container, http_conn=None):
     :param container: container name to get stats for
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
-    :returns: a tuple of (object count, bytes used)
+    :returns: a dict containing the response's headers (all header names will
+              be lowercase)
     :raises ClientException: HTTP HEAD request failed
     """
     if http_conn:
@@ -343,17 +383,20 @@ def head_container(url, token, container, http_conn=None):
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
                 http_reason=resp.reason)
-    return int(resp.getheader('x-container-object-count', 0)), \
-           int(resp.getheader('x-container-bytes-used', 0))
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers
 
 
-def put_container(url, token, container, http_conn=None):
+def put_container(url, token, container, headers=None, http_conn=None):
     """
     Create a container
 
     :param url: storage URL
     :param token: auth token
     :param container: container name to create
+    :param headers: additional headers to include in the request
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
     :raises ClientException: HTTP PUT request failed
@@ -363,11 +406,42 @@ def put_container(url, token, container, http_conn=None):
     else:
         parsed, conn = http_connection(url)
     path = '%s/%s' % (parsed.path, quote(container))
-    conn.request('PUT', path, '', {'X-Auth-Token': token})
+    if not headers:
+        headers = {}
+    headers['X-Auth-Token'] = token
+    conn.request('PUT', path, '', headers)
     resp = conn.getresponse()
     resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Container PUT failed',
+                http_scheme=parsed.scheme, http_host=conn.host,
+                http_port=conn.port, http_path=path, http_status=resp.status,
+                http_reason=resp.reason)
+
+
+def post_container(url, token, container, headers, http_conn=None):
+    """
+    Update a container's metadata.
+
+    :param url: storage URL
+    :param token: auth token
+    :param container: container name to update
+    :param headers: additional headers to include in the request
+    :param http_conn: HTTP connection object (If None, it will create the
+                      conn object)
+    :raises ClientException: HTTP POST request failed
+    """
+    if http_conn:
+        parsed, conn = http_conn
+    else:
+        parsed, conn = http_connection(url)
+    path = '%s/%s' % (parsed.path, quote(container))
+    headers['X-Auth-Token'] = token
+    conn.request('POST', path, '', headers)
+    resp = conn.getresponse()
+    resp.read()
+    if resp.status < 200 or resp.status >= 300:
+        raise ClientException('Container POST failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
                 http_reason=resp.reason)
@@ -410,8 +484,12 @@ def get_object(url, token, container, name, http_conn=None,
     :param name: object name to get
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
-    :param resp_chunk_size: if defined, chunk size of data to read
-    :returns: a list of objects
+    :param resp_chunk_size: if defined, chunk size of data to read. NOTE: If
+                            you specify a resp_chunk_size you must fully read
+                            the object's contents before making another
+                            request.
+    :returns: a tuple of (response headers, the object's contents) The response
+              headers will be a dict and all header names will be lowercase. 
     :raises ClientException: HTTP GET request failed
     """
     if http_conn:
@@ -426,10 +504,6 @@ def get_object(url, token, container, name, http_conn=None,
         raise ClientException('Object GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
     if resp_chunk_size:
 
         def _object_body():
@@ -440,12 +514,10 @@ def get_object(url, token, container, name, http_conn=None,
         object_body = _object_body()
     else:
         object_body = resp.read()
-    return resp.getheader('content-type'), \
-           int(resp.getheader('content-length', 0)), \
-           resp.getheader('last-modified'), \
-           resp.getheader('etag').strip('"'), \
-           metadata, \
-           object_body
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers, object_body
 
 
 def head_object(url, token, container, name, http_conn=None):
@@ -458,8 +530,8 @@ def head_object(url, token, container, name, http_conn=None):
     :param name: object name to get info for
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
-    :returns: a tuple of (content type, content length, last modfied, etag,
-              dictionary of metadata)
+    :returns: a dict containing the response's headers (all header names will
+              be lowercase)
     :raises ClientException: HTTP HEAD request failed
     """
     if http_conn:
@@ -474,20 +546,15 @@ def head_object(url, token, container, name, http_conn=None):
         raise ClientException('Object HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
-    return resp.getheader('content-type'), \
-           int(resp.getheader('content-length', 0)), \
-           resp.getheader('last-modified'), \
-           resp.getheader('etag').strip('"'), \
-           metadata
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers
 
 
-def put_object(url, token, container, name, contents, metadata={},
-               content_length=None, etag=None, chunk_size=65536,
-               content_type=None, http_conn=None):
+def put_object(url, token, container, name, contents, content_length=None,
+               etag=None, chunk_size=65536, content_type=None, headers=None,
+               http_conn=None):
     """
     Put an object
 
@@ -495,12 +562,12 @@ def put_object(url, token, container, name, contents, metadata={},
     :param token: auth token
     :param container: container name that the object is in
     :param name: object name to put
-    :param contents: file like object to read object data from
-    :param metadata: dictionary of object metadata
+    :param contents: a string or a file like object to read object data from
     :param content_length: value to send as content-length header
     :param etag: etag of contents
     :param chunk_size: chunk size of data to write
     :param content_type: value to send as content-type header
+    :param headers: additional headers to include in the request
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
     :returns: etag from server response
@@ -511,9 +578,9 @@ def put_object(url, token, container, name, contents, metadata={},
     else:
         parsed, conn = http_connection(url)
     path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    headers = {'X-Auth-Token': token}
-    for key, value in metadata.iteritems():
-        headers['X-Object-Meta-%s' % quote(key)] = quote(value)
+    if not headers:
+        headers = {}
+    headers['X-Auth-Token'] = token
     if etag:
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
@@ -549,15 +616,15 @@ def put_object(url, token, container, name, contents, metadata={},
     return resp.getheader('etag').strip('"')
 
 
-def post_object(url, token, container, name, metadata, http_conn=None):
+def post_object(url, token, container, name, headers, http_conn=None):
     """
-    Change object metadata
+    Update object metadata
 
     :param url: storage URL
     :param token: auth token
     :param container: container name that the object is in
-    :param name: object name to change
-    :param metadata: dictionary of object metadata
+    :param name: name of the object to update
+    :param headers: additional headers to include in the request
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
     :raises ClientException: HTTP POST request failed
@@ -567,9 +634,7 @@ def post_object(url, token, container, name, metadata, http_conn=None):
     else:
         parsed, conn = http_connection(url)
     path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    headers = {'X-Auth-Token': token}
-    for key, value in metadata.iteritems():
-        headers['X-Object-Meta-%s' % quote(key)] = quote(value)
+    headers['X-Auth-Token'] = token
     conn.request('POST', path, '', headers)
     resp = conn.getresponse()
     resp.read()
@@ -682,6 +747,10 @@ class Connection(object):
         return self._retry(get_account, marker=marker, limit=limit,
                            prefix=prefix, full_listing=full_listing)
 
+    def post_account(self, headers):
+        """Wrapper for :func:`post_account`"""
+        return self._retry(post_account, headers)
+
     def head_container(self, container):
         """Wrapper for :func:`head_container`"""
         return self._retry(head_container, container)
@@ -696,9 +765,13 @@ class Connection(object):
                            limit=limit, prefix=prefix, delimiter=delimiter,
                            full_listing=full_listing)
 
-    def put_container(self, container):
+    def put_container(self, container, headers=None):
         """Wrapper for :func:`put_container`"""
-        return self._retry(put_container, container)
+        return self._retry(put_container, container, headers=headers)
+
+    def post_container(self, container, headers):
+        """Wrapper for :func:`post_container`"""
+        return self._retry(post_container, container, headers)
 
     def delete_container(self, container):
         """Wrapper for :func:`delete_container`"""
@@ -713,17 +786,17 @@ class Connection(object):
         return self._retry(get_object, container, obj,
                            resp_chunk_size=resp_chunk_size)
 
-    def put_object(self, container, obj, contents, metadata={},
-                   content_length=None, etag=None, chunk_size=65536,
-                   content_type=None):
+    def put_object(self, container, obj, contents, content_length=None,
+                   etag=None, chunk_size=65536, content_type=None,
+                   headers=None):
         """Wrapper for :func:`put_object`"""
         return self._retry(put_object, container, obj, contents,
-            metadata=metadata, content_length=content_length, etag=etag,
-            chunk_size=chunk_size, content_type=content_type)
+            content_length=content_length, etag=etag, chunk_size=chunk_size,
+            content_type=content_type, headers=headers)
 
-    def post_object(self, container, obj, metadata):
+    def post_object(self, container, obj, headers):
         """Wrapper for :func:`post_object`"""
-        return self._retry(post_object, container, obj, metadata)
+        return self._retry(post_object, container, obj, headers)
 
     def delete_object(self, container, obj):
         """Wrapper for :func:`delete_object`"""

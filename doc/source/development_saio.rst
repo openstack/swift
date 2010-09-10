@@ -526,25 +526,17 @@ good idea what to do on other environments.
   #. `remakerings`
   #. `cd ~/swift/trunk; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
-  #. `swift-auth-create-account test tester testing`
+  #. `swift-auth-add-user --admin test tester testing`
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
-  #. Create `/etc/swift/func_test.conf`::
-
-        auth_host = 127.0.0.1
-        auth_port = 11000
-        auth_ssl = no
-
-        account = test
-        username = tester
-        password = testing
-
-        collate = C
-
-  #. `cd ~/swift/trunk; ./.functests`
-  #. `cd ~/swift/trunk; ./.probetests` (Note for future reference: probe tests
-     will reset your environment)
+  #. `swift-auth-add-user --admin test2 tester2 testing2`
+  #. `swift-auth-add-user test tester3 testing3`
+  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
+  #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
+     everything in the configured accounts.)
+  #. `cd ~/swift/trunk; ./.probetests` (Note: probe tests will reset your
+     environment as they call `resetswift` for each test.)
 
 If you plan to work on documentation (and who doesn't?!):
 

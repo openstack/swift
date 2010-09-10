@@ -310,7 +310,7 @@ class AccountReaper(Daemon):
             try:
                 objects = direct_get_container(node, part, account, container,
                         marker=marker, conn_timeout=self.conn_timeout,
-                        response_timeout=self.node_timeout)
+                        response_timeout=self.node_timeout)[1]
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
             except ClientException, err:

@@ -56,16 +56,19 @@ class TestRunningWithEachTypeDown(unittest.TestCase):
             pass
         client.put_object(self.url, self.token, 'container1', 'object1', '1234')
         get_to_final_state()
-        self.assert_(client.head_account(self.url, self.token), (1, 1, 1234))
+        headers, containers = client.head_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
-        for container in client.get_account(self.url, self.token):
+        for container in containers:
             if container['name'] == 'container1':
                 found1 = True
                 self.assertEquals(container['count'], 1)
                 self.assertEquals(container['bytes'], 4)
         self.assert_(found1)
         found1 = False
-        for obj in client.get_container(self.url, self.token, 'container1'):
+        for obj in client.get_container(self.url, self.token, 'container1')[1]:
             if obj['name'] == 'object1':
                 found1 = True
                 self.assertEquals(obj['bytes'], 4)
@@ -84,15 +87,18 @@ class TestRunningWithEachTypeDown(unittest.TestCase):
                    '/etc/swift/object-server/%d.conf' %
                     ((onodes[0]['port'] - 6000) / 10)]).pid
         sleep(2)
-        self.assert_(client.head_account(self.url, self.token), (1, 1, 1234))
+        headers, containers = client.head_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
-        for container in client.get_account(self.url, self.token):
+        for container in containers:
             if container['name'] == 'container1':
                 found1 = True
         # The account node was previously down.
         self.assert_(not found1)
         found1 = False
-        for obj in client.get_container(self.url, self.token, 'container1'):
+        for obj in client.get_container(self.url, self.token, 'container1')[1]:
             if obj['name'] == 'object1':
                 found1 = True
                 self.assertEquals(obj['bytes'], 4)
@@ -101,16 +107,19 @@ class TestRunningWithEachTypeDown(unittest.TestCase):
         self.assert_(found1)
 
         get_to_final_state()
-        self.assert_(client.head_account(self.url, self.token), (1, 1, 1234))
+        headers, containers = client.head_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
-        for container in client.get_account(self.url, self.token):
+        for container in containers:
             if container['name'] == 'container1':
                 found1 = True
                 self.assertEquals(container['count'], 1)
                 self.assertEquals(container['bytes'], 4)
         self.assert_(found1)
         found1 = False
-        for obj in client.get_container(self.url, self.token, 'container1'):
+        for obj in client.get_container(self.url, self.token, 'container1')[1]:
             if obj['name'] == 'object1':
                 found1 = True
                 self.assertEquals(obj['bytes'], 4)

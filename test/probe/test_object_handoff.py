@@ -75,13 +75,13 @@ class TestObjectHandoff(unittest.TestCase):
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
         objs = [o['name'] for o in
-                client.get_container(self.url, self.token, container)]
+                client.get_container(self.url, self.token, container)[1]]
         if obj not in objs:
             raise Exception('Container listing did not know about object')
         for cnode in cnodes:
             objs = [o['name'] for o in
                     direct_client.direct_get_container(cnode, cpart,
-                        self.account, container)]
+                        self.account, container)[1]]
             if obj not in objs:
                 raise Exception(
                     'Container server %s:%s did not know about object' %
@@ -126,11 +126,10 @@ class TestObjectHandoff(unittest.TestCase):
 
         kill(self.pids[self.port2server[onode['port']]], SIGTERM)
         client.post_object(self.url, self.token, container, obj,
-                           {'probe': 'value'})
-        ometadata = client.head_object(
-            self.url, self.token, container, obj)[-1]
-        if ometadata.get('probe') != 'value':
-            raise Exception('Metadata incorrect, was %s' % repr(ometadata))
+                           headers={'x-object-meta-probe': 'value'})
+        oheaders = client.head_object(self.url, self.token, container, obj)
+        if oheaders.get('x-object-meta-probe') != 'value':
+            raise Exception('Metadata incorrect, was %s' % repr(oheaders))
         exc = False
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
@@ -145,9 +144,9 @@ class TestObjectHandoff(unittest.TestCase):
             '/etc/swift/object-server/%d.conf' %
             ((onode['port'] - 6000) / 10)]).pid
         sleep(2)
-        ometadata = direct_client.direct_get_object(onode, opart, self.account,
-                                                    container, obj)[-2]
-        if ometadata.get('probe') == 'value':
+        oheaders = direct_client.direct_get_object(onode, opart, self.account,
+                                                    container, obj)[0]
+        if oheaders.get('x-object-meta-probe') == 'value':
             raise Exception('Previously downed object server had the new '
                             'metadata when it should not have it')
         # Run the extra server last so it'll remove it's extra partition
@@ -161,9 +160,9 @@ class TestObjectHandoff(unittest.TestCase):
         call(['swift-object-replicator',
               '/etc/swift/object-server/%d.conf' %
               ((another_onode['port'] - 6000) / 10), 'once'])
-        ometadata = direct_client.direct_get_object(onode, opart, self.account,
-                                                    container, obj)[-2]
-        if ometadata.get('probe') != 'value':
+        oheaders = direct_client.direct_get_object(onode, opart, self.account,
+                                                    container, obj)[0]
+        if oheaders.get('x-object-meta-probe') != 'value':
             raise Exception(
                 'Previously downed object server did not have the new metadata')
 
@@ -177,13 +176,13 @@ class TestObjectHandoff(unittest.TestCase):
         if not exc:
             raise Exception('Regular object HEAD was still successful')
         objs = [o['name'] for o in
-                client.get_container(self.url, self.token, container)]
+                client.get_container(self.url, self.token, container)[1]]
         if obj in objs:
             raise Exception('Container listing still knew about object')
         for cnode in cnodes:
             objs = [o['name'] for o in
                     direct_client.direct_get_container(
-                        cnode, cpart, self.account, container)]
+                        cnode, cpart, self.account, container)[1]]
             if obj in objs:
                 raise Exception(
                     'Container server %s:%s still knew about object' %

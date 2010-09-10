@@ -154,19 +154,26 @@ except:
 
     def get_auth(url, user, key, snet=False):
         """
-        Get authentication credentials
+        Get authentication/authorization credentials.
 
-        :param url: authentication URL
-        :param user: user to auth as
-        :param key: key or passowrd for auth
-        :param snet: use SERVICENET internal network default is False 
-        :returns: tuple of (storage URL, storage token, auth token)
+        The snet parameter is used for Rackspace's ServiceNet internal network
+        implementation. In this function, it simply adds *snet-* to the beginning
+        of the host name for the returned storage URL. With Rackspace Cloud Files,
+        use of this network path causes no bandwidth charges but requires the
+        client to be running on Rackspace's ServiceNet network.
+
+        :param url: authentication/authorization URL
+        :param user: user to authenticate as
+        :param key: key or password for authorization
+        :param snet: use SERVICENET internal network (see above), default is False
+        :returns: tuple of (storage URL, auth token)
         :raises ClientException: HTTP GET request to auth URL failed
         """
         parsed, conn = http_connection(url)
         conn.request('GET', parsed.path, '',
                      {'X-Auth-User': user, 'X-Auth-Key': key})
         resp = conn.getresponse()
+        resp.read()
         if resp.status < 200 or resp.status >= 300:
             raise ClientException('Auth GET failed', http_scheme=parsed.scheme,
                     http_host=conn.host, http_port=conn.port,
@@ -175,7 +182,7 @@ except:
         url = resp.getheader('x-storage-url')
         if snet:
             parsed = list(urlparse(url))
-            # Second item in the list is the netloc 
+            # Second item in the list is the netloc
             parsed[1] = 'snet-' + parsed[1]
             url = urlunparse(parsed)
         return url, resp.getheader('x-storage-token',
@@ -196,18 +203,21 @@ except:
                           conn object)
         :param full_listing: if True, return a full listing, else returns a max
                              of 10000 listings
-        :returns: a list of accounts
+        :returns: a tuple of (response headers, a list of containers) The response
+                  headers will be a dict and all header names will be lowercase. 
         :raises ClientException: HTTP GET request failed
         """
         if not http_conn:
             http_conn = http_connection(url)
         if full_listing:
-            rv = []
-            listing = get_account(url, token, marker, limit, prefix, http_conn)
+            rv = get_account(url, token, marker, limit, prefix, http_conn)
+            listing = rv[1]
             while listing:
-                rv.extend(listing)
                 marker = listing[-1]['name']
-                listing = get_account(url, token, marker, limit, prefix, http_conn)
+                listing = \
+                    get_account(url, token, marker, limit, prefix, http_conn)[1]
+                if listing:
+                    rv.extend(listing)
             return rv
         parsed, conn = http_conn
         qs = 'format=json'
@@ -220,6 +230,9 @@ except:
         conn.request('GET', '%s?%s' % (parsed.path, qs), '',
                      {'X-Auth-Token': token})
         resp = conn.getresponse()
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
         if resp.status < 200 or resp.status >= 300:
             resp.read()
             raise ClientException('Account GET failed', http_scheme=parsed.scheme,
@@ -228,8 +241,8 @@ except:
                     http_reason=resp.reason)
         if resp.status == 204:
             resp.read()
-            return []
-        return json_loads(resp.read())
+            return resp_headers, []
+        return resp_headers, json_loads(resp.read())
 
 
     def head_account(url, token, http_conn=None):
@@ -240,7 +253,8 @@ except:
         :param token: auth token
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
-        :returns: a tuple of (container count, object count, bytes used)
+        :returns: a dict containing the response's headers (all header names will
+                  be lowercase)
         :raises ClientException: HTTP HEAD request failed
         """
         if http_conn:
@@ -249,14 +263,42 @@ except:
             parsed, conn = http_connection(url)
         conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
         resp = conn.getresponse()
+        resp.read()
         if resp.status < 200 or resp.status >= 300:
             raise ClientException('Account HEAD failed', http_scheme=parsed.scheme,
                     http_host=conn.host, http_port=conn.port,
                     http_path=parsed.path, http_status=resp.status,
                     http_reason=resp.reason)
-        return int(resp.getheader('x-account-container-count', 0)), \
-               int(resp.getheader('x-account-object-count', 0)), \
-               int(resp.getheader('x-account-bytes-used', 0))
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
+        return resp_headers
+
+
+    def post_account(url, token, headers, http_conn=None):
+        """
+        Update an account's metadata.
+
+        :param url: storage URL
+        :param token: auth token
+        :param headers: additional headers to include in the request
+        :param http_conn: HTTP connection object (If None, it will create the
+                          conn object)
+        :raises ClientException: HTTP POST request failed
+        """
+        if http_conn:
+            parsed, conn = http_conn
+        else:
+            parsed, conn = http_connection(url)
+        headers['X-Auth-Token'] = token
+        conn.request('POST', parsed.path, '', headers)
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status < 200 or resp.status >= 300:
+            raise ClientException('Account POST failed',
+                    http_scheme=parsed.scheme, http_host=conn.host,
+                    http_port=conn.port, http_path=path, http_status=resp.status,
+                    http_reason=resp.reason)
 
 
     def get_container(url, token, container, marker=None, limit=None,
@@ -276,23 +318,25 @@ except:
                           conn object)
         :param full_listing: if True, return a full listing, else returns a max
                              of 10000 listings
-        :returns: a list of objects
+        :returns: a tuple of (response headers, a list of objects) The response
+                  headers will be a dict and all header names will be lowercase. 
         :raises ClientException: HTTP GET request failed
         """
         if not http_conn:
             http_conn = http_connection(url)
         if full_listing:
-            rv = []
-            listing = get_container(url, token, container, marker, limit, prefix,
-                                    delimiter, http_conn)
+            rv = get_container(url, token, container, marker, limit, prefix,
+                               delimiter, http_conn)
+            listing = rv[1]
             while listing:
-                rv.extend(listing)
                 if not delimiter:
                     marker = listing[-1]['name']
                 else:
                     marker = listing[-1].get('name', listing[-1].get('subdir'))
                 listing = get_container(url, token, container, marker, limit,
-                                        prefix, delimiter, http_conn)
+                                        prefix, delimiter, http_conn)[1]
+                if listing:
+                    rv[1].extend(listing)
             return rv
         parsed, conn = http_conn
         path = '%s/%s' % (parsed.path, quote(container))
@@ -313,10 +357,13 @@ except:
                     http_scheme=parsed.scheme, http_host=conn.host,
                     http_port=conn.port, http_path=path, http_query=qs,
                     http_status=resp.status, http_reason=resp.reason)
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
         if resp.status == 204:
             resp.read()
-            return []
-        return json_loads(resp.read())
+            return resp_headers, []
+        return resp_headers, json_loads(resp.read())
 
 
     def head_container(url, token, container, http_conn=None):
@@ -328,7 +375,8 @@ except:
         :param container: container name to get stats for
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
-        :returns: a tuple of (object count, bytes used)
+        :returns: a dict containing the response's headers (all header names will
+                  be lowercase)
         :raises ClientException: HTTP HEAD request failed
         """
         if http_conn:
@@ -344,17 +392,20 @@ except:
                     http_scheme=parsed.scheme, http_host=conn.host,
                     http_port=conn.port, http_path=path, http_status=resp.status,
                     http_reason=resp.reason)
-        return int(resp.getheader('x-container-object-count', 0)), \
-               int(resp.getheader('x-container-bytes-used', 0))
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
+        return resp_headers
 
 
-    def put_container(url, token, container, http_conn=None):
+    def put_container(url, token, container, headers=None, http_conn=None):
         """
         Create a container
 
         :param url: storage URL
         :param token: auth token
         :param container: container name to create
+        :param headers: additional headers to include in the request
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
         :raises ClientException: HTTP PUT request failed
@@ -364,11 +415,42 @@ except:
         else:
             parsed, conn = http_connection(url)
         path = '%s/%s' % (parsed.path, quote(container))
-        conn.request('PUT', path, '', {'X-Auth-Token': token})
+        if not headers:
+            headers = {}
+        headers['X-Auth-Token'] = token
+        conn.request('PUT', path, '', headers)
         resp = conn.getresponse()
         resp.read()
         if resp.status < 200 or resp.status >= 300:
             raise ClientException('Container PUT failed',
+                    http_scheme=parsed.scheme, http_host=conn.host,
+                    http_port=conn.port, http_path=path, http_status=resp.status,
+                    http_reason=resp.reason)
+
+
+    def post_container(url, token, container, headers, http_conn=None):
+        """
+        Update a container's metadata.
+
+        :param url: storage URL
+        :param token: auth token
+        :param container: container name to update
+        :param headers: additional headers to include in the request
+        :param http_conn: HTTP connection object (If None, it will create the
+                          conn object)
+        :raises ClientException: HTTP POST request failed
+        """
+        if http_conn:
+            parsed, conn = http_conn
+        else:
+            parsed, conn = http_connection(url)
+        path = '%s/%s' % (parsed.path, quote(container))
+        headers['X-Auth-Token'] = token
+        conn.request('POST', path, '', headers)
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status < 200 or resp.status >= 300:
+            raise ClientException('Container POST failed',
                     http_scheme=parsed.scheme, http_host=conn.host,
                     http_port=conn.port, http_path=path, http_status=resp.status,
                     http_reason=resp.reason)
@@ -411,8 +493,12 @@ except:
         :param name: object name to get
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
-        :param resp_chunk_size: if defined, chunk size of data to read
-        :returns: a list of objects
+        :param resp_chunk_size: if defined, chunk size of data to read. NOTE: If
+                                you specify a resp_chunk_size you must fully read
+                                the object's contents before making another
+                                request.
+        :returns: a tuple of (response headers, the object's contents) The response
+                  headers will be a dict and all header names will be lowercase. 
         :raises ClientException: HTTP GET request failed
         """
         if http_conn:
@@ -427,10 +513,6 @@ except:
             raise ClientException('Object GET failed', http_scheme=parsed.scheme,
                     http_host=conn.host, http_port=conn.port, http_path=path,
                     http_status=resp.status, http_reason=resp.reason)
-        metadata = {}
-        for key, value in resp.getheaders():
-            if key.lower().startswith('x-object-meta-'):
-                metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
         if resp_chunk_size:
 
             def _object_body():
@@ -441,12 +523,10 @@ except:
             object_body = _object_body()
         else:
             object_body = resp.read()
-        return resp.getheader('content-type'), \
-               int(resp.getheader('content-length', 0)), \
-               resp.getheader('last-modified'), \
-               resp.getheader('etag').strip('"'), \
-               metadata, \
-               object_body
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
+        return resp_headers, object_body
 
 
     def head_object(url, token, container, name, http_conn=None):
@@ -459,8 +539,8 @@ except:
         :param name: object name to get info for
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
-        :returns: a tuple of (content type, content length, last modfied, etag,
-                  dictionary of metadata)
+        :returns: a dict containing the response's headers (all header names will
+                  be lowercase)
         :raises ClientException: HTTP HEAD request failed
         """
         if http_conn:
@@ -475,20 +555,15 @@ except:
             raise ClientException('Object HEAD failed', http_scheme=parsed.scheme,
                     http_host=conn.host, http_port=conn.port, http_path=path,
                     http_status=resp.status, http_reason=resp.reason)
-        metadata = {}
-        for key, value in resp.getheaders():
-            if key.lower().startswith('x-object-meta-'):
-                metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
-        return resp.getheader('content-type'), \
-               int(resp.getheader('content-length', 0)), \
-               resp.getheader('last-modified'), \
-               resp.getheader('etag').strip('"'), \
-               metadata
+        resp_headers = {}
+        for header, value in resp.getheaders():
+            resp_headers[header.lower()] = value
+        return resp_headers
 
 
-    def put_object(url, token, container, name, contents, metadata={},
-                   content_length=None, etag=None, chunk_size=65536,
-                   content_type=None, http_conn=None):
+    def put_object(url, token, container, name, contents, content_length=None,
+                   etag=None, chunk_size=65536, content_type=None, headers=None,
+                   http_conn=None):
         """
         Put an object
 
@@ -496,12 +571,12 @@ except:
         :param token: auth token
         :param container: container name that the object is in
         :param name: object name to put
-        :param contents: file like object to read object data from
-        :param metadata: dictionary of object metadata
+        :param contents: a string or a file like object to read object data from
         :param content_length: value to send as content-length header
         :param etag: etag of contents
         :param chunk_size: chunk size of data to write
         :param content_type: value to send as content-type header
+        :param headers: additional headers to include in the request
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
         :returns: etag from server response
@@ -512,9 +587,9 @@ except:
         else:
             parsed, conn = http_connection(url)
         path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-        headers = {'X-Auth-Token': token}
-        for key, value in metadata.iteritems():
-            headers['X-Object-Meta-%s' % quote(key)] = quote(value)
+        if not headers:
+            headers = {}
+        headers['X-Auth-Token'] = token
         if etag:
             headers['ETag'] = etag.strip('"')
         if content_length is not None:
@@ -550,15 +625,15 @@ except:
         return resp.getheader('etag').strip('"')
 
 
-    def post_object(url, token, container, name, metadata, http_conn=None):
+    def post_object(url, token, container, name, headers, http_conn=None):
         """
-        Change object metadata
+        Update object metadata
 
         :param url: storage URL
         :param token: auth token
         :param container: container name that the object is in
-        :param name: object name to change
-        :param metadata: dictionary of object metadata
+        :param name: name of the object to update
+        :param headers: additional headers to include in the request
         :param http_conn: HTTP connection object (If None, it will create the
                           conn object)
         :raises ClientException: HTTP POST request failed
@@ -568,9 +643,7 @@ except:
         else:
             parsed, conn = http_connection(url)
         path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-        headers = {'X-Auth-Token': token}
-        for key, value in metadata.iteritems():
-            headers['X-Object-Meta-%s' % quote(key)] = quote(value)
+        headers['X-Auth-Token'] = token
         conn.request('POST', path, '', headers)
         resp = conn.getresponse()
         resp.read()
@@ -620,7 +693,7 @@ except:
             :param preauthurl: storage URL (if you have already authenticated)
             :param preauthtoken: authentication token (if you have already
                                  authenticated)
-            :param snet: use SERVICENET internal network default is False 
+            :param snet: use SERVICENET internal network default is False
             """
             self.authurl = authurl
             self.user = user
@@ -632,20 +705,24 @@ except:
             self.attempts = 0
             self.snet = snet
 
+        def get_auth(self):
+            return get_auth(self.authurl, self.user, self.key, snet=self.snet)
+
+        def http_connection(self):
+            return http_connection(self.url)
+
         def _retry(self, func, *args, **kwargs):
-            kwargs['http_conn'] = self.http_conn
             self.attempts = 0
             backoff = 1
             while self.attempts <= self.retries:
                 self.attempts += 1
                 try:
                     if not self.url or not self.token:
-                        self.url, self.token = \
-                            get_auth(self.authurl, self.user, self.key, snet=self.snet)
+                        self.url, self.token = self.get_auth()
                         self.http_conn = None
                     if not self.http_conn:
-                        self.http_conn = http_connection(self.url)
-                        kwargs['http_conn'] = self.http_conn
+                        self.http_conn = self.http_connection()
+                    kwargs['http_conn'] = self.http_conn
                     rv = func(self.url, self.token, *args, **kwargs)
                     return rv
                 except (socket.error, HTTPException):
@@ -667,63 +744,71 @@ except:
                 backoff *= 2
 
         def head_account(self):
-            """Wrapper for head_account"""
+            """Wrapper for :func:`head_account`"""
             return self._retry(head_account)
 
         def get_account(self, marker=None, limit=None, prefix=None,
                         full_listing=False):
-            """Wrapper for get_account"""
-            # TODO: With full_listing=True this will restart the entire listing
-            # with each retry. Need to make a better version that just retries
-            # where it left off.
+            """Wrapper for :func:`get_account`"""
+            # TODO(unknown): With full_listing=True this will restart the entire
+            # listing with each retry. Need to make a better version that just
+            # retries where it left off.
             return self._retry(get_account, marker=marker, limit=limit,
                                prefix=prefix, full_listing=full_listing)
 
+        def post_account(self, headers):
+            """Wrapper for :func:`post_account`"""
+            return self._retry(post_account, headers)
+
         def head_container(self, container):
-            """Wrapper for head_container"""
+            """Wrapper for :func:`head_container`"""
             return self._retry(head_container, container)
 
         def get_container(self, container, marker=None, limit=None, prefix=None,
                           delimiter=None, full_listing=False):
-            """Wrapper for get_container"""
-            # TODO: With full_listing=True this will restart the entire listing
-            # with each retry. Need to make a better version that just retries
-            # where it left off.
+            """Wrapper for :func:`get_container`"""
+            # TODO(unknown): With full_listing=True this will restart the entire
+            # listing with each retry. Need to make a better version that just
+            # retries where it left off.
             return self._retry(get_container, container, marker=marker,
                                limit=limit, prefix=prefix, delimiter=delimiter,
                                full_listing=full_listing)
 
-        def put_container(self, container):
-            """Wrapper for put_container"""
-            return self._retry(put_container, container)
+        def put_container(self, container, headers=None):
+            """Wrapper for :func:`put_container`"""
+            return self._retry(put_container, container, headers=headers)
+
+        def post_container(self, container, headers):
+            """Wrapper for :func:`post_container`"""
+            return self._retry(post_container, container, headers)
 
         def delete_container(self, container):
-            """Wrapper for delete_container"""
+            """Wrapper for :func:`delete_container`"""
             return self._retry(delete_container, container)
 
         def head_object(self, container, obj):
-            """Wrapper for head_object"""
+            """Wrapper for :func:`head_object`"""
             return self._retry(head_object, container, obj)
 
         def get_object(self, container, obj, resp_chunk_size=None):
-            """Wrapper for get_object"""
+            """Wrapper for :func:`get_object`"""
             return self._retry(get_object, container, obj,
                                resp_chunk_size=resp_chunk_size)
 
-        def put_object(self, container, obj, contents, metadata={},
-                       content_length=None, etag=None, chunk_size=65536,
-                       content_type=None):
-            """Wrapper for put_object"""
+        def put_object(self, container, obj, contents, content_length=None,
+                       etag=None, chunk_size=65536, content_type=None,
+                       headers=None):
+            """Wrapper for :func:`put_object`"""
             return self._retry(put_object, container, obj, contents,
-                metadata=metadata, content_length=content_length, etag=etag,
-                chunk_size=chunk_size, content_type=content_type)
+                content_length=content_length, etag=etag, chunk_size=chunk_size,
+                content_type=content_type, headers=headers)
 
-        def post_object(self, container, obj, metadata):
-            """Wrapper for post_object"""
-            return self._retry(post_object, container, obj, metadata)
+        def post_object(self, container, obj, headers):
+            """Wrapper for :func:`post_object`"""
+            return self._retry(post_object, container, obj, headers)
 
         def delete_object(self, container, obj):
-            """Wrapper for delete_object"""
+            """Wrapper for :func:`delete_object`"""
             return self._retry(delete_object, container, obj)
 
     # End inclusion of swift.common.client
@@ -805,7 +890,7 @@ def st_delete(options, args):
             marker = ''
             while True:
                 objects = [o['name'] for o in
-                           conn.get_container(container, marker=marker)]
+                           conn.get_container(container, marker=marker)[1]]
                 if not objects:
                     break
                 for obj in objects:
@@ -847,7 +932,7 @@ def st_delete(options, args):
             marker = ''
             while True:
                 containers = \
-                    [c['name'] for c in conn.get_account(marker=marker)]
+                    [c['name'] for c in conn.get_account(marker=marker)[1]]
                 if not containers:
                     break
                 for container in containers:
@@ -893,8 +978,11 @@ def st_download(options, args):
     object_queue = Queue(10000)
     def _download_object((container, obj), conn):
         try:
-            content_type, content_length, _, etag, metadata, body = \
+            headers, body = \
                 conn.get_object(container, obj, resp_chunk_size=65536)
+            content_type = headers.get('content-type')
+            content_length = int(headers.get('content-length'))
+            etag = headers.get('etag')
             path = options.yes_all and join(container, obj) or obj
             if path[:1] in ('/', '\\'):
                 path = path[1:]
@@ -925,8 +1013,8 @@ def st_download(options, args):
                 options.error_queue.put(
                     '%s: read_length != content_length, %d != %d' %
                     (path, read_length, content_length))
-            if 'mtime' in metadata:
-                mtime = float(metadata['mtime'])
+            if 'x-object-meta-mtime' in headers:
+                mtime = float(headers['x-object-meta-mtime'])
                 utime(path, (mtime, mtime))
             if options.verbose:
                 options.print_queue.put(path)
@@ -941,7 +1029,7 @@ def st_download(options, args):
             marker = ''
             while True:
                 objects = [o['name'] for o in
-                           conn.get_container(container, marker=marker)]
+                           conn.get_container(container, marker=marker)[1]]
                 if not objects:
                     break
                 for obj in objects:
@@ -969,7 +1057,7 @@ def st_download(options, args):
             marker = ''
             while True:
                 containers = [c['name']
-                              for c in conn.get_account(marker=marker)]
+                              for c in conn.get_account(marker=marker)[1]]
                 if not containers:
                     break
                 for container in containers:
@@ -1016,10 +1104,11 @@ def st_list(options, args):
         marker = ''
         while True:
             if not args:
-                items = conn.get_account(marker=marker, prefix=options.prefix)
+                items = \
+                    conn.get_account(marker=marker, prefix=options.prefix)[1]
             else:
                 items = conn.get_container(args[0], marker=marker,
-                            prefix=options.prefix, delimiter=options.delimiter)
+                    prefix=options.prefix, delimiter=options.delimiter)[1]
             if not items:
                 break
             for item in items:
@@ -1042,46 +1131,85 @@ def st_stat(options, args):
     conn = Connection(options.auth, options.user, options.key)
     if not args:
         try:
-            container_count, object_count, bytes_used = conn.head_account()
+            headers = conn.head_account()
+            container_count = int(headers.get('x-account-container-count', 0))
+            object_count = int(headers.get('x-account-object-count', 0))
+            bytes_used = int(headers.get('x-account-bytes-used', 0))
             options.print_queue.put('''
    Account: %s
 Containers: %d
    Objects: %d
      Bytes: %d'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], container_count,
                                  object_count, bytes_used))
+            for key, value in headers.items():
+                if key.startswith('x-account-meta-'):
+                    options.print_queue.put('%10s: %s' % ('Meta %s' %
+                        key[len('x-account-meta-'):].title(), value))
+            for key, value in headers.items():
+                if not key.startswith('x-account-meta-') and key not in (
+                        'content-length', 'date', 'x-account-container-count',
+                        'x-account-object-count', 'x-account-bytes-used'):
+                    options.print_queue.put(
+                        '%10s: %s' % (key.title(), value))
         except ClientException, err:
             if err.http_status != 404:
                 raise
             options.error_queue.put('Account not found')
     elif len(args) == 1:
         try:
-            object_count, bytes_used = conn.head_container(args[0])
+            headers = conn.head_container(args[0])
+            object_count = int(headers.get('x-container-object-count', 0))
+            bytes_used = int(headers.get('x-container-bytes-used', 0))
             options.print_queue.put('''
   Account: %s
 Container: %s
   Objects: %d
-    Bytes: %d'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
-                                object_count, bytes_used))
+    Bytes: %d
+ Read ACL: %s
+Write ACL: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
+                                object_count, bytes_used,
+                                headers.get('x-container-read', ''),
+                                headers.get('x-container-write', '')))
+            for key, value in headers.items():
+                if key.startswith('x-container-meta-'):
+                    options.print_queue.put('%9s: %s' % ('Meta %s' %
+                        key[len('x-container-meta-'):].title(), value))
+            for key, value in headers.items():
+                if not key.startswith('x-container-meta-') and key not in (
+                        'content-length', 'date', 'x-container-object-count',
+                        'x-container-bytes-used', 'x-container-read',
+                        'x-container-write'):
+                    options.print_queue.put(
+                        '%9s: %s' % (key.title(), value))
         except ClientException, err:
             if err.http_status != 404:
                 raise
             options.error_queue.put('Container %s not found' % repr(args[0]))
     elif len(args) == 2:
         try:
-            content_type, content_length, last_modified, etag, metadata = \
-                conn.head_object(args[0], args[1])
+            headers = conn.head_object(args[0], args[1])
             options.print_queue.put('''
        Account: %s
      Container: %s
         Object: %s
   Content Type: %s
-Content Length: %d
+Content Length: %s
  Last Modified: %s
           ETag: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
-                                     args[1], content_type, content_length,
-                                     last_modified, etag))
-            for key, value in metadata.items():
-                options.print_queue.put('%14s: %s' % ('Meta %s' % key, value))
+                                     args[1], headers.get('content-type'),
+                                     headers.get('content-length'),
+                                     headers.get('last-modified'),
+                                     headers.get('etag')))
+            for key, value in headers.items():
+                if key.startswith('x-object-meta-'):
+                    options.print_queue.put('%14s: %s' % ('Meta %s' %
+                        key[len('x-object-meta-'):].title(), value))
+            for key, value in headers.items():
+                if not key.startswith('x-object-meta-') and key not in (
+                        'content-type', 'content-length', 'last-modified',
+                        'etag', 'date'):
+                    options.print_queue.put(
+                        '%14s: %s' % (key.title(), value))
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -1090,6 +1218,63 @@ Content Length: %d
     else:
         options.error_queue.put('Usage: %s [options] %s' %
                                 (basename(argv[0]), st_stat_help))
+
+
+st_post_help = '''
+post [options] [container] [object]
+    Updates meta information for the account, container, or object depending on
+    the args given. If the container is not found, it will be created
+    automatically; but this is not true for accounts and objects. Containers
+    also allow the -r (or --read-acl) and -w (or --write-acl) options. The -m
+    or --meta option is allowed on all and used to define the user meta data
+    items to set in the form Name:Value. This option can be repeated. Example:
+    post -m Color:Blue -m Size:Large'''.strip('\n')
+def st_post(options, args):
+    conn = Connection(options.auth, options.user, options.key)
+    if not args:
+        headers = {}
+        for item in options.meta:
+            split_item = item.split(':')
+            headers['X-Account-Meta-' + split_item[0]] = \
+                len(split_item) > 1 and split_item[1]
+        try:
+            conn.post_account(headers=headers)
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            options.error_queue.put('Account not found')
+    elif len(args) == 1:
+        headers = {}
+        for item in options.meta:
+            split_item = item.split(':')
+            headers['X-Container-Meta-' + split_item[0]] = \
+                len(split_item) > 1 and split_item[1]
+        if options.read_acl is not None:
+            headers['X-Container-Read'] = options.read_acl
+        if options.write_acl is not None:
+            headers['X-Container-Write'] = options.write_acl
+        try:
+            conn.post_container(args[0], headers=headers)
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            conn.put_container(args[0], headers=headers)
+    elif len(args) == 2:
+        headers = {}
+        for item in options.meta:
+            split_item = item.split(':')
+            headers['X-Object-Meta-' + split_item[0]] = \
+                len(split_item) > 1 and split_item[1]
+        try:
+            conn.post_object(args[0], args[1], headers=headers)
+        except ClientException, err:
+            if err.http_status != 404:
+                raise
+            options.error_queue.put('Object %s not found' %
+                                    repr('%s/%s' % (args[0], args[1])))
+    else:
+        options.error_queue.put('Usage: %s [options] %s' %
+                                (basename(argv[0]), st_post_help))
 
 
 st_upload_help = '''
@@ -1108,35 +1293,41 @@ def st_upload(options, args):
             obj = path
             if obj.startswith('./') or obj.startswith('.\\'):
                 obj = obj[2:]
-            metadata = {'mtime': str(getmtime(path))}
+            put_headers = {'x-object-meta-mtime': str(getmtime(path))}
             if dir_marker:
                 if options.changed:
                     try:
-                        ct, cl, lm, et, md = conn.head_object(args[0], obj)
+                        headers = conn.head_object(args[0], obj)
+                        ct = headers.get('content-type')
+                        cl = int(headers.get('content-length'))
+                        et = headers.get('etag')
+                        mt = headers.get('x-object-meta-mtime')
                         if ct.split(';', 1)[0] == 'text/directory' and \
                                 cl == 0 and \
                                 et == 'd41d8cd98f00b204e9800998ecf8427e' and \
-                                md.get('mtime') == metadata['mtime']:
+                                mt == put_headers['x-object-meta-mtime']:
                             return
                     except ClientException, err:
                         if err.http_status != 404:
                             raise
                 conn.put_object(args[0], obj, '', content_length=0,
                                 content_type='text/directory',
-                                metadata=metadata)
+                                headers=put_headers)
             else:
                 if options.changed:
                     try:
-                        ct, cl, lm, et, md = conn.head_object(args[0], obj)
+                        headers = conn.head_object(args[0], obj)
+                        cl = int(headers.get('content-length'))
+                        mt = headers.get('x-object-meta-mtime')
                         if cl == getsize(path) and \
-                                md.get('mtime') == metadata['mtime']:
+                                mt == put_headers['x-object-meta-mtime']:
                             return
                     except ClientException, err:
                         if err.http_status != 404:
                             raise
                 conn.put_object(args[0], obj, open(path, 'rb'),
                                 content_length=getsize(path),
-                                metadata=metadata)
+                                headers=put_headers)
             if options.verbose:
                 options.print_queue.put(obj)
         except OSError, err:
@@ -1163,8 +1354,15 @@ def st_upload(options, args):
     for thread in file_threads:
         thread.start()
     conn = create_connection()
+    # Try to create the container, just in case it doesn't exist. If this
+    # fails, it might just be because the user doesn't have container PUT
+    # permissions, so we'll ignore any error. If there's really a problem,
+    # it'll surface on the first object PUT.
     try:
         conn.put_container(args[0])
+    except:
+        pass
+    try:
         for arg in args[1:]:
             if isdir(arg):
                 _upload_dir(arg)
@@ -1190,6 +1388,7 @@ Commands:
   %(st_stat_help)s
   %(st_list_help)s
   %(st_upload_help)s
+  %(st_post_help)s
   %(st_download_help)s
   %(st_delete_help)s
 
@@ -1215,6 +1414,17 @@ Example:
                       help='For the list command on containers: will roll up '
                       'items with the given delimiter (see Cloud Files '
                       'general documentation for what this means).')
+    parser.add_option('-r', '--read-acl', dest='read_acl',
+                      help='Sets the Read ACL with post container commands. '
+                      'Quick summary of ACL syntax: .r:*, .r:-.example.com, '
+                      '.r:www.example.com, account1, account2:user2')
+    parser.add_option('-w', '--write-acl', dest='write_acl',
+                      help='Sets the Write ACL with post container commands. '
+                      'Quick summary of ACL syntax: account1, account2:user2')
+    parser.add_option('-m', '--meta', action='append', dest='meta', default=[],
+                      help='Sets a meta data item of the syntax name:value '
+                      'for use with post commands. This option may be '
+                      'repeated. Example: -m Color:Blue -m Size:Large')
     parser.add_option('-A', '--auth', dest='auth',
                       help='URL for obtaining an auth token')
     parser.add_option('-U', '--user', dest='user',
@@ -1235,7 +1445,7 @@ overridden with -A, -U, or -K.'''.strip('\n')
             if not getattr(options, attr, None):
                 exit(required_help)
 
-    commands = ('delete', 'download', 'list', 'stat', 'upload')
+    commands = ('delete', 'download', 'list', 'post', 'stat', 'upload')
     if not args or args[0] not in commands:
         parser.print_usage()
         if args:

@@ -61,7 +61,7 @@ setup(
         'bin/st', 'bin/swift-account-auditor',
         'bin/swift-account-audit', 'bin/swift-account-reaper',
         'bin/swift-account-replicator', 'bin/swift-account-server',
-        'bin/swift-auth-create-account',
+        'bin/swift-auth-add-user',
         'bin/swift-auth-recreate-accounts', 'bin/swift-auth-server',
         'bin/swift-container-auditor',
         'bin/swift-container-replicator',

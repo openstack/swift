@@ -4,7 +4,7 @@
 Developer's Authorization
 *************************
 
-.. _auth-server:
+.. _auth_server:
 
 Auth Server
 ===========

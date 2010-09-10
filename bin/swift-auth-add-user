@@ -1,0 +1,59 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from ConfigParser import ConfigParser
+from optparse import OptionParser
+from os.path import basename
+from sys import argv, exit
+
+from swift.common.bufferedhttp import http_connect_raw as http_connect
+
+
+if __name__ == '__main__':
+    default_conf = '/etc/swift/auth-server.conf'
+    parser = OptionParser(
+        usage='Usage: %prog [options] <account> <user> <password>')
+    parser.add_option('-c', '--conf', dest='conf', default=default_conf,
+        help='Configuration file to determine how to connect to the local '
+        'auth server (default: %s).' % default_conf)
+    parser.add_option('-a', '--admin', dest='admin', action='store_true',
+        default=False, help='Give the user administrator access; otherwise '
+        'the user will only have access to containers specifically allowed '
+        'with ACLs.')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+    if len(args) != 3:
+        parser.parse_args(['-h'])
+    account, user, password = args
+    c = ConfigParser()
+    if not c.read(options.conf):
+        exit('Unable to read conf file: %s' % options.conf)
+    conf = dict(c.items('app:auth-server'))
+    host = conf.get('bind_ip', '127.0.0.1')
+    port = int(conf.get('bind_port', 11000))
+    ssl = conf.get('cert_file') is not None
+    path = '/account/%s/%s' % (account, user)
+    headers = {'X-Auth-User-Key': password}
+    if options.admin:
+        headers['X-Auth-User-Admin'] = 'true'
+    conn = http_connect(host, port, 'PUT', path, headers, ssl=ssl)
+    resp = conn.getresponse()
+    if resp.status == 204:
+        print resp.getheader('x-storage-url')
+    else:
+        print 'Update failed: %s %s' % (resp.status, resp.reason)

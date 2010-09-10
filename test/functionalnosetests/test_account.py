@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import unittest
+from nose import SkipTest
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
@@ -12,7 +13,7 @@ class TestAccount(unittest.TestCase):
 
     def test_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, value):
             conn.request('POST', parsed.path, '',
                 {'X-Auth-Token': token, 'X-Account-Meta-Test': value})
@@ -48,7 +49,7 @@ class TestAccount(unittest.TestCase):
 
     def test_multi_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, name, value):
             conn.request('POST', parsed.path, '',
                          {'X-Auth-Token': token, name: value})
@@ -74,7 +75,7 @@ class TestAccount(unittest.TestCase):
 
     def test_bad_metadata(self):
         if skip:
-            return
+            raise SkipTest
         def post(url, token, parsed, conn, extra_headers):
             headers = {'X-Auth-Token': token}
             headers.update(extra_headers)
