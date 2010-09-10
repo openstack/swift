@@ -16,16 +16,12 @@
 
 import sys
 
-from swift.stats.log_uploader import LogUploader
+from swift.stats.log_processor import LogProcessorDaemon
 from swift.common import utils
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print "Usage: swift-log-uploader CONFIG_FILE plugin"
+    if len(sys.argv) < 2:
+        print "Usage: swift-log-stats-collector CONFIG_FILE"
         sys.exit()
-    uploader_conf = utils.readconf(sys.argv[1], 'log-processor')
-    plugin = sys.argv[2]
-    section_name = 'log-processor-%s' % plugin
-    plugin_conf = utils.readconf(sys.argv[1], section_name)
-    uploader_conf.update(plugin_conf)
-    uploader = LogUploader(uploader_conf, plugin).run(once=True)
+    conf = utils.readconf(sys.argv[1], log_name='log-stats-collector')
+    stats = LogProcessorDaemon(conf).run(once=True)

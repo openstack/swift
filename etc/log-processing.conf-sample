@@ -1,8 +1,8 @@
 # plugin section format is named "log-processor-<plugin>"
-# section "log-processor" is the generic defaults (overridden by plugins)
 
 [log-processor]
-# working_dir = /tmp/swift/
+swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
+# container_name = log_processing_data
 # proxy_server_conf = /etc/swift/proxy-server.conf
 # log_facility = LOG_LOCAL0
 # log_level = INFO

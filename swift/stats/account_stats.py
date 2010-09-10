@@ -48,7 +48,7 @@ class AccountStat(Daemon):
         src_filename = time.strftime(self.filename_format)
         tmp_filename = os.path.join('/tmp', src_filename)
         with open(tmp_filename, 'wb') as statfile:
-            #statfile.write('Account Name, Container Count, Object Count, Bytes Used, Created At\n')
+            #statfile.write('Account Name, Container Count, Object Count, Bytes Used\n')
             for device in os.listdir(self.devices):
                 if self.mount_check and \
                         not os.path.ismount(os.path.join(self.devices, device)):
@@ -68,16 +68,14 @@ class AccountStat(Daemon):
                             broker = AccountBroker(os.path.join(root, filename))
                             if not broker.is_deleted():
                                 account_name,
-                                created_at,
-                                _, _,
+                                _, _, _,
                                 container_count,
                                 object_count,
                                 bytes_used,
                                 _, _ = broker.get_info()
-                                line_data = '"%s",%d,%d,%d,%s\n' % (account_name,
+                                line_data = '"%s",%d,%d,%d\n' % (account_name,
                                                                     container_count,
                                                                     object_count,
-                                                                    bytes_used,
-                                                                    created_at)
+                                                                    bytes_used)
                                 statfile.write(line_data)
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))

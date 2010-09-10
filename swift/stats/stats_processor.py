@@ -18,9 +18,10 @@ class StatsLogProcessor(object):
     def __init__(self, conf):
         pass
 
-    def process(self, obj_stream):
+    def process(self, obj_stream, account, container, object_name):
         '''generate hourly groupings of data from one stats log file'''
         account_totals = {}
+        year, month, day, hour, _ = object_name.split('/')
         for line in obj_stream:
             if not line:
                 continue
@@ -35,17 +36,29 @@ class StatsLogProcessor(object):
                 object_count = int(object_count.strip('"'))
                 bytes_used = int(bytes_used.strip('"'))
                 created_at = created_at.strip('"')
-                d = account_totals.get(account, {})
-                d['count'] = d.setdefault('count', 0) + 1
+                aggr_key = (account, year, month, day, hour)
+                d = account_totals.get(aggr_key, {})
+                d['replica_count'] = d.setdefault('count', 0) + 1
                 d['container_count'] = d.setdefault('container_count', 0) + \
                                        container_count
                 d['object_count'] = d.setdefault('object_count', 0) + \
                                     object_count
                 d['bytes_used'] = d.setdefault('bytes_used', 0) + \
                                   bytes_used
-                d['created_at'] = created_at
                 account_totals[account] = d
             except (IndexError, ValueError):
                 # bad line data
                 pass
         return account_totals
+
+    def keylist_mapping(self):
+        '''
+        returns a dictionary of final keys mapped to source keys
+        '''
+        keylist_mapping = {
+        #   <db key> : <row key> or <set of row keys>
+            'bytes_used': 'bytes_used',
+            'container_count': 'container_count',
+            'object_count': 'object_count',
+            'replica_count': 'replica_count',
+        }

@@ -15,36 +15,23 @@
 
 from ConfigParser import ConfigParser
 import zlib
+import time
+import datetime
+import cStringIO
+import collections
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
-from swift.common.utils import get_logger
-
-class ConfigError(Exception):
-    pass
-
-class MissingProxyConfig(ConfigError):
-    pass
+from swift.common.utils import get_logger, readconf
 
 class LogProcessor(object):
 
     def __init__(self, conf, logger):
         stats_conf = conf.get('log-processor', {})
         
-        working_dir = stats_conf.get('working_dir', '/tmp/swift/')
-        if working_dir.endswith('/') and len(working_dir) > 1:
-            working_dir = working_dir[:-1]
-        self.working_dir = working_dir
         proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
                                                '/etc/swift/proxy-server.conf')
-        try:
-            c = ConfigParser()
-            c.read(proxy_server_conf_loc)
-            proxy_server_conf = dict(c.items('proxy-server'))
-        except:
-            raise
-            raise MissingProxyConfig()
-        self.proxy_server_conf = proxy_server_conf
+        self.proxy_server_conf = readconf(proxy_server_conf_loc, 'proxy-server')
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
         else:
@@ -71,7 +58,10 @@ class LogProcessor(object):
         stream = self.get_object_data(account, container, object_name,
                                       compressed=compressed)
         # look up the correct plugin and send the stream to it
-        return self.plugins[plugin_name]['instance'].process(stream)
+        return self.plugins[plugin_name]['instance'].process(stream,
+                                                             account,
+                                                             container,
+                                                             object_name)
 
     def get_data_list(self, start_date=None, end_date=None, listing_filter=None):
         total_list = []
@@ -81,6 +71,8 @@ class LogProcessor(object):
             l = self.get_container_listing(account, container, start_date,
                                            end_date, listing_filter)
             for i in l:
+                # The items in this list end up being passed as positional
+                # parameters to process_one_file.
                 total_list.append((p, account, container, i))
         return total_list
 
@@ -174,21 +166,146 @@ class LogProcessor(object):
         except ChunkReadTimeout:
             raise BadFileDownload()
 
-def multiprocess_collate(processor_args,
-                         start_date=None,
-                         end_date=None,
-                         listing_filter=None):
-    '''get listing of files and yield hourly data from them'''
-    p = LogProcessor(*processor_args)
-    all_files = p.get_data_list(start_date, end_date, listing_filter)
+    def generate_keylist_mapping(self):
+        keylist = {}
+        for plugin in self.plugins:
+            plugin_keylist = self.plugins['instance'].keylist_mapping()
+            for k, v in plugin_keylist.items():
+                o = keylist.get(k)
+                if o:
+                    if isinstance(o, set):
+                        if isinstance(v, set):
+                            o.update(v)
+                        else:
+                            o.update([v])
+                    else:
+                        o = set(o)
+                        if isinstance(v, set):
+                            o.update(v)
+                        else:
+                            o.update([v])
+                else:
+                    o = v
+                keylist[k] = o
+        return keylist
 
-    p.logger.info('loaded %d files to process' % len(all_files))
 
-    if not all_files:
-        # no work to do
-        return
+class LogProcessorDaemon(Daemon):
+    def __init__(self, conf):
+        super(self, LogProcessorDaemon).__init__(conf)
+        self.log_processor = LogProcessor(conf, self.logger)
+        c = readconf(conf)
+        self.lookback_hours = int(c.get('lookback_hours', '120'))
+        self.lookback_window = int(c.get('lookback_window', '%s'%lookback_hours))
+        self.log_processor_account = c['swift_account']
+        self.log_processor_container = c.get('container_name', 'log_processing_data')
 
-    worker_count = multiprocessing.cpu_count() - 1
+    def run_once(self):
+        self.logger.info("Beginning log processing")
+        start = time.time()
+        if lookback_hours == 0:
+            lookback_start = None
+            lookback_end = None
+        else:
+            lookback_start = datetime.datetime.now() - \
+                             datetime.timedelta(hours=lookback_hours)
+            lookback_start = lookback_start.strftime('%Y%m%d')
+            if lookback_window == 0:
+                lookback_end = None
+            else:
+                lookback_end = datetime.datetime.now() - \
+                               datetime.timedelta(hours=lookback_hours) + \
+                               datetime.timedelta(hours=lookback_window)
+                lookback_end = lookback_end.strftime('%Y%m%d')
+
+        try:
+            processed_files_stream = self.log_processor,get_object_data(
+                                        self.log_processor_account,
+                                        self.log_processor_container,
+                                        'processed_files.pickle.gz',
+                                        compressed=True)
+            buf = ''.join(x for x in processed_files_stream)
+            already_processed_files = cPickle.loads(buf)
+        except:
+            already_processed_files = set()
+
+        logs_to_process = self.log_processor.get_data_list(lookback_start,
+                                                           lookback_end,
+                                                           already_processed_files)
+        self.logger.info('loaded %d files to process' % len(logs_to_process))
+        if not logs_to_process:
+            self.logger.info("Log processing done (%0.2f minutes)" %
+                        ((time.time()-start)/60))
+            return
+
+        # map
+        processor_args = (conf, self.logger)
+        results = multiprocess_collate(processor_args, logs_to_process)
+
+        #reduce
+        aggr_data = {}
+        processed_files = already_processed_files
+        for item, data in results.items():
+            # since item contains the plugin and the log name, new plugins will
+            # "reprocess" the file and the results will be in the final csv.
+            processed_files.append(item)
+            for k, d in data.items():
+                existing_data = aggr_data.get(k, {})
+                for i, j in d.items():
+                    current = existing_data.get(i, 0)
+                    # merging strategy for key collisions is addition
+                    # processing plugins need to realize this
+                    existing_data[i] = current + j
+                aggr_data[k] = existing_data
+
+        # group
+        # reduce a large number of keys in aggr_data[k] to a small number of
+        # output keys
+        keylist_mapping = generate_keylist_mapping()
+        final_info = collections.defaultdict(dict)
+        for account, data in rows.items():
+            for key, mapping in keylist_mapping.items():
+                if isinstance(mapping, (list, set)):
+                    value = 0
+                    for k in mapping:
+                        try:
+                            value += data[k]
+                        except KeyError:
+                            pass
+                else:
+                    try:
+                        value = data[mapping]
+                    except KeyError:
+                        value = 0
+                final_info[account][key] = value
+
+        # output
+        sorted_keylist_mapping = sorted(keylist_mapping)
+        columns = 'bill_ts,data_ts,account,' + ','.join(sorted_keylist_mapping)
+        print columns
+        for (account, year, month, day, hour), d in final_info.items():
+            bill_ts = ''
+            data_ts = '%s/%s/%s %s:00:00' % (year, month, day, hour)
+            row = [bill_ts, data_ts]
+            row.append('%s' % account)
+            for k in sorted_keylist_mapping:
+                row.append('%s'%d[k])
+            print ','.join(row)
+
+        # cleanup
+        s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
+        f = cStringIO.StringIO(s)
+        self.log_processor.internal_proxy.upload_file(s,
+                                        self.log_processor_account,
+                                        self.log_processor_container,
+                                        'processed_files.pickle.gz')
+
+        self.logger.info("Log processing done (%0.2f minutes)" %
+                        ((time.time()-start)/60))
+
+def multiprocess_collate(processor_args, logs_to_process):
+    '''yield hourly data from logs_to_process'''
+    worker_count = multiprocessing.cpu_count()
     results = []
     in_queue = multiprocessing.Queue()
     out_queue = multiprocessing.Queue()
@@ -199,7 +316,7 @@ def multiprocess_collate(processor_args,
                                           out_queue))
         p.start()
         results.append(p)
-    for x in all_files:
+    for x in logs_to_process:
         in_queue.put(x)
     for _ in range(worker_count):
         in_queue.put(None)
@@ -229,6 +346,5 @@ def collate_worker(processor_args, in_queue, out_queue):
         except Queue.Empty:
             time.sleep(.1)
         else:
-            ret = None
-            ret = p.process_one_file(item)
+            ret = p.process_one_file(*item)
             out_queue.put((item, ret))

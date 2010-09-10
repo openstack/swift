@@ -530,19 +530,26 @@ def item_from_env(env, item_name):
 def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
-def readconf(conf, section_name, log_name=None):
+def readconf(conf, section_name=None, log_name=None):
     c = ConfigParser()
     if not c.read(conf):
         print "Unable to read config file %s" % conf
         sys.exit(1)
-    if c.has_section(section_name):
-        conf = dict(c.items(section_name))
-    else:
-        print "Unable to find %s config section in %s" % (section_name, conf)
-        sys.exit(1)
-    if "log_name" not in conf:
-        if log_name is not None:
-            conf['log_name'] = log_name
+    if section_name:
+        if c.has_section(section_name):
+            conf = dict(c.items(section_name))
         else:
-            conf['log_name'] = section_name
+            print "Unable to find %s config section in %s" % (section_name, conf)
+            sys.exit(1)
+        if "log_name" not in conf:
+            if log_name is not None:
+                conf['log_name'] = log_name
+            else:
+                conf['log_name'] = section_name
+    else:
+        conf = {}
+        for s in c.sections():
+            conf.update({s:dict(c.items(s))})
+        if 'log_name' not in conf:
+            conf['log_name'] = log_name
     return conf
