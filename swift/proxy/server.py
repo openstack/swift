@@ -851,6 +851,7 @@ class ContainerController(Controller):
                                                            req.headers[header])
                     except ValueError, err:
                         return HTTPBadRequest(request=req, body=str(err))
+        return None
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
@@ -882,8 +883,8 @@ class ContainerController(Controller):
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
-        self.clean_acls(req)
-        error_response = check_metadata(req, 'container')
+        error_response = \
+            self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
@@ -948,8 +949,8 @@ class ContainerController(Controller):
     @public
     def POST(self, req):
         """HTTP POST request handler."""
-        self.clean_acls(req)
-        error_response = check_metadata(req, 'container')
+        error_response = \
+            self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
         account_partition, accounts = self.account_info(self.account_name)
