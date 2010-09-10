@@ -57,7 +57,8 @@ def get_error_log(prefix):
 def audit(coropool, connpool, account, container_ring, object_ring, options):
     begun = time()
     with connpool.item() as conn:
-        estimated_items = [conn.head_account()[0]]
+        estimated_items = \
+            [int(conn.head_account()['x-account-container-count'])]
     items_completed = [0]
     retries_done = [0]
     containers_missing_replicas = {}
@@ -85,7 +86,7 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
                 retries_done[0] += attempts - 1
                 found = True
                 if not estimated_objects:
-                    estimated_objects = info[0]
+                    estimated_objects = int(info['x-container-object-count'])
             except ClientException, err:
                 if err.http_status not in (404, 507):
                     error_log('Giving up on /%s/%s/%s: %s' % (part, account,
@@ -130,7 +131,8 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
     cmarker = ''
     while True:
         with connpool.item() as conn:
-            containers = [c['name'] for c in conn.get_account(marker=cmarker)]
+            containers = \
+                [c['name'] for c in conn.get_account(marker=cmarker)[1]]
         if not containers:
             break
         cmarker = containers[-1]
@@ -142,7 +144,7 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
             while True:
                 with connpool.item() as conn:
                     objects = [o['name'] for o in
-                               conn.get_container(container, marker=omarker)]
+                        conn.get_container(container, marker=omarker)[1]]
                 if not objects:
                     break
                 omarker = objects[-1]
@@ -183,7 +185,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     with connpool.item() as conn:
         containers = [c['name'] for c in
                       conn.get_account(prefix='stats_container_dispersion_',
-                                       full_listing=True)]
+                                       full_listing=True)[1]]
     containers_listed = len(containers)
     if not containers_listed:
         print >>stderr, 'No containers to query. Has stats-populate been run?'
@@ -262,7 +264,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring, options):
     with connpool.item() as conn:
         try:
             objects = [o['name'] for o in conn.get_container(container,
-                       prefix='stats_object_dispersion_', full_listing=True)]
+                prefix='stats_object_dispersion_', full_listing=True)[1]]
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -384,7 +386,7 @@ def container_head_report(coropool, connpool, options):
     with connpool.item() as conn:
         containers = [c['name'] for c in
                       conn.get_account(prefix='stats_container_put_',
-                      full_listing=True)]
+                      full_listing=True)[1]]
     count = len(containers)
     def head(container):
         with connpool.item() as conn:
@@ -425,7 +427,7 @@ def container_get_report(coropool, connpool, options):
     with connpool.item() as conn:
         containers = [c['name'] for c in
                       conn.get_account(prefix='stats_container_put_',
-                      full_listing=True)]
+                      full_listing=True)[1]]
     count = len(containers)
     def get(container):
         with connpool.item() as conn:
@@ -463,7 +465,8 @@ def container_standard_listing_report(coropool, connpool, options):
         print 'Listing big_container',
     with connpool.item() as conn:
         try:
-            value = len(conn.get_container('big_container', full_listing=True))
+            value = \
+                len(conn.get_container('big_container', full_listing=True)[1])
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -486,7 +489,7 @@ def container_prefix_listing_report(coropool, connpool, options):
         try:
             for x in xrange(256):
                 value += len(conn.get_container('big_container',
-                                prefix=('%02x' % x), full_listing=True))
+                                prefix=('%02x' % x), full_listing=True)[1])
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -511,7 +514,7 @@ def container_prefix_delimiter_listing_report(coropool, connpool, options):
             try:
                 with connpool.item() as conn:
                     listing = conn.get_container('big_container',
-                                marker=marker, prefix=prefix, delimiter='/')
+                                marker=marker, prefix=prefix, delimiter='/')[1]
             except ClientException, err:
                 if err.http_status != 404:
                     raise
@@ -552,7 +555,7 @@ def container_delete_report(coropool, connpool, options):
     with connpool.item() as conn:
         containers = [c['name'] for c in
                       conn.get_account(prefix='stats_container_put_',
-                      full_listing=True)]
+                      full_listing=True)[1]]
     count = len(containers)
     def delete(container):
         with connpool.item() as conn:
@@ -630,7 +633,7 @@ def object_head_report(coropool, connpool, options):
     next_report = [time() + 2]
     with connpool.item() as conn:
         objects = [o['name'] for o in conn.get_container('stats_object_put',
-                   prefix='stats_object_put_', full_listing=True)]
+                   prefix='stats_object_put_', full_listing=True)[1]]
     count = len(objects)
     def head(obj):
         with connpool.item() as conn:
@@ -670,7 +673,7 @@ def object_get_report(coropool, connpool, options):
     next_report = [time() + 2]
     with connpool.item() as conn:
         objects = [o['name'] for o in conn.get_container('stats_object_put',
-                   prefix='stats_object_put_', full_listing=True)]
+                   prefix='stats_object_put_', full_listing=True)[1]]
     count = len(objects)
     def get(obj):
         with connpool.item() as conn:
@@ -710,7 +713,7 @@ def object_delete_report(coropool, connpool, options):
     next_report = [time() + 2]
     with connpool.item() as conn:
         objects = [o['name'] for o in conn.get_container('stats_object_put',
-                   prefix='stats_object_put_', full_listing=True)]
+                   prefix='stats_object_put_', full_listing=True)[1]]
     count = len(objects)
     def delete(obj):
         with connpool.item() as conn:
@@ -791,7 +794,7 @@ Usage: %prog [options] [conf_file]
     else:
         options.retries = int(conf.get('retries', 5))
     if not options.csv_output:
-        csv_output = conf.get('csv_output', '/etc/swift/stats.csv')
+        options.csv_output = conf.get('csv_output', '/etc/swift/stats.csv')
 
     coropool = GreenPool(size=concurrency)
 
@@ -908,8 +911,8 @@ Usage: %prog [options] [conf_file]
 
     if options.csv_output != 'None':
         try:
-            if not os.path.exists(csv_output):
-                f = open(csv_output, 'wb')
+            if not os.path.exists(options.csv_output):
+                f = open(options.csv_output, 'wb')
                 f.write('Timestamp,'
                         'Container Dispersion Report Time,'
                         'Container Dispersion Report Value,'
@@ -936,7 +939,7 @@ Usage: %prog [options] [conf_file]
                         'Object DELETE Report Success Rate\r\n')
                 csv = csv.writer(f)
             else:
-                csv = csv.writer(open(csv_output, 'ab'))
+                csv = csv.writer(open(options.csv_output, 'ab'))
             csv.writerow(report)
         except Exception, err:
             print >>stderr, 'Could not write CSV report:', err

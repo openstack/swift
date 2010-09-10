@@ -47,7 +47,8 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
     :param container: container name
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
-    :returns: tuple of (object count, bytes used)
+    :returns: a dict containing the response's headers (all header names will
+              be lowercase)
     """
     path = '/%s/%s' % (account, container)
     with Timeout(conn_timeout):
@@ -65,8 +66,10 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
                 http_host=node['ip'], http_port=node['port'],
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
-    return int(resp.getheader('x-container-object-count')), \
-           int(resp.getheader('x-container-bytes-used'))
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers
 
 
 def direct_get_container(node, part, account, container, marker=None,
@@ -85,7 +88,8 @@ def direct_get_container(node, part, account, container, marker=None,
     :param delimeter: delimeter for the query
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
-    :returns: list of objects
+    :returns: a tuple of (response headers, a list of objects) The response
+              headers will be a dict and all header names will be lowercase. 
     """
     path = '/%s/%s' % (account, container)
     qs = 'format=json'
@@ -111,10 +115,13 @@ def direct_get_container(node, part, account, container, marker=None,
             http_host=node['ip'], http_port=node['port'],
             http_device=node['device'], http_status=resp.status,
             http_reason=resp.reason)
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
     if resp.status == 204:
         resp.read()
-        return []
-    return json_loads(resp.read())
+        return resp_headers, []
+    return resp_headers, json_loads(resp.read())
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
@@ -126,6 +133,7 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
                 'DELETE', path, headers)
     with Timeout(response_timeout):
         resp = conn.getresponse()
+        resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException(
                 'Container server %s:%s direct DELETE %s gave status %s' %
@@ -135,7 +143,6 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
                 http_host=node['ip'], http_port=node['port'],
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
-    return resp
 
 
 def direct_head_object(node, part, account, container, obj, conn_timeout=5,
@@ -150,8 +157,8 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     :param obj: object name
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
-    :returns: tuple of (content-type, object size, last modified timestamp,
-              etag, metadata dictionary)
+    :returns: a dict containing the response's headers (all header names will
+              be lowercase)
     """
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
@@ -169,19 +176,14 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
                 http_host=node['ip'], http_port=node['port'],
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
-    return resp.getheader('content-type'), \
-           int(resp.getheader('content-length')), \
-           resp.getheader('last-modified'), \
-           resp.getheader('etag').strip('"'), \
-           metadata
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers
 
 
 def direct_get_object(node, part, account, container, obj, conn_timeout=5,
-        response_timeout=15):
+                      response_timeout=15, resp_chunk_size=None):
     """
     Get object directly from the object server.
 
@@ -192,7 +194,9 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     :param obj: object name
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
-    :returns: object
+    :param resp_chunk_size: if defined, chunk size of data to read.
+    :returns: a tuple of (response headers, the object's contents) The response
+              headers will be a dict and all header names will be lowercase. 
     """
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
@@ -201,6 +205,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
+        resp.read()
         raise ClientException(
                 'Object server %s:%s direct GET %s gave status %s' %
                 (node['ip'], node['port'],
@@ -209,16 +214,20 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
                 http_host=node['ip'], http_port=node['port'],
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
-    metadata = {}
-    for key, value in resp.getheaders():
-        if key.lower().startswith('x-object-meta-'):
-            metadata[unquote(key[len('x-object-meta-'):])] = unquote(value)
-    return (resp.getheader('content-type'),
-           int(resp.getheader('content-length')),
-           resp.getheader('last-modified'),
-           resp.getheader('etag').strip('"'),
-           metadata,
-           resp.read())
+    if resp_chunk_size:
+
+        def _object_body():
+            buf = resp.read(resp_chunk_size)
+            while buf:
+                yield buf
+                buf = resp.read(resp_chunk_size)
+        object_body = _object_body()
+    else:
+        object_body = resp.read()
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    return resp_headers, object_body
 
 
 def direct_delete_object(node, part, account, container, obj,
@@ -242,6 +251,7 @@ def direct_delete_object(node, part, account, container, obj,
                 'DELETE', path, headers)
     with Timeout(response_timeout):
         resp = conn.getresponse()
+        resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException(
                 'Object server %s:%s direct DELETE %s gave status %s' %
@@ -251,7 +261,6 @@ def direct_delete_object(node, part, account, container, obj,
                 http_host=node['ip'], http_port=node['port'],
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
-    return resp
 
 
 def retry(func, *args, **kwargs):

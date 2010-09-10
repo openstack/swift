@@ -40,23 +40,23 @@ class TestContainerFailures(unittest.TestCase):
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
 
         object1 = 'object1'
         client.put_object(self.url, self.token, container, object1, 'test')
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         kill(self.pids[self.port2server[cnodes[0]['port']]], SIGTERM)
 
         client.delete_object(self.url, self.token, container, object1)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         self.pids[self.port2server[cnodes[0]['port']]] = \
             Popen(['swift-container-server',
@@ -64,11 +64,11 @@ class TestContainerFailures(unittest.TestCase):
                     ((cnodes[0]['port'] - 6001) / 10)]).pid
         sleep(2)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # This okay because the first node hasn't got the update that the
         # object was deleted yet.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -87,7 +87,7 @@ class TestContainerFailures(unittest.TestCase):
         # account server, this'll pass, otherwise the first account server will
         # serve the listing and not have the container.
         # self.assert_(container in [c['name'] for c in
-        #              client.get_account(self.url, self.token)])
+        #              client.get_account(self.url, self.token)[1]])
 
         object2 = 'object2'
         # This will work because at least one (in this case, just one) account
@@ -95,44 +95,44 @@ class TestContainerFailures(unittest.TestCase):
         client.put_object(self.url, self.token, container, object2, 'test')
         # First node still doesn't know object1 was deleted yet; this is okay.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         get_to_final_state()
         # Our container delete never "finalized" because we started using it
         # before the delete settled.
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # And, so our object2 should still exist and object1's delete should
         # have finalized.
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
     def test_second_node_fail(self):
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
 
         object1 = 'object1'
         client.put_object(self.url, self.token, container, object1, 'test')
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         kill(self.pids[self.port2server[cnodes[1]['port']]], SIGTERM)
 
         client.delete_object(self.url, self.token, container, object1)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         self.pids[self.port2server[cnodes[1]['port']]] = \
             Popen(['swift-container-server',
@@ -140,9 +140,9 @@ class TestContainerFailures(unittest.TestCase):
                     ((cnodes[1]['port'] - 6001) / 10)]).pid
         sleep(2)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -161,42 +161,42 @@ class TestContainerFailures(unittest.TestCase):
         # account server, this'll pass, otherwise the first account server will
         # serve the listing and not have the container.
         # self.assert_(container in [c['name'] for c in
-        #     client.get_account(self.url, self.token)])
+        #     client.get_account(self.url, self.token)[1]])
 
         object2 = 'object2'
         # This will work because at least one (in this case, just one) account
         # server has to indicate the container exists for the put to continue.
         client.put_object(self.url, self.token, container, object2, 'test')
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         get_to_final_state()
         # Our container delete never "finalized" because we started using it
         # before the delete settled.
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # And, so our object2 should still exist and object1's delete should
         # have finalized.
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
     def test_first_two_nodes_fail(self):
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
 
         object1 = 'object1'
         client.put_object(self.url, self.token, container, object1, 'test')
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         for x in xrange(2):
@@ -204,9 +204,9 @@ class TestContainerFailures(unittest.TestCase):
 
         client.delete_object(self.url, self.token, container, object1)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         for x in xrange(2):
             self.pids[self.port2server[cnodes[x]['port']]] = \
@@ -215,11 +215,11 @@ class TestContainerFailures(unittest.TestCase):
                         ((cnodes[x]['port'] - 6001) / 10)]).pid
         sleep(2)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # This okay because the first node hasn't got the update that the
         # object was deleted yet.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -238,7 +238,7 @@ class TestContainerFailures(unittest.TestCase):
         # account server, this'll pass, otherwise the first account server will
         # serve the listing and not have the container.
         # self.assert_(container in [c['name'] for c in
-        #              client.get_account(self.url, self.token)])
+        #              client.get_account(self.url, self.token)[1]])
 
         object2 = 'object2'
         # This will work because at least one (in this case, just one) account
@@ -246,35 +246,35 @@ class TestContainerFailures(unittest.TestCase):
         client.put_object(self.url, self.token, container, object2, 'test')
         # First node still doesn't know object1 was deleted yet; this is okay.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         get_to_final_state()
         # Our container delete never "finalized" because we started using it
         # before the delete settled.
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # And, so our object2 should still exist and object1's delete should
         # have finalized.
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
     def test_last_two_nodes_fail(self):
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
 
         object1 = 'object1'
         client.put_object(self.url, self.token, container, object1, 'test')
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         for x in (1, 2):
@@ -282,9 +282,9 @@ class TestContainerFailures(unittest.TestCase):
 
         client.delete_object(self.url, self.token, container, object1)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         for x in (1, 2):
             self.pids[self.port2server[cnodes[x]['port']]] = \
@@ -293,9 +293,9 @@ class TestContainerFailures(unittest.TestCase):
                         ((cnodes[x]['port'] - 6001) / 10)]).pid
         sleep(2)
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -314,29 +314,29 @@ class TestContainerFailures(unittest.TestCase):
         # account server, this'll pass, otherwise the first account server will
         # serve the listing and not have the container.
         # self.assert_(container in [c['name'] for c in
-        #     client.get_account(self.url, self.token)])
+        #     client.get_account(self.url, self.token)[1]])
 
         object2 = 'object2'
         # This will work because at least one (in this case, just one) account
         # server has to indicate the container exists for the put to continue.
         client.put_object(self.url, self.token, container, object2, 'test')
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
         get_to_final_state()
         # Our container delete never "finalized" because we started using it
         # before the delete settled.
         self.assert_(container in [c['name'] for c in
-                     client.get_account(self.url, self.token)])
+                     client.get_account(self.url, self.token)[1]])
         # And, so our object2 should still exist and object1's delete should
         # have finalized.
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
         self.assert_(object2 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)])
+                     client.get_container(self.url, self.token, container)[1]])
 
 
 if __name__ == '__main__':

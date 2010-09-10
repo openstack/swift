@@ -42,6 +42,15 @@ Auth
     :members:
     :show-inheritance:
 
+.. _acls:
+
+ACLs
+====
+
+.. automodule:: swift.common.middleware.acl
+    :members:
+    :show-inheritance:
+
 .. _wsgi:
 
 WSGI

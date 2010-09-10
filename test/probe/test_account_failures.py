@@ -39,8 +39,10 @@ class TestAccountFailures(unittest.TestCase):
         client.put_container(self.url, self.token, container1)
         container2 = 'container2'
         client.put_container(self.url, self.token, container2)
-        self.assert_(client.head_account(self.url, self.token), (2, 0, 0))
-        containers = client.get_account(self.url, self.token)
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '2')
+        self.assertEquals(headers['x-account-object-count'], '0')
+        self.assertEquals(headers['x-account-bytes-used'], '0')
         found1 = False
         found2 = False
         for c in containers:
@@ -56,8 +58,10 @@ class TestAccountFailures(unittest.TestCase):
         self.assert_(found2)
 
         client.put_object(self.url, self.token, container2, 'object1', '1234')
-        self.assert_(client.head_account(self.url, self.token), (2, 0, 0))
-        containers = client.get_account(self.url, self.token)
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '2')
+        self.assertEquals(headers['x-account-object-count'], '0')
+        self.assertEquals(headers['x-account-bytes-used'], '0')
         found1 = False
         found2 = False
         for c in containers:
@@ -73,8 +77,10 @@ class TestAccountFailures(unittest.TestCase):
         self.assert_(found2)
 
         get_to_final_state()
-        containers = client.get_account(self.url, self.token)
-        self.assert_(client.head_account(self.url, self.token), (2, 1, 4))
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '2')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
         for c in containers:
@@ -94,8 +100,10 @@ class TestAccountFailures(unittest.TestCase):
 
         client.delete_container(self.url, self.token, container1)
         client.put_object(self.url, self.token, container2, 'object2', '12345')
-        self.assert_(client.head_account(self.url, self.token), (2, 1, 4))
-        containers = client.get_account(self.url, self.token)
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
         for c in containers:
@@ -115,8 +123,10 @@ class TestAccountFailures(unittest.TestCase):
                              'once']))
         for p in ps:
             p.wait()
-        self.assert_(client.head_account(self.url, self.token), (2, 2, 9))
-        containers = client.get_account(self.url, self.token)
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '2')
+        self.assertEquals(headers['x-account-bytes-used'], '9')
         found1 = False
         found2 = False
         for c in containers:
@@ -134,10 +144,12 @@ class TestAccountFailures(unittest.TestCase):
                    '/etc/swift/account-server/%d.conf' %
                     ((anodes[0]['port'] - 6002) / 10)]).pid
         sleep(2)
-        # This is the earlier object count and bytes because the first node
-        # doesn't have the newest udpates yet.
-        self.assert_(client.head_account(self.url, self.token), (2, 1, 4))
-        containers = client.get_account(self.url, self.token)
+        # This is the earlier counts and bytes because the first node doesn't
+        # have the newest udpates yet.
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '2')
+        self.assertEquals(headers['x-account-object-count'], '1')
+        self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
         for c in containers:
@@ -155,8 +167,10 @@ class TestAccountFailures(unittest.TestCase):
         self.assert_(found2)
 
         get_to_final_state()
-        containers = client.get_account(self.url, self.token)
-        self.assert_(client.head_account(self.url, self.token), (2, 2, 9))
+        headers, containers = client.get_account(self.url, self.token)
+        self.assertEquals(headers['x-account-container-count'], '1')
+        self.assertEquals(headers['x-account-object-count'], '2')
+        self.assertEquals(headers['x-account-bytes-used'], '9')
         found1 = False
         found2 = False
         for c in containers:

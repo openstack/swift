@@ -6,9 +6,9 @@ The Auth System
 Developer Auth
 --------------
 
-The auth system for Swift is based on the auth system from the existing
-Rackspace architecture -- actually from a few existing auth systems --
-and is therefore a bit disjointed. The distilled points about it are:
+The auth system for Swift is loosely based on the auth system from the existing
+Rackspace architecture -- actually from a few existing auth systems -- and is
+therefore a bit disjointed. The distilled points about it are:
 
 * The authentication/authorization part is outside Swift itself
 * The user of Swift passes in an auth token with each request
@@ -23,13 +23,16 @@ of something unique, some use "something else" but the salient point is that
 the token is a string which can be sent as-is back to the auth system for
 validation.
 
-An auth call is given the auth token and the Swift account hash. For a valid
-token, the auth system responds with a session TTL and overall expiration in
-seconds from now. Swift does not honor the session TTL but will cache the
-token up to the expiration time. Tokens can be purged through a call to the
-auth system.
+Swift will make calls to the external auth system, giving the auth token to be
+validated. For a valid token, the auth system responds with an overall
+expiration in seconds from now. Swift will cache the token up to the expiration
+time. The included devauth also has the concept of admin and non-admin users
+within an account. Admin users can do anything within the account. Non-admin
+users can only perform operations per container based on the container's
+X-Container-Read and X-Container-Write ACLs. For more information on ACLs, see
+:mod:`swift.common.middleware.acl`
 
-The user starts a session by sending a ReST request to that auth system
+The user starts a session by sending a ReST request to the external auth system
 to receive the auth token and a URL to the Swift system.
 
 --------------
@@ -40,8 +43,10 @@ Auth is written as wsgi middleware, so implementing your own auth is as easy
 as writing new wsgi middleware, and plugging it in to the proxy server.
 
 The current middleware is implemented in the DevAuthMiddleware class in
-swift/common/auth.py, and should be a good starting place for implemeting
-your own auth.
+swift/common/middleware/auth.py, and should be a good starting place for
+implementing your own auth.
+
+Also, see :doc:`development_auth`.
 
 ------------------
 History and Future

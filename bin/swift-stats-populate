@@ -48,7 +48,8 @@ def put_object(connpool, container, obj, report):
     global retries_done
     try:
         with connpool.item() as conn:
-            conn.put_object(container, obj, obj, metadata={'stats': obj})
+            conn.put_object(container, obj, obj,
+                            headers={'x-object-meta-stats': obj})
             retries_done += conn.attempts - 1
         if report:
             report(True)

@@ -21,10 +21,11 @@ from StringIO import StringIO
 from uuid import uuid4
 from logging import StreamHandler
 
+import sqlite3
 from webob import Request
 
 from swift.auth import server as auth_server
-from swift.common.db import DatabaseConnectionError
+from swift.common.db import DatabaseConnectionError, get_db_connection
 from swift.common.utils import get_logger
 
 
@@ -106,38 +107,25 @@ class TestAuthServer(unittest.TestCase):
 
     def test_validate_token_non_existant_token(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing',).split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        self.assertEquals(self.controller.validate_token(token + 'bad',
-            cfaccount), False)
-
-    def test_validate_token_non_existant_cfaccount(self):
-        auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
-            'test', 'tester', 'testing').split('/')[-1]
-        res = self.controller.handle_auth(Request.blank('/v1/test/auth',
-                environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Storage-User': 'tester',
-                         'X-Storage-Pass': 'testing'}))
-        token = res.headers['x-storage-token']
-        self.assertEquals(self.controller.validate_token(token,
-            cfaccount + 'bad'), False)
+        self.assertEquals(self.controller.validate_token(token + 'bad'), False)
 
     def test_validate_token_good(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing',).split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_validate_token_expired(self):
@@ -145,40 +133,38 @@ class TestAuthServer(unittest.TestCase):
         try:
             auth_server.time = lambda: 1
             auth_server.http_connect = fake_http_connect(201, 201, 201)
-            cfaccount = self.controller.create_account('test', 'tester',
+            cfaccount = self.controller.create_user('test', 'tester',
                             'testing').split('/')[-1]
             res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                     environ={'REQUEST_METHOD': 'GET'},
                     headers={'X-Storage-User': 'tester',
                              'X-Storage-Pass': 'testing'}))
             token = res.headers['x-storage-token']
-            ttl = self.controller.validate_token(
-                token, cfaccount)
+            ttl = self.controller.validate_token(token)
             self.assert_(ttl > 0, repr(ttl))
             auth_server.time = lambda: 1 + self.controller.token_life
-            self.assertEquals(self.controller.validate_token(
-                token, cfaccount), False)
+            self.assertEquals(self.controller.validate_token(token), False)
         finally:
             auth_server.time = orig_time
 
-    def test_create_account_no_new_account(self):
+    def test_create_user_no_new_account(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        result = self.controller.create_account('', 'tester', 'testing')
+        result = self.controller.create_user('', 'tester', 'testing')
         self.assertFalse(result)
 
-    def test_create_account_no_new_user(self):
+    def test_create_user_no_new_user(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        result = self.controller.create_account('test', '', 'testing')
+        result = self.controller.create_user('test', '', 'testing')
         self.assertFalse(result)
 
-    def test_create_account_no_new_password(self):
+    def test_create_user_no_new_password(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        result = self.controller.create_account('test', 'tester', '')
+        result = self.controller.create_user('test', 'tester', '')
         self.assertFalse(result)
 
-    def test_create_account_good(self):
+    def test_create_user_good(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test', 'tester', 'testing')
+        url = self.controller.create_user('test', 'tester', 'testing')
         self.assert_(url)
         self.assertEquals('/'.join(url.split('/')[:-1]),
             self.controller.default_cluster_url.rstrip('/'), repr(url))
@@ -191,7 +177,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_recreate_accounts_one(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        self.controller.create_account('test', 'tester', 'testing')
+        self.controller.create_user('test', 'tester', 'testing')
         auth_server.http_connect = fake_http_connect(201, 201, 201)
         rv = self.controller.recreate_accounts()
         self.assertEquals(rv.split()[0], '1', repr(rv))
@@ -199,13 +185,13 @@ class TestAuthServer(unittest.TestCase):
 
     def test_recreate_accounts_several(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        self.controller.create_account('test1', 'tester', 'testing')
+        self.controller.create_user('test1', 'tester', 'testing')
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        self.controller.create_account('test2', 'tester', 'testing')
+        self.controller.create_user('test2', 'tester', 'testing')
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        self.controller.create_account('test3', 'tester', 'testing')
+        self.controller.create_user('test3', 'tester', 'testing')
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        self.controller.create_account('test4', 'tester', 'testing')
+        self.controller.create_user('test4', 'tester', 'testing')
         auth_server.http_connect = fake_http_connect(201, 201, 201,
                                                      201, 201, 201,
                                                      201, 201, 201,
@@ -216,7 +202,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_recreate_accounts_one_fail(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test', 'tester', 'testing')
+        url = self.controller.create_user('test', 'tester', 'testing')
         cfaccount = url.split('/')[-1]
         auth_server.http_connect = fake_http_connect(500, 500, 500)
         rv = self.controller.recreate_accounts()
@@ -226,16 +212,16 @@ class TestAuthServer(unittest.TestCase):
 
     def test_recreate_accounts_several_fail(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test1', 'tester', 'testing')
+        url = self.controller.create_user('test1', 'tester', 'testing')
         cfaccounts = [url.split('/')[-1]]
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test2', 'tester', 'testing')
+        url = self.controller.create_user('test2', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test3', 'tester', 'testing')
+        url = self.controller.create_user('test3', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test4', 'tester', 'testing')
+        url = self.controller.create_user('test4', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(500, 500, 500,
                                                      500, 500, 500,
@@ -244,20 +230,20 @@ class TestAuthServer(unittest.TestCase):
         rv = self.controller.recreate_accounts()
         self.assertEquals(rv.split()[0], '4', repr(rv))
         failed = rv.split('[', 1)[-1][:-1].split(', ')
-        self.assertEquals(failed, [repr(a) for a in cfaccounts])
+        self.assertEquals(set(failed), set(repr(a) for a in cfaccounts))
 
     def test_recreate_accounts_several_fail_some(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test1', 'tester', 'testing')
+        url = self.controller.create_user('test1', 'tester', 'testing')
         cfaccounts = [url.split('/')[-1]]
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test2', 'tester', 'testing')
+        url = self.controller.create_user('test2', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test3', 'tester', 'testing')
+        url = self.controller.create_user('test3', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        url = self.controller.create_account('test4', 'tester', 'testing')
+        url = self.controller.create_user('test4', 'tester', 'testing')
         cfaccounts.append(url.split('/')[-1])
         auth_server.http_connect = fake_http_connect(500, 500, 500,
                                                      201, 201, 201,
@@ -266,11 +252,8 @@ class TestAuthServer(unittest.TestCase):
         rv = self.controller.recreate_accounts()
         self.assertEquals(rv.split()[0], '4', repr(rv))
         failed = rv.split('[', 1)[-1][:-1].split(', ')
-        expected = []
-        for i, value in enumerate(cfaccounts):
-            if not i % 2:
-                expected.append(repr(value))
-        self.assertEquals(failed, expected)
+        self.assertEquals(
+            len(set(repr(a) for a in cfaccounts) - set(failed)), 2)
 
     def test_auth_bad_path(self):
         self.assertRaises(ValueError, self.controller.handle_auth,
@@ -281,7 +264,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_SOSO_missing_headers(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -297,7 +280,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_SOSO_bad_account(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/testbad/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -312,7 +295,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_SOSO_bad_user(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -327,7 +310,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_SOSO_bad_password(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -342,31 +325,31 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_SOSO_good(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_good_Mosso_headers(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_bad_Mosso_headers(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing',).split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/v1/test/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -386,7 +369,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_missing_headers(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'}))
@@ -402,7 +385,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_bad_header_format(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -417,7 +400,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_bad_account(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -432,7 +415,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_bad_user(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -447,7 +430,7 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_bad_password(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -462,26 +445,26 @@ class TestAuthServer(unittest.TestCase):
 
     def test_auth_Mosso_good(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_Mosso_good_SOSO_header_names(self):
         auth_server.http_connect = fake_http_connect(201, 201, 201)
-        cfaccount = self.controller.create_account(
+        cfaccount = self.controller.create_user(
             'test', 'tester', 'testing').split('/')[-1]
         res = self.controller.handle_auth(Request.blank('/auth',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Storage-User': 'test:tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token, cfaccount)
+        ttl = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_basic_logging(self):
@@ -491,10 +474,10 @@ class TestAuthServer(unittest.TestCase):
         logger.logger.addHandler(log_handler)
         try:
             auth_server.http_connect = fake_http_connect(201, 201, 201)
-            url = self.controller.create_account('test', 'tester', 'testing')
+            url = self.controller.create_user('test', 'tester', 'testing')
             self.assertEquals(log.getvalue().rsplit(' ', 1)[0],
-                "auth SUCCESS create_account('test', 'tester', _) = %s" %
-                repr(url))
+                "auth SUCCESS create_user('test', 'tester', _, False) = %s"
+                % repr(url))
             log.truncate(0)
             def start_response(*args):
                 pass
@@ -593,6 +576,58 @@ class TestAuthServer(unittest.TestCase):
         finally:
             auth_server.Request = orig_Request
             logger.logger.handlers.remove(log_handler)
+
+    def test_upgrading_from_db1(self):
+        swift_dir = '/tmp/swift_test_auth_%s' % uuid4().hex
+        os.mkdir(swift_dir)
+        try:
+            # Create db1
+            db_file = os.path.join(swift_dir, 'auth.db')
+            conn = get_db_connection(db_file, okay_to_create=True)
+            conn.execute('''CREATE TABLE IF NOT EXISTS account (
+                            account TEXT, url TEXT, cfaccount TEXT,
+                            user TEXT, password TEXT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
+                            ON account (account)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS token (
+                            cfaccount TEXT, token TEXT, created FLOAT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_cfaccount
+                            ON token (cfaccount)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_created
+                            ON token (created)''')
+            conn.execute('''INSERT INTO account
+                            (account, url, cfaccount, user, password)
+                            VALUES ('act', 'url', 'cfa', 'usr', 'pas')''')
+            conn.execute('''INSERT INTO token (cfaccount, token, created)
+                            VALUES ('cfa', 'tok', '1')''')
+            conn.commit()
+            conn.close()
+            # Upgrade to current db
+            conf = {'swift_dir': swift_dir}
+            controller = auth_server.AuthController(conf, FakeRing())
+            # Check new items exist and are correct
+            conn = get_db_connection(db_file)
+            row = conn.execute('SELECT admin FROM account').fetchone()
+            self.assertEquals(row[0], 't')
+            row = conn.execute('SELECT user FROM token').fetchone()
+            self.assert_(not row)
+        finally:
+            rmtree(swift_dir)
+
+    def test_create_user_twice(self):
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        self.controller.create_user('test', 'tester', 'testing')
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        self.assertEquals(
+            self.controller.create_user('test', 'tester', 'testing'),
+            'already exists')
+
+    def test_create_2users_1account(self):
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        url = self.controller.create_user('test', 'tester', 'testing')
+        auth_server.http_connect = fake_http_connect(201, 201, 201)
+        url2 = self.controller.create_user('test', 'tester2', 'testing2')
+        self.assertEquals(url, url2)
 
 
 if __name__ == '__main__':
