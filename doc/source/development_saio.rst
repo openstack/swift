@@ -177,6 +177,8 @@ good idea what to do on other environments.
         [app:auth-server]
         use = egg:swift#auth
         default_cluster_url = http://127.0.0.1:8080/v1
+        # Highly recommended to change this.
+        super_admin_key = devauth
 
   #. Create `/etc/swift/proxy-server.conf`::
 
@@ -511,7 +513,9 @@ good idea what to do on other environments.
 
         #!/bin/bash
 
-        swift-auth-recreate-accounts
+        # Replace devauth with whatever your super_admin key is (recorded in
+        # /etc/swift/auth-server.conf).
+        swift-auth-recreate-accounts -K devauth
         swift-init object-updater start
         swift-init container-updater start
         swift-init object-replicator start
@@ -526,12 +530,12 @@ good idea what to do on other environments.
   #. `remakerings`
   #. `cd ~/swift/trunk; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
-  #. `swift-auth-add-user --admin test tester testing`
+  #. `swift-auth-add-user -K devauth -a test tester testing` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
-  #. `swift-auth-add-user --admin test2 tester2 testing2`
-  #. `swift-auth-add-user test tester3 testing3`
+  #. `swift-auth-add-user -K devauth -a test2 tester2 testing2` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
+  #. `swift-auth-add-user -K devauth test tester3 testing3` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
   #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
   #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)

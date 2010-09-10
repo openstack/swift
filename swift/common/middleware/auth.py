@@ -49,7 +49,7 @@ class DevAuth(object):
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token and token.startswith(self.reseller_prefix):
             memcache_client = cache_from_env(env)
-            key = 'devauth/%s' % token
+            key = '%s/token/%s' % (self.reseller_prefix, token)
             cached_auth_data = memcache_client.get(key)
             if cached_auth_data:
                 start, expiration, groups = cached_auth_data
@@ -85,14 +85,19 @@ class DevAuth(object):
         version, account, container, obj = split_path(req.path, 1, 4, True)
         if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
-        if req.remote_user and account in req.remote_user.split(','):
+        user_groups = (req.remote_user or '').split(',')
+        if '.reseller_admin' in user_groups:
+            return None
+        if account in user_groups and (req.method != 'PUT' or container):
+            # If the user is admin for the account and is not trying to do an
+            # account PUT...
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
             return None
         if not req.remote_user:
             return self.denied_response(req)
-        for user_group in req.remote_user.split(','):
+        for user_group in user_groups:
             if user_group in groups:
                 return None
         return self.denied_response(req)
