@@ -337,6 +337,10 @@ class AuthController(object):
         return rv
 
     def is_account_admin(self, request, for_account):
+        """
+        Returns True if the request represents coming from .super_admin, a
+        .reseller_admin, or an admin for the account specified.
+        """
         if request.headers.get('X-Auth-Admin-User') == '.super_admin' and \
                request.headers.get('X-Auth-Admin-Key') == self.super_admin_key:
             return True
