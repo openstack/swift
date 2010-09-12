@@ -336,25 +336,27 @@ class AuthController(object):
                          (rv, time() - begin))
         return rv
 
-    def authorize_reseller_admin(self, request):
+    def is_account_admin(self, request, for_account):
         if request.headers.get('X-Auth-Admin-User') == '.super_admin' and \
                request.headers.get('X-Auth-Admin-Key') == self.super_admin_key:
-            return None
+            return True
         try:
             account, user = \
                 request.headers.get('X-Auth-Admin-User').split(':', 1)
-        except ValueError:
-            return HTTPForbidden(request=request)
+        except (AttributeError, ValueError):
+            return False
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT user FROM account
-                WHERE account = ? AND user = ? AND password = ? AND
-                      reseller_admin = 't' ''',
+                SELECT reseller_admin, admin FROM account
+                WHERE account = ? AND user = ? AND password = ?''',
                 (account, user,
                  request.headers.get('X-Auth-Admin-Key'))).fetchone()
             if row:
-                return None
-        return HTTPForbidden(request=request)
+                if row[0] == 't':
+                    return True
+                if row[1] == 't' and account == for_account:
+                    return True
+        return False
 
     def handle_token(self, request):
         """
@@ -416,17 +418,18 @@ class AuthController(object):
               request.headers.get('X-Auth-Admin-User') != '.super_admin' or
               request.headers.get('X-Auth-Admin-Key') != self.super_admin_key):
             return HTTPForbidden(request=request)
-        resp = self.authorize_reseller_admin(request)
-        if resp:
-            return resp
+        create_account_admin = \
+            request.headers.get('x-auth-user-admin') == 'true'
+        if create_account_admin and \
+                not self.is_account_admin(request, account_name):
+            return HTTPForbidden(request=request)
         if 'X-Auth-User-Key' not in request.headers:
-            return HTTPBadRequest('X-Auth-User-Key is required')
+            return HTTPBadRequest(body='X-Auth-User-Key is required')
         password = request.headers['x-auth-user-key']
         storage_url = self.create_user(account_name, user_name, password,
-            request.headers.get('x-auth-user-admin') == 'true',
-            create_reseller_admin)
+                        create_account_admin, create_reseller_admin)
         if storage_url == 'already exists':
-            return HTTPBadRequest(storage_url)
+            return HTTPBadRequest(body=storage_url)
         if not storage_url:
             return HTTPServiceUnavailable()
         return HTTPNoContent(headers={'x-storage-url': storage_url})

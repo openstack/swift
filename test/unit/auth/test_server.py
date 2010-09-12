@@ -53,12 +53,9 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheader(self, name):
             return self.getheaders().get(name.lower())
     code_iter = iter(code_iter)
-    def connect(*args, **ckwargs):
-        if 'give_content_type' in kwargs:
-            if len(args) >= 7 and 'content_type' in args[6]:
-                kwargs['give_content_type'](args[6]['content-type'])
-            else:
-                kwargs['give_content_type']('')
+    def connect(*args, **kwargs):
+        connect.last_args = args
+        connect.last_kwargs = kwargs
         return FakeConn(code_iter.next())
     return connect
 
@@ -66,6 +63,7 @@ def fake_http_connect(*code_iter, **kwargs):
 class TestAuthServer(unittest.TestCase):
 
     def setUp(self):
+        self.ohttp_connect = auth_server.http_connect
         self.testdir = os.path.join(os.path.dirname(__file__),
                         'auth_server')
         rmtree(self.testdir, ignore_errors=1)
@@ -75,6 +73,7 @@ class TestAuthServer(unittest.TestCase):
         self.controller = auth_server.AuthController(self.conf)
 
     def tearDown(self):
+        auth_server.http_connect = self.ohttp_connect
         rmtree(self.testdir, ignore_errors=1)
 
     def test_get_conn(self):
@@ -120,7 +119,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token)
+        ttl, _, _, _ = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_validate_token_expired(self):
@@ -135,7 +134,7 @@ class TestAuthServer(unittest.TestCase):
                     headers={'X-Storage-User': 'tester',
                              'X-Storage-Pass': 'testing'}))
             token = res.headers['x-storage-token']
-            ttl = self.controller.validate_token(token)
+            ttl, _, _, _ = self.controller.validate_token(token)
             self.assert_(ttl > 0, repr(ttl))
             auth_server.time = lambda: 1 + self.controller.token_life
             self.assertEquals(self.controller.validate_token(token), False)
@@ -318,7 +317,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token)
+        ttl, _, _, _ = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_good_Mosso_headers(self):
@@ -330,7 +329,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token)
+        ttl, _, _, _ = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_bad_Mosso_headers(self):
@@ -438,7 +437,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token)
+        ttl, _, _, _ = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_Mosso_good_SOSO_header_names(self):
@@ -450,7 +449,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'test:tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl = self.controller.validate_token(token)
+        ttl, _, _, _ = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_basic_logging(self):
@@ -600,6 +599,56 @@ class TestAuthServer(unittest.TestCase):
         finally:
             rmtree(swift_dir)
 
+    def test_upgrading_from_db2(self):
+        swift_dir = '/tmp/swift_test_auth_%s' % uuid4().hex
+        os.mkdir(swift_dir)
+        try:
+            # Create db1
+            db_file = os.path.join(swift_dir, 'auth.db')
+            conn = get_db_connection(db_file, okay_to_create=True)
+            conn.execute('''CREATE TABLE IF NOT EXISTS account (
+                               account TEXT, url TEXT, cfaccount TEXT,
+                               user TEXT, password TEXT, admin TEXT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
+                            ON account (account)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS token (
+                               token TEXT, created FLOAT,
+                               account TEXT, user TEXT, cfaccount TEXT)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_token
+                            ON token (token)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_created
+                            ON token (created)''')
+            conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_account
+                            ON token (account)''')
+            conn.execute('''INSERT INTO account
+                            (account, url, cfaccount, user, password, admin)
+                            VALUES ('act', 'url', 'cfa', 'us1', 'pas', '')''')
+            conn.execute('''INSERT INTO account
+                            (account, url, cfaccount, user, password, admin)
+                            VALUES ('act', 'url', 'cfa', 'us2', 'pas', 't')''')
+            conn.execute('''INSERT INTO token
+                            (token, created, account, user, cfaccount)
+                            VALUES ('tok', '1', 'act', 'us1', 'cfa')''')
+            conn.commit()
+            conn.close()
+            # Upgrade to current db
+            conf = {'swift_dir': swift_dir, 'super_admin_key': 'testkey'}
+            controller = auth_server.AuthController(conf)
+            # Check new items exist and are correct
+            conn = get_db_connection(db_file)
+            row = conn.execute('''SELECT admin, reseller_admin
+                                FROM account WHERE user = 'us1' ''').fetchone()
+            self.assert_(not row[0], row[0])
+            self.assert_(not row[1], row[1])
+            row = conn.execute('''SELECT admin, reseller_admin
+                                FROM account WHERE user = 'us2' ''').fetchone()
+            self.assertEquals(row[0], 't')
+            self.assert_(not row[1], row[1])
+            row = conn.execute('SELECT user FROM token').fetchone()
+            self.assert_(row)
+        finally:
+            rmtree(swift_dir)
+
     def test_create_user_twice(self):
         auth_server.http_connect = fake_http_connect(201)
         self.controller.create_user('test', 'tester', 'testing')
@@ -614,6 +663,295 @@ class TestAuthServer(unittest.TestCase):
         auth_server.http_connect = fake_http_connect(201)
         url2 = self.controller.create_user('test', 'tester2', 'testing2')
         self.assertEquals(url, url2)
+
+    def test_no_super_admin_key(self):
+        conf = {'swift_dir': self.testdir, 'log_name': 'auth'}
+        self.assertRaises(ValueError, auth_server.AuthController, conf)
+        conf['super_admin_key'] = 'testkey'
+        auth_server.AuthController(conf)
+
+    def test_add_storage_account(self):
+        auth_server.http_connect = fake_http_connect(201)
+        stgact = self.controller.add_storage_account()
+        self.assert_(stgact.startswith(self.controller.reseller_prefix),
+                     stgact)
+        # Make sure token given is the expected single use token
+        token = auth_server.http_connect.last_args[-1]['X-Auth-Token']
+        self.assert_(self.controller.validate_token(token))
+        self.assert_(not self.controller.validate_token(token))
+        auth_server.http_connect = fake_http_connect(201)
+        stgact = self.controller.add_storage_account('bob')
+        self.assertEquals(stgact, 'bob')
+        # Make sure token given is the expected single use token
+        token = auth_server.http_connect.last_args[-1]['X-Auth-Token']
+        self.assert_(self.controller.validate_token(token))
+        self.assert_(not self.controller.validate_token(token))
+
+    def test_regular_user(self):
+        auth_server.http_connect = fake_http_connect(201)
+        self.controller.create_user('act', 'usr', 'pas').split('/')[-1]
+        res = self.controller.handle_auth(Request.blank('/v1.0',
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
+        _, _, _, stgact = \
+            self.controller.validate_token(res.headers['x-auth-token'])
+        self.assertEquals(stgact, '')
+
+    def test_account_admin(self):
+        auth_server.http_connect = fake_http_connect(201)
+        stgact = self.controller.create_user(
+            'act', 'usr', 'pas', admin=True).split('/')[-1]
+        res = self.controller.handle_auth(Request.blank('/v1.0',
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
+        _, _, _, vstgact = \
+            self.controller.validate_token(res.headers['x-auth-token'])
+        self.assertEquals(stgact, vstgact)
+
+    def test_reseller_admin(self):
+        auth_server.http_connect = fake_http_connect(201)
+        self.controller.create_user(
+            'act', 'usr', 'pas', reseller_admin=True).split('/')[-1]
+        res = self.controller.handle_auth(Request.blank('/v1.0',
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
+        _, _, _, stgact = \
+            self.controller.validate_token(res.headers['x-auth-token'])
+        self.assertEquals(stgact, '.reseller_admin')
+
+    def test_is_account_admin(self):
+        req = Request.blank('/', headers={'X-Auth-Admin-User': '.super_admin',
+                                          'X-Auth-Admin-Key': 'testkey'})
+        self.assert_(self.controller.is_account_admin(req, 'any'))
+        req = Request.blank('/', headers={'X-Auth-Admin-User': '.super_admin',
+                                          'X-Auth-Admin-Key': 'testkey2'})
+        self.assert_(not self.controller.is_account_admin(req, 'any'))
+        req = Request.blank('/', headers={'X-Auth-Admin-User': '.super_admi',
+                                          'X-Auth-Admin-Key': 'testkey'})
+        self.assert_(not self.controller.is_account_admin(req, 'any'))
+
+        auth_server.http_connect = fake_http_connect(201, 201)
+        self.controller.create_user(
+            'act1', 'resadmin', 'pas', reseller_admin=True).split('/')[-1]
+        self.controller.create_user('act1', 'usr', 'pas').split('/')[-1]
+        self.controller.create_user(
+            'act2', 'actadmin', 'pas', admin=True).split('/')[-1]
+
+        req = Request.blank('/', headers={'X-Auth-Admin-User': 'act1:resadmin',
+                                          'X-Auth-Admin-Key': 'pas'})
+        self.assert_(self.controller.is_account_admin(req, 'any'))
+        self.assert_(self.controller.is_account_admin(req, 'act1'))
+        self.assert_(self.controller.is_account_admin(req, 'act2'))
+
+        req = Request.blank('/', headers={'X-Auth-Admin-User': 'act1:usr',
+                                          'X-Auth-Admin-Key': 'pas'})
+        self.assert_(not self.controller.is_account_admin(req, 'any'))
+        self.assert_(not self.controller.is_account_admin(req, 'act1'))
+        self.assert_(not self.controller.is_account_admin(req, 'act2'))
+
+        req = Request.blank('/', headers={'X-Auth-Admin-User': 'act2:actadmin',
+                                          'X-Auth-Admin-Key': 'pas'})
+        self.assert_(not self.controller.is_account_admin(req, 'any'))
+        self.assert_(not self.controller.is_account_admin(req, 'act1'))
+        self.assert_(self.controller.is_account_admin(req, 'act2'))
+
+    def test_handle_add_user_create_reseller_admin(self):
+        auth_server.http_connect = fake_http_connect(201)
+        self.controller.create_user('act', 'usr', 'pas')
+        self.controller.create_user('act', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act', 'resadmin', 'pas',
+                                    reseller_admin=True)
+
+        req = Request.blank('/account/act/resadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Reseller-Admin': 'true'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/resadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Reseller-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:usr',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/resadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Reseller-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/resadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Reseller-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:resadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/resadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Reseller-Admin': 'true',
+                         'X-Auth-Admin-User': '.super_admin',
+                         'X-Auth-Admin-Key': 'testkey'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+    def test_handle_add_user_create_account_admin(self):
+        auth_server.http_connect = fake_http_connect(201, 201)
+        self.controller.create_user('act', 'usr', 'pas')
+        self.controller.create_user('act', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act2', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act2', 'resadmin', 'pas',
+                                    reseller_admin=True)
+
+        req = Request.blank('/account/act/actadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/actadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:usr',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/actadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act2:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/actadmin2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+        req = Request.blank('/account/act/actadmin3',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act2:resadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+        req = Request.blank('/account/act/actadmin4',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': '.super_admin',
+                         'X-Auth-Admin-Key': 'testkey'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+    def test_handle_add_user_create_normal_user(self):
+        auth_server.http_connect = fake_http_connect(201, 201)
+        self.controller.create_user('act', 'usr', 'pas')
+        self.controller.create_user('act', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act2', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act2', 'resadmin', 'pas',
+                                    reseller_admin=True)
+
+        req = Request.blank('/account/act/usr2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/usr2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:usr',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/usr2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act2:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/account/act/usr2',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+        req = Request.blank('/account/act/usr3',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act2:resadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+        req = Request.blank('/account/act/usr4',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': '.super_admin',
+                         'X-Auth-Admin-Key': 'testkey'})
+        resp = self.controller.handle_add_user(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
+
+    def test_handle_account_recreate_permissions(self):
+        auth_server.http_connect = fake_http_connect(201, 201)
+        self.controller.create_user('act', 'usr', 'pas')
+        self.controller.create_user('act', 'actadmin', 'pas', admin=True)
+        self.controller.create_user('act', 'resadmin', 'pas',
+                                    reseller_admin=True)
+
+        req = Request.blank('/recreate_accounts',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true'})
+        resp = self.controller.handle_account_recreate(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/recreate_accounts',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:usr',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_account_recreate(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/recreate_accounts',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:actadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_account_recreate(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/recreate_accounts',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': 'act:resadmin',
+                         'X-Auth-Admin-Key': 'pas'})
+        resp = self.controller.handle_account_recreate(req)
+        self.assert_(resp.status_int // 100 == 4, resp.status_int)
+
+        req = Request.blank('/recreate_accounts',
+                headers={'X-Auth-User-Key': 'pas',
+                         'X-Auth-User-Admin': 'true',
+                         'X-Auth-Admin-User': '.super_admin',
+                         'X-Auth-Admin-Key': 'testkey'})
+        resp = self.controller.handle_account_recreate(req)
+        self.assert_(resp.status_int // 100 == 2, resp.status_int)
 
 
 if __name__ == '__main__':
