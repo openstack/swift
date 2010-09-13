@@ -19,6 +19,7 @@ import time
 import datetime
 import cStringIO
 import collections
+from paste.deploy import appconfig
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
@@ -31,7 +32,8 @@ class LogProcessor(object):
         
         proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
                                                '/etc/swift/proxy-server.conf')
-        self.proxy_server_conf = readconf(proxy_server_conf_loc, 'proxy-server')
+        self.proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
+                                            name='proxy-server')
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
         else:
@@ -192,7 +194,7 @@ class LogProcessor(object):
 
 class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
-        super(self, LogProcessorDaemon).__init__(conf)
+        super(LogProcessorDaemon, stats).__init__(conf)
         self.log_processor = LogProcessor(conf, self.logger)
         c = readconf(conf)
         self.lookback_hours = int(c.get('lookback_hours', '120'))

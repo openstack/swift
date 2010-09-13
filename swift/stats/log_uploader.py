@@ -19,6 +19,7 @@ import hashlib
 import time
 import gzip
 import glob
+from paste.deploy import appconfig
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.daemon import Daemon
@@ -41,15 +42,15 @@ class LogUploader(Daemon):
     '''
 
     def __init__(self, uploader_conf, plugin_name):
-        super(self, LogUploader).__init__(uploader_conf)
+        super(LogUploader, self).__init__(uploader_conf)
         log_dir = uploader_conf.get('log_dir', '/var/log/swift/')
         swift_account = uploader_conf['swift_account']
         container_name = uploader_conf['container_name']
         source_filename_format = uploader_conf['source_filename_format']
         proxy_server_conf_loc = uploader_conf.get('proxy_server_conf',
                                             '/etc/swift/proxy-server.conf')
-        proxy_server_conf = utils.readconf(proxy_server_conf_loc,
-                                            'proxy-server')
+        proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
+                                      name='proxy-server')
         if not log_dir.endswith('/'):
             log_dir = log_dir + '/'
         self.log_dir = log_dir

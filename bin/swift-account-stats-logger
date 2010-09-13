@@ -16,7 +16,7 @@
 
 import sys
 
-from swift.account_stats import AccountStat
+from swift.stats.account_stats import AccountStat
 from swift.common import utils
 
 if __name__ == '__main__':

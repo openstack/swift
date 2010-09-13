@@ -15,20 +15,23 @@
 
 import os
 import time
+from paste.deploy import appconfig
 
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
 from swift.common.internal_proxy import InternalProxy
-from swift.common.utils import renamer, get_logger
+from swift.common.utils import renamer, get_logger, readconf
 from swift.common.daemon import Daemon
 
 class AccountStat(Daemon):
     def __init__(self, stats_conf):
-        super(self, AccountStat).__init__(stats_conf)
+        super(AccountStat, self).__init__(stats_conf)
         target_dir = stats_conf.get('log_dir', '/var/log/swift')
+        #TODO: figure out the server configs. also figure out internal_proxy
         account_server_conf_loc = stats_conf.get('account_server_conf',
                                              '/etc/swift/account-server.conf')
-        server_conf = utils.readconf(account_server_conf_loc, 'account-server')
+        server_conf = appconfig('config:%s' % account_server_conf_loc,
+                                name='account-server')
         filename_format = stats_conf['source_filename_format']
         self.filename_format = filename_format
         self.target_dir = target_dir
