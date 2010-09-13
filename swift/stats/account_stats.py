@@ -70,12 +70,12 @@ class AccountStat(Daemon):
                         if filename.endswith('.db'):
                             broker = AccountBroker(os.path.join(root, filename))
                             if not broker.is_deleted():
-                                account_name,
+                                (account_name,
                                 _, _, _,
                                 container_count,
                                 object_count,
                                 bytes_used,
-                                _, _ = broker.get_info()
+                                _, _) = broker.get_info()
                                 line_data = '"%s",%d,%d,%d\n' % (account_name,
                                                                     container_count,
                                                                     object_count,

@@ -8,6 +8,7 @@ swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 # log_level = INFO
 # lookback_hours = 120
 # lookback_window = 120
+# user = swift
 
 [log-processor-access]
 # log_dir = /var/log/swift/
@@ -21,6 +22,7 @@ class_path = swift.stats.access_processor.AccessLogProcessor
 # counted as servicenet
 # lb_private_ips =
 # server_name = proxy
+# user = swift
 
 [log-processor-stats]
 # log_dir = /var/log/swift/
@@ -29,3 +31,4 @@ container_name = account_stats
 source_filename_format = %Y%m%d%H*
 class_path = swift.stats.stats_processor.StatsLogProcessor
 # account_server_conf = /etc/swift/account-server.conf
+# user = swift
