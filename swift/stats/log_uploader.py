@@ -57,7 +57,7 @@ class LogUploader(Daemon):
         self.swift_account = swift_account
         self.container_name = container_name
         self.filename_format = source_filename_format
-        self.internal_proxy = InternalProxy(proxy_server_conf, logger)
+        self.internal_proxy = InternalProxy(proxy_server_conf)
         log_name = 'swift-log-uploader-%s' % plugin_name
         self.logger = utils.get_logger(uploader_conf, plugin_name)
 

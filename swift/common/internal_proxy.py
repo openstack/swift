@@ -32,7 +32,7 @@ class InternalProxy(object):
     :param retries: number of times to retry each request
     """
     def __init__(self, proxy_server_conf=None, logger=None, retries=0):
-        self.upload_app = BaseApplication(proxy_server_conf, logger)
+        self.upload_app = BaseApplication(proxy_server_conf, logger=logger)
         self.retries = retries
 
     def upload_file(self, source_file, account, container, object_name,
