@@ -1200,17 +1200,8 @@ class BaseApplication(object):
         :param start_response: WSGI callable
         """
         try:
-            if self.memcache is None:
+            if self.mamcache is None:
                 self.memcache = cache_from_env(env)
-                if self.memcache is None:
-                    class MemcacheStub(object):
-                        def get(self, *a, **kw): return None
-                        def set(self, *a, **kw): return None
-                        def incr(self, *a, **kw): return 0
-                        def delete(self, *a, **kw): return None
-                        def set_multi(self, *a, **kw): return None
-                        def get_multi(self, *a, **kw): return []
-                    self.memcache = MemcacheStub()
             req = self.update_request(Request(env))
             if 'eventlet.posthooks' in env:
                 env['eventlet.posthooks'].append(

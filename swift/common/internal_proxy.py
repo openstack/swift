@@ -20,6 +20,13 @@ from json import loads as json_loads
 from swift.common.compressed_file_reader import CompressedFileReader
 from swift.proxy.server import BaseApplication
 
+class MemcacheStub(object):
+    def get(self, *a, **kw): return None
+    def set(self, *a, **kw): return None
+    def incr(self, *a, **kw): return 0
+    def delete(self, *a, **kw): return None
+    def set_multi(self, *a, **kw): return None
+    def get_multi(self, *a, **kw): return []
 
 class InternalProxy(object):
     """
@@ -32,7 +39,9 @@ class InternalProxy(object):
     :param retries: number of times to retry each request
     """
     def __init__(self, proxy_server_conf=None, logger=None, retries=0):
-        self.upload_app = BaseApplication(proxy_server_conf, logger=logger)
+        self.upload_app = BaseApplication(proxy_server_conf,
+                                          memcache=MemcacheStub(),
+                                          logger=logger)
         self.retries = retries
 
     def upload_file(self, source_file, account, container, object_name,
