@@ -29,13 +29,11 @@ class StatsLogProcessor(object):
                 (account,
                 container_count,
                 object_count,
-                bytes_used,
-                created_at) = line.split(',')
+                bytes_used) = line.split(',')
                 account = account.strip('"')
                 container_count = int(container_count.strip('"'))
                 object_count = int(object_count.strip('"'))
                 bytes_used = int(bytes_used.strip('"'))
-                created_at = created_at.strip('"')
                 aggr_key = (account, year, month, day, hour)
                 d = account_totals.get(aggr_key, {})
                 d['replica_count'] = d.setdefault('count', 0) + 1

@@ -242,7 +242,7 @@ class LogProcessorDaemon(Daemon):
                                         self.log_processor_container,
                                         'processed_files.pickle.gz',
                                         compressed=True)
-            buf = ''.join(x for x in processed_files_stream)
+            buf = '\n'.join(x for x in processed_files_stream)
             if buf:
                 already_processed_files = cPickle.loads(buf)
             else:
@@ -269,7 +269,7 @@ class LogProcessorDaemon(Daemon):
         for item, data in results:
             # since item contains the plugin and the log name, new plugins will
             # "reprocess" the file and the results will be in the final csv.
-            processed_files.append(item)
+            processed_files.add(item)
             for k, d in data.items():
                 existing_data = aggr_data.get(k, {})
                 for i, j in d.items():
