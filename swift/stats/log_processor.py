@@ -230,14 +230,14 @@ class LogProcessorDaemon(Daemon):
         else:
             lookback_start = datetime.datetime.now() - \
                              datetime.timedelta(hours=self.lookback_hours)
-            lookback_start = lookback_start.strftime('%Y%m%d')
+            lookback_start = lookback_start.strftime('%Y%m%d%H')
             if self.lookback_window == 0:
                 lookback_end = None
             else:
                 lookback_end = datetime.datetime.now() - \
                                datetime.timedelta(hours=self.lookback_hours) + \
                                datetime.timedelta(hours=self.lookback_window)
-                lookback_end = lookback_end.strftime('%Y%m%d')
+                lookback_end = lookback_end.strftime('%Y%m%d%H')
         self.logger.debug('lookback_start: %s' % lookback_start)
         self.logger.debug('lookback_end: %s' % lookback_end)
         try:
