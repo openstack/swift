@@ -94,6 +94,11 @@ class Logger(object):
 
 class FakeApp(object):
     def __call__(self, env, start_response):
+        req = Request(env)
+        if 'swift.authorize' in env:
+            resp = env['swift.authorize'](req)
+            if resp:
+                return resp(env, start_response)
         return ['204 No Content']
 
 def start_response(*args):
@@ -103,6 +108,35 @@ class TestAuth(unittest.TestCase):
 
     def setUp(self):
         self.test_auth = auth.filter_factory({})(FakeApp())
+
+    def test_auth_deny_non_reseller_prefix(self):
+        old_http_connect = auth.http_connect
+        try:
+            auth.http_connect = mock_http_connect(204,
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
+            reqenv = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/BLAH_account',
+                'HTTP_X_AUTH_TOKEN': 'BLAH_t', 'swift.cache': FakeMemcache()}
+            result = ''.join(self.test_auth(reqenv, lambda x, y: None))
+            self.assert_(result.startswith('401'), result)
+            self.assertEquals(reqenv['swift.authorize'],
+                              self.test_auth.denied_response)
+        finally:
+            auth.http_connect = old_http_connect
+
+    def test_auth_deny_non_reseller_prefix_no_override(self):
+        old_http_connect = auth.http_connect
+        try:
+            auth.http_connect = mock_http_connect(204,
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
+            fake_authorize = lambda x: lambda x, y: ['500 Fake']
+            reqenv = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/BLAH_account',
+                'HTTP_X_AUTH_TOKEN': 'BLAH_t', 'swift.cache': FakeMemcache(),
+                'swift.authorize': fake_authorize}
+            result = ''.join(self.test_auth(reqenv, lambda x, y: None))
+            self.assert_(result.startswith('500 Fake'), result)
+            self.assertEquals(reqenv['swift.authorize'], fake_authorize)
+        finally:
+            auth.http_connect = old_http_connect
 
     def test_auth_fail(self):
         old_http_connect = auth.http_connect
@@ -121,8 +155,8 @@ class TestAuth(unittest.TestCase):
             auth.http_connect = mock_http_connect(204,
                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': FakeMemcache()},
-                lambda x, y: None))
+                'PATH_INFO': '/v/AUTH_cfa', 'HTTP_X_AUTH_TOKEN': 'AUTH_t',
+                'swift.cache': FakeMemcache()}, lambda x, y: None))
             self.assert_(result.startswith('204'), result)
         finally:
             auth.http_connect = old_http_connect
@@ -134,14 +168,14 @@ class TestAuth(unittest.TestCase):
             auth.http_connect = mock_http_connect(204,
                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
-                lambda x, y: None))
+                'PATH_INFO': '/v/AUTH_cfa', 'HTTP_X_AUTH_TOKEN': 'AUTH_t',
+                'swift.cache': fake_memcache}, lambda x, y: None))
             self.assert_(result.startswith('204'), result)
             auth.http_connect = mock_http_connect(404)
             # Should still be in memcache
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
-                lambda x, y: None))
+                'PATH_INFO': '/v/AUTH_cfa', 'HTTP_X_AUTH_TOKEN': 'AUTH_t',
+                'swift.cache': fake_memcache}, lambda x, y: None))
             self.assert_(result.startswith('204'), result)
         finally:
             auth.http_connect = old_http_connect
@@ -153,8 +187,8 @@ class TestAuth(unittest.TestCase):
             auth.http_connect = mock_http_connect(204,
                 {'x-auth-ttl': '0', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
             result = ''.join(self.test_auth({'REQUEST_METHOD': 'GET',
-                'HTTP_X_AUTH_TOKEN': 'AUTH_t', 'swift.cache': fake_memcache},
-                lambda x, y: None))
+                'PATH_INFO': '/v/AUTH_cfa', 'HTTP_X_AUTH_TOKEN': 'AUTH_t',
+                'swift.cache': fake_memcache}, lambda x, y: None))
             self.assert_(result.startswith('204'), result)
             auth.http_connect = mock_http_connect(404)
             # Should still be in memcache, but expired
@@ -170,7 +204,8 @@ class TestAuth(unittest.TestCase):
         try:
             auth.http_connect = mock_http_connect(204,
                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
-            req = Request.blank('/v/a/c/o', headers={'x-auth-token': 'AUTH_t'})
+            req = Request.blank('/v/AUTH_cfa/c/o',
+                                headers={'x-auth-token': 'AUTH_t'})
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))
             self.assert_(result.startswith('204'), result)
@@ -183,10 +218,10 @@ class TestAuth(unittest.TestCase):
         try:
             auth.http_connect = mock_http_connect(204,
                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
-            req = Request.blank('/v/a/c/o')
+            req = Request.blank('/v/AUTH_cfa/c/o')
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))
-            self.assert_(result.startswith('204'), result)
+            self.assert_(result.startswith('401'), result)
             self.assert_(not req.remote_user, req.remote_user)
         finally:
             auth.http_connect = old_http_connect
@@ -196,7 +231,7 @@ class TestAuth(unittest.TestCase):
         try:
             auth.http_connect = mock_http_connect(204,
                {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
-            req = Request.blank('/v/a/c/o',
+            req = Request.blank('/v/AUTH_cfa/c/o',
                                 headers={'x-storage-token': 'AUTH_t'})
             req.environ['swift.cache'] = FakeMemcache()
             result = ''.join(self.test_auth(req.environ, start_response))

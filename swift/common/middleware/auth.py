@@ -45,9 +45,9 @@ class DevAuth(object):
         validation. For an authenticated request, REMOTE_USER will be set to a
         comma separated list of the user's groups.
         """
-        groups = None
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token and token.startswith(self.reseller_prefix):
+            groups = None
             memcache_client = cache_from_env(env)
             key = '%s/token/%s' % (self.reseller_prefix, token)
             cached_auth_data = memcache_client.get(key)
@@ -68,13 +68,20 @@ class DevAuth(object):
                 groups = resp.getheader('x-auth-groups')
                 memcache_client.set(key, (time(), expiration, groups),
                                     timeout=expiration)
-        env['REMOTE_USER'] = groups
-        env['swift.authorize'] = self.authorize
-        env['swift.clean_acl'] = clean_acl
-        # We know the proxy logs the token, so we augment it just a bit to also
-        # log the authenticated user.
-        user = groups and groups.split(',', 1)[0] or ''
-        env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+            env['REMOTE_USER'] = groups
+            env['swift.authorize'] = self.authorize
+            env['swift.clean_acl'] = clean_acl
+            # We know the proxy logs the token, so we augment it just a bit to
+            # also log the authenticated user.
+            user = groups and groups.split(',', 1)[0] or ''
+            env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+        else:
+            version, rest = split_path(env.get('PATH_INFO', ''), 1, 2, True)
+            if rest and rest.startswith(self.reseller_prefix):
+                env['swift.authorize'] = self.authorize
+                env['swift.clean_acl'] = clean_acl
+            elif 'swift.authorize' not in env:
+                env['swift.authorize'] = self.denied_response
         return self.app(env, start_response)
 
     def authorize(self, req):
