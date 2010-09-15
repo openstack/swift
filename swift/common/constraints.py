@@ -36,6 +36,8 @@ MAX_OBJECT_NAME_LENGTH = 1024
 CONTAINER_LISTING_LIMIT = 10000
 #: Max container list length of a get request for an account
 ACCOUNT_LISTING_LIMIT = 10000
+MAX_ACCOUNT_NAME_LENGTH = 256
+MAX_CONTAINER_NAME_LENGTH = 256
 
 
 def check_metadata(req, target_type):

@@ -14,23 +14,21 @@
 # limitations under the License.
 
 from __future__ import with_statement
-import errno
 import os
-import socket
 from contextlib import contextmanager
 from time import gmtime, strftime, time
 from urllib import unquote, quote
 from uuid import uuid4
+from urlparse import urlparse
 
 import sqlite3
 from webob import Request, Response
-from webob.exc import HTTPBadRequest, HTTPNoContent, HTTPUnauthorized, \
-                      HTTPServiceUnavailable, HTTPNotFound
+from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNoContent, \
+    HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
 
-from swift.common.bufferedhttp import http_connect
+from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
-from swift.common.ring import Ring
-from swift.common.utils import get_logger, normalize_timestamp, split_path
+from swift.common.utils import get_logger, split_path
 
 
 class AuthController(object):
@@ -69,8 +67,7 @@ class AuthController(object):
 
     * The developer makes a ReST call to create a new user.
     * If the account for the user does not yet exist, the auth server makes
-      ReST calls to the Swift cluster's account servers to create a new account
-      on its end.
+      a ReST call to the Swift cluster to create a new account on its end.
     * The auth server records the information in its database.
 
     A last use case is recreating existing accounts; this is really only useful
@@ -78,34 +75,34 @@ class AuthController(object):
     the auth server's database is retained:
 
     * A developer makes an ReST call to have the existing accounts recreated.
-    * For each account in its database, the auth server makes ReST calls to
-      the Swift cluster's account servers to create a specific account on its
-      end.
+    * For each account in its database, the auth server makes a ReST call to
+      the Swift cluster to create the specific account on its end.
 
     :param conf: The [auth-server] dictionary of the auth server configuration
                  file
-    :param ring: Overrides loading the account ring from a file; useful for
-                 testing.
 
     See the etc/auth-server.conf-sample for information on the possible
     configuration parameters.
     """
 
-    def __init__(self, conf, ring=None):
+    def __init__(self, conf):
         self.logger = get_logger(conf)
+        self.super_admin_key = conf.get('super_admin_key')
+        if not self.super_admin_key:
+            msg = 'No super_admin_key set in conf file! Exiting.'
+            try:
+                self.logger.critical(msg)
+            except:
+                pass
+            raise ValueError(msg)
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
             self.reseller_prefix += '_'
-        self.default_cluster_url = \
-            conf.get('default_cluster_url', 'http://127.0.0.1:8080/v1')
+        self.default_cluster_url = conf.get('default_cluster_url',
+                                    'http://127.0.0.1:8080/v1').rstrip('/')
         self.token_life = int(conf.get('token_life', 86400))
         self.log_headers = conf.get('log_headers') == 'True'
-        if ring:
-            self.account_ring = ring
-        else:
-            self.account_ring = \
-                Ring(os.path.join(self.swift_dir, 'account.ring.gz'))
         self.db_file = os.path.join(self.swift_dir, 'auth.db')
         self.conn = get_db_connection(self.db_file, okay_to_create=True)
         try:
@@ -114,9 +111,16 @@ class AuthController(object):
             if str(err) == 'no such column: admin':
                 self.conn.execute("ALTER TABLE account ADD COLUMN admin TEXT")
                 self.conn.execute("UPDATE account SET admin = 't'")
+        try:
+            self.conn.execute('SELECT reseller_admin FROM account LIMIT 1')
+        except sqlite3.OperationalError, err:
+            if str(err) == 'no such column: reseller_admin':
+                self.conn.execute(
+                    "ALTER TABLE account ADD COLUMN reseller_admin TEXT")
         self.conn.execute('''CREATE TABLE IF NOT EXISTS account (
                                 account TEXT, url TEXT, cfaccount TEXT,
-                                user TEXT, password TEXT, admin TEXT)''')
+                                user TEXT, password TEXT, admin TEXT,
+                                reseller_admin TEXT)''')
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_account_account
                              ON account (account)''')
         try:
@@ -139,51 +143,36 @@ class AuthController(object):
 
     def add_storage_account(self, account_name=''):
         """
-        Creates an account within the Swift cluster by making a ReST call to
-        each of the responsible account servers.
+        Creates an account within the Swift cluster by making a ReST call.
 
         :param account_name: The desired name for the account; if omitted a
                              UUID4 will be used.
         :returns: False upon failure, otherwise the name of the account
                   within the Swift cluster.
         """
-        begin = time()
         orig_account_name = account_name
         if not account_name:
             account_name = '%s%s' % (self.reseller_prefix, uuid4().hex)
-        partition, nodes = self.account_ring.get_nodes(account_name)
-        headers = {'X-Timestamp': normalize_timestamp(time()),
-                   'x-cf-trans-id': 'tx' + str(uuid4())}
-        statuses = []
-        for node in nodes:
-            try:
-                conn = None
-                conn = http_connect(node['ip'], node['port'], node['device'],
-                        partition, 'PUT', '/' + account_name, headers)
-                source = conn.getresponse()
-                statuses.append(source.status)
-                if source.status >= 500:
-                    self.logger.error('ERROR With account server %s:%s/%s: '
-                        'Response %s %s: %s' %
-                        (node['ip'], node['port'], node['device'],
-                         source.status, source.reason, source.read(1024)))
-                conn = None
-            except BaseException, err:
-                log_call = self.logger.exception
-                msg = 'ERROR With account server ' \
-                      '%(ip)s:%(port)s/%(device)s (will retry later): ' % node
-                if isinstance(err, socket.error):
-                    if err[0] == errno.ECONNREFUSED:
-                        log_call = self.logger.error
-                        msg += 'Connection refused'
-                    elif err[0] == errno.EHOSTUNREACH:
-                        log_call = self.logger.error
-                        msg += 'Host unreachable'
-                log_call(msg)
-        rv = False
-        if len([s for s in statuses if (200 <= s < 300)]) > len(nodes) / 2:
-            rv = account_name
-        return rv
+        url = '%s/%s' % (self.default_cluster_url, account_name)
+        parsed = urlparse(url)
+        # Create a single use token.
+        token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
+        with self.get_conn() as conn:
+            conn.execute('''
+                INSERT INTO token
+                (token, created, account, user, cfaccount) VALUES
+                (?, ?, '.super_admin', '.single_use', '.reseller_admin')''',
+                (token, time()))
+            conn.commit()
+        conn = http_connect(parsed.hostname, parsed.port, 'PUT', parsed.path,
+                {'X-Auth-Token': token}, ssl=(parsed.scheme == 'https'))
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status // 100 != 2:
+            self.logger.error('ERROR attempting to create account %s: %s %s' %
+                              (url, resp.status, resp.reason))
+            return False
+        return account_name
 
     @contextmanager
     def get_conn(self):
@@ -229,7 +218,9 @@ class AuthController(object):
 
         :param token: The token to validate
         :returns: (TTL, account, user, cfaccount) if valid, False otherwise.
-                  cfaccount will be None for users without admin access.
+                  cfaccount will be None for users without admin access for the
+                  account. cfaccount will be .reseller_admin for users with
+                  full reseller admin rights.
         """
         begin = time()
         self.purge_old_tokens()
@@ -241,18 +232,20 @@ class AuthController(object):
                 (token,)).fetchone()
             if row is not None:
                 created = row[0]
-                if time() - created >= self.token_life:
+                if time() - created < self.token_life:
+                    rv = (self.token_life - (time() - created), row[1], row[2],
+                          row[3])
+                # Remove the token if it was expired or single use.
+                if not rv or rv[2] == '.single_use':
                     conn.execute('''
                         DELETE FROM token WHERE token = ?''', (token,))
                     conn.commit()
-                else:
-                    rv = (self.token_life - (time() - created), row[1], row[2],
-                          row[3])
         self.logger.info('validate_token(%s, _, _) = %s [%.02f]' %
                          (repr(token), repr(rv), time() - begin))
         return rv
 
-    def create_user(self, account, user, password, admin=False):
+    def create_user(self, account, user, password, admin=False,
+                    reseller_admin=False):
         """
         Handles the create_user call for developers, used to request a user be
         added in the auth server database. If the account does not yet exist,
@@ -274,6 +267,9 @@ class AuthController(object):
         :param admin: If true, the user will be granted full access to the
                       account; otherwise, another user will have to add the
                       user to the ACLs for containers to grant access.
+        :param reseller_admin: If true, the user will be granted full access to
+                               all accounts within this reseller, including the
+                               ability to create additional accounts.
 
         :returns: False if the create fails, 'already exists' if the user
                   already exists, or storage url if successful
@@ -287,9 +283,9 @@ class AuthController(object):
                 (account, user)).fetchone()
             if row:
                 self.logger.info(
-                    'ALREADY EXISTS create_user(%s, %s, _, %s) [%.02f]' %
+                    'ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]' %
                     (repr(account), repr(user), repr(admin),
-                     time() - begin))
+                     repr(reseller_admin), time() - begin))
                 return 'already exists'
             row = conn.execute(
                 'SELECT url, cfaccount FROM account WHERE account = ?',
@@ -301,21 +297,22 @@ class AuthController(object):
                 account_hash = self.add_storage_account()
                 if not account_hash:
                     self.logger.info(
-                        'FAILED create_user(%s, %s, _, %s) [%.02f]' %
+                        'FAILED create_user(%s, %s, _, %s, %s) [%.02f]' %
                         (repr(account), repr(user), repr(admin),
-                         time() - begin))
+                         repr(reseller_admin), time() - begin))
                     return False
                 url = self.default_cluster_url.rstrip('/') + '/' + account_hash
             conn.execute('''INSERT INTO account
-                (account, url, cfaccount, user, password, admin)
-                VALUES (?, ?, ?, ?, ?, ?)''',
+                (account, url, cfaccount, user, password, admin,
+                 reseller_admin)
+                VALUES (?, ?, ?, ?, ?, ?, ?)''',
                 (account, url, account_hash, user, password,
-                 admin and 't' or ''))
+                 admin and 't' or '', reseller_admin and 't' or ''))
             conn.commit()
         self.logger.info(
-            'SUCCESS create_user(%s, %s, _, %s) = %s [%.02f]' %
-            (repr(account), repr(user), repr(admin), repr(url),
-             time() - begin))
+            'SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]' %
+            (repr(account), repr(user), repr(admin), repr(reseller_admin),
+             repr(url), time() - begin))
         return url
 
     def recreate_accounts(self):
@@ -338,6 +335,32 @@ class AuthController(object):
         self.logger.info('recreate_accounts(_, _) = %s [%.02f]' %
                          (rv, time() - begin))
         return rv
+
+    def is_account_admin(self, request, for_account):
+        """
+        Returns True if the request represents coming from .super_admin, a
+        .reseller_admin, or an admin for the account specified.
+        """
+        if request.headers.get('X-Auth-Admin-User') == '.super_admin' and \
+               request.headers.get('X-Auth-Admin-Key') == self.super_admin_key:
+            return True
+        try:
+            account, user = \
+                request.headers.get('X-Auth-Admin-User').split(':', 1)
+        except (AttributeError, ValueError):
+            return False
+        with self.get_conn() as conn:
+            row = conn.execute('''
+                SELECT reseller_admin, admin FROM account
+                WHERE account = ? AND user = ? AND password = ?''',
+                (account, user,
+                 request.headers.get('X-Auth-Admin-Key'))).fetchone()
+            if row:
+                if row[0] == 't':
+                    return True
+                if row[1] == 't' and account == for_account:
+                    return True
+        return False
 
     def handle_token(self, request):
         """
@@ -362,7 +385,9 @@ class AuthController(object):
         if not validation:
             return HTTPNotFound()
         groups = ['%s:%s' % (validation[1], validation[2]), validation[1]]
-        if validation[3]: # admin access to a cfaccount
+        if validation[3]:
+            # admin access to a cfaccount or ".reseller_admin" to access to all
+            # accounts, including creating new ones.
             groups.append(validation[3])
         return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
                                       'X-Auth-Groups': ','.join(groups)})
@@ -380,6 +405,7 @@ class AuthController(object):
         Valid headers:
             * X-Auth-User-Key: <password>
             * X-Auth-User-Admin: <true|false>
+            * X-Auth-User-Reseller-Admin: <true|false>
 
         If the HTTP request returns with a 204, then the user was added,
         and the storage url will be available in the X-Storage-Url header.
@@ -390,13 +416,24 @@ class AuthController(object):
             _, account_name, user_name = split_path(request.path, minsegs=3)
         except ValueError:
             return HTTPBadRequest()
+        create_reseller_admin = \
+            request.headers.get('x-auth-user-reseller-admin') == 'true'
+        if create_reseller_admin and (
+              request.headers.get('X-Auth-Admin-User') != '.super_admin' or
+              request.headers.get('X-Auth-Admin-Key') != self.super_admin_key):
+            return HTTPForbidden(request=request)
+        create_account_admin = \
+            request.headers.get('x-auth-user-admin') == 'true'
+        if create_account_admin and \
+                not self.is_account_admin(request, account_name):
+            return HTTPForbidden(request=request)
         if 'X-Auth-User-Key' not in request.headers:
-            return HTTPBadRequest('X-Auth-User-Key is required')
+            return HTTPBadRequest(body='X-Auth-User-Key is required')
         password = request.headers['x-auth-user-key']
         storage_url = self.create_user(account_name, user_name, password,
-                        request.headers.get('x-auth-user-admin') == 'true')
+                        create_account_admin, create_reseller_admin)
         if storage_url == 'already exists':
-            return HTTPBadRequest(storage_url)
+            return HTTPBadRequest(body=storage_url)
         if not storage_url:
             return HTTPServiceUnavailable()
         return HTTPNoContent(headers={'x-storage-url': storage_url})
@@ -412,6 +449,9 @@ class AuthController(object):
 
         :param request: webob.Request object
         """
+        if request.headers.get('X-Auth-Admin-User') != '.super_admin' or \
+               request.headers.get('X-Auth-Admin-Key') != self.super_admin_key:
+            return HTTPForbidden(request=request)
         result = self.recreate_accounts()
         return Response(result, 200, request=request)
 
@@ -471,7 +511,7 @@ class AuthController(object):
         self.purge_old_tokens()
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT cfaccount, url, admin FROM account
+                SELECT cfaccount, url, admin, reseller_admin FROM account
                 WHERE account = ? AND user = ? AND password = ?''',
                 (account, user, password)).fetchone()
             if row is None:
@@ -479,6 +519,7 @@ class AuthController(object):
             cfaccount = row[0]
             url = row[1]
             admin = row[2] == 't'
+            reseller_admin = row[3] == 't'
             row = conn.execute('''
                 SELECT token FROM token WHERE account = ? AND user = ?''',
                 (account, user)).fetchone()
@@ -486,11 +527,16 @@ class AuthController(object):
                 token = row[0]
             else:
                 token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
+                token_cfaccount = ''
+                if admin:
+                    token_cfaccount = cfaccount
+                if reseller_admin:
+                    token_cfaccount = '.reseller_admin'
                 conn.execute('''
                     INSERT INTO token
                     (token, created, account, user, cfaccount)
                     VALUES (?, ?, ?, ?, ?)''',
-                    (token, time(), account, user, admin and cfaccount or ''))
+                    (token, time(), account, user, token_cfaccount))
                 conn.commit()
             return HTTPNoContent(headers={'x-auth-token': token,
                                           'x-storage-token': token,

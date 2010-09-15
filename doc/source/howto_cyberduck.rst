@@ -90,26 +90,43 @@ Installing Swift For Use With Cyberduck
 
 #.  Example proxy-server config::
 
-        [proxy-server]
-        bind_port = 8080
-        user = swift
+        [DEFAULT]
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
-
-        [auth-server]
+        
+        [pipeline:main]
+        pipeline = healthcheck cache auth proxy-server
+        
+        [app:proxy-server]
+        use = egg:swift#proxy
+        
+        [filter:auth]
+        use = egg:swift#auth
         ssl = true
+        
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+        
+        [filter:cache]
+        use = egg:swift#memcache
 
 #.  Example auth-server config::
 
-        [auth-server]
-        default_cluster_url = https://ec2-184-72-156-130.compute-1.amazonaws.com:8080/v1
-        user = swift
+        [DEFAULT]
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
+        
+        [pipeline:main]
+        pipeline = auth-server
+        
+        [app:auth-server]
+        use = egg:swift#auth
+        super_admin_key = devauth
+        default_cluster_url = https://ec2-184-72-156-130.compute-1.amazonaws.com:8080/v1
 
 #.  Use swift-auth-add-user to create a new account and admin user::
 
-        ubuntu@domU-12-31-39-03-CD-06:/home/swift/swift/bin$ swift-auth-add-user --admin a3 b3 c3
+        ubuntu@domU-12-31-39-03-CD-06:/home/swift/swift/bin$ swift-auth-add-user -K devauth -a a3 b3 c3
         https://ec2-184-72-156-130.compute-1.amazonaws.com:8080/v1/06228ccf-6d0a-4395-889e-e971e8de8781
 
     .. note::

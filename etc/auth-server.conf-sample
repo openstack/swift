@@ -12,6 +12,8 @@ pipeline = auth-server
 
 [app:auth-server]
 use = egg:swift#auth
+# Highly recommended to change this.
+super_admin_key = devauth
 # log_name = auth-server
 # log_facility = LOG_LOCAL0
 # log_level = INFO

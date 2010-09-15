@@ -172,7 +172,7 @@ class TestAccount(Base):
 
     def testPUT(self):
         self.env.account.conn.make_request('PUT')
-        self.assert_status(405)
+        self.assert_status([403, 405])
 
     def testAccountHead(self):
         try_count = 0
