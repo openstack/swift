@@ -197,7 +197,7 @@ class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
-        self.logger = get_logger(conf)
+        self.logger = get_logger(c)
         self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
         self.lookback_window = int(c.get('lookback_window',

@@ -77,6 +77,10 @@ class LogUploader(Daemon):
             offset = base_offset + start
             if c == '%Y':
                 year_offset = offset, offset+4
+                # Add in the difference between len(%Y) and the expanded
+                # version of %Y (????). This makes sure the codes after this
+                # one will align properly in the final filename.
+                base_offset += 2
             elif c == '%m':
                 month_offset = offset, offset+2
             elif c == '%d':
