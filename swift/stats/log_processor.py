@@ -243,7 +243,10 @@ class LogProcessorDaemon(Daemon):
                                         'processed_files.pickle.gz',
                                         compressed=True)
             buf = ''.join(x for x in processed_files_stream)
-            already_processed_files = cPickle.loads(buf)
+            if buf:
+                already_processed_files = cPickle.loads(buf)
+            else:
+                already_processed_files = set()
         except:
             already_processed_files = set()
         self.logger.debug('found %d processed files' % len(already_processed_files))
@@ -313,9 +316,6 @@ class LogProcessorDaemon(Daemon):
         # cleanup
         s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
         f = cStringIO.StringIO(s)
-        self.log_processor.internal_proxy.create_container(
-                                            self.log_processor_account,
-                                            self.log_processor_container)
         self.log_processor.internal_proxy.upload_file(f,
                                         self.log_processor_account,
                                         self.log_processor_container,

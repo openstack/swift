@@ -1200,7 +1200,7 @@ class BaseApplication(object):
         :param start_response: WSGI callable
         """
         try:
-            if self.mamcache is None:
+            if self.memcache is None:
                 self.memcache = cache_from_env(env)
             req = self.update_request(Request(env))
             if 'eventlet.posthooks' in env:

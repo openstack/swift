@@ -33,7 +33,7 @@ class DumbInternalProxy(object):
             def data():
                 yield 'obj\n'
                 yield 'data'
-        return code, data
+        return code, data()
 
 class TestLogProcessor(unittest.TestCase):
     
@@ -42,7 +42,7 @@ class TestLogProcessor(unittest.TestCase):
                     '/v1/acct/foo/bar?format=json&foo HTTP/1.0 200 - '\
                     'curl tk4e350daf-9338-4cc6-aabb-090e49babfbd '\
                     '6 95 - txfa431231-7f07-42fd-8fc7-7da9d8cc1f90 - 0.0262'
-    stats_test_line = 'account,1,2,3,1283378584.881391'
+    stats_test_line = 'account,1,2,3'
     proxy_config = {'log-processor': {
                       
                     }
@@ -152,11 +152,10 @@ class TestLogProcessor(unittest.TestCase):
         def get_object_data(*a,**kw):
             return [self.stats_test_line]
         p.get_object_data = get_object_data
-        result = p.process_one_file('stats', 'a', 'c', 'o')
+        result = p.process_one_file('stats', 'a', 'c', 'y/m/d/h/o')
         expected = {'account':
                     {'count': 1,
                     'object_count': 2,
                     'container_count': 1,
-                    'bytes_used': 3,
-                    'created_at': '1283378584.881391'}}
+                    'bytes_used': 3}}
         self.assertEquals(result, expected)
