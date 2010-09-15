@@ -24,6 +24,7 @@ from paste.deploy import appconfig
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
 from swift.common.utils import get_logger, readconf
+from swift.common.daemon import Daemon
 
 class LogProcessor(object):
 
@@ -194,30 +195,32 @@ class LogProcessor(object):
 
 class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
-        super(LogProcessorDaemon, stats).__init__(conf)
+        super(LogProcessorDaemon, self).__init__(conf)
         self.log_processor = LogProcessor(conf, self.logger)
-        c = readconf(conf)
+        c = conf.get('log-processor')
         self.lookback_hours = int(c.get('lookback_hours', '120'))
-        self.lookback_window = int(c.get('lookback_window', '%s'%lookback_hours))
+        self.lookback_window = int(c.get('lookback_window',
+                                   str(self.lookback_hours)))
         self.log_processor_account = c['swift_account']
-        self.log_processor_container = c.get('container_name', 'log_processing_data')
+        self.log_processor_container = c.get('container_name',
+                                             'log_processing_data')
 
     def run_once(self):
         self.logger.info("Beginning log processing")
         start = time.time()
-        if lookback_hours == 0:
+        if self.lookback_hours == 0:
             lookback_start = None
             lookback_end = None
         else:
             lookback_start = datetime.datetime.now() - \
-                             datetime.timedelta(hours=lookback_hours)
+                             datetime.timedelta(hours=self.lookback_hours)
             lookback_start = lookback_start.strftime('%Y%m%d')
-            if lookback_window == 0:
+            if self.lookback_window == 0:
                 lookback_end = None
             else:
                 lookback_end = datetime.datetime.now() - \
-                               datetime.timedelta(hours=lookback_hours) + \
-                               datetime.timedelta(hours=lookback_window)
+                               datetime.timedelta(hours=self.lookback_hours) + \
+                               datetime.timedelta(hours=self.lookback_window)
                 lookback_end = lookback_end.strftime('%Y%m%d')
 
         try:
