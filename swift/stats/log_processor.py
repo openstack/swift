@@ -68,15 +68,15 @@ class LogProcessor(object):
 
     def get_data_list(self, start_date=None, end_date=None, listing_filter=None):
         total_list = []
-        for p in self.plugins:
-            account = p['swift_account']
-            container = p['container_name']
+        for name, data in self.plugins.items():
+            account = data['swift_account']
+            container = data['container_name']
             l = self.get_container_listing(account, container, start_date,
                                            end_date, listing_filter)
             for i in l:
                 # The items in this list end up being passed as positional
                 # parameters to process_one_file.
-                total_list.append((p, account, container, i))
+                total_list.append((name, account, container, i))
         return total_list
 
     def get_container_listing(self, swift_account, container_name, start_date=None,
@@ -195,9 +195,9 @@ class LogProcessor(object):
 
 class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
-        super(LogProcessorDaemon, self).__init__(conf)
-        self.log_processor = LogProcessor(conf, self.logger)
         c = conf.get('log-processor')
+        super(LogProcessorDaemon, self).__init__(c)
+        self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
         self.lookback_window = int(c.get('lookback_window',
                                    str(self.lookback_hours)))
