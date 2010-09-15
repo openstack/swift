@@ -13,14 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from os import kill
+from os import environ, kill
 from signal import SIGTERM
 from subprocess import call, Popen
 from time import sleep
+from ConfigParser import ConfigParser
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.client import get_auth
 from swift.common.ring import Ring
+
+
+AUTH_SERVER_CONF_FILE = environ.get('SWIFT_AUTH_SERVER_CONF_FILE',
+                                    '/etc/swift/auth-server.conf')
+c = ConfigParser()
+if not c.read(AUTH_SERVER_CONF_FILE):
+    exit('Unable to read config file: %s' % AUTH_SERVER_CONF_FILE)
+conf = dict(c.items('app:auth-server'))
+SUPER_ADMIN_KEY = conf.get('super_admin_key', 'devauth')
 
 
 def kill_pids(pids):
@@ -50,7 +60,9 @@ def reset_environment():
         container_ring = Ring('/etc/swift/container.ring.gz')
         object_ring = Ring('/etc/swift/object.ring.gz')
         sleep(5)
-        conn = http_connect('127.0.0.1', '11000', 'POST', '/recreate_accounts')
+        conn = http_connect('127.0.0.1', '11000', 'POST', '/recreate_accounts',
+                headers={'X-Auth-Admin-User': '.super_admin',
+                         'X-Auth-Admin-Key': SUPER_ADMIN_KEY})
         resp = conn.getresponse()
         if resp.status != 200:
             raise Exception('Recreating accounts failed. (%d)' % resp.status)

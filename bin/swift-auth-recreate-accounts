@@ -15,25 +15,37 @@
 # limitations under the License.
 
 from ConfigParser import ConfigParser
+from optparse import OptionParser
 from sys import argv, exit
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 if __name__ == '__main__':
-    f = '/etc/swift/auth-server.conf'
-    if len(argv) == 2:
-        f = argv[1]
-    elif len(argv) != 1:
-        exit('Syntax: %s [conf_file]' % argv[0])
+    default_conf = '/etc/swift/auth-server.conf'
+    parser = OptionParser(usage='Usage: %prog [options]')
+    parser.add_option('-c', '--conf', dest='conf', default=default_conf,
+        help='Configuration file to determine how to connect to the local '
+        'auth server (default: %s).' % default_conf)
+    parser.add_option('-U', '--admin-user', dest='admin_user',
+        default='.super_admin', help='The user with admin rights to recreate '
+        'accounts (default: .super_admin).')
+    parser.add_option('-K', '--admin-key', dest='admin_key',
+        help='The key for the user with admin rights to recreate accounts.')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
     c = ConfigParser()
-    if not c.read(f):
-        exit('Unable to read conf file: %s' % f)
+    if not c.read(options.conf):
+        exit('Unable to read conf file: %s' % options.conf)
     conf = dict(c.items('app:auth-server'))
     host = conf.get('bind_ip', '127.0.0.1')
     port = int(conf.get('bind_port', 11000))
     ssl = conf.get('cert_file') is not None
     path = '/recreate_accounts'
-    conn = http_connect(host, port, 'POST', path, ssl=ssl)
+    conn = http_connect(host, port, 'POST', path, ssl=ssl,
+            headers={'X-Auth-Admin-User': options.admin_user,
+                     'X-Auth-Admin-Key': options.admin_key})
     resp = conn.getresponse()
     if resp.status == 200:
         print resp.read()

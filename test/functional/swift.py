@@ -124,7 +124,7 @@ class Connection(object):
         if response.status == 401:
             raise AuthenticationFailed()
 
-        if response.status != 204:
+        if response.status not in (200, 204):
             raise ResponseError(response)
 
         for hdr in response.getheaders():

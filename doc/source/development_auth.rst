@@ -6,10 +6,13 @@ Auth Server and Middleware
 Creating Your Own Auth Server and Middleware
 --------------------------------------------
 
-The included swift/common/middleware/auth.py is a good minimal example of how
-to create auth middleware. The main points are that the auth middleware can
-reject requests up front, before they ever get to the Swift Proxy application,
-and afterwards when the proxy issues callbacks to verify authorization.
+The included swift/auth/server.py and swift/common/middleware/auth.py are good
+minimal examples of how to create an external auth server and proxy server auth
+middleware. Also, see the `Swauth <https://launchpad.net/swauth>`_ project for
+a more complete implementation. The main points are that the auth middleware
+can reject requests up front, before they ever get to the Swift Proxy
+application, and afterwards when the proxy issues callbacks to verify
+authorization.
 
 It's generally good to separate the authentication and authorization
 procedures. Authentication verifies that a request actually comes from who it

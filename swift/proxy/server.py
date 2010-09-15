@@ -35,12 +35,11 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, normalize_timestamp, split_path, \
     cache_from_env
 from swift.common.bufferedhttp import http_connect
-from swift.common.constraints import check_object_creation, check_metadata, \
-    MAX_FILE_SIZE, check_xml_encodable
+from swift.common.constraints import check_metadata, check_object_creation, \
+    check_xml_encodable, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
+    MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout
-
-MAX_CONTAINER_NAME_LENGTH = 256
 
 
 def update_headers(response, headers):
@@ -1078,6 +1077,59 @@ class AccountController(Controller):
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         return self.GETorHEAD_base(req, 'Account', partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
+
+    @public
+    def PUT(self, req):
+        """HTTP PUT request handler."""
+        error_response = check_metadata(req, 'account')
+        if error_response:
+            return error_response
+        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+            resp = HTTPBadRequest(request=req)
+            resp.body = 'Account name length of %d longer than %d' % \
+                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+            return resp
+        account_partition, accounts = \
+            self.app.account_ring.get_nodes(self.account_name)
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'x-cf-trans-id': self.trans_id}
+        headers.update(value for value in req.headers.iteritems()
+            if value[0].lower().startswith('x-account-meta-'))
+        statuses = []
+        reasons = []
+        bodies = []
+        for node in self.iter_nodes(account_partition, accounts,
+                                    self.app.account_ring):
+            if self.error_limited(node):
+                continue
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], account_partition, 'PUT',
+                            req.path_info, headers)
+                with Timeout(self.app.node_timeout):
+                    source = conn.getresponse()
+                    body = source.read()
+                    if 200 <= source.status < 300 \
+                            or 400 <= source.status < 500:
+                        statuses.append(source.status)
+                        reasons.append(source.reason)
+                        bodies.append(body)
+                    else:
+                        if source.status == 507:
+                            self.error_limit(node)
+            except:
+                self.exception_occurred(node, 'Account',
+                    'Trying to PUT to %s' % req.path)
+            if len(statuses) >= len(accounts):
+                break
+        while len(statuses) < len(accounts):
+            statuses.append(503)
+            reasons.append('')
+            bodies.append('')
+        self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        return self.best_response(req, statuses, reasons, bodies,
+                                  'Account PUT')
 
     @public
     def POST(self, req):

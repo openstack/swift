@@ -33,6 +33,16 @@ if __name__ == '__main__':
         default=False, help='Give the user administrator access; otherwise '
         'the user will only have access to containers specifically allowed '
         'with ACLs.')
+    parser.add_option('-r', '--reseller-admin', dest='reseller_admin',
+        action='store_true', default=False, help='Give the user full reseller '
+        'administrator access, giving them full access to all accounts within '
+        'the reseller, including the ability to create new accounts. Creating '
+        'a new reseller admin requires super_admin rights.')
+    parser.add_option('-U', '--admin-user', dest='admin_user',
+        default='.super_admin', help='The user with admin rights to add users '
+        '(default: .super_admin).')
+    parser.add_option('-K', '--admin-key', dest='admin_key',
+        help='The key for the user with admin rights to add users.')
     args = argv[1:]
     if not args:
         args.append('-h')
@@ -48,9 +58,13 @@ if __name__ == '__main__':
     port = int(conf.get('bind_port', 11000))
     ssl = conf.get('cert_file') is not None
     path = '/account/%s/%s' % (account, user)
-    headers = {'X-Auth-User-Key': password}
+    headers = {'X-Auth-Admin-User': options.admin_user,
+               'X-Auth-Admin-Key': options.admin_key,
+               'X-Auth-User-Key': password}
     if options.admin:
         headers['X-Auth-User-Admin'] = 'true'
+    if options.reseller_admin:
+        headers['X-Auth-User-Reseller-Admin'] = 'true'
     conn = http_connect(host, port, 'PUT', path, headers, ssl=ssl)
     resp = conn.getresponse()
     if resp.status == 204:
