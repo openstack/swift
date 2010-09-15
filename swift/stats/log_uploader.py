@@ -69,10 +69,10 @@ class LogUploader(Daemon):
             ((time.time()-start)/60))
 
     def upload_all_logs(self):
-        i = [(c,self.filename_format.index(c)) for c in '%Y %m %d %H'.split()]
+        i = [(self.filename_format.index(c), c) for c in '%Y %m %d %H'.split()]
         i.sort()
         year_offset = month_offset = day_offset = hour_offset = None
-        for c, start in i:
+        for start, c in i:
             if c == '%Y':
                 year_offset = start, start+4
             elif c == '%m':
@@ -85,10 +85,10 @@ class LogUploader(Daemon):
             # don't have all the parts, can't upload anything
             return
         glob_pattern = self.filename_format
-        glob_pattern = glob_pattern.replace('%Y', '????')
-        glob_pattern = glob_pattern.replace('%m', '??')
-        glob_pattern = glob_pattern.replace('%d', '??')
-        glob_pattern = glob_pattern.replace('%H', '??')
+        glob_pattern = glob_pattern.replace('%Y', '????', 1)
+        glob_pattern = glob_pattern.replace('%m', '??', 1)
+        glob_pattern = glob_pattern.replace('%d', '??', 1)
+        glob_pattern = glob_pattern.replace('%H', '??', 1)
         filelist = glob.iglob(os.path.join(self.log_dir, glob_pattern))
         current_hour = int(time.strftime('%H'))
         today = int(time.strftime('%Y%m%d'))
