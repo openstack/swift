@@ -72,15 +72,17 @@ class LogUploader(Daemon):
         i = [(self.filename_format.index(c), c) for c in '%Y %m %d %H'.split()]
         i.sort()
         year_offset = month_offset = day_offset = hour_offset = None
+        base_offset = len(self.log_dir)
         for start, c in i:
+            offset = base_offset + start
             if c == '%Y':
-                year_offset = start, start+4
+                year_offset = offset, offset+4
             elif c == '%m':
-                month_offset = start, start+2
+                month_offset = offset, offset+2
             elif c == '%d':
-                day_offset = start, start+2
+                day_offset = offset, offset+2
             elif c == '%H':
-                hour_offset = start, start+2
+                hour_offset = offset, offset+2
         if not (year_offset and month_offset and day_offset and hour_offset):
             # don't have all the parts, can't upload anything
             return
