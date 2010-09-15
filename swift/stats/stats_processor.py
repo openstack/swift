@@ -43,7 +43,7 @@ class StatsLogProcessor(object):
                                     object_count
                 d['bytes_used'] = d.setdefault('bytes_used', 0) + \
                                   bytes_used
-                account_totals[account] = d
+                account_totals[aggr_key] = d
             except (IndexError, ValueError):
                 # bad line data
                 pass

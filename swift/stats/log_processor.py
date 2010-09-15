@@ -77,12 +77,16 @@ class LogProcessor(object):
         for name, data in self.plugins.items():
             account = data['swift_account']
             container = data['container_name']
-            l = self.get_container_listing(account, container, start_date,
-                                           end_date, listing_filter)
+            l = self.get_container_listing(account,
+                                           container,
+                                           start_date,
+                                           end_date)
             for i in l:
                 # The items in this list end up being passed as positional
                 # parameters to process_one_file.
-                total_list.append((name, account, container, i))
+                x = (name, account, container, i)
+                if x not in listing_filter:
+                    total_list.append(x)
         return total_list
 
     def get_container_listing(self, swift_account, container_name, start_date=None,
@@ -249,10 +253,11 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = set()
         except:
             already_processed_files = set()
-        self.logger.debug('found %d processed files' % len(already_processed_files))
+        self.logger.debug('found %d processed files' % \
+                          len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,
-                                                           lookback_end,
-                                                           already_processed_files)
+                                                       lookback_end,
+                                                       already_processed_files)
         self.logger.info('loaded %d files to process' % len(logs_to_process))
         if not logs_to_process:
             self.logger.info("Log processing done (%0.2f minutes)" %
