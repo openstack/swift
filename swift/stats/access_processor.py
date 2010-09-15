@@ -178,47 +178,47 @@ class AccessLogProcessor(object):
             hourly_aggr_info[aggr_key] = d
         return hourly_aggr_info
 
-        def keylist_mapping(self):
-            source_keys = 'service public'.split()
-            level_keys = 'account container object'.split()
-            verb_keys = 'GET PUT POST DELETE HEAD COPY'.split()
-            code_keys = '2xx 4xx 5xx'.split()
+    def keylist_mapping(self):
+        source_keys = 'service public'.split()
+        level_keys = 'account container object'.split()
+        verb_keys = 'GET PUT POST DELETE HEAD COPY'.split()
+        code_keys = '2xx 4xx 5xx'.split()
 
-            keylist_mapping = {
-            #   <db key> : <row key> or <set of row keys>
-                'service_bw_in': ('service', 'bytes_in'),
-                'service_bw_out': ('service', 'bytes_out'),
-                'public_bw_in': ('public', 'bytes_in'),
-                'public_bw_out': ('public', 'bytes_out'),
-                'account_requests': set(),
-                'container_requests': set(),
-                'object_requests': set(),
-                'service_request': set(),
-                'public_request': set(),
-                'ops_count': set(),
-            }
-            for verb in verb_keys:
-                keylist_mapping[verb] = set()
-            for code in code_keys:
-                keylist_mapping[code] = set()
-            for source in source_keys:
-                for level in level_keys:
-                    for verb in verb_keys:
-                        for code in code_keys:
-                            keylist_mapping['account_requests'].add(
-                                            (source, 'account', verb, code))
-                            keylist_mapping['container_requests'].add(
-                                            (source, 'container', verb, code))
-                            keylist_mapping['object_requests'].add(
-                                            (source, 'object', verb, code))
-                            keylist_mapping['service_request'].add(
-                                            ('service', level, verb, code))
-                            keylist_mapping['public_request'].add(
-                                            ('public', level, verb, code))
-                            keylist_mapping[verb].add(
-                                            (source, level, verb, code))
-                            keylist_mapping[code].add(
-                                            (source, level, verb, code))
-                            keylist_mapping['ops_count'].add(
-                                            (source,level,verb,code))
-            return keylist_mapping
+        keylist_mapping = {
+        #   <db key> : <row key> or <set of row keys>
+            'service_bw_in': ('service', 'bytes_in'),
+            'service_bw_out': ('service', 'bytes_out'),
+            'public_bw_in': ('public', 'bytes_in'),
+            'public_bw_out': ('public', 'bytes_out'),
+            'account_requests': set(),
+            'container_requests': set(),
+            'object_requests': set(),
+            'service_request': set(),
+            'public_request': set(),
+            'ops_count': set(),
+        }
+        for verb in verb_keys:
+            keylist_mapping[verb] = set()
+        for code in code_keys:
+            keylist_mapping[code] = set()
+        for source in source_keys:
+            for level in level_keys:
+                for verb in verb_keys:
+                    for code in code_keys:
+                        keylist_mapping['account_requests'].add(
+                                        (source, 'account', verb, code))
+                        keylist_mapping['container_requests'].add(
+                                        (source, 'container', verb, code))
+                        keylist_mapping['object_requests'].add(
+                                        (source, 'object', verb, code))
+                        keylist_mapping['service_request'].add(
+                                        ('service', level, verb, code))
+                        keylist_mapping['public_request'].add(
+                                        ('public', level, verb, code))
+                        keylist_mapping[verb].add(
+                                        (source, level, verb, code))
+                        keylist_mapping[code].add(
+                                        (source, level, verb, code))
+                        keylist_mapping['ops_count'].add(
+                                        (source,level,verb,code))
+        return keylist_mapping

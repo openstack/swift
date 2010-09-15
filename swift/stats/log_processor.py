@@ -20,6 +20,8 @@ import datetime
 import cStringIO
 import collections
 from paste.deploy import appconfig
+import multiprocessing
+import Queue
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
@@ -172,7 +174,7 @@ class LogProcessor(object):
     def generate_keylist_mapping(self):
         keylist = {}
         for plugin in self.plugins:
-            plugin_keylist = self.plugins['instance'].keylist_mapping()
+            plugin_keylist = self.plugins[plugin]['instance'].keylist_mapping()
             for k, v in plugin_keylist.items():
                 o = keylist.get(k)
                 if o:
@@ -197,6 +199,7 @@ class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
+        self.total_conf = conf
         self.logger = get_logger(c)
         self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
@@ -246,13 +249,13 @@ class LogProcessorDaemon(Daemon):
             return
 
         # map
-        processor_args = (conf, self.logger)
+        processor_args = (self.total_conf, self.logger)
         results = multiprocess_collate(processor_args, logs_to_process)
 
         #reduce
         aggr_data = {}
         processed_files = already_processed_files
-        for item, data in results.items():
+        for item, data in results:
             # since item contains the plugin and the log name, new plugins will
             # "reprocess" the file and the results will be in the final csv.
             processed_files.append(item)
@@ -268,7 +271,7 @@ class LogProcessorDaemon(Daemon):
         # group
         # reduce a large number of keys in aggr_data[k] to a small number of
         # output keys
-        keylist_mapping = generate_keylist_mapping()
+        keylist_mapping = self.log_processor.generate_keylist_mapping()
         final_info = collections.defaultdict(dict)
         for account, data in rows.items():
             for key, mapping in keylist_mapping.items():
@@ -336,7 +339,7 @@ def multiprocess_collate(processor_args, logs_to_process):
             count += 1
             if data:
                 yield item, data
-            if count >= len(all_files):
+            if count >= len(logs_to_process):
                 # this implies that one result will come from every request
                 break
         except Queue.Empty:
