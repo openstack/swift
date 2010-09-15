@@ -23,8 +23,8 @@ from urlparse import urlparse
 
 import sqlite3
 from webob import Request, Response
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNoContent, \
-    HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
+from webob.exc import HTTPBadRequest, HTTPConflict, HTTPForbidden, \
+    HTTPNoContent, HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
@@ -433,7 +433,7 @@ class AuthController(object):
         storage_url = self.create_user(account_name, user_name, password,
                         create_account_admin, create_reseller_admin)
         if storage_url == 'already exists':
-            return HTTPBadRequest(body=storage_url)
+            return HTTPConflict(body=storage_url)
         if not storage_url:
             return HTTPServiceUnavailable()
         return HTTPNoContent(headers={'x-storage-url': storage_url})
