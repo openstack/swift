@@ -197,6 +197,7 @@ class LogProcessorDaemon(Daemon):
     def __init__(self, conf):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
+        self.logger = get_logger(conf)
         self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
         self.lookback_window = int(c.get('lookback_window',
@@ -222,7 +223,8 @@ class LogProcessorDaemon(Daemon):
                                datetime.timedelta(hours=self.lookback_hours) + \
                                datetime.timedelta(hours=self.lookback_window)
                 lookback_end = lookback_end.strftime('%Y%m%d')
-
+        self.logger.debug('lookback_start: %s' % lookback_start)
+        self.logger.debug('lookback_end: %s' % lookback_end)
         try:
             processed_files_stream = self.log_processor,get_object_data(
                                         self.log_processor_account,
@@ -233,7 +235,7 @@ class LogProcessorDaemon(Daemon):
             already_processed_files = cPickle.loads(buf)
         except:
             already_processed_files = set()
-
+        self.logger.debug('found %d processed files' % len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,
                                                            lookback_end,
                                                            already_processed_files)
@@ -300,6 +302,8 @@ class LogProcessorDaemon(Daemon):
         # cleanup
         s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
         f = cStringIO.StringIO(s)
+        self.internal_proxy.create_container(self.log_processor_account,
+                                            self.log_processor_container)
         self.log_processor.internal_proxy.upload_file(s,
                                         self.log_processor_account,
                                         self.log_processor_container,
