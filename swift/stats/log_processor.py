@@ -22,11 +22,15 @@ import collections
 from paste.deploy import appconfig
 import multiprocessing
 import Queue
+import cPickle
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
 from swift.common.utils import get_logger, readconf
 from swift.common.daemon import Daemon
+
+class BadFileDownload(Exception):
+    pass
 
 class LogProcessor(object):
 
@@ -146,9 +150,11 @@ class LogProcessor(object):
     def get_object_data(self, swift_account, container_name, object_name,
                         compressed=False):
         '''reads an object and yields its lines'''
-        o = self.internal_proxy.get_object(swift_account,
+        code, o = self.internal_proxy.get_object(swift_account,
                                            container_name,
                                            object_name)
+        if code < 200 or code >= 300:
+            return
         last_part = ''
         last_compressed_part = ''
         # magic in the following zlib.decompressobj argument is courtesy of
@@ -231,7 +237,7 @@ class LogProcessorDaemon(Daemon):
         self.logger.debug('lookback_start: %s' % lookback_start)
         self.logger.debug('lookback_end: %s' % lookback_end)
         try:
-            processed_files_stream = self.log_processor,get_object_data(
+            processed_files_stream = self.log_processor.get_object_data(
                                         self.log_processor_account,
                                         self.log_processor_container,
                                         'processed_files.pickle.gz',
@@ -275,7 +281,7 @@ class LogProcessorDaemon(Daemon):
         # output keys
         keylist_mapping = self.log_processor.generate_keylist_mapping()
         final_info = collections.defaultdict(dict)
-        for account, data in rows.items():
+        for account, data in aggr_data.items():
             for key, mapping in keylist_mapping.items():
                 if isinstance(mapping, (list, set)):
                     value = 0
@@ -307,9 +313,10 @@ class LogProcessorDaemon(Daemon):
         # cleanup
         s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
         f = cStringIO.StringIO(s)
-        self.internal_proxy.create_container(self.log_processor_account,
+        self.log_processor.internal_proxy.create_container(
+                                            self.log_processor_account,
                                             self.log_processor_container)
-        self.log_processor.internal_proxy.upload_file(s,
+        self.log_processor.internal_proxy.upload_file(f,
                                         self.log_processor_account,
                                         self.log_processor_container,
                                         'processed_files.pickle.gz')

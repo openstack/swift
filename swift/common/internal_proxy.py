@@ -109,8 +109,7 @@ class InternalProxy(object):
                 and tries <= self.retries:
             resp = self.upload_app.handle_request(self.upload_app.update_request(req))
             tries += 1
-        for x in resp.app_iter:
-            yield x
+        return resp.status_int, resp.app_iter
 
     def create_container(self, account, container):
         """

@@ -18,18 +18,22 @@ class DumbInternalProxy(object):
             return []
 
     def get_object(self, account, container, object_name):
+        code = 200
         if object_name.endswith('.gz'):
             # same data as below, compressed with gzip -9
-            yield '\x1f\x8b\x08'
-            yield '\x08"\xd79L'
-            yield '\x02\x03te'
-            yield 'st\x00\xcbO'
-            yield '\xca\xe2JI,I'
-            yield '\xe4\x02\x00O\xff'
-            yield '\xa3Y\t\x00\x00\x00'
+            def data():
+                yield '\x1f\x8b\x08'
+                yield '\x08"\xd79L'
+                yield '\x02\x03te'
+                yield 'st\x00\xcbO'
+                yield '\xca\xe2JI,I'
+                yield '\xe4\x02\x00O\xff'
+                yield '\xa3Y\t\x00\x00\x00'
         else:
-            yield 'obj\n'
-            yield 'data'
+            def data():
+                yield 'obj\n'
+                yield 'data'
+        return code, data
 
 class TestLogProcessor(unittest.TestCase):
     
