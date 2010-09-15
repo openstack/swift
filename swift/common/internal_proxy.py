@@ -60,7 +60,7 @@ class InternalProxy(object):
         log_create_pattern = '/v1/%s/%s/%s' % (account, container, object_name)
 
         # create the container
-        if not self.put_container(account, container):
+        if not self.create_container(account, container):
             return False
 
         # upload the file to the account

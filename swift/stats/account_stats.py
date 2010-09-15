@@ -48,7 +48,9 @@ class AccountStat(Daemon):
             ((time.time()-start)/60))
 
     def find_and_process(self):
+        #TODO: handle a counter in the filename to prevent overwrites?
         src_filename = time.strftime(self.filename_format)
+        #TODO: don't use /tmp?
         tmp_filename = os.path.join('/tmp', src_filename)
         with open(tmp_filename, 'wb') as statfile:
             #statfile.write('Account Name, Container Count, Object Count, Bytes Used\n')
