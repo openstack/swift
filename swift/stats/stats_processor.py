@@ -62,3 +62,4 @@ class StatsLogProcessor(object):
             'object_count': 'object_count',
             'replica_count': 'replica_count',
         }
+        return keylist_mapping

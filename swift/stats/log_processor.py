@@ -175,6 +175,8 @@ class LogProcessor(object):
         keylist = {}
         for plugin in self.plugins:
             plugin_keylist = self.plugins[plugin]['instance'].keylist_mapping()
+            if not plugin_keylist:
+                continue
             for k, v in plugin_keylist.items():
                 o = keylist.get(k)
                 if o:
