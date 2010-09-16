@@ -589,7 +589,13 @@ class TestAuthServer(unittest.TestCase):
             conn.close()
             # Upgrade to current db
             conf = {'swift_dir': swift_dir, 'super_admin_key': 'testkey'}
-            controller = auth_server.AuthController(conf)
+            exc = None
+            try:
+                auth_server.AuthController(conf)
+            except Exception, err:
+                exc = err
+            self.assert_(str(err).strip().startswith('THERE ARE ACCOUNTS IN '
+                'YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER'), err)
             # Check new items exist and are correct
             conn = get_db_connection(db_file)
             row = conn.execute('SELECT admin FROM account').fetchone()
@@ -633,7 +639,13 @@ class TestAuthServer(unittest.TestCase):
             conn.close()
             # Upgrade to current db
             conf = {'swift_dir': swift_dir, 'super_admin_key': 'testkey'}
-            controller = auth_server.AuthController(conf)
+            exc = None
+            try:
+                auth_server.AuthController(conf)
+            except Exception, err:
+                exc = err
+            self.assert_(str(err).strip().startswith('THERE ARE ACCOUNTS IN '
+                'YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER'), err)
             # Check new items exist and are correct
             conn = get_db_connection(db_file)
             row = conn.execute('''SELECT admin, reseller_admin
