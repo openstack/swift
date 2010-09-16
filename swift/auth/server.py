@@ -454,7 +454,7 @@ YOU HAVE A FEW OPTIONS:
         if create_reseller_admin and (
               request.headers.get('X-Auth-Admin-User') != '.super_admin' or
               request.headers.get('X-Auth-Admin-Key') != self.super_admin_key):
-            return HTTPForbidden(request=request)
+            return HTTPUnauthorized(request=request)
         create_account_admin = \
             request.headers.get('x-auth-user-admin') == 'true'
         if create_account_admin and \
@@ -484,7 +484,7 @@ YOU HAVE A FEW OPTIONS:
         """
         if request.headers.get('X-Auth-Admin-User') != '.super_admin' or \
                request.headers.get('X-Auth-Admin-Key') != self.super_admin_key:
-            return HTTPForbidden(request=request)
+            return HTTPUnauthorized(request=request)
         result = self.recreate_accounts()
         return Response(result, 200, request=request)
 

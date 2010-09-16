@@ -20,7 +20,7 @@ from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, split_path
+from swift.common.utils import cache_from_env, split_path, TRUE_VALUES
 
 
 class DevAuth(object):
@@ -35,8 +35,32 @@ class DevAuth(object):
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
         self.ssl = \
-            conf.get('ssl', 'false').lower() in ('true', 'on', '1', 'yes')
+            conf.get('ssl', 'false').lower() in TRUE_VALUES
         self.timeout = int(conf.get('node_timeout', 10))
+
+    def get_groups(self, token):
+        memcache_client = cache_from_env(env)
+        key = '%s/token/%s' % (self.reseller_prefix, token)
+        cached_auth_data = memcache_client.get(key)
+        if cached_auth_data:
+            start, expiration, groups = cached_auth_data
+            if time() - start > expiration:
+                groups = None
+        if not groups:
+            with Timeout(self.timeout):
+                conn = http_connect(self.auth_host, self.auth_port, 'GET',
+                                    '/token/%s' % token, ssl=self.ssl)
+                resp = conn.getresponse()
+                resp.read()
+                conn.close()
+            if resp.status // 100 != 2:
+                return None
+
+            expiration = float(resp.getheader('x-auth-ttl'))
+            groups = resp.getheader('x-auth-groups')
+            memcache_client.set(key, (time(), expiration, groups),
+                                timeout=expiration)
+            return groups
 
     def __call__(self, env, start_response):
         """
@@ -45,57 +69,48 @@ class DevAuth(object):
         validation. For an authenticated request, REMOTE_USER will be set to a
         comma separated list of the user's groups.
         """
+
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
-        if token and token.startswith(self.reseller_prefix):
-            groups = None
-            memcache_client = cache_from_env(env)
-            key = '%s/token/%s' % (self.reseller_prefix, token)
-            cached_auth_data = memcache_client.get(key)
-            if cached_auth_data:
-                start, expiration, groups = cached_auth_data
-                if time() - start > expiration:
-                    groups = None
-            if not groups:
-                with Timeout(self.timeout):
-                    conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                                        '/token/%s' % token, ssl=self.ssl)
-                    resp = conn.getresponse()
-                    resp.read()
-                    conn.close()
-                if resp.status // 100 != 2:
-                    if self.reseller_prefix:
-                        return HTTPUnauthorized()(env, start_response)
-                    else:
-                        # If we have no reseller prefix, we can't deny the
-                        # request just yet because another auth middleware
-                        # might be able to approve.
-                        if 'swift.authorize' not in env:
-                            env['swift.authorize'] = self.denied_response
-                        return self.app(env, start_response)
-                expiration = float(resp.getheader('x-auth-ttl'))
-                groups = resp.getheader('x-auth-groups')
-                memcache_client.set(key, (time(), expiration, groups),
-                                    timeout=expiration)
-            env['REMOTE_USER'] = groups
+
+        if not self.reseller_prefix:
+            # all requests belong to me
+            if token:
+                # I should attempt to auth any token
+                groups = self.get_groups(token)
+            else:
+                groups = None # no token is same as an unauthorized token
+            if groups:
+                env['REMOTE_USER'] = groups
+                user = groups and groups.split(',', 1)[0] or ''
+                env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
             env['swift.authorize'] = self.authorize
             env['swift.clean_acl'] = clean_acl
-            # We know the proxy logs the token, so we augment it just a bit to
-            # also log the authenticated user.
-            user = groups and groups.split(',', 1)[0] or ''
-            env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
         else:
-            version, rest = split_path(env.get('PATH_INFO', ''), 1, 2, True)
-            if rest and rest.startswith(self.reseller_prefix):
-                # If we don't have a reseller prefix we have no way of knowing
-                # if we should be handling the request, so we only set
-                # swift.authorize if it isn't set already (or we have a
-                # reseller prefix that matches so we know we should handle the
-                # request).
-                if self.reseller_prefix or 'swift.authorize' not in env:
+            # as a reseller, I must respect that just can my auth can't provide
+            # groups for a token, others may
+            if token and token.startswith(self.reseller_prefix)::
+                # attempt to auth my token with my auth server
+                groups = self.get_groups(token)
+                if groups:
+                    # authenticated!
+                    env['REMOTE_USER'] = groups
+                    user = groups and groups.split(',', 1)[0] or ''
+                    env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+                env['swift.authorize'] = self.authorize
+                env['swift.clean_acl'] = clean_acl
+            else:
+                # I can't claim this token, but I might claim the annoynomous request
+                version, rest = split_path(env.get('PATH_INFO', ''), 1, 2, True)
+                if rest and rest.startswith(self.reseller_prefix):
+                    # annoynomous access to my reseller's accounts
                     env['swift.authorize'] = self.authorize
                     env['swift.clean_acl'] = clean_acl
-            elif 'swift.authorize' not in env:
-                env['swift.authorize'] = self.denied_response
+                else:
+                    # not my token, not my account
+                    # good idea regardless...
+                    if 'swift.authorize' not in env:
+                        env['swift.authorize'] = self.denied_response
+
         return self.app(env, start_response)
 
     def authorize(self, req):
