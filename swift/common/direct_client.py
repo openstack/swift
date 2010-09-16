@@ -89,7 +89,7 @@ def direct_get_container(node, part, account, container, marker=None,
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
     :returns: a tuple of (response headers, a list of objects) The response
-              headers will be a dict and all header names will be lowercase. 
+              headers will be a dict and all header names will be lowercase.
     """
     path = '/%s/%s' % (account, container)
     qs = 'format=json'
@@ -196,7 +196,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     :param response_timeout: timeout in seconds for getting the response
     :param resp_chunk_size: if defined, chunk size of data to read.
     :returns: a tuple of (response headers, the object's contents) The response
-              headers will be a dict and all header names will be lowercase. 
+              headers will be a dict and all header names will be lowercase.
     """
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):

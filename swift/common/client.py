@@ -195,7 +195,7 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
     :param full_listing: if True, return a full listing, else returns a max
                          of 10000 listings
     :returns: a tuple of (response headers, a list of containers) The response
-              headers will be a dict and all header names will be lowercase. 
+              headers will be a dict and all header names will be lowercase.
     :raises ClientException: HTTP GET request failed
     """
     if not http_conn:
@@ -310,7 +310,7 @@ def get_container(url, token, container, marker=None, limit=None,
     :param full_listing: if True, return a full listing, else returns a max
                          of 10000 listings
     :returns: a tuple of (response headers, a list of objects) The response
-              headers will be a dict and all header names will be lowercase. 
+              headers will be a dict and all header names will be lowercase.
     :raises ClientException: HTTP GET request failed
     """
     if not http_conn:
@@ -489,7 +489,7 @@ def get_object(url, token, container, name, http_conn=None,
                             the object's contents before making another
                             request.
     :returns: a tuple of (response headers, the object's contents) The response
-              headers will be a dict and all header names will be lowercase. 
+              headers will be a dict and all header names will be lowercase.
     :raises ClientException: HTTP GET request failed
     """
     if http_conn:

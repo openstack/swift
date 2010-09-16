@@ -58,6 +58,7 @@ HASH_PATH_SUFFIX = os.environ.get('SWIFT_HASH_PATH_SUFFIX', 'endcap')
 # Used when reading config values
 TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes'))
 
+
 def load_libc_function(func_name):
     """
     Attempt to find the function in libc, otherwise return a no-op func.
@@ -521,14 +522,17 @@ def unlink_older_than(path, mtime):
             except OSError:
                 pass
 
+
 def item_from_env(env, item_name):
     item = env.get(item_name, None)
     if item is None:
         logging.error("ERROR: %s could not be found in env!" % item_name)
     return item
 
+
 def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
+
 
 def readconf(conf, section_name, log_name=None):
     c = ConfigParser()
