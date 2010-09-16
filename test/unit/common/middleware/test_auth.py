@@ -90,16 +90,22 @@ class Logger(object):
         _, exc, _ = sys.exc_info()
         self.exception_value = (msg,
             '%s %s' % (exc.__class__.__name__, str(exc)), args, kwargs)
-# tests
+
 
 class FakeApp(object):
+
+    def __init__(self):
+        self.i_was_called = False
+
     def __call__(self, env, start_response):
+        self.i_was_called = True
         req = Request(env)
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](req)
             if resp:
                 return resp(env, start_response)
         return ['204 No Content']
+
 
 def start_response(*args):
     pass
@@ -137,6 +143,43 @@ class TestAuth(unittest.TestCase):
             self.assertEquals(reqenv['swift.authorize'], fake_authorize)
         finally:
             auth.http_connect = old_http_connect
+
+    def test_auth_no_reseller_prefix_deny(self):
+        # Ensures that when we have no reseller prefix, we don't deny a request
+        # outright but set up a denial swift.authorize and pass the request on
+        # down the chain.
+        old_http_connect = auth.http_connect
+        try:
+            local_app = FakeApp()
+            local_auth = \
+                auth.filter_factory({'reseller_prefix': ''})(local_app)
+            auth.http_connect = mock_http_connect(404)
+            reqenv = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/account',
+                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': FakeMemcache()}
+            result = ''.join(local_auth(reqenv, lambda x, y: None))
+            self.assert_(result.startswith('401'), result)
+            self.assert_(local_app.i_was_called)
+            self.assertEquals(reqenv['swift.authorize'],
+                              local_auth.denied_response)
+        finally:
+            auth.http_connect = old_http_connect
+
+    def test_auth_no_reseller_prefix_no_token(self):
+        # Check that normally we set up a call back to our authorize.
+        local_auth = \
+            auth.filter_factory({'reseller_prefix': ''})(FakeApp())
+        reqenv = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/account',
+                  'swift.cache': FakeMemcache()}
+        result = ''.join(local_auth(reqenv, lambda x, y: None))
+        self.assert_(result.startswith('401'), result)
+        self.assertEquals(reqenv['swift.authorize'], local_auth.authorize)
+        # Now make sure we don't override an existing swift.authorize when we
+        # have no reseller prefix.
+        local_authorize = lambda req: None
+        reqenv['swift.authorize'] = local_authorize
+        result = ''.join(local_auth(reqenv, lambda x, y: None))
+        self.assert_(result.startswith('204'), result)
+        self.assertEquals(reqenv['swift.authorize'], local_authorize)
 
     def test_auth_fail(self):
         old_http_connect = auth.http_connect

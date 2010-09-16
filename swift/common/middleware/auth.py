@@ -63,7 +63,15 @@ class DevAuth(object):
                     resp.read()
                     conn.close()
                 if resp.status // 100 != 2:
-                    return HTTPUnauthorized()(env, start_response)
+                    if self.reseller_prefix:
+                        return HTTPUnauthorized()(env, start_response)
+                    else:
+                        # If we have no reseller prefix, we can't deny the
+                        # request just yet because another auth middleware
+                        # might be able to approve.
+                        if 'swift.authorize' not in env:
+                            env['swift.authorize'] = self.denied_response
+                        return self.app(env, start_response)
                 expiration = float(resp.getheader('x-auth-ttl'))
                 groups = resp.getheader('x-auth-groups')
                 memcache_client.set(key, (time(), expiration, groups),
@@ -78,8 +86,14 @@ class DevAuth(object):
         else:
             version, rest = split_path(env.get('PATH_INFO', ''), 1, 2, True)
             if rest and rest.startswith(self.reseller_prefix):
-                env['swift.authorize'] = self.authorize
-                env['swift.clean_acl'] = clean_acl
+                # If we don't have a reseller prefix we have no way of knowing
+                # if we should be handling the request, so we only set
+                # swift.authorize if it isn't set already (or we have a
+                # reseller prefix that matches so we know we should handle the
+                # request).
+                if self.reseller_prefix or 'swift.authorize' not in env:
+                    env['swift.authorize'] = self.authorize
+                    env['swift.clean_acl'] = clean_acl
             elif 'swift.authorize' not in env:
                 env['swift.authorize'] = self.denied_response
         return self.app(env, start_response)
