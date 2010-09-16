@@ -1,0 +1,48 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from os.path import basename
+from sys import argv, exit
+
+from swift.common.db import get_db_connection
+
+
+if __name__ == '__main__':
+    app = basename(argv[0])
+    if len(argv) != 3:
+        exit('''
+Syntax : %s <auth.db> <new_prefix>
+Example: %s /etc/swift/auth.db AUTH'''.strip() % (app, app))
+    db = argv[1]
+    new_prefix = argv[2].rstrip('_')
+    print 'Updating %s' % db
+    conn = get_db_connection(db)
+    rows = conn.execute('SELECT url, cfaccount FROM account').fetchall()
+    for row in rows:
+        old_prefix = ''
+        uuid = row[1]
+        if '_' in row[1]:
+            old_prefix, uuid = row[1].split('_', 1)
+        new_cfaccount = '%s_%s' % (new_prefix, uuid)
+        new_url = row[0].replace(row[1], new_cfaccount)
+        print '%s ->\n%s' % (row[0], new_url)
+        print '%s ->\n%s' % (row[1], new_cfaccount)
+        print
+        conn.execute('''UPDATE account SET url = ?, cfaccount = ?
+                        WHERE url = ? AND cfaccount = ?''',
+                     (new_url, new_cfaccount, row[0], row[1]))
+    conn.commit()
+    print 'Updated %s rows.' % len(rows)

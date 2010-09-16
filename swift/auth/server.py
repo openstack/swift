@@ -15,6 +15,7 @@
 
 from __future__ import with_statement
 import os
+import sys
 from contextlib import contextmanager
 from time import gmtime, strftime, time
 from urllib import unquote, quote
@@ -140,6 +141,38 @@ class AuthController(object):
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_account
                              ON token (account)''')
         self.conn.commit()
+        for row in self.conn.execute('SELECT cfaccount FROM account'):
+            if not row[0].startswith(self.reseller_prefix):
+                previous_prefix = ''
+                if '_' in row[0]:
+                    previous_prefix = row[0].split('_', 1)[0]
+                msg = ('''
+THERE ARE ACCOUNTS IN YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER
+PREFIX OF "%s".
+YOU HAVE A FEW OPTIONS:
+    1) RUN "swift-auth-update-reseller-prefixes %s %s",
+       "swift-init auth-server restart", AND
+       "swift-auth-recreate-accounts -K ..." TO CREATE FRESH ACCOUNTS.
+    OR
+    2) REMOVE %s, RUN "swift-init auth-server restart", AND RUN
+       "swift-auth-add-user ..." TO CREATE BRAND NEW ACCOUNTS THAT WAY.
+    OR
+    3) ADD "reseller_prefix = %s" (WITHOUT THE QUOTES) TO YOUR
+       proxy-server.conf IN THE [filter:auth] SECTION AND TO YOUR
+       auth-server.conf IN THE [app:auth-server] SECTION AND RUN
+       "swift-init proxy-server restart" AND "swift-init auth-server restart"
+       TO REVERT BACK TO YOUR PREVIOUS RESELLER PREFIX.
+
+    %s
+                    ''' % (self.reseller_prefix.rstrip('_'), self.db_file,
+                    self.reseller_prefix.rstrip('_'), self.db_file,
+                    previous_prefix, previous_prefix and ' ' or '''
+    SINCE YOUR PREVIOUS RESELLER PREFIX WAS AN EMPTY STRING, IT IS NOT
+    RECOMMENDED TO PERFORM OPTION 3 AS THAT WOULD MAKE SUPPORTING MULTIPLE
+    RESELLERS MORE DIFFICULT.
+                    '''.strip())).strip()
+                self.logger.critical('CRITICAL: ' + ' '.join(msg.split()))
+                raise Exception('\n' + msg)
 
     def add_storage_account(self, account_name=''):
         """
