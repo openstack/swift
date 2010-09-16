@@ -22,40 +22,45 @@ from swift.common.utils import hash_path
 
 
 if len(sys.argv) < 3 or len(sys.argv) > 5:
-  print 'Usage: %s <ring.gz> <account> [<container>] [<object>]' \
-    % sys.argv[0]
-  print 'Shows the nodes responsible for the item specified.'
-  print 'Example:'
-  print '    $ %s /etc/swift/account.ring.gz MyAccount' % sys.argv[0]
-  print '    Partition 5743883'
-  print '    Hash 96ae332a60b58910784e4417a03e1ad0'
-  print '    10.1.1.7:8000 sdd1'
-  print '    10.1.9.2:8000 sdb1'
-  print '    10.1.5.5:8000 sdf1'
-  print '    10.1.5.9:8000 sdt1 # [Handoff]'
-  sys.exit(1)
+    print 'Usage: %s <ring.gz> <account> [<container>] [<object>]' \
+      % sys.argv[0]
+    print 'Shows the nodes responsible for the item specified.'
+    print 'Example:'
+    print '    $ %s /etc/swift/account.ring.gz MyAccount' % sys.argv[0]
+    print '    Partition 5743883'
+    print '    Hash 96ae332a60b58910784e4417a03e1ad0'
+    print '    10.1.1.7:8000 sdd1'
+    print '    10.1.9.2:8000 sdb1'
+    print '    10.1.5.5:8000 sdf1'
+    print '    10.1.5.9:8000 sdt1 # [Handoff]'
+    sys.exit(1)
 
 ringloc = None
 account = None
 container = None
 obj = None
 
-if len(sys.argv) > 4: ring,account,container,obj = sys.argv[1:5]
-elif len(sys.argv) > 3: ring,account,container = sys.argv[1:4]
-elif len(sys.argv) > 2: ring,account = sys.argv[1:3]
-
-if obj:
-  hash_str = hash_path(account,container,obj)
-  part, nodes = Ring(ring).get_nodes(account,container,obj)
-  target = "%s/%s/%s" % (account, container, obj)
-elif container:
-  hash_str = hash_path(account,container)
-  part, nodes = Ring(ring).get_nodes(account,container)
-  target = "%s/%s" % (account,container)
-elif account:
-  hash_str = hash_path(account)
-  part, nodes = Ring(ring).get_nodes(account)
-  target = "%s" % (account)
+if len(sys.argv) > 4:
+    # Acount, Container and Object
+    ring, account, container, obj = sys.argv[1:5]
+    hash_str = hash_path(account, container, obj)
+    part, nodes = Ring(ring).get_nodes(account, container, obj)
+    target = "%s/%s/%s" % (account, container, obj)
+    loc = 'object'
+elif len(sys.argv) > 3:
+    # Account, Container
+    ring, account, container = sys.argv[1:4]
+    hash_str = hash_path(account, container)
+    part, nodes = Ring(ring).get_nodes(account, container)
+    target = "%s/%s" % (account, container)
+    loc = 'container'
+elif len(sys.argv) > 2:
+    # Account
+    ring, account = sys.argv[1:3]
+    hash_str = hash_path(account)
+    part, nodes = Ring(ring).get_nodes(account)
+    target = "%s" % (account)
+    loc = 'account'
 
 more_nodes = list(Ring(ring).get_more_nodes(part))
 
@@ -66,24 +71,24 @@ print '\nPartition\t%s' % part
 print 'Hash       \t%s\n' % hash_str
 
 for node in nodes:
-  print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],  
-  node['device'])
+    print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
+        node['device'])
 for mnode in more_nodes:
-  print 'Server:Port Device\t%s:%s %s\t [Handoff]' \
-    % (node['ip'], node['port'], node['device'])
+    print 'Server:Port Device\t%s:%s %s\t [Handoff]' \
+        % (mnode['ip'], mnode['port'], mnode['device'])
 print "\n"
 for node in nodes:
-  print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
-    % (node['ip'], node['port'], node['device'], part, 
-    urllib.quote(target))
+    print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
+        % (node['ip'], node['port'], node['device'], part,
+        urllib.quote(target))
 for mnode in more_nodes:
-  print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s" # [Handoff]' \
-    % (mnode['ip'], mnode['port'], mnode['device'], part, 
-    urllib.quote(target))
+    print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s" # [Handoff]' \
+        % (mnode['ip'], mnode['port'], mnode['device'], part,
+        urllib.quote(target))
 print "\n"
 for node in nodes:
-  print 'ssh %s "ls -lah /srv/node/%s/objects/%s/%s/%s/"' \
-    % (node['ip'], node['device'], part, hash_str[-3:], hash_str)
+    print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/"' \
+        % (node['ip'], loc, node['device'], part, hash_str[-3:], hash_str)
 for mnode in more_nodes:
-  print 'ssh %s "ls -lah /srv/node/%s/objects/%s/%s/%s/" # [Handoff]' \
-    % (mnode['ip'], mnode['device'], part, hash_str[-3:], hash_str)
+    print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/" # [Handoff]' \
+        % (mnode['ip'], loc, mnode['device'], part, hash_str[-3:], hash_str)
