@@ -589,7 +589,13 @@ class TestAuthServer(unittest.TestCase):
             conn.close()
             # Upgrade to current db
             conf = {'swift_dir': swift_dir, 'super_admin_key': 'testkey'}
-            controller = auth_server.AuthController(conf)
+            exc = None
+            try:
+                auth_server.AuthController(conf)
+            except Exception, err:
+                exc = err
+            self.assert_(str(err).strip().startswith('THERE ARE ACCOUNTS IN '
+                'YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER'), err)
             # Check new items exist and are correct
             conn = get_db_connection(db_file)
             row = conn.execute('SELECT admin FROM account').fetchone()
@@ -633,7 +639,13 @@ class TestAuthServer(unittest.TestCase):
             conn.close()
             # Upgrade to current db
             conf = {'swift_dir': swift_dir, 'super_admin_key': 'testkey'}
-            controller = auth_server.AuthController(conf)
+            exc = None
+            try:
+                auth_server.AuthController(conf)
+            except Exception, err:
+                exc = err
+            self.assert_(str(err).strip().startswith('THERE ARE ACCOUNTS IN '
+                'YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER'), err)
             # Check new items exist and are correct
             conn = get_db_connection(db_file)
             row = conn.execute('''SELECT admin, reseller_admin
@@ -656,6 +668,11 @@ class TestAuthServer(unittest.TestCase):
         self.assertEquals(
             self.controller.create_user('test', 'tester', 'testing'),
             'already exists')
+        req = Request.blank('/account/test/tester',
+                headers={'X-Auth-User-Key': 'testing'})
+        resp = self.controller.handle_add_user(req)
+        self.assertEquals(resp.status_int, 409)
+
 
     def test_create_2users_1account(self):
         auth_server.http_connect = fake_http_connect(201)

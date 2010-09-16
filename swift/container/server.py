@@ -416,6 +416,7 @@ class ContainerController(object):
             self.logger.info(log_message)
         return res(env, start_response)
 
+
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI container server apps"""
     conf = global_conf.copy()

@@ -56,9 +56,9 @@ def monkey_patch_mimetools():
 
     mimetools.Message.parsetype = parsetype
 
+
 # We might be able to pull pieces of this out to test, but right now it seems
 # like more work than it's worth.
-
 def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
     """
     Loads common settings from conf, then instantiates app and runs
@@ -72,7 +72,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
         conf = appconfig('config:%s' % conf_file, name=app_section)
         log_name = conf.get('log_name', app_section)
         app = loadapp('config:%s' % conf_file,
-            global_conf={'log_name':log_name})
+            global_conf={'log_name': log_name})
     except Exception, e:
         print "Error trying to load config %s: %s" % (conf_file, e)
         return
