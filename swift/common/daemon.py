@@ -18,6 +18,7 @@ import sys
 import signal
 from swift.common import utils
 
+
 class Daemon(object):
     """Daemon base class"""
 

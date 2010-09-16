@@ -14,10 +14,12 @@
 
 from swift.common.memcached import MemcacheRing
 
+
 class MemcacheMiddleware(object):
     """
     Caching middleware that manages caching in swift.
     """
+
     def __init__(self, app, conf):
         self.app = app
         self.memcache = MemcacheRing([s.strip() for s in
@@ -27,6 +29,7 @@ class MemcacheMiddleware(object):
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache
         return self.app(env, start_response)
+
 
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()

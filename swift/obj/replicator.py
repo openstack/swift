@@ -197,7 +197,7 @@ class ObjectReplicator(Daemon):
     Replicate objects.
 
     Encapsulates most logic and data needed by the object replication process.
-    Each call to .replicate() performs one replication pass.  It's up to the 
+    Each call to .replicate() performs one replication pass.  It's up to the
     caller to do this in a loop.
     """
 
@@ -514,7 +514,7 @@ class ObjectReplicator(Daemon):
         start = time.time()
         self.logger.info("Running object replicator in script mode.")
         self.replicate()
-        total = (time.time() - start)/60
+        total = (time.time() - start) / 60
         self.logger.info(
             "Object replication complete. (%.02f minutes)" % total)
 
@@ -526,7 +526,7 @@ class ObjectReplicator(Daemon):
             self.logger.info("Starting object replication pass.")
             # Run the replicator
             self.replicate()
-            total = (time.time() - start)/60
+            total = (time.time() - start) / 60
             self.logger.info(
                 "Object replication complete. (%.02f minutes)" % total)
             self.logger.debug('Replication sleeping for %s seconds.' %
