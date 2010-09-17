@@ -46,21 +46,21 @@ if len(sys.argv) > 4:
     hash_str = hash_path(account, container, obj)
     part, nodes = Ring(ring).get_nodes(account, container, obj)
     target = "%s/%s/%s" % (account, container, obj)
-    loc = 'object'
+    loc = 'objects'
 elif len(sys.argv) > 3:
     # Account, Container
     ring, account, container = sys.argv[1:4]
     hash_str = hash_path(account, container)
     part, nodes = Ring(ring).get_nodes(account, container)
     target = "%s/%s" % (account, container)
-    loc = 'container'
+    loc = 'containers'
 elif len(sys.argv) > 2:
     # Account
     ring, account = sys.argv[1:3]
     hash_str = hash_path(account)
     part, nodes = Ring(ring).get_nodes(account)
     target = "%s" % (account)
-    loc = 'account'
+    loc = 'accounts'
 
 more_nodes = list(Ring(ring).get_more_nodes(part))
 
@@ -88,7 +88,7 @@ for mnode in more_nodes:
 print "\n"
 for node in nodes:
     print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/"' \
-        % (node['ip'], loc, node['device'], part, hash_str[-3:], hash_str)
+        % (node['ip'], node['device'], loc, part, hash_str[-3:], hash_str)
 for mnode in more_nodes:
     print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/" # [Handoff]' \
-        % (mnode['ip'], loc, mnode['device'], part, hash_str[-3:], hash_str)
+        % (mnode['ip'], mnode['device'], loc, part, hash_str[-3:], hash_str)
