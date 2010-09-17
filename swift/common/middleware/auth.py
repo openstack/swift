@@ -34,8 +34,7 @@ class DevAuth(object):
             self.reseller_prefix += '_'
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
-        self.ssl = \
-            conf.get('ssl', 'false').lower() in TRUE_VALUES
+        self.ssl = conf.get('ssl', 'false').lower() in TRUE_VALUES
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
@@ -45,76 +44,87 @@ class DevAuth(object):
         validation. For an authenticated request, REMOTE_USER will be set to a
         comma separated list of the user's groups.
 
-        With out a reseller prefix, I act as the default auth service for
-        all requests, but I won't overwrite swift.authorize unless my auth
-        explictly grants groups to this token
+        With a non-empty reseller prefix, acts as the definitive auth service
+        for just tokens and accounts that begin with that prefix, but will deny
+        requests outside this prefix if no other auth middleware overrides it.
 
-        As a reseller, I must respect that my auth server is not
-        authorative for all tokens, but I can set swift.authorize to
-        denied_reponse if it's not already set
+        With an empty reseller prefix, acts as the definitive auth service only
+        for tokens that validate to a non-empty set of groups. For all other
+        requests, acts as the fallback auth service when no other auth
+        middleware overrides it.
         """
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token and token.startswith(self.reseller_prefix):
-            # N.B. no reseller_prefix will match all tokens!
-            # attempt to auth my token with my auth server
-            groups = self.get_groups(token,
-                                     memcache_client=cache_from_env(env))
+            # Note: Empty reseller_prefix will match all tokens.
+            # Attempt to auth my token with my auth server
+            groups = \
+                self.get_groups(token, memcache_client=cache_from_env(env))
             if groups:
                 env['REMOTE_USER'] = groups
                 user = groups and groups.split(',', 1)[0] or ''
+                # We know the proxy logs the token, so we augment it just a bit
+                # to also log the authenticated user.
                 env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
             else:
-                # unauthorized token
+                # Unauthorized token
                 if self.reseller_prefix:
-                    # because I own this token, I can deny it outright
+                    # Because I know I'm the definitive auth for this token, I
+                    # can deny it outright.
                     return HTTPUnauthorized()(env, start_response)
+                # Because I'm not certain if I'm the definitive auth for empty
+                # reseller_prefixed tokens, I won't overwrite swift.authorize.
                 elif 'swift.authorize' not in env:
-                    # default auth won't over-write swift.authorize
                     env['swift.authorize'] = self.denied_response
         else:
             if self.reseller_prefix:
-                # As a reseller, I would like to be calledback for annoynomous
-                # access to my accounts
+                # With a non-empty reseller_prefix, I would like to be called
+                # back for anonymous access to accounts I know I'm the
+                # definitive auth for.
                 version, rest = split_path(env.get('PATH_INFO', ''),
                                            1, 2, True)
                 if rest and rest.startswith(self.reseller_prefix):
-                    # handle annoynomous access to my reseller's accounts
+                    # Handle anonymous access to accounts I'm the definitive
+                    # auth for.
                     env['swift.authorize'] = self.authorize
                     env['swift.clean_acl'] = clean_acl
+                # Not my token, not my account, I can't authorize this request,
+                # deny all is a good idea if not already set...
                 elif 'swift.authorize' not in env:
-                    # not my token, not my account, I can't authorize this
-                    # request, deny all is a good idea if not already set...
                     env['swift.authorize'] = self.denied_response
+            # Because I'm not certain if I'm the definitive auth for empty
+            # reseller_prefixed accounts, I won't overwrite swift.authorize.
             elif 'swift.authorize' not in env:
-                # As a default auth, I'm willing to handle annoynomous requests
-                # for all accounts, but I won't over-write swift.authorize
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
-
         return self.app(env, start_response)
 
     def get_groups(self, token, memcache_client=None):
         """
-        Get groups for the given token, may use a memcache_client if set, and
-        update cache/expire old values; otherwise call auth_host and return
-        'x-auth-groups'
+        Get groups for the given token.
+        
+        If memcache_client is set, token credentials will be cached
+        appropriately.
+        
+        With a cache miss, or no memcache_client, the configurated external
+        authentication server will be queried for the group information.
+
+        :param token: Token to validate and return a group string for.
+        :param memcache_client: Memcached client to use for caching token
+                                credentials; None if no caching is desired.
+        :returns: None if the token is invalid or a string containing a comma
+                  separated list of groups the authenticated user is a member
+                  of. The first group in the list is also considered a unique
+                  identifier for that user.
         """
         groups = None
-        if memcache_client:
-            key = '%s/token/%s' % (self.reseller_prefix, token)
-            cached_auth_data = memcache_client.get(key)
-            if cached_auth_data:
-                start, expiration, groups = cached_auth_data
-                if time() - start > expiration:
-                    groups = None
-
-            def set_memcache(expiration, groups, key=key):
-                memcache_client.set(key, (time(), expiration, groups),
-                                    timeout=expiration)
-        else:
-            set_memcache = lambda *args: None
+        key = '%s/token/%s' % (self.reseller_prefix, token)
+        cached_auth_data = memcache_client and memcache_client.get(key)
+        if cached_auth_data:
+            start, expiration, groups = cached_auth_data
+            if time() - start > expiration:
+                groups = None
         if not groups:
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
@@ -126,7 +136,9 @@ class DevAuth(object):
                 return None
             expiration = float(resp.getheader('x-auth-ttl'))
             groups = resp.getheader('x-auth-groups')
-            set_memcache(expiration, groups)
+            if memcache_client:
+                memcache_client.set(key, (time(), expiration, groups),
+                                    timeout=expiration)
         return groups
 
     def authorize(self, req):
