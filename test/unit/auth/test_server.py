@@ -685,7 +685,8 @@ class TestAuthServer(unittest.TestCase):
         conf = {'swift_dir': self.testdir, 'log_name': 'auth'}
         self.assertRaises(ValueError, auth_server.AuthController, conf)
         conf['super_admin_key'] = 'testkey'
-        auth_server.AuthController(conf)
+        controller = auth_server.AuthController(conf)
+        self.assertEquals(controller.super_admin_key, conf['super_admin_key'])
 
     def test_add_storage_account(self):
         auth_server.http_connect = fake_http_connect(201)

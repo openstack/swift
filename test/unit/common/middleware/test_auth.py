@@ -164,6 +164,26 @@ class TestAuth(unittest.TestCase):
         finally:
             auth.http_connect = old_http_connect
 
+    def test_auth_no_reseller_prefix_allow(self):
+        # Ensures that when we have no reseller prefix, we can still allow
+        # access if our auth server accepts requests
+        old_http_connect = auth.http_connect
+        try:
+            local_app = FakeApp()
+            local_auth = \
+                auth.filter_factory({'reseller_prefix': ''})(local_app)
+            auth.http_connect = mock_http_connect(204,
+               {'x-auth-ttl': '1234', 'x-auth-groups': 'act:usr,act,AUTH_cfa'})
+            reqenv = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/act',
+                'HTTP_X_AUTH_TOKEN': 't', 'swift.cache': None}
+            result = ''.join(local_auth(reqenv, lambda x, y: None))
+            self.assert_(result.startswith('204'), result)
+            self.assert_(local_app.i_was_called)
+            self.assertEquals(reqenv['swift.authorize'],
+                              local_auth.authorize)
+        finally:
+            auth.http_connect = old_http_connect
+
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
         local_auth = \

@@ -60,9 +60,10 @@ Example Authentication with DevAuth:
     * The external DevAuth server responds with "X-Auth-Groups:
       test:tester,test,AUTH_storage_xyz"
     * Now this user will have full access (via authorization procedures later)
-      to the AUTH_storage_xyz Swift storage account and access to other storage
-      accounts with the same `AUTH_` reseller prefix and has an ACL specifying
-      at least one of those three groups returned.
+      to the AUTH_storage_xyz Swift storage account and access to containers in
+      other storage accounts, provided the storage account begins with the same
+      `AUTH_` reseller prefix and the container has an ACL specifying at least
+      one of those three groups returned.
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize
