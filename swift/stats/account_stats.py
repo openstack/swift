@@ -21,9 +21,15 @@ from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
 from swift.common.internal_proxy import InternalProxy
 from swift.common.utils import renamer, get_logger, readconf
+from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
 
+
 class AccountStat(Daemon):
+    """Extract storage stats from account databases on the account
+    storage nodes
+    """
+
     def __init__(self, stats_conf):
         super(AccountStat, self).__init__(stats_conf)
         target_dir = stats_conf.get('log_dir', '/var/log/swift')
@@ -45,7 +51,7 @@ class AccountStat(Daemon):
         start = time.time()
         self.find_and_process()
         self.logger.info("Gathering account stats complete (%0.2f minutes)" %
-            ((time.time()-start)/60))
+            ((time.time() - start) / 60))
 
     def find_and_process(self):
         #TODO: handle a counter in the filename to prevent overwrites?
@@ -53,10 +59,10 @@ class AccountStat(Daemon):
         #TODO: don't use /tmp?
         tmp_filename = os.path.join('/tmp', src_filename)
         with open(tmp_filename, 'wb') as statfile:
-            #statfile.write('Account Name, Container Count, Object Count, Bytes Used\n')
+            #statfile.write(
+            #    'Account Name, Container Count, Object Count, Bytes Used\n')
             for device in os.listdir(self.devices):
-                if self.mount_check and \
-                        not os.path.ismount(os.path.join(self.devices, device)):
+                if self.mount_check and not check_mount(self.devices, device):
                     self.logger.error("Device %s is not mounted, skipping." %
                         device)
                     continue
@@ -70,7 +76,8 @@ class AccountStat(Daemon):
                 for root, dirs, files in os.walk(accounts, topdown=False):
                     for filename in files:
                         if filename.endswith('.db'):
-                            broker = AccountBroker(os.path.join(root, filename))
+                            db_path = os.path.join(root, filename)
+                            broker = AccountBroker(db_path)
                             if not broker.is_deleted():
                                 (account_name,
                                 _, _, _,
@@ -78,9 +85,8 @@ class AccountStat(Daemon):
                                 object_count,
                                 bytes_used,
                                 _, _) = broker.get_info()
-                                line_data = '"%s",%d,%d,%d\n' % (account_name,
-                                                                    container_count,
-                                                                    object_count,
-                                                                    bytes_used)
+                                line_data = '"%s",%d,%d,%d\n' % (
+                                    account_name, container_count,
+                                    object_count, bytes_used)
                                 statfile.write(line_data)
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))

@@ -29,26 +29,22 @@ from swift.common.exceptions import ChunkReadTimeout
 from swift.common.utils import get_logger, readconf
 from swift.common.daemon import Daemon
 
+
 class BadFileDownload(Exception):
     pass
 
+
 class LogProcessor(object):
+    """Load plugins, process logs"""
 
     def __init__(self, conf, logger):
         stats_conf = conf.get('log-processor', {})
-        
-        proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
-                                               '/etc/swift/proxy-server.conf')
-        self.proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
-                                            name='proxy-server')
+
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
         else:
             self.logger = logger
-        self.internal_proxy = InternalProxy(self.proxy_server_conf,
-                                            self.logger,
-                                            retries=3)
-        
+
         # load the processing plugins
         self.plugins = {}
         plugin_prefix = 'log-processor-'
@@ -56,10 +52,24 @@ class LogProcessor(object):
             plugin_name = section[len(plugin_prefix):]
             plugin_conf = conf.get(section, {})
             self.plugins[plugin_name] = plugin_conf
-            import_target, class_name = plugin_conf['class_path'].rsplit('.', 1)
+            class_path = self.plugins[plugin_name]['class_path']
+            import_target, class_name = class_path.rsplit('.', 1)
             module = __import__(import_target, fromlist=[import_target])
             klass = getattr(module, class_name)
             self.plugins[plugin_name]['instance'] = klass(plugin_conf)
+
+    @property
+    def internal_proxy(self):
+        '''Lazy load internal proxy'''
+        if self._internal_proxy is None:
+            proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
+                                                   '/etc/swift/proxy-server.conf')
+            self.proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
+                                                name='proxy-server')
+            self._internal_proxy = InternalProxy(self.proxy_server_conf,
+                                                 self.logger,
+                                                 retries=3)
+        return self._internal_proxy
 
     def process_one_file(self, plugin_name, account, container, object_name):
         # get an iter of the object data
@@ -72,7 +82,8 @@ class LogProcessor(object):
                                                              container,
                                                              object_name)
 
-    def get_data_list(self, start_date=None, end_date=None, listing_filter=None):
+    def get_data_list(self, start_date=None, end_date=None,
+                      listing_filter=None):
         total_list = []
         for name, data in self.plugins.items():
             account = data['swift_account']
@@ -89,8 +100,9 @@ class LogProcessor(object):
                     total_list.append(x)
         return total_list
 
-    def get_container_listing(self, swift_account, container_name, start_date=None,
-                         end_date=None, listing_filter=None):
+    def get_container_listing(self, swift_account, container_name,
+                              start_date=None, end_date=None,
+                              listing_filter=None):
         '''
         Get a container listing, filtered by start_date, end_date, and
         listing_filter. Dates, if given, should be in YYYYMMDDHH format
@@ -162,15 +174,16 @@ class LogProcessor(object):
         last_part = ''
         last_compressed_part = ''
         # magic in the following zlib.decompressobj argument is courtesy of
-        # http://stackoverflow.com/questions/2423866/python-decompressing-gzip-chunk-by-chunk
-        d = zlib.decompressobj(16+zlib.MAX_WBITS)
+        # Python decompressing gzip chunk-by-chunk
+        # http://stackoverflow.com/questions/2423866
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
         try:
             for chunk in o:
                 if compressed:
                     try:
                         chunk = d.decompress(chunk)
                     except zlib.error:
-                        raise BadFileDownload() # bad compressed data
+                        raise BadFileDownload()  # bad compressed data
                 parts = chunk.split('\n')
                 parts[0] = last_part + parts[0]
                 for part in parts[:-1]:
@@ -208,6 +221,8 @@ class LogProcessor(object):
 
 
 class LogProcessorDaemon(Daemon):
+    """Gather raw log data and farm proccessing, results output via print"""
+
     def __init__(self, conf):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
@@ -228,15 +243,16 @@ class LogProcessorDaemon(Daemon):
             lookback_start = None
             lookback_end = None
         else:
-            lookback_start = datetime.datetime.now() - \
-                             datetime.timedelta(hours=self.lookback_hours)
+            delta_hours = datetime.timedelta(hours=self.lookback_hours)
+            lookback_start = datetime.datetime.now() - delta_hours
             lookback_start = lookback_start.strftime('%Y%m%d%H')
             if self.lookback_window == 0:
                 lookback_end = None
             else:
+                delta_window = datetime.timedelta(hours=self.lookback_window)
                 lookback_end = datetime.datetime.now() - \
-                               datetime.timedelta(hours=self.lookback_hours) + \
-                               datetime.timedelta(hours=self.lookback_window)
+                               delta_hours + \
+                               delta_window
                 lookback_end = lookback_end.strftime('%Y%m%d%H')
         self.logger.debug('lookback_start: %s' % lookback_start)
         self.logger.debug('lookback_end: %s' % lookback_end)
@@ -261,7 +277,7 @@ class LogProcessorDaemon(Daemon):
         self.logger.info('loaded %d files to process' % len(logs_to_process))
         if not logs_to_process:
             self.logger.info("Log processing done (%0.2f minutes)" %
-                        ((time.time()-start)/60))
+                        ((time.time() - start) / 60))
             return
 
         # map
@@ -315,7 +331,7 @@ class LogProcessorDaemon(Daemon):
             row = [bill_ts, data_ts]
             row.append('%s' % account)
             for k in sorted_keylist_mapping:
-                row.append('%s'%d[k])
+                row.append('%s' % d[k])
             print ','.join(row)
 
         # cleanup
@@ -327,7 +343,8 @@ class LogProcessorDaemon(Daemon):
                                         'processed_files.pickle.gz')
 
         self.logger.info("Log processing done (%0.2f minutes)" %
-                        ((time.time()-start)/60))
+                        ((time.time() - start) / 60))
+
 
 def multiprocess_collate(processor_args, logs_to_process):
     '''yield hourly data from logs_to_process'''
@@ -360,6 +377,7 @@ def multiprocess_collate(processor_args, logs_to_process):
             time.sleep(.1)
     for r in results:
         r.join()
+
 
 def collate_worker(processor_args, in_queue, out_queue):
     '''worker process for multiprocess_collate'''

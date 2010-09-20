@@ -25,18 +25,19 @@ from swift.common.internal_proxy import InternalProxy
 from swift.common.daemon import Daemon
 from swift.common import utils
 
+
 class LogUploader(Daemon):
     '''
     Given a local directory, a swift account, and a container name, LogParser
-    will upload all files in the local directory to the given account/container.
-    All but the newest files will be uploaded, and the files' md5 sum will be
-    computed. The hash is used to prevent duplicate data from being uploaded
-    multiple times in different files (ex: log lines). Since the hash is
-    computed, it is also used as the uploaded object's etag to ensure data
-    integrity.
-    
+    will upload all files in the local directory to the given account/
+    container.  All but the newest files will be uploaded, and the files' md5
+    sum will be computed. The hash is used to prevent duplicate data from
+    being uploaded multiple times in different files (ex: log lines). Since
+    the hash is computed, it is also used as the uploaded object's etag to
+    ensure data integrity.
+
     Note that after the file is successfully uploaded, it will be unlinked.
-    
+
     The given proxy server config is used to instantiate a proxy server for
     the object uploads.
     '''
@@ -66,7 +67,7 @@ class LogUploader(Daemon):
         start = time.time()
         self.upload_all_logs()
         self.logger.info("Uploading logs complete (%0.2f minutes)" %
-            ((time.time()-start)/60))
+            ((time.time() - start) / 60))
 
     def upload_all_logs(self):
         i = [(self.filename_format.index(c), c) for c in '%Y %m %d %H'.split()]
@@ -76,17 +77,17 @@ class LogUploader(Daemon):
         for start, c in i:
             offset = base_offset + start
             if c == '%Y':
-                year_offset = offset, offset+4
+                year_offset = offset, offset + 4
                 # Add in the difference between len(%Y) and the expanded
                 # version of %Y (????). This makes sure the codes after this
                 # one will align properly in the final filename.
                 base_offset += 2
             elif c == '%m':
-                month_offset = offset, offset+2
+                month_offset = offset, offset + 2
             elif c == '%d':
-                day_offset = offset, offset+2
+                day_offset = offset, offset + 2
             elif c == '%H':
-                hour_offset = offset, offset+2
+                hour_offset = offset, offset + 2
         if not (year_offset and month_offset and day_offset and hour_offset):
             # don't have all the parts, can't upload anything
             return
@@ -124,7 +125,8 @@ class LogUploader(Daemon):
                 continue
             if (time.time() - os.stat(filename).st_mtime) < 7200:
                 # don't process very new logs
-                self.logger.debug("Skipping log: %s (< 2 hours old)" % filename)
+                self.logger.debug(
+                    "Skipping log: %s (< 2 hours old)" % filename)
                 continue
             self.upload_one_log(filename, year, month, day, hour)
 
@@ -147,7 +149,7 @@ class LogUploader(Daemon):
         # By adding a hash to the filename, we ensure that uploaded files
         # have unique filenames and protect against uploading one file
         # more than one time. By using md5, we get an etag for free.
-        target_filename = '/'.join([year, month, day, hour, filehash+'.gz'])
+        target_filename = '/'.join([year, month, day, hour, filehash + '.gz'])
         if self.internal_proxy.upload_file(filename,
                                           self.swift_account,
                                           self.container_name,

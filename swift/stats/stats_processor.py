@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 class StatsLogProcessor(object):
+    """Transform account storage stat logs"""
 
     def __init__(self, conf):
         pass
