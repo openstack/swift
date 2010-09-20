@@ -1138,7 +1138,7 @@ class AccountController(Controller):
         if error_response:
             return error_response
         account_partition, accounts = \
-            self.app.account_ring.get_nodes( self.account_name)
+            self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'X-CF-Trans-Id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
@@ -1433,6 +1433,7 @@ class Application(BaseApplication):
                     return Response(status='498 Rate Limited',
                         body='Slow down', request=req)
         return None
+
 
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI proxy apps."""

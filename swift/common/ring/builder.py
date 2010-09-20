@@ -104,8 +104,8 @@ class RingBuilder(object):
                 self._ring = RingData([], devs, 32 - self.part_power)
             else:
                 self._ring = \
-                RingData([array('H', p2d) for p2d in self._replica2part2dev], 
-                         devs, 32 - self.part_power) 
+                RingData([array('H', p2d) for p2d in self._replica2part2dev],
+                         devs, 32 - self.part_power)
         return self._ring
 
     def add_dev(self, dev):

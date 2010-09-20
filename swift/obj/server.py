@@ -592,6 +592,7 @@ class ObjectController(object):
                 sleep(slow)
         return res(env, start_response)
 
+
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI object server apps"""
     conf = global_conf.copy()

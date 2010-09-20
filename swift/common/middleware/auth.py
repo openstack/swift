@@ -20,7 +20,7 @@ from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, split_path
+from swift.common.utils import cache_from_env, split_path, TRUE_VALUES
 
 
 class DevAuth(object):
@@ -34,8 +34,7 @@ class DevAuth(object):
             self.reseller_prefix += '_'
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
-        self.ssl = \
-            conf.get('ssl', 'false').lower() in ('true', 'on', '1', 'yes')
+        self.ssl = conf.get('ssl', 'false').lower() in TRUE_VALUES
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
@@ -44,38 +43,103 @@ class DevAuth(object):
         and installing callback hooks for authorization and ACL header
         validation. For an authenticated request, REMOTE_USER will be set to a
         comma separated list of the user's groups.
+
+        With a non-empty reseller prefix, acts as the definitive auth service
+        for just tokens and accounts that begin with that prefix, but will deny
+        requests outside this prefix if no other auth middleware overrides it.
+
+        With an empty reseller prefix, acts as the definitive auth service only
+        for tokens that validate to a non-empty set of groups. For all other
+        requests, acts as the fallback auth service when no other auth
+        middleware overrides it.
         """
-        groups = None
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         if token and token.startswith(self.reseller_prefix):
-            memcache_client = cache_from_env(env)
-            key = '%s/token/%s' % (self.reseller_prefix, token)
-            cached_auth_data = memcache_client.get(key)
-            if cached_auth_data:
-                start, expiration, groups = cached_auth_data
-                if time() - start > expiration:
-                    groups = None
-            if not groups:
-                with Timeout(self.timeout):
-                    conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                                        '/token/%s' % token, ssl=self.ssl)
-                    resp = conn.getresponse()
-                    resp.read()
-                    conn.close()
-                if resp.status // 100 != 2:
+            # Note: Empty reseller_prefix will match all tokens.
+            # Attempt to auth my token with my auth server
+            groups = \
+                self.get_groups(token, memcache_client=cache_from_env(env))
+            if groups:
+                env['REMOTE_USER'] = groups
+                user = groups and groups.split(',', 1)[0] or ''
+                # We know the proxy logs the token, so we augment it just a bit
+                # to also log the authenticated user.
+                env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+                env['swift.authorize'] = self.authorize
+                env['swift.clean_acl'] = clean_acl
+            else:
+                # Unauthorized token
+                if self.reseller_prefix:
+                    # Because I know I'm the definitive auth for this token, I
+                    # can deny it outright.
                     return HTTPUnauthorized()(env, start_response)
-                expiration = float(resp.getheader('x-auth-ttl'))
-                groups = resp.getheader('x-auth-groups')
+                # Because I'm not certain if I'm the definitive auth for empty
+                # reseller_prefixed tokens, I won't overwrite swift.authorize.
+                elif 'swift.authorize' not in env:
+                    env['swift.authorize'] = self.denied_response
+        else:
+            if self.reseller_prefix:
+                # With a non-empty reseller_prefix, I would like to be called
+                # back for anonymous access to accounts I know I'm the
+                # definitive auth for.
+                version, rest = split_path(env.get('PATH_INFO', ''),
+                                           1, 2, True)
+                if rest and rest.startswith(self.reseller_prefix):
+                    # Handle anonymous access to accounts I'm the definitive
+                    # auth for.
+                    env['swift.authorize'] = self.authorize
+                    env['swift.clean_acl'] = clean_acl
+                # Not my token, not my account, I can't authorize this request,
+                # deny all is a good idea if not already set...
+                elif 'swift.authorize' not in env:
+                    env['swift.authorize'] = self.denied_response
+            # Because I'm not certain if I'm the definitive auth for empty
+            # reseller_prefixed accounts, I won't overwrite swift.authorize.
+            elif 'swift.authorize' not in env:
+                env['swift.authorize'] = self.authorize
+                env['swift.clean_acl'] = clean_acl
+        return self.app(env, start_response)
+
+    def get_groups(self, token, memcache_client=None):
+        """
+        Get groups for the given token.
+        
+        If memcache_client is set, token credentials will be cached
+        appropriately.
+        
+        With a cache miss, or no memcache_client, the configurated external
+        authentication server will be queried for the group information.
+
+        :param token: Token to validate and return a group string for.
+        :param memcache_client: Memcached client to use for caching token
+                                credentials; None if no caching is desired.
+        :returns: None if the token is invalid or a string containing a comma
+                  separated list of groups the authenticated user is a member
+                  of. The first group in the list is also considered a unique
+                  identifier for that user.
+        """
+        groups = None
+        key = '%s/token/%s' % (self.reseller_prefix, token)
+        cached_auth_data = memcache_client and memcache_client.get(key)
+        if cached_auth_data:
+            start, expiration, groups = cached_auth_data
+            if time() - start > expiration:
+                groups = None
+        if not groups:
+            with Timeout(self.timeout):
+                conn = http_connect(self.auth_host, self.auth_port, 'GET',
+                                    '/token/%s' % token, ssl=self.ssl)
+                resp = conn.getresponse()
+                resp.read()
+                conn.close()
+            if resp.status // 100 != 2:
+                return None
+            expiration = float(resp.getheader('x-auth-ttl'))
+            groups = resp.getheader('x-auth-groups')
+            if memcache_client:
                 memcache_client.set(key, (time(), expiration, groups),
                                     timeout=expiration)
-        env['REMOTE_USER'] = groups
-        env['swift.authorize'] = self.authorize
-        env['swift.clean_acl'] = clean_acl
-        # We know the proxy logs the token, so we augment it just a bit to also
-        # log the authenticated user.
-        user = groups and groups.split(',', 1)[0] or ''
-        env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
-        return self.app(env, start_response)
+        return groups
 
     def authorize(self, req):
         """
@@ -117,6 +181,7 @@ def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+
     def auth_filter(app):
         return DevAuth(app, conf)
     return auth_filter

@@ -37,6 +37,7 @@ class HealthCheckMiddleware(object):
         else:
             return self.app(env, start_response)
 
+
 def filter_factory(global_conf, **local_conf):
     def healthcheck_filter(app):
         return HealthCheckMiddleware(app)

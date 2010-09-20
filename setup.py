@@ -63,6 +63,7 @@ setup(
         'bin/swift-account-replicator', 'bin/swift-account-server',
         'bin/swift-auth-add-user',
         'bin/swift-auth-recreate-accounts', 'bin/swift-auth-server',
+        'bin/swift-auth-update-reseller-prefixes',
         'bin/swift-container-auditor',
         'bin/swift-container-replicator',
         'bin/swift-container-server', 'bin/swift-container-updater',

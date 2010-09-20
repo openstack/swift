@@ -15,6 +15,7 @@
 
 from __future__ import with_statement
 import os
+import sys
 from contextlib import contextmanager
 from time import gmtime, strftime, time
 from urllib import unquote, quote
@@ -23,8 +24,8 @@ from urlparse import urlparse
 
 import sqlite3
 from webob import Request, Response
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNoContent, \
-    HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
+from webob.exc import HTTPBadRequest, HTTPConflict, HTTPForbidden, \
+    HTTPNoContent, HTTPUnauthorized, HTTPServiceUnavailable, HTTPNotFound
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
@@ -140,6 +141,38 @@ class AuthController(object):
         self.conn.execute('''CREATE INDEX IF NOT EXISTS ix_token_account
                              ON token (account)''')
         self.conn.commit()
+        for row in self.conn.execute('SELECT cfaccount FROM account'):
+            if not row[0].startswith(self.reseller_prefix):
+                previous_prefix = ''
+                if '_' in row[0]:
+                    previous_prefix = row[0].split('_', 1)[0]
+                msg = ('''
+THERE ARE ACCOUNTS IN YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER
+PREFIX OF "%s".
+YOU HAVE A FEW OPTIONS:
+    1) RUN "swift-auth-update-reseller-prefixes %s %s",
+       "swift-init auth-server restart", AND
+       "swift-auth-recreate-accounts -K ..." TO CREATE FRESH ACCOUNTS.
+    OR
+    2) REMOVE %s, RUN "swift-init auth-server restart", AND RUN
+       "swift-auth-add-user ..." TO CREATE BRAND NEW ACCOUNTS THAT WAY.
+    OR
+    3) ADD "reseller_prefix = %s" (WITHOUT THE QUOTES) TO YOUR
+       proxy-server.conf IN THE [filter:auth] SECTION AND TO YOUR
+       auth-server.conf IN THE [app:auth-server] SECTION AND RUN
+       "swift-init proxy-server restart" AND "swift-init auth-server restart"
+       TO REVERT BACK TO YOUR PREVIOUS RESELLER PREFIX.
+
+    %s
+                    ''' % (self.reseller_prefix.rstrip('_'), self.db_file,
+                    self.reseller_prefix.rstrip('_'), self.db_file,
+                    previous_prefix, previous_prefix and ' ' or '''
+    SINCE YOUR PREVIOUS RESELLER PREFIX WAS AN EMPTY STRING, IT IS NOT
+    RECOMMENDED TO PERFORM OPTION 3 AS THAT WOULD MAKE SUPPORTING MULTIPLE
+    RESELLERS MORE DIFFICULT.
+                    '''.strip())).strip()
+                self.logger.critical('CRITICAL: ' + ' '.join(msg.split()))
+                raise Exception('\n' + msg)
 
     def add_storage_account(self, account_name=''):
         """
@@ -421,7 +454,7 @@ class AuthController(object):
         if create_reseller_admin and (
               request.headers.get('X-Auth-Admin-User') != '.super_admin' or
               request.headers.get('X-Auth-Admin-Key') != self.super_admin_key):
-            return HTTPForbidden(request=request)
+            return HTTPUnauthorized(request=request)
         create_account_admin = \
             request.headers.get('x-auth-user-admin') == 'true'
         if create_account_admin and \
@@ -433,7 +466,7 @@ class AuthController(object):
         storage_url = self.create_user(account_name, user_name, password,
                         create_account_admin, create_reseller_admin)
         if storage_url == 'already exists':
-            return HTTPBadRequest(body=storage_url)
+            return HTTPConflict(body=storage_url)
         if not storage_url:
             return HTTPServiceUnavailable()
         return HTTPNoContent(headers={'x-storage-url': storage_url})
@@ -451,7 +484,7 @@ class AuthController(object):
         """
         if request.headers.get('X-Auth-Admin-User') != '.super_admin' or \
                request.headers.get('X-Auth-Admin-Key') != self.super_admin_key:
-            return HTTPForbidden(request=request)
+            return HTTPUnauthorized(request=request)
         result = self.recreate_accounts()
         return Response(result, 200, request=request)
 
@@ -604,6 +637,7 @@ class AuthController(object):
     def __call__(self, env, start_response):
         """ Used by the eventlet.wsgi.server """
         return self.handleREST(env, start_response)
+
 
 def app_factory(global_conf, **local_conf):
     conf = global_conf.copy()
