@@ -154,7 +154,7 @@ class TestLogProcessor(unittest.TestCase):
         p.get_object_data = get_object_data
         result = p.process_one_file('stats', 'a', 'c', 'y/m/d/h/o')
         expected = {'account':
-                    {'count': 1,
+                    {'replica_count': 1,
                     'object_count': 2,
                     'container_count': 1,
                     'bytes_used': 3}}
