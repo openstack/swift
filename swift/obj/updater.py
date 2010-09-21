@@ -154,16 +154,20 @@ class ObjectUpdater(Daemon):
             renamer(update_path, os.path.join(device,
                 'quarantined', 'objects', os.path.basename(update_path)))
             return
+        successes = update.get('successes', [])
         part, nodes = self.get_container_ring().get_nodes(
                                 update['account'], update['container'])
         obj = '/%s/%s/%s' % \
               (update['account'], update['container'], update['obj'])
         success = True
         for node in nodes:
-            status = self.object_update(node, part, update['op'], obj,
+            if node['id'] not in successes:
+                status = self.object_update(node, part, update['op'], obj,
                                         update['headers'])
-            if not (200 <= status < 300) and status != 404:
-                success = False
+                if not (200 <= status < 300) and status != 404:
+                    success = False
+                else:
+                    successes.append(node['id'])
         if success:
             self.successes += 1
             self.logger.debug('Update sent for %s %s' % (obj, update_path))
@@ -171,6 +175,8 @@ class ObjectUpdater(Daemon):
         else:
             self.failures += 1
             self.logger.debug('Update failed for %s %s' % (obj, update_path))
+            update['successes'] = successes
+            pickle.dump(update, open(update_path,'w'))
 
     def object_update(self, node, part, op, obj, headers):
         """

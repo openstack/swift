@@ -122,13 +122,15 @@ class TestObjectUpdater(unittest.TestCase):
             except BaseException, err:
                 return err
             return None
-        def accept(return_code):
+        def accept(return_codes):
+            codes = iter(return_codes)
             try:
                 events = []
-                for x in xrange(2):
+                for x in xrange(len(return_codes)):
                     with Timeout(3):
                         sock, addr = bindsock.accept()
-                        events.append(spawn(accepter, sock, return_code))
+                        events.append(
+                            spawn(accepter, sock, codes.next()))
                 for event in events:
                     err = event.wait()
                     if err:
@@ -136,7 +138,7 @@ class TestObjectUpdater(unittest.TestCase):
             except BaseException, err:
                 return err
             return None
-        event = spawn(accept, 201)
+        event = spawn(accept, [201,500])
         for dev in cu.get_container_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
@@ -144,8 +146,13 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
+        self.assert_(os.path.exists(op_path))
+        event = spawn(accept, [201])
+        cu.run_once()
+        err = event.wait()
+        if err:
+            raise err
         self.assert_(not os.path.exists(op_path))
-
 
 if __name__ == '__main__':
     unittest.main()
