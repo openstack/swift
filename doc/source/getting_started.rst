@@ -26,7 +26,7 @@ And the following python libraries:
 Development
 -----------
 
-To get started with developemnt with Swift, or to just play around, the
+To get started with development with Swift, or to just play around, the
 following docs will be useful:
 
 * :doc:`Swift All in One <development_saio>` - Set up a VM with Swift installed
