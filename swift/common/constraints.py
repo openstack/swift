@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import os
-import re
 
 from webob.exc import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
@@ -142,10 +141,6 @@ def check_float(string):
         return True
     except ValueError:
         return False
-
-
-_invalid_xml = re.compile(ur'[^\x09\x0a\x0d\x20-\uD7FF\uE000-\uFFFD%s-%s]' %
-                        (unichr(0x10000), unichr(0x10FFFF)))
 
 
 def check_utf8(string):
