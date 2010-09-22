@@ -40,7 +40,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
     split_path, drop_buffer_cache, get_logger
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
-    check_float, check_xml_encodable
+    check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout
 from swift.obj.replicator import get_hashes, invalidate_hash, \
     recalculate_hashes
@@ -557,7 +557,7 @@ class ObjectController(object):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
         req = Request(env)
-        if not check_xml_encodable(req.path_info):
+        if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:

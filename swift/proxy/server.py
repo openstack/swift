@@ -36,7 +36,7 @@ from swift.common.utils import get_logger, normalize_timestamp, split_path, \
     cache_from_env
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    check_xml_encodable, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
+    check_utf8, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
     MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout
@@ -1298,7 +1298,7 @@ class BaseApplication(object):
                 controller, path_parts = self.get_controller(req.path)
             except ValueError:
                 return HTTPNotFound(request=req)
-            if not check_xml_encodable(req.path_info):
+            if not check_utf8(req.path_info):
                 return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             if not controller:
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
