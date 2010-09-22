@@ -16,8 +16,7 @@
 import zlib
 import struct
 
-
-class CompressedFileReader(object):
+class CompressingFileReader(object):
     '''
     Wraps a file object and provides a read method that returns gzip'd data.
 

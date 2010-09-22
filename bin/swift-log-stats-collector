@@ -24,4 +24,4 @@ if __name__ == '__main__':
         print "Usage: swift-log-stats-collector CONFIG_FILE"
         sys.exit()
     conf = utils.readconf(sys.argv[1], log_name='log-stats-collector')
-    stats = LogProcessorDaemon(conf).run(once=True, capture_stdout=False)
+    stats = LogProcessorDaemon(conf).run(once=True)

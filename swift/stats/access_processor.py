@@ -21,7 +21,9 @@ from swift.common.utils import split_path
 
 month_map = '_ Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()
 
+
 class AccessLogProcessor(object):
+    """Transform proxy server access logs"""
 
     def __init__(self, conf):
         self.server_name = conf.get('server_name', 'proxy')
@@ -112,8 +114,8 @@ class AccessLogProcessor(object):
             d['account'] = account
             d['container_name'] = container_name
             d['object_name'] = object_name
-            d['bytes_out'] = int(d['bytes_out'].replace('-','0'))
-            d['bytes_in'] = int(d['bytes_in'].replace('-','0'))
+            d['bytes_out'] = int(d['bytes_out'].replace('-', '0'))
+            d['bytes_in'] = int(d['bytes_in'].replace('-', '0'))
             d['code'] = int(d['code'])
         return d
 
@@ -151,12 +153,12 @@ class AccessLogProcessor(object):
                 source = 'service'
             else:
                 source = 'public'
-            
+
             if line_data['client_ip'] in self.service_ips:
                 source = 'service'
 
-            d[(source, 'bytes_out')] = d.setdefault((source, 'bytes_out'), 0) + \
-                                       bytes_out
+            d[(source, 'bytes_out')] = d.setdefault((
+                source, 'bytes_out'), 0) + bytes_out
             d[(source, 'bytes_in')] = d.setdefault((source, 'bytes_in'), 0) + \
                                       bytes_in
 
@@ -171,7 +173,7 @@ class AccessLogProcessor(object):
             path = line_data.get('path', 0)
             d['path_query'] = d.setdefault('path_query', 0) + path
 
-            code = '%dxx' % (code/100)
+            code = '%dxx' % (code / 100)
             key = (source, op_level, method, code)
             d[key] = d.setdefault(key, 0) + 1
 
@@ -220,5 +222,5 @@ class AccessLogProcessor(object):
                         keylist_mapping[code].add(
                                         (source, level, verb, code))
                         keylist_mapping['ops_count'].add(
-                                        (source,level,verb,code))
+                                        (source, level, verb, code))
         return keylist_mapping

@@ -17,7 +17,7 @@ import webob
 from urllib import quote, unquote
 from json import loads as json_loads
 
-from swift.common.compressed_file_reader import CompressedFileReader
+from swift.common.compressing_file_reader import CompressingFileReader
 from swift.proxy.server import BaseApplication
 
 class MemcacheStub(object):
@@ -45,7 +45,8 @@ class InternalProxy(object):
         self.retries = retries
 
     def upload_file(self, source_file, account, container, object_name,
-                    compress=True, content_type='application/x-gzip'):
+                    compress=True, content_type='application/x-gzip',
+                    etag=None):
         """
         Upload a file to cloud files.
 
@@ -69,9 +70,9 @@ class InternalProxy(object):
                             headers={'Transfer-Encoding': 'chunked'})
         if compress:
             if hasattr(source_file, 'read'):
-                compressed_file = CompressedFileReader(source_file)
+                compressed_file = CompressingFileReader(source_file)
             else:
-                compressed_file = CompressedFileReader(open(source_file, 'rb'))
+                compressed_file = CompressingFileReader(open(source_file, 'rb'))
             req.body_file = compressed_file
         else:
             if not hasattr(source_file, 'read'):
@@ -80,6 +81,8 @@ class InternalProxy(object):
         req.account = account
         req.content_type = content_type
         req.content_length = None   # to make sure we send chunked data
+        if etag:
+            req.etag = etag
         resp = self.upload_app.handle_request(self.upload_app.update_request(req))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
