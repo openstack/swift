@@ -33,7 +33,7 @@ from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
     normalize_timestamp, storage_directory, split_path
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
-    check_mount, check_float, check_xml_encodable
+    check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
@@ -386,7 +386,7 @@ class ContainerController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        if not check_xml_encodable(req.path_info):
+        if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:

@@ -108,7 +108,7 @@ def check_object_creation(req, object_name):
     if 'Content-Type' not in req.headers:
         return HTTPBadRequest(request=req, content_type='text/plain',
                     body='No content type')
-    if not check_xml_encodable(req.headers['Content-Type']):
+    if not check_utf8(req.headers['Content-Type']):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                     content_type='text/plain')
     return check_metadata(req, 'object')
@@ -148,14 +148,15 @@ _invalid_xml = re.compile(ur'[^\x09\x0a\x0d\x20-\uD7FF\uE000-\uFFFD%s-%s]' %
                         (unichr(0x10000), unichr(0x10FFFF)))
 
 
-def check_xml_encodable(string):
+def check_utf8(string):
     """
-    Validate if a string can be encoded in xml.
+    Validate if a string is valid UTF-8.
 
     :param string: string to be validated
-    :returns: True if the string can be encoded in xml, False otherwise
+    :returns: True if the string is valid utf-8, False otherwise
     """
     try:
-        return not _invalid_xml.search(string.decode('UTF-8'))
+        string.decode('UTF-8')
+        return True
     except UnicodeDecodeError:
         return False
