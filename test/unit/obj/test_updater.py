@@ -48,6 +48,7 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(self.devices_dir)
         self.sda1 = os.path.join(self.devices_dir, 'sda1')
         os.mkdir(self.sda1)
+        os.mkdir(os.path.join(self.sda1,'tmp'))
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)

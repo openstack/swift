@@ -32,6 +32,9 @@ import ctypes.util
 import fcntl
 import struct
 from ConfigParser import ConfigParser
+from tempfile import mkstemp
+import cPickle as pickle
+
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
@@ -510,8 +513,8 @@ def unlink_older_than(path, mtime):
     """
     Remove any file in a given path that that was last modified before mtime.
 
-    :param path: Path to remove file from
-    :mtime: Timestamp of oldest file to keep
+    :param path: path to remove file from
+    :mtime: timestamp of oldest file to keep
     """
     if os.path.exists(path):
         for fname in os.listdir(path):
@@ -524,6 +527,14 @@ def unlink_older_than(path, mtime):
 
 
 def item_from_env(env, item_name):
+    """
+    Get a value from the wsgi environment
+
+    :param env: wsgi environment dict
+    :param item_name: name of item to get
+
+    :returns: the value from the environment
+    """
     item = env.get(item_name, None)
     if item is None:
         logging.error("ERROR: %s could not be found in env!" % item_name)
@@ -531,10 +542,27 @@ def item_from_env(env, item_name):
 
 
 def cache_from_env(env):
+    """
+    Get memcache connection pool from the environment (which had been
+    previously set by the memcache middleware
+
+    :param env: wsgi environment dict
+
+    :returns: swift.common.memcached.MemcacheRing from environment
+    """
     return item_from_env(env, 'swift.cache')
 
 
 def readconf(conf, section_name, log_name=None):
+    """
+    Read config file and return config items as a dict
+
+    :param conf: path to config file
+    :param section_name: config section to read
+    :param log_name: name to be used with logging (will use section_name if
+                     not defined)
+    :returns: dict of config items
+    """
     c = ConfigParser()
     if not c.read(conf):
         print "Unable to read config file %s" % conf
@@ -550,3 +578,21 @@ def readconf(conf, section_name, log_name=None):
         else:
             conf['log_name'] = section_name
     return conf
+
+
+def write_pickle(obj, dest, tmp):
+    """
+    Ensure that a pickle file gets written to disk.  The file
+    is first written to a tmp location, ensure it is synced to disk, then
+    perform a move to its final location
+
+    :param obj: python object to be pickled
+    :param dest: path of final destination file
+    :param tmp: path to tmp to use
+    """
+    fd, tmppath = mkstemp(dir=tmp)
+    with os.fdopen(fd, 'wb') as fo:
+        pickle.dump(obj, fo)
+        fo.flush()
+        os.fsync(fd)
+        renamer(tmppath, dest)

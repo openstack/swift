@@ -37,7 +37,7 @@ from eventlet import sleep, Timeout
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
-    split_path, drop_buffer_cache, get_logger
+    split_path, drop_buffer_cache, get_logger, write_pickle
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_xml_encodable
@@ -300,15 +300,13 @@ class ObjectController(object):
                 '%s:%s/%s transaction %s (saving for async update later)' %
                 (ip, port, contdevice, headers_in.get('x-cf-trans-id', '-')))
         async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
-        fd, tmppath = mkstemp(dir=os.path.join(self.devices, objdevice, 'tmp'))
-        with os.fdopen(fd, 'wb') as fo:
-            pickle.dump({'op': op, 'account': account, 'container': container,
-                         'obj': obj, 'headers': headers_out}, fo)
-            fo.flush()
-            os.fsync(fd)
-            ohash = hash_path(account, container, obj)
-            renamer(tmppath, os.path.join(async_dir, ohash[-3:], ohash + '-' +
-                normalize_timestamp(headers_out['x-timestamp'])))
+        ohash = hash_path(account, container, obj)
+        write_pickle(
+            {'op': op, 'account': account, 'container': container,
+                'obj': obj, 'headers': headers_out},
+            os.path.join(async_dir, ohash[-3:], ohash + '-' +
+                normalize_timestamp(headers_out['x-timestamp'])),
+            os.path.join(self.devices, objdevice, 'tmp'))
 
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""

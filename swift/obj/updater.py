@@ -25,7 +25,7 @@ from eventlet import patcher, Timeout
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, renamer
+from swift.common.utils import get_logger, renamer, write_pickle
 from swift.common.daemon import Daemon
 from swift.obj.server import ASYNCDIR
 
@@ -176,7 +176,7 @@ class ObjectUpdater(Daemon):
             self.failures += 1
             self.logger.debug('Update failed for %s %s' % (obj, update_path))
             update['successes'] = successes
-            pickle.dump(update, open(update_path,'w'))
+            write_pickle(update, update_path, os.path.join(device, 'tmp'))
 
     def object_update(self, node, part, op, obj, headers):
         """
