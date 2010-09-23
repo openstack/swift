@@ -23,6 +23,7 @@ from urllib import quote
 from eventlet import Timeout
 
 from swift.obj import server as object_server
+from swift.obj.replicator import invalidate_hash
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
@@ -168,6 +169,7 @@ class ObjectAuditor(Daemon):
             self.quarantines += 1
             self.logger.error('ERROR Object %s failed audit and will be '
                 'quarantined: %s' % (df.datadir, err))
+            invalidate_hash(os.path.dirname(df.datadir))
             renamer(df.datadir, os.path.join(self.devices, device,
                 'quarantined', 'objects', os.path.basename(df.datadir)))
             return
