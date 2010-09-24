@@ -618,7 +618,7 @@ class ObjectController(Controller):
             except ValueError:
                 return HTTPPreconditionFailed(request=req,
                     body='X-Copy-From header must be of the form'
-                    'container/object')
+                    '<container name>/<object name>')
             source_req = Request.blank(source_header)
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
@@ -809,11 +809,11 @@ class ObjectController(Controller):
         if not dest.startswith('/'):
             dest = '/' + dest
         try:
-            _, dest_container, dest_object = dest.split('/', 3)
+            _, dest_container, dest_object = dest.split('/', 2)
         except ValueError:
             return HTTPPreconditionFailed(request=req,
                     body='Destination header must be of the form '
-                         'container/object')
+                         '<container name>/<object name>')
         new_source = '/' + self.container_name + '/' + self.object_name
         self.container_name = dest_container
         self.object_name = dest_object
