@@ -1,0 +1,104 @@
+#!/usr/bin/python
+
+import logging
+import os
+import sys
+import signal
+import uuid
+from optparse import OptionParser
+
+from swift.common.bench import BenchController
+from swift.common.utils import readconf, NamedLogger
+
+# The defaults should be sufficient to run the slapper on a SAIO
+CONF_DEFAULTS = {
+    'auth': 'http://saio:11000/v1.0',
+    'user': 'test:tester',
+    'key': 'testing',
+    'object_sources': '',
+    'put_concurrency': '10',
+    'get_concurrency': '10',
+    'del_concurrency': '10',
+    'concurrency': '',
+    'object_size': '1',
+    'num_objects': '1000',
+    'num_gets': '10000',
+    'delete': 'yes',
+    'container_name': uuid.uuid4().hex,
+    'use_proxy': 'yes',
+    'url': '',
+    'devices': 'sdb',
+    'logging_level': 'INFO',
+    'timeout': '10',
+    }
+
+if __name__ == '__main__':
+    usage = "usage: %prog [OPTIONS] [CONF_FILE]"
+    usage += """\n\nConf file (with defaults):
+
+    [bench]
+    auth = http://saio:11000/v1.0
+    user = test:tester
+    key = testing
+    concurrency = 10
+    object_size = 1
+    num_objects = 1000
+    num_gets = 10000
+    delete = yes
+    """
+    parser = OptionParser(usage=usage)
+    parser.add_option('-A', '--auth', dest='auth',
+                      help='URL for obtaining an auth token')
+    parser.add_option('-U', '--user', dest='user',
+                      help='User name for obtaining an auth token')
+    parser.add_option('-K', '--key', dest='key',
+                      help='Key for obtaining an auth token')
+    parser.add_option('-u', '--url', dest='url',
+                      help='Storage URL')
+    parser.add_option('-c', '--concurrency', dest='concurrency',
+                      help='Number of concurrent connections to use')
+    parser.add_option('-s', '--object-size', dest='object_size',
+                      help='Size of objects to PUT (in bytes)')
+    parser.add_option('-n', '--num-objects', dest='num_objects',
+                      help='Number of objects to PUT')
+    parser.add_option('-g', '--num-gets', dest='num_gets',
+                      help='Number of GET operations to perform')
+    parser.add_option('-x', '--no-delete', dest='delete', action='store_false',
+                      help='If set, will not delete the objects created')
+
+    _, args = parser.parse_args()
+    if args:
+        conf = args[0]
+        if not os.path.exists(conf):
+            sys.exit("No such conf file: %s" % conf)
+        conf = readconf(conf, 'bench', log_name='swift-bench',
+            defaults=CONF_DEFAULTS)
+    else:
+        conf = CONF_DEFAULTS
+    parser.set_defaults(**conf)
+    options, _ = parser.parse_args()
+    if options.concurrency is not '':
+        options.put_concurrency = options.concurrency
+        options.get_concurrency = options.concurrency
+        options.del_concurrency = options.concurrency
+
+    def sigterm(signum, frame):
+        sys.exit('Termination signal received.')
+    signal.signal(signal.SIGTERM, sigterm)
+
+    logger = logging.getLogger()
+    logger.setLevel({
+        'debug': logging.DEBUG,
+        'info': logging.INFO,
+        'warning': logging.WARNING,
+        'error': logging.ERROR,
+        'critical': logging.CRITICAL}.get(
+            options.logging_level, logging.INFO))
+    loghandler = logging.StreamHandler()
+    logformat = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    loghandler.setFormatter(logformat)
+    logger.addHandler(loghandler)
+    logger = NamedLogger(logger, 'swift-bench')
+
+    controller = BenchController(logger, options)
+    controller.run()

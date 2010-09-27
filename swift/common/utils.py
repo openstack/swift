@@ -534,8 +534,10 @@ def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
 
-def readconf(conf, section_name, log_name=None):
-    c = ConfigParser()
+def readconf(conf, section_name, log_name=None, defaults=None):
+    if defaults is None:
+        defaults = {}
+    c = ConfigParser(defaults)
     if not c.read(conf):
         print "Unable to read config file %s" % conf
         sys.exit(1)
