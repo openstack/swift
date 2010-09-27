@@ -553,7 +553,7 @@ def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
 
-def readconf(conf, section_name, log_name=None):
+def readconf(conf, section_name, log_name=None, defaults=None):
     """
     Read config file and return config items as a dict
 
@@ -561,9 +561,12 @@ def readconf(conf, section_name, log_name=None):
     :param section_name: config section to read
     :param log_name: name to be used with logging (will use section_name if
                      not defined)
+    :param defaults: dict of default values to pre-populate the config with
     :returns: dict of config items
     """
-    c = ConfigParser()
+    if defaults is None:
+        defaults = {}
+    c = ConfigParser(defaults)
     if not c.read(conf):
         print "Unable to read config file %s" % conf
         sys.exit(1)
