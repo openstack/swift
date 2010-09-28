@@ -1,13 +1,11 @@
-import hashlib
 import uuid
 import time
 import random
 from urlparse import urlparse
 
 import eventlet.pools
-import eventlet.corolocal
 from eventlet.green.httplib import HTTPSConnection, \
-    HTTPResponse, CannotSendRequest, _UNKNOWN
+    HTTPResponse, CannotSendRequest
 
 from swift.common.bufferedhttp \
     import BufferedHTTPConnection as HTTPConnection
@@ -82,7 +80,6 @@ class Bench(object):
         self.url_parsed = urlparse(self.url)
         self.devices = conf.devices.split()
         self.names = names
-        self.local = eventlet.corolocal.local()
         self.conn_pool = ConnectionPool(self.url,
             max(self.put_concurrency, self.get_concurrency,
                 self.del_concurrency))
@@ -113,7 +110,7 @@ class Bench(object):
                 hcrd = hcr.read()
                 hcr.close()
             except CannotSendRequest:
-                self.logger.info("CannonSendRequest.  Skipping...")
+                self.logger.info("CannotSendRequest.  Skipping...")
                 try:
                     hc.close()
                 except:
