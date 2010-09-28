@@ -10,7 +10,7 @@ from optparse import OptionParser
 from swift.common.bench import BenchController
 from swift.common.utils import readconf, NamedLogger
 
-# The defaults should be sufficient to run the slapper on a SAIO
+# The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
     'auth': 'http://saio:11000/v1.0',
     'user': 'test:tester',
