@@ -9,6 +9,7 @@ from eventlet.green.httplib import HTTPSConnection, \
 
 from swift.common.bufferedhttp \
     import BufferedHTTPConnection as HTTPConnection
+from swift.common.utils import TRUE_VALUES
 
 
 class ConnectionPool(eventlet.pools.Pool):
@@ -33,7 +34,7 @@ class Bench(object):
         self.user = conf.user
         self.key = conf.key
         self.auth_url = conf.auth
-        self.use_proxy = conf.use_proxy in ('1', 'yes', 'true', 'True')
+        self.use_proxy = conf.use_proxy in TRUE_VALUES
         if self.use_proxy:
             # Get the auth token
             parsed = urlparse(self.auth_url)
@@ -150,7 +151,7 @@ class BenchController(object):
         self.logger = logger
         self.conf = conf
         self.names = []
-        self.delete = conf.delete in ('1', 'true', 'True', 'yes')
+        self.delete = conf.delete in TRUE_VALUES
         self.gets = int(conf.num_gets)
 
     def run(self):
