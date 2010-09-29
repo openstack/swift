@@ -14,7 +14,10 @@ Log Types
 Access logs
 ***********
 
-Access logs are the proxy server logs.
+Access logs are the proxy server logs. Rackspace uses syslog-ng to redirect
+the proxy log output to an hourly log file. For example, a proxy request that
+is made on August 4, 2010 at 12:37 gets logged in a file named 2010080412.
+This allows easy log rotation and easy per-hour log processing.
 
 ******************
 Storage stats logs
@@ -30,7 +33,7 @@ means that, system wide, one csv file is produced for every storage node.
 Rackspace runs the account stats logger every hour. Therefore, in a cluster of
 ten account servers, ten csv files are produced every hour. Also, every
 account will have one entry for every replica in the system. On average, there
-will be three copies of each account in the aggreagate of all account stat csv
+will be three copies of each account in the aggregate of all account stat csv
 files created in one system-wide run.
 
 ----------------------
@@ -44,7 +47,7 @@ are stored on disk, where the logs will be stored in swift (account and
 container), the filename format of the logs on disk, the location of the
 plugin class definition, and any plugin-specific config values.
 
-The plugin class definition defines three methods. The constuctor must accept
+The plugin class definition defines three methods. The constructor must accept
 one argument (the dict representation of the plugin's config section). The
 process method must accept an iterator, and the account, container, and object
 name of the log. The keylist_mapping accepts no parameters.
@@ -77,3 +80,82 @@ each plugin's keylist_mapping method.
 
 The resulting csv file has one line per (account, year, month, day, hour) for
 all log files processed in that run of swift-log-stats-collector.
+
+
+================================
+Running the stats system on SAIO
+================================
+
+#. Create a swift account to use for storing stats information, and note the
+   account hash. The hash will be used in config files.
+
+#. Install syslog-ng
+
+        sudo apt-get install syslog-ng
+
+#. Add a destination rule to `/etc/syslog-ng/syslog-ng.conf`
+
+        destination df_syslog_hourly { file("/var/log/swift/access-$YEAR$MONTH$DAY$HOUR"); };
+
+#. Edit the destination rules to standard logging in
+   `/etc/syslog-ng/syslog-ng.conf` by adding the destination just created.
+   This will cause syslog messages to be also put into a file, named by the
+   current hour, in `/var/log/swift`.
+
+        log {
+		    source(s_all);
+		    filter(f_syslog);
+		    destination(df_syslog);
+			destination(df_syslog_hourly);
+		};
+
+#. Restart syslog-ng
+
+#. Create `/etc/swift/log-processor.conf`
+
+		[log-processor]
+		swift_account = <your-stats-account-hash>
+		user = <your-user-name>
+
+		[log-processor-access]
+		swift_account = <your-stats-account-hash>
+		container_name = log_data
+		source_filename_format = access-%Y%m%d%H
+		class_path = swift.stats.access_processor.AccessLogProcessor
+		user = <your-user-name>
+
+		[log-processor-stats]
+		swift_account = <your-stats-account-hash>
+		container_name = account_stats
+		source_filename_format = stats-%Y%m%d%H_*
+		class_path = swift.stats.stats_processor.StatsLogProcessor
+		account_server_conf = /etc/swift/account-server/1.conf
+		user = <your-user-name>
+
+#. Create a `cron` job to run once per hour to create the stats logs. In
+   `/etc/cron.d/swift-stats-log-creator`
+
+		0 * * * * <your-user-name> swift-account-stats-logger /etc/swift/log-processor.conf
+
+#. Create a `cron` job to run once per hour to upload the stats logs. In
+   `/etc/cron.d/swift-stats-log-uploader`
+
+        10 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf stats
+
+#. Create a `cron` job to run once per hour to upload the access logs. In
+   `/etc/cron.d/swift-access-log-uploader`
+
+        5 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf access
+
+#. Create a `cron` job to run once per hour to process the logs. In
+   `/etc/cron.d/swift-stats-processor`
+
+        30 * * * * <your-user-name> swift-log-stats-collector /etc/swift/log-processor.conf
+
+After running for a few hours, you should start to see .csv files in the
+log_processing_data container in the swift stats account that was created
+earlier. This file will have one entry per account per hour for each account
+with activity in that hour. One .csv file should be produced per hour. Note
+that the stats will be delayed by at least two hours by default. This can be
+changed with the new_log_cutoff variable in the config file. See
+`log-processing.conf-sample` for more details.
