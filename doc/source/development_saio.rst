@@ -15,7 +15,9 @@ virtual machine will emulate running a four node Swift cluster.
   - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
-* Create guest virtual machine from the Ubuntu image
+* Create guest virtual machine from the Ubuntu image (if you are going to use
+  a separate partition for swift data, be sure to add another device when
+  creating the VM)
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
@@ -28,7 +30,6 @@ virtual machine will emulate running a four node Swift cluster.
   #. Install anything else you want, like screen, ssh, vim, etc.
   #. If you would like to use another partition for storage:
 
-    #. Create the device through your VM software
     #. `fdisk /dev/sdb` (set up a single partition)
     #. `mkfs.xfs -i size=1024 /dev/sdb1`
     #. Edit `/etc/fstab` and add
