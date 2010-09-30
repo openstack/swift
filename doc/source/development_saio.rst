@@ -41,11 +41,23 @@ good idea what to do on other environments.
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. `fdisk /dev/sdb` (set up a single partition)
-  #. `mkfs.xfs -i size=1024 /dev/sdb1`
+  #. If you are using another partition:
+
+    #. `fdisk /dev/sdb` (set up a single partition)
+    #. `mkfs.xfs -i size=1024 /dev/sdb1`
+    #. Edit `/etc/fstab` and add
+       `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
+
+  #. If you would like to use a loopback device instead of another partition:
+
+    #. `dd if=/dev/zero of=/swift-disk bs=1024 count=1000000` (modify count to
+       make a larger or smaller partition)
+    #. `losetup /dev/loop0 /swift-disk`
+    #. `mkfs.xfs -i size=1024 /dev/loop0`
+    #. Edit `/etc/fstab` and add
+       `/dev/loop0 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
+
   #. `mkdir /mnt/sdb1`
-  #. Edit `/etc/fstab` and add
-     `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mount /mnt/sdb1`
   #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
@@ -471,6 +483,11 @@ good idea what to do on other environments.
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
         sudo service rsyslog restart
         sudo service memcached restart
+
+  .. note::
+
+    If you are using a loopback device, substitute `/dev/sdb1` above with
+    `/dev/loop0`
 
   #. Create `~/bin/remakerings`::
 
