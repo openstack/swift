@@ -47,7 +47,7 @@ If you need more throughput to either Account or Container Services, they may
 each be deployed to their own servers. For example you might use faster (but
 more expensive) SAS or even SSD drives to get faster disk I/O to the databases.
 
-Load balancing and network design is left as an excercise to the reader,
+Load balancing and network design is left as an exercise to the reader,
 but this is a very important part of the cluster, so time should be spent
 designing the network for a Swift cluster.
 
@@ -59,7 +59,7 @@ Preparing the Ring
 
 The first step is to determine the number of partitions that will be in the
 ring. We recommend that there be a minimum of 100 partitions per drive to
-insure even distribution accross the drives. A good starting point might be
+insure even distribution across the drives. A good starting point might be
 to figure out the maximum number of drives the cluster will contain, and then
 multiply by 100, and then round up to the nearest power of two.
 
@@ -154,8 +154,8 @@ Option              Default     Description
 ------------------  ----------  ---------------------------------------------
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent directory of where devices are mounted
-mount_check         true        Weather or not check if the devices are
-                                mounted to prevent accidently writing
+mount_check         true        Whether or not check if the devices are
+                                mounted to prevent accidentally writing
                                 to the root device
 bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6000        Port for server to bind to
@@ -173,7 +173,7 @@ use                                paste.deploy entry point for the object
 log_name            object-server  Label used when logging
 log_facility        LOG_LOCAL0     Syslog log facility
 log_level           INFO           Logging level
-log_requests        True           Weather or not to log each request
+log_requests        True           Whether or not to log each request
 user                swift          User to run as
 node_timeout        3              Request timeout to external services
 conn_timeout        0.5            Connection timeout to external services
@@ -193,7 +193,7 @@ Option              Default            Description
 log_name            object-replicator  Label used when logging
 log_facility        LOG_LOCAL0         Syslog log facility
 log_level           INFO               Logging level
-daemonize           yes                Weather or not to run replication as a
+daemonize           yes                Whether or not to run replication as a
                                        daemon
 run_pause           30                 Time in seconds to wait between 
                                        replication passes
@@ -249,9 +249,9 @@ The following configuration options are available:
 Option              Default     Description
 ------------------  ----------  --------------------------------------------
 swift_dir           /etc/swift  Swift configuration directory
-devices             /srv/node   Parent irectory of where devices are mounted
-mount_check         true        Weather or not check if the devices are
-                                mounted to prevent accidently writing
+devices             /srv/node   Parent directory of where devices are mounted
+mount_check         true        Whether or not check if the devices are
+                                mounted to prevent accidentally writing
                                 to the root device
 bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6001        Port for server to bind to
@@ -339,8 +339,8 @@ Option              Default     Description
 ------------------  ----------  ---------------------------------------------
 swift_dir           /etc/swift  Swift configuration directory
 devices             /srv/node   Parent directory or where devices are mounted
-mount_check         true        Weather or not check if the devices are
-                                mounted to prevent accidently writing
+mount_check         true        Whether or not check if the devices are
+                                mounted to prevent accidentally writing
                                 to the root device
 bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6002        Port for server to bind to
@@ -353,7 +353,7 @@ user                swift       User to run as
 ==================  ==============  ==========================================
 Option              Default         Description
 ------------------  --------------  ------------------------------------------
-use                                 paste.deploy entry point for the account
+use                                 Entry point for paste.deploy for the account
                                     server.  For most cases, this should be
                                     `egg:swift#account`.
 log_name            account-server  Label used when logging
@@ -412,6 +412,11 @@ conn_timeout        0.5              Connection timeout to external services
 Proxy Server Configuration
 --------------------------
 
+An example Proxy Server configuration can be found at 
+etc/proxy-server.conf-sample in the source code repository.
+
+The following configuration options are available:
+
 [DEFAULT]
 
 ============================  ===============  =============================
@@ -432,7 +437,7 @@ key_file                                       Path to the ssl .key
 ============================  ===============  =============================
 Option                        Default          Description
 ----------------------------  ---------------  -----------------------------
-use                                            paste.deploy entry point for
+use                                            Entry point for paste.deploy for
                                                the proxy server.  For most
                                                cases, this should be
                                                `egg:swift#proxy`.
@@ -443,10 +448,10 @@ log_headers                   True             If True, log headers in each
                                                request
 recheck_account_existence     60               Cache timeout in seconds to
                                                send memcached for account
-                                               existance
+                                               existence
 recheck_container_existence   60               Cache timeout in seconds to
                                                send memcached for container
-                                               existance
+                                               existence
 object_chunk_size             65536            Chunk size to read from
                                                object servers
 client_chunk_size             65536            Chunk size to read from
@@ -474,7 +479,7 @@ rate_limit_account_whitelist                   Comma separated list of
                                                rate limit
 rate_limit_account_blacklist                   Comma separated list of
                                                account name hashes to block
-                                               completly
+                                               completely
 ============================  ===============  =============================
 
 [auth]
@@ -482,7 +487,7 @@ rate_limit_account_blacklist                   Comma separated list of
 ============  ===================================  ========================
 Option        Default                              Description
 ------------  -----------------------------------  ------------------------
-use                                                paste.deploy entry point
+use                                                Entry point for paste.deploy 
                                                    to use for auth.  To
                                                    use the swift dev auth,
                                                    set to:
@@ -500,7 +505,7 @@ Memcached Considerations
 ------------------------
 
 Several of the Services rely on Memcached for caching certain types of
-lookups, such as auth tokens, and container/account existance.  Swift does
+lookups, such as auth tokens, and container/account existence.  Swift does
 not do any caching of actual object data.  Memcached should be able to run
 on any servers that have available RAM and CPU.  At Rackspace, we run 
 Memcached on the proxy servers.  The `memcache_servers` config option
@@ -526,7 +531,7 @@ Most services support either a worker or concurrency value in the settings.
 This allows the services to make effective use of the cores available. A good
 starting point to set the concurrency level for the proxy and storage services
 to 2 times the number of cores available. If more than one service is
-sharing a server, then some experimentaiton may be needed to find the best
+sharing a server, then some experimentation may be needed to find the best
 balance.
 
 At Rackspace, our Proxy servers have dual quad core processors, giving us 8
@@ -548,7 +553,7 @@ Filesystem Considerations
 -------------------------
 
 Swift is designed to be mostly filesystem agnostic--the only requirement
-beeing that the filesystem supports extended attributes (xattrs). After
+being that the filesystem supports extended attributes (xattrs). After
 thorough testing with our use cases and hardware configurations, XFS was
 the best all-around choice. If you decide to use a filesystem other than
 XFS, we highly recommend thorough testing.
@@ -611,5 +616,5 @@ Logging Considerations
 
 Swift is set up to log directly to syslog. Every service can be configured
 with the `log_facility` option to set the syslog log facility destination.
-It is recommended to use syslog-ng to route the logs to specific log
+We recommended using syslog-ng to route the logs to specific log
 files locally on the server and also to remote log collecting servers.
