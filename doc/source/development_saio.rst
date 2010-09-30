@@ -7,9 +7,7 @@ Instructions for setting up a dev VM
 ------------------------------------
 
 This documents setting up a virtual machine for doing Swift development. The
-virtual machine will emulate running a four node Swift cluster. It assumes
-you're using *VMware Fusion 3* on *Mac OS X Snow Leopard*, but should give a
-good idea what to do on other environments.
+virtual machine will emulate running a four node Swift cluster.
 
 * Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
 
@@ -17,20 +15,7 @@ good idea what to do on other environments.
   - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
-* Create guest virtual machine:
-
-  #. `Continue without disc`
-  #. `Use operating system installation disc image file`, pick the .iso
-     from above.
-  #. Select `Linux` and `Ubuntu 64-bit`.
-  #. Fill in the *Linux Easy Install* details.
-  #. `Customize Settings`, name the image whatever you want 
-     (`SAIO` for instance.)
-  #. When the `Settings` window comes up, select `Hard Disk`, create an
-     extra disk (the defaults are fine).
-  #. Start the virtual machine up and wait for the easy install to
-     finish.
-
+* Create guest virtual machine from the Ubuntu image
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
@@ -41,8 +26,9 @@ good idea what to do on other environments.
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. If you are using another partition:
+  #. If you would like to use another partition for storage:
 
+    #. Create the device through your VM software
     #. `fdisk /dev/sdb` (set up a single partition)
     #. `mkfs.xfs -i size=1024 /dev/sdb1`
     #. Edit `/etc/fstab` and add
