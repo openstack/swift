@@ -100,11 +100,13 @@ class InternalProxy(object):
         req.content_length = None   # to make sure we send chunked data
         if etag:
             req.etag = etag
-        resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries <= self.retries:
-            resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
             tries += 1
         if not (200 <= resp.status_int < 300):
             return False
@@ -123,11 +125,13 @@ class InternalProxy(object):
                             (account, container, object_name),
                             environ={'REQUEST_METHOD': 'GET'})
         req.account = account
-        resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries <= self.retries:
-            resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
             tries += 1
         return resp.status_int, resp.app_iter
 
@@ -142,11 +146,13 @@ class InternalProxy(object):
         req = webob.Request.blank('/v1/%s/%s' % (account, container),
                             environ={'REQUEST_METHOD': 'PUT'})
         req.account = account
-        resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries <= self.retries:
-            resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
             tries += 1
         return 200 <= resp.status_int < 300
 
@@ -190,11 +196,13 @@ class InternalProxy(object):
         path += '?%s' % qs
         req = webob.Request.blank(path, environ={'REQUEST_METHOD': 'GET'})
         req.account = account
-        resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries <= self.retries:
-            resp = self.upload_app.handle_request(self.upload_app.update_request(req))
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req))
             tries += 1
         if resp.status_int == 204:
             return []
