@@ -76,7 +76,7 @@ good idea what to do on other environments.
         gid = <Your group name>
         log file = /var/log/rsyncd.log
         pid file = /var/run/rsyncd.pid
-
+        address = 127.0.0.1
 
         [account6012]
         max connections = 25
