@@ -473,7 +473,7 @@ virtual machine will emulate running a four node Swift cluster.
   .. note::
 
     If you are using a loopback device, substitute `/dev/sdb1` above with
-    `/dev/loop0`
+    `/srv/swift-disk`
 
   #. Create `~/bin/remakerings`::
 
