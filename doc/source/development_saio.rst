@@ -37,12 +37,11 @@ virtual machine will emulate running a four node Swift cluster.
 
   #. If you would like to use a loopback device instead of another partition:
 
-    #. `dd if=/dev/zero of=/swift-disk bs=1024 count=1000000` (modify count to
-       make a larger or smaller partition)
-    #. `losetup /dev/loop0 /swift-disk`
-    #. `mkfs.xfs -i size=1024 /dev/loop0`
+    #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
+       (modify seek to make a larger or smaller partition)
+    #. `mkfs.xfs -i size=1024 /srv/swift-disk`
     #. Edit `/etc/fstab` and add
-       `/dev/loop0 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
+       `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
 
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
@@ -55,7 +54,7 @@ virtual machine will emulate running a four node Swift cluster.
   #. Add to `/etc/rc.local` (before the `exit 0`)::
 
         mkdir /var/run/swift
-        chown <your-user-name>:<your-user-name> /var/run/swift
+        chown <your-user-name>:<your-group-name> /var/run/swift
 
   #. Create /etc/rsyncd.conf::
 
