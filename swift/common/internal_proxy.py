@@ -20,13 +20,27 @@ from json import loads as json_loads
 from swift.common.compressing_file_reader import CompressingFileReader
 from swift.proxy.server import BaseApplication
 
+
 class MemcacheStub(object):
-    def get(self, *a, **kw): return None
-    def set(self, *a, **kw): return None
-    def incr(self, *a, **kw): return 0
-    def delete(self, *a, **kw): return None
-    def set_multi(self, *a, **kw): return None
-    def get_multi(self, *a, **kw): return []
+
+    def get(self, *a, **kw):
+        return None
+
+    def set(self, *a, **kw):
+        return None
+
+    def incr(self, *a, **kw):
+        return 0
+
+    def delete(self, *a, **kw):
+        return None
+
+    def set_multi(self, *a, **kw):
+        return None
+
+    def get_multi(self, *a, **kw):
+        return []
+
 
 class InternalProxy(object):
     """
@@ -38,6 +52,7 @@ class InternalProxy(object):
     :param logger: logger to log requests to
     :param retries: number of times to retry each request
     """
+
     def __init__(self, proxy_server_conf=None, logger=None, retries=0):
         self.upload_app = BaseApplication(proxy_server_conf,
                                           memcache=MemcacheStub(),
@@ -56,6 +71,7 @@ class InternalProxy(object):
         :param object_name: name of object being uploaded
         :param compress: if True, compresses object as it is uploaded
         :param content_type: content-type of object
+        :param etag: etag for object to check successful upload
         :returns: True if successful, False otherwise
         """
         log_create_pattern = '/v1/%s/%s/%s' % (account, container, object_name)
@@ -72,7 +88,8 @@ class InternalProxy(object):
             if hasattr(source_file, 'read'):
                 compressed_file = CompressingFileReader(source_file)
             else:
-                compressed_file = CompressingFileReader(open(source_file, 'rb'))
+                compressed_file = CompressingFileReader(
+                                    open(source_file, 'rb'))
             req.body_file = compressed_file
         else:
             if not hasattr(source_file, 'read'):

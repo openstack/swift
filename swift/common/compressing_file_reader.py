@@ -16,6 +16,7 @@
 import zlib
 import struct
 
+
 class CompressingFileReader(object):
     '''
     Wraps a file object and provides a read method that returns gzip'd data.
@@ -35,6 +36,7 @@ class CompressingFileReader(object):
     :param file_obj: File object to read from
     :param compresslevel: compression level
     '''
+
     def __init__(self, file_obj, compresslevel=9):
         self._f = file_obj
         self._compressor = zlib.compressobj(compresslevel,
