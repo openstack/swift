@@ -18,7 +18,7 @@ Cloud Files client library used internally
 """
 import socket
 from cStringIO import StringIO
-from httplib import HTTPConnection, HTTPException, HTTPSConnection
+from httplib import HTTPException, HTTPSConnection
 from re import compile, DOTALL
 from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote, unquote
@@ -29,6 +29,8 @@ try:
 except:
     from time import sleep
 
+from swift.common.bufferedhttp \
+    import BufferedHTTPConnection as HTTPConnection
 
 def quote(value, safe='/'):
     """

@@ -229,6 +229,60 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
         resp_headers[header.lower()] = value
     return resp_headers, object_body
 
+def direct_put_object(node, part, account, container, name, contents,
+                      content_length=None, etag=None, content_type=None,
+                      headers=None, conn_timeout=5, response_timeout=15,
+                      resp_chunk_size=None):
+    """
+    Put object directly from the object server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param account: account name
+    :param container: container name
+    :param name: object name
+    :param contents: a string to read object data from
+    :param content_length: value to send as content-length header
+    :param etag: etag of contents
+    :param content_type: value to send as content-type header
+    :param headers: additional headers to include in the request
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param chunk_size: if defined, chunk size of data to send.
+    :returns: etag from the server response
+    """
+    # TODO: Add chunked puts 
+    path = '/%s/%s/%s' % (account, container, name)
+    if headers is None:
+        headers = {}
+    if etag:
+        headers['ETag'] = etag.strip('"')
+    if content_length is not None:
+        headers['Content-Length'] = str(content_length)
+    if content_type is not None:
+        headers['Content-Type'] = content_type
+    else:
+        headers['Content-Type'] = 'application/octet-stream'
+    if not contents:
+        headers['Content-Length'] = '0'
+    headers['X-Timestamp'] = normalize_timestamp(time())
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                'PUT', path, headers=headers)
+    conn.send(contents)
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+        resp.read()
+    if resp.status < 200 or resp.status >= 300:
+        raise ClientException(
+                'Object server %s:%s direct PUT %s gave status %s' %
+                (node['ip'], node['port'],
+                repr('/%s/%s%s' % (node['device'], part, path)),
+                resp.status),
+                http_host=node['ip'], http_port=node['port'],
+                http_device=node['device'], http_status=resp.status,
+                http_reason=resp.reason)
+    return resp.getheader('etag').strip('"')
 
 def direct_delete_object(node, part, account, container, obj,
         conn_timeout=5, response_timeout=15, headers={}):

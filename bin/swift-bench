@@ -27,8 +27,9 @@ CONF_DEFAULTS = {
     'container_name': uuid.uuid4().hex,
     'use_proxy': 'yes',
     'url': '',
-    'devices': 'sdb',
-    'logging_level': 'INFO',
+    'account': '',
+    'devices': 'sdb1',
+    'log_level': 'INFO',
     'timeout': '10',
     }
 
@@ -93,7 +94,7 @@ if __name__ == '__main__':
         'warning': logging.WARNING,
         'error': logging.ERROR,
         'critical': logging.CRITICAL}.get(
-            options.logging_level, logging.INFO))
+            options.log_level.lower(), logging.INFO))
     loghandler = logging.StreamHandler()
     logformat = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     loghandler.setFormatter(logformat)
