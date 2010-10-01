@@ -229,6 +229,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
         resp_headers[header.lower()] = value
     return resp_headers, object_body
 
+
 def direct_put_object(node, part, account, container, name, contents,
                       content_length=None, etag=None, content_type=None,
                       headers=None, conn_timeout=5, response_timeout=15,
@@ -251,7 +252,7 @@ def direct_put_object(node, part, account, container, name, contents,
     :param chunk_size: if defined, chunk size of data to send.
     :returns: etag from the server response
     """
-    # TODO: Add chunked puts 
+    # TODO: Add chunked puts
     path = '/%s/%s/%s' % (account, container, name)
     if headers is None:
         headers = {}
@@ -283,6 +284,7 @@ def direct_put_object(node, part, account, container, name, contents,
                 http_device=node['device'], http_status=resp.status,
                 http_reason=resp.reason)
     return resp.getheader('etag').strip('"')
+
 
 def direct_delete_object(node, part, account, container, obj,
         conn_timeout=5, response_timeout=15, headers={}):
