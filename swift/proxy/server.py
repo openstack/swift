@@ -88,6 +88,10 @@ def delay_denial(func):
         return func(*a, **kw)
     return wrapped
 
+def get_container_memcache_key(account, container):
+    path = '/%s/%s' % (account, container)
+    return 'container%s' % path
+
 
 class Controller(object):
     """Base WSGI controller class for the proxy"""
@@ -228,15 +232,22 @@ class Controller(object):
         """
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
+
         path = '/%s/%s' % (account, container)
-        cache_key = 'container%s' % path
+        cache_key = get_container_memcache_key(account, container)
+
         # Older memcache values (should be treated as if they aren't there):
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
         # Newer memcache values:
         # [older status value from above, read acl, write acl]
         cache_value = self.app.memcache.get(cache_key)
         if hasattr(cache_value, '__iter__'):
-            status, read_acl, write_acl = cache_value
+            if type(cache_value) == dict:
+                status = cache_value['status']
+                read_acl = cache_value['read_acl']
+                write_acl = cache_value['write_acl']
+            else:
+                status, read_acl, write_acl = cache_value
             if status == 200:
                 return partition, nodes, read_acl, write_acl
         if not self.account_info(account)[1]:
@@ -244,6 +255,7 @@ class Controller(object):
         result_code = 0
         read_acl = None
         write_acl = None
+        container_size = None
         attempts_left = self.app.container_ring.replica_count
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.container_ring):
@@ -260,6 +272,8 @@ class Controller(object):
                         result_code = 200
                         read_acl = resp.getheader('x-container-read')
                         write_acl = resp.getheader('x-container-write')
+                        container_size = \
+                            resp.getheader('X-Container-Object-Count')
                         break
                     elif resp.status == 404:
                         result_code = 404 if not result_code else -1
@@ -278,7 +292,10 @@ class Controller(object):
             cache_timeout = self.app.recheck_container_existence
         else:
             cache_timeout = self.app.recheck_container_existence * 0.1
-        self.app.memcache.set(cache_key, (result_code, read_acl, write_acl),
+        self.app.memcache.set(cache_key, {'status': result_code, 
+                                          'read_acl': read_acl, 
+                                          'write_acl': write_acl,
+                                          'container_size': container_size},
                               timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes, read_acl, write_acl
@@ -941,6 +958,8 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
+        #TODO : David - does this need to be using the 
+        # get_container_memcache_key function????
         self.app.memcache.delete('container%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container PUT')
@@ -1214,14 +1233,6 @@ class BaseApplication(object):
         self.account_ring = account_ring or \
             Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
-        self.rate_limit = float(conf.get('rate_limit', 20000.0))
-        self.account_rate_limit = float(conf.get('account_rate_limit', 200.0))
-        self.rate_limit_whitelist = [x.strip() for x in
-            conf.get('rate_limit_account_whitelist', '').split(',')
-            if x.strip()]
-        self.rate_limit_blacklist = [x.strip() for x in
-            conf.get('rate_limit_account_blacklist', '').split(',')
-            if x.strip()]
 
     def get_controller(self, path):
         """
@@ -1302,10 +1313,6 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             if not controller:
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
-            rate_limit_allowed_err_resp = \
-                self.check_rate_limit(req, path_parts)
-            if rate_limit_allowed_err_resp is not None:
-                return rate_limit_allowed_err_resp
 
             controller = controller(self, **path_parts)
             controller.trans_id = req.headers.get('x-cf-trans-id', '-')
@@ -1338,10 +1345,6 @@ class BaseApplication(object):
         except Exception:
             self.logger.exception('ERROR Unhandled exception in request')
             return HTTPServerError(request=req)
-
-    def check_rate_limit(self, req, path_parts):
-        """Check for rate limiting."""
-        return None
 
 
 class Application(BaseApplication):
@@ -1394,46 +1397,6 @@ class Application(BaseApplication):
                 logged_headers or '-',
                 trans_time,
             )))
-
-    def check_rate_limit(self, req, path_parts):
-        """
-        Check for rate limiting.
-
-        :param req: webob.Request object
-        :param path_parts: parsed path dictionary
-        """
-        if path_parts['account_name'] in self.rate_limit_blacklist:
-            self.logger.error('Returning 497 because of blacklisting')
-            return Response(status='497 Blacklisted',
-                body='Your account has been blacklisted', request=req)
-        if path_parts['account_name'] not in self.rate_limit_whitelist:
-            current_second = time.strftime('%x%H%M%S')
-            general_rate_limit_key = '%s%s' % (path_parts['account_name'],
-                                    current_second)
-            ops_count = self.memcache.incr(general_rate_limit_key, timeout=2)
-            if ops_count > self.rate_limit:
-                self.logger.error(
-                    'Returning 498 because of ops rate limiting')
-                return Response(status='498 Rate Limited',
-                        body='Slow down', request=req)
-            elif (path_parts['container_name']
-                    and not path_parts['object_name']) \
-                or \
-                    (path_parts['account_name']
-                    and not path_parts['container_name']):
-                # further limit operations on a single account or container
-                rate_limit_key = '%s%s%s' % (path_parts['account_name'],
-                                        path_parts['container_name'] or '-',
-                                        current_second)
-                ops_count = self.memcache.incr(rate_limit_key, timeout=2)
-                if ops_count > self.account_rate_limit:
-                    self.logger.error(
-                        'Returning 498 because of account and container'
-                        ' rate limiting')
-                    return Response(status='498 Rate Limited',
-                        body='Slow down', request=req)
-        return None
-
 
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI proxy apps."""

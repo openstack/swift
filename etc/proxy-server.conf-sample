@@ -56,3 +56,15 @@ use = egg:swift#memcache
 # Default for memcache_servers is below, but you can specify multiple servers
 # with the format: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211
+
+[filter:ratelimit]
+use = egg:swift#ratelimit
+account_ratelimit = 200
+account_whitelist = a,b
+# account_blacklist = 
+
+# with container_limit_x = r
+# for containers of size x limit requests per second to r    
+container_limit_0 = 100
+container_limit_10 = 50
+container_limit_50 = 10

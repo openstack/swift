@@ -1295,17 +1295,6 @@ class TestObjectController(unittest.TestCase):
                 headers = readuntil2crlfs(fd)
                 exp = 'HTTP/1.1 404'
                 self.assertEquals(headers[:len(exp)], exp)
-                # Check blacklist
-                prosrv.rate_limit_blacklist = ['a']
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 497'
-                self.assertEquals(headers[:len(exp)], exp)
-                prosrv.rate_limit_blacklist = []
                 # Check invalid utf-8
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
@@ -1326,31 +1315,6 @@ class TestObjectController(unittest.TestCase):
                 headers = readuntil2crlfs(fd)
                 exp = 'HTTP/1.1 412'
                 self.assertEquals(headers[:len(exp)], exp)
-                # Check rate limiting
-                orig_rate_limit = prosrv.rate_limit
-                prosrv.rate_limit = 0
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 498'
-                self.assertEquals(headers[:len(exp)], exp)
-                prosrv.rate_limit = orig_rate_limit
-                orig_rate_limit = prosrv.account_rate_limit
-                prosrv.account_rate_limit = 0
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 498'
-                self.assertEquals(headers[:len(exp)], exp)
-                prosrv.account_rate_limit = orig_rate_limit
                 # Check bad method
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
@@ -1362,8 +1326,8 @@ class TestObjectController(unittest.TestCase):
                 exp = 'HTTP/1.1 405'
                 self.assertEquals(headers[:len(exp)], exp)
                 # Check unhandled exception
-                orig_rate_limit = prosrv.rate_limit
-                del prosrv.rate_limit
+                orig_logger = prosrv.logger
+                del prosrv.logger
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
                 fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
@@ -1373,7 +1337,7 @@ class TestObjectController(unittest.TestCase):
                 headers = readuntil2crlfs(fd)
                 exp = 'HTTP/1.1 500'
                 self.assertEquals(headers[:len(exp)], exp)
-                prosrv.rate_limit = orig_rate_limit
+                prosrv.logger = orig_logger
                 # Okay, back to chunked put testing; Create account
                 ts = normalize_timestamp(time())
                 partition, nodes = prosrv.account_ring.get_nodes('a')
