@@ -25,6 +25,7 @@ class_path = swift.stats.access_processor.AccessLogProcessor
 # lb_private_ips =
 # server_name = proxy
 # user = swift
+# warn_percent = 0.8
 
 [log-processor-stats]
 # log_dir = /var/log/swift/

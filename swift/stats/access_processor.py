@@ -33,6 +33,7 @@ class AccessLogProcessor(object):
         self.service_ips = [x.strip() for x in \
                             conf.get('service_ips', '').split(',')\
                             if x.strip()]
+        self.warn_percent = float(conf.get('warn_percent', '0.8'))
 
     def log_line_parser(self, raw_log):
         '''given a raw access log line, return a dict of the good parts'''
@@ -122,9 +123,13 @@ class AccessLogProcessor(object):
     def process(self, obj_stream, account, container, object_name):
         '''generate hourly groupings of data from one access log file'''
         hourly_aggr_info = {}
+        total_lines = 0
+        bad_lines = 0
         for line in obj_stream:
             line_data = self.log_line_parser(line)
+            total_lines += 1
             if not line_data:
+                bad_lines += 1
                 continue
             account = line_data['account']
             container_name = line_data['container_name']
@@ -178,6 +183,10 @@ class AccessLogProcessor(object):
             d[key] = d.setdefault(key, 0) + 1
 
             hourly_aggr_info[aggr_key] = d
+        if bad_lines > (total_lines * self.warn_percent):
+            name = '/'.join([account, container, object_name])
+            print >>sys.stderr, 'I found a bunch of bad lines in %s '\
+                        '(%d bad, %d total)' % (name, bad_lines, total_lines)
         return hourly_aggr_info
 
     def keylist_mapping(self):

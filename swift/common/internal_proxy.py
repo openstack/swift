@@ -74,14 +74,14 @@ class InternalProxy(object):
         :param etag: etag for object to check successful upload
         :returns: True if successful, False otherwise
         """
-        log_create_pattern = '/v1/%s/%s/%s' % (account, container, object_name)
+        target_name = '/v1/%s/%s/%s' % (account, container, object_name)
 
         # create the container
         if not self.create_container(account, container):
             return False
 
         # upload the file to the account
-        req = webob.Request.blank(log_create_pattern,
+        req = webob.Request.blank(target_name,
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Transfer-Encoding': 'chunked'})
         if compress:
