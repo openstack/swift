@@ -17,7 +17,6 @@
 
 import unittest
 import cStringIO
-import zlib
 
 from swift.common.compressing_file_reader import CompressingFileReader
 
@@ -29,6 +28,6 @@ class TestCompressingFileReader(unittest.TestCase):
         expected = '\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff'\
                    '\xcaO\xca\xe2JI,I\x04\x00\x00\x00\xff\xff'
         x = CompressingFileReader(s)
-        self.assertEquals(x.read(), expected)
-        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-        self.assertEquals(plain, d.decompress(expected))
+        compressed = ''.join(iter(lambda: x.read(), ''))
+        self.assertEquals(compressed, expected)
+        self.assertEquals(x.read(), '')
