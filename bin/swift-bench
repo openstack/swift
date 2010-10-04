@@ -26,9 +26,9 @@ from swift.common.utils import readconf, NamedLogger
 
 # The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
-    'auth': 'http://saio:11000/v1.0',
-    'user': 'test:tester',
-    'key': 'testing',
+    'auth': '',
+    'user': '',
+    'key': '',
     'object_sources': '',
     'put_concurrency': '10',
     'get_concurrency': '10',
@@ -47,9 +47,15 @@ CONF_DEFAULTS = {
     'timeout': '10',
     }
 
+SAIO_DEFAULTS = {
+    'auth': 'http://saio:11000/v1.0',
+    'user': 'test:tester',
+    'key': 'testing',
+    }
+
 if __name__ == '__main__':
     usage = "usage: %prog [OPTIONS] [CONF_FILE]"
-    usage += """\n\nConf file (with defaults):
+    usage += """\n\nConf file with SAIO defaults:
 
     [bench]
     auth = http://saio:11000/v1.0
@@ -62,6 +68,8 @@ if __name__ == '__main__':
     delete = yes
     """
     parser = OptionParser(usage=usage)
+    parser.add_option('', '--saio', dest='saio', action='store_true',
+                      default=False, help='Run benchmark with SAIO defaults')
     parser.add_option('-A', '--auth', dest='auth',
                       help='URL for obtaining an auth token')
     parser.add_option('-U', '--user', dest='user',
@@ -81,7 +89,12 @@ if __name__ == '__main__':
     parser.add_option('-x', '--no-delete', dest='delete', action='store_false',
                       help='If set, will not delete the objects created')
 
-    _, args = parser.parse_args()
+    if len(sys.argv) == 1:
+        parser.print_usage()
+        sys.exit(1)
+    options, args = parser.parse_args()
+    if options.saio:
+        CONF_DEFAULTS.update(SAIO_DEFAULTS)
     if args:
         conf = args[0]
         if not os.path.exists(conf):
