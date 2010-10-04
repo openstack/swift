@@ -25,8 +25,9 @@ class TestCompressingFileReader(unittest.TestCase):
     def test_read(self):
         plain = 'obj\ndata'
         s = cStringIO.StringIO(plain)
-        expected = '\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff'\
-                   '\xcaO\xca\xe2JI,I\x04\x00\x00\x00\xff\xff'
+        expected = '\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff\xcaO\xca\xe2JI,'\
+                   'I\x04\x00\x00\x00\xff\xff\x03\x00P(\xa8\x1f\x08\x00\x00'\
+                   '\x00'
         x = CompressingFileReader(s)
         compressed = ''.join(iter(lambda: x.read(), ''))
         self.assertEquals(compressed, expected)
