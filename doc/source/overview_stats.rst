@@ -89,18 +89,18 @@ Running the stats system on SAIO
 #. Create a swift account to use for storing stats information, and note the
    account hash. The hash will be used in config files.
 
-#. Install syslog-ng
+#. Install syslog-ng::
 
         sudo apt-get install syslog-ng
 
-#. Add a destination rule to `/etc/syslog-ng/syslog-ng.conf`
+#. Add a destination rule to `/etc/syslog-ng/syslog-ng.conf`::
 
         destination df_syslog_hourly { file("/var/log/swift/access-$YEAR$MONTH$DAY$HOUR"); };
 
 #. Edit the destination rules to standard logging in
    `/etc/syslog-ng/syslog-ng.conf` by adding the destination just created.
    This will cause syslog messages to be also put into a file, named by the
-   current hour, in `/var/log/swift`.
+   current hour, in `/var/log/swift`.::
 
         log {
 		    source(s_all);
@@ -111,7 +111,7 @@ Running the stats system on SAIO
 
 #. Restart syslog-ng
 
-#. Create `/etc/swift/log-processor.conf`
+#. Create `/etc/swift/log-processor.conf`::
 
 		[log-processor]
 		swift_account = <your-stats-account-hash>
@@ -133,22 +133,22 @@ Running the stats system on SAIO
 		user = <your-user-name>
 
 #. Create a `cron` job to run once per hour to create the stats logs. In
-   `/etc/cron.d/swift-stats-log-creator`
+   `/etc/cron.d/swift-stats-log-creator`::
 
 		0 * * * * <your-user-name> swift-account-stats-logger /etc/swift/log-processor.conf
 
 #. Create a `cron` job to run once per hour to upload the stats logs. In
-   `/etc/cron.d/swift-stats-log-uploader`
+   `/etc/cron.d/swift-stats-log-uploader`::
 
         10 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf stats
 
 #. Create a `cron` job to run once per hour to upload the access logs. In
-   `/etc/cron.d/swift-access-log-uploader`
+   `/etc/cron.d/swift-access-log-uploader`::
 
         5 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf access
 
 #. Create a `cron` job to run once per hour to process the logs. In
-   `/etc/cron.d/swift-stats-processor`
+   `/etc/cron.d/swift-stats-processor`::
 
         30 * * * * <your-user-name> swift-log-stats-collector /etc/swift/log-processor.conf
 
