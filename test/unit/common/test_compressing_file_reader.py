@@ -17,6 +17,7 @@
 
 import unittest
 import cStringIO
+import zlib
 
 from swift.common.compressing_file_reader import CompressingFileReader
 
