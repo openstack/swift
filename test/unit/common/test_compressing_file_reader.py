@@ -31,4 +31,4 @@ class TestCompressingFileReader(unittest.TestCase):
         x = CompressingFileReader(s)
         self.assertEquals(x.read(), expected)
         d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-        self.asserEquals(plain, d.decompress(expected))
+        self.assertEquals(plain, d.decompress(expected))
