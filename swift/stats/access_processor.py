@@ -57,67 +57,67 @@ class AccessLogProcessor(object):
             trans_id,
             headers,
             processing_time) = (unquote(x) for x in raw_log[16:].split(' '))
-            if server != self.server_name:
-                raise ValueError('incorrect server name in log line')
-            (version,
-            account,
-            container_name,
-            object_name) = split_path(request, 2, 4, True)
-            if container_name is not None:
-                container_name = container_name.split('?', 1)[0]
-            if object_name is not None:
-                object_name = object_name.split('?', 1)[0]
-            account = account.split('?', 1)[0]
-            query = None
-            if '?' in request:
-                request, query = request.split('?', 1)
-                args = query.split('&')
-                # Count each query argument. This is used later to aggregate
-                # the number of format, prefix, etc. queries.
-                for q in args:
-                    if '=' in q:
-                        k, v = q.split('=', 1)
-                    else:
-                        k = q
-                    # Certain keys will get summmed in stats reporting
-                    # (format, path, delimiter, etc.). Save a "1" here
-                    # to indicate that this request is 1 request for
-                    # its respective key.
-                    d[k] = 1
         except ValueError:
-            pass
-        else:
-            d['client_ip'] = client_ip
-            d['lb_ip'] = lb_ip
-            d['method'] = method
-            d['request'] = request
-            if query:
-                d['query'] = query
-            d['http_version'] = http_version
-            d['code'] = code
-            d['referrer'] = referrer
-            d['user_agent'] = user_agent
-            d['auth_token'] = auth_token
-            d['bytes_in'] = bytes_in
-            d['bytes_out'] = bytes_out
-            d['etag'] = etag
-            d['trans_id'] = trans_id
-            d['processing_time'] = processing_time
-            day, month, year, hour, minute, second = timestamp.split('/')
-            d['day'] = day
-            month = ('%02s' % month_map.index(month)).replace(' ', '0')
-            d['month'] = month
-            d['year'] = year
-            d['hour'] = hour
-            d['minute'] = minute
-            d['second'] = second
-            d['tz'] = '+0000'
-            d['account'] = account
-            d['container_name'] = container_name
-            d['object_name'] = object_name
-            d['bytes_out'] = int(d['bytes_out'].replace('-', '0'))
-            d['bytes_in'] = int(d['bytes_in'].replace('-', '0'))
-            d['code'] = int(d['code'])
+            return {}
+        if server != self.server_name:
+            # incorrect server name in log line
+            return {}
+        (version,
+        account,
+        container_name,
+        object_name) = split_path(request, 2, 4, True)
+        if container_name is not None:
+            container_name = container_name.split('?', 1)[0]
+        if object_name is not None:
+            object_name = object_name.split('?', 1)[0]
+        account = account.split('?', 1)[0]
+        query = None
+        if '?' in request:
+            request, query = request.split('?', 1)
+            args = query.split('&')
+            # Count each query argument. This is used later to aggregate
+            # the number of format, prefix, etc. queries.
+            for q in args:
+                if '=' in q:
+                    k, v = q.split('=', 1)
+                else:
+                    k = q
+                # Certain keys will get summmed in stats reporting
+                # (format, path, delimiter, etc.). Save a "1" here
+                # to indicate that this request is 1 request for
+                # its respective key.
+                d[k] = 1
+        d['client_ip'] = client_ip
+        d['lb_ip'] = lb_ip
+        d['method'] = method
+        d['request'] = request
+        if query:
+            d['query'] = query
+        d['http_version'] = http_version
+        d['code'] = code
+        d['referrer'] = referrer
+        d['user_agent'] = user_agent
+        d['auth_token'] = auth_token
+        d['bytes_in'] = bytes_in
+        d['bytes_out'] = bytes_out
+        d['etag'] = etag
+        d['trans_id'] = trans_id
+        d['processing_time'] = processing_time
+        day, month, year, hour, minute, second = timestamp.split('/')
+        d['day'] = day
+        month = ('%02s' % month_map.index(month)).replace(' ', '0')
+        d['month'] = month
+        d['year'] = year
+        d['hour'] = hour
+        d['minute'] = minute
+        d['second'] = second
+        d['tz'] = '+0000'
+        d['account'] = account
+        d['container_name'] = container_name
+        d['object_name'] = object_name
+        d['bytes_out'] = int(d['bytes_out'].replace('-', '0'))
+        d['bytes_in'] = int(d['bytes_in'].replace('-', '0'))
+        d['code'] = int(d['code'])
         return d
 
     def process(self, obj_stream, account, container, object_name):
