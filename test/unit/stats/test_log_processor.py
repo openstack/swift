@@ -49,7 +49,7 @@ class TestLogProcessor(unittest.TestCase):
                    }
 
     def test_access_log_line_parser(self):
-        access_proxy_config = self.proxy_config
+        access_proxy_config = self.proxy_config.copy()
         access_proxy_config.update({
                         'log-processor-access': {
                             'source_filename_format':'%Y%m%d%H*',
@@ -87,7 +87,7 @@ class TestLogProcessor(unittest.TestCase):
            'lb_ip': '4.5.6.7'})
 
     def test_process_one_access_file(self):
-        access_proxy_config = self.proxy_config
+        access_proxy_config = self.proxy_config.copy()
         access_proxy_config.update({
                         'log-processor-access': {
                             'source_filename_format':'%Y%m%d%H*',
@@ -141,7 +141,7 @@ class TestLogProcessor(unittest.TestCase):
         self.assertEquals(result, expected)
 
     def test_get_stat_totals(self):
-        stats_proxy_config = self.proxy_config
+        stats_proxy_config = self.proxy_config.copy()
         stats_proxy_config.update({
                         'log-processor-stats': {
                             'class_path':
@@ -158,4 +158,25 @@ class TestLogProcessor(unittest.TestCase):
                     'object_count': 2,
                     'container_count': 1,
                     'bytes_used': 3}}
+        self.assertEquals(result, expected)
+
+    def test_generate_keylist_mapping(self):
+        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
+        result = p.generate_keylist_mapping()
+        expected = {}
+        print p.plugins
+        self.assertEquals(result, expected)
+
+    def test_generate_keylist_mapping_with_plugins(self):
+        class Plugin1(object):
+            def keylist_mapping(self):
+                return {'a': 'b', 'c': 'd'}
+        class Plugin2(object):
+            def keylist_mapping(self):
+                return {'a': '1', 'e': '2'}
+        p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
+        p.plugins['plugin1'] = {'instance': Plugin1()}
+        p.plugins['plugin2'] = {'instance': Plugin2()}
+        result = p.generate_keylist_mapping()
+        expected = {'a': set(['b', '1']), 'c': 'd', 'e': '2'}
         self.assertEquals(result, expected)
