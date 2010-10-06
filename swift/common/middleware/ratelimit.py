@@ -35,9 +35,9 @@ class RateLimitMiddleware(object):
         else:
             self.logger = logger
 
-        self.account_rate_limit = float(conf.get('account_ratelimit', 1))#200.0))
-        self.max_sleep_time_seconds = int(conf.get('max_sleep_time_seconds',
-                                                   2))#60))
+        self.account_rate_limit = float(conf.get('account_ratelimit', 200.0))
+        self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds', 
+                                                   60))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
 
         self.rate_limit_whitelist = [acc.strip() for acc in
@@ -101,14 +101,14 @@ class RateLimitMiddleware(object):
         if account_name:
             keys.append(("ratelimit/%s" % account_name, 
                          self.account_rate_limit))
+
         if account_name and container_name and not obj_name:
             container_size = None
             memcache_key = get_container_memcache_key(account_name, 
                                                       container_name)
-            container_info = self.memcache_client.get(memcache_key)
+            container_info = self.memcache_client.get(memcache_key)            
             if type(container_info) == dict:
-                container_size = container_info.get('container_size')
-
+                container_size = int(container_info.get('container_size', 0))
                 container_rate = self.get_container_maxrate(container_size)
                 if container_rate:
                     keys.append(("ratelimit/%s/%s" % (account_name, 
@@ -139,7 +139,7 @@ class RateLimitMiddleware(object):
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
             # make it accurate to 1% of clock accuracy
             # treat as no-op decrement time
-            self.memcache_client.decr(key, delta=time_per_request_m)
+            self.memcache_client.incr(key, delta=-time_per_request_m)
             raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" % 
                                   need_to_sleep_m)
 
@@ -161,9 +161,8 @@ class RateLimitMiddleware(object):
                                                             container_name,
                                                             obj_name):
             try:
-                need_to_sleep = self._get_sleep_time(key, 
-                                                     max_rate)
-                if need_to_sleep > 0:       
+                need_to_sleep = self._get_sleep_time(key, max_rate)
+                if need_to_sleep > 0:  
                     time.sleep(need_to_sleep)
 
             except MaxSleepTimeHit, e:
@@ -177,6 +176,7 @@ class RateLimitMiddleware(object):
                 
 
     def __call__(self, env, start_response, name=None):
+        #TODO : David- get rid of the name thing- used for debugging
         req = Request(env)
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)

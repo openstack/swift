@@ -59,12 +59,22 @@ use = egg:swift#memcache
 
 [filter:ratelimit]
 use = egg:swift#ratelimit
+# clock_accuracy should represent how accurate the proxy servers' system clocks
+# are with each other. 1000 means that all the proxies' clock are accurate to 
+# each other within 1 millisecond.  No ratelimit should be higher than the 
+# clock accuracy.
+clock_accuracy = 1000
+max_sleep_time_seconds = 60
+
 account_ratelimit = 200
+# these are comma separated lists of account names
 account_whitelist = a,b
 # account_blacklist = 
 
 # with container_limit_x = r
-# for containers of size x limit requests per second to r    
+# for containers of size x limit requests per second to r.  The container 
+# rate will be linearly interpolated from the values given. With the values
+# below, a container of size 5 will get a rate of 75.
 container_limit_0 = 100
 container_limit_10 = 50
-container_limit_50 = 10
+container_limit_50 = 20
