@@ -167,16 +167,46 @@ class TestLogProcessor(unittest.TestCase):
         print p.plugins
         self.assertEquals(result, expected)
 
-    def test_generate_keylist_mapping_with_plugins(self):
+    def test_generate_keylist_mapping_with_dummy_plugins(self):
         class Plugin1(object):
             def keylist_mapping(self):
-                return {'a': 'b', 'c': 'd'}
+                return {'a': 'b', 'c': 'd', 'e': ['f', 'g']}
         class Plugin2(object):
             def keylist_mapping(self):
-                return {'a': '1', 'e': '2'}
+                return {'a': '1', 'e': '2', 'h': '3'}
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
         p.plugins['plugin1'] = {'instance': Plugin1()}
         p.plugins['plugin2'] = {'instance': Plugin2()}
         result = p.generate_keylist_mapping()
-        expected = {'a': set(['b', '1']), 'c': 'd', 'e': '2'}
+        expected = {'a': set(['b', '1']), 'c': 'd', 'e': set(['2', 'f', 'g']),
+                    'h': '3'}
         self.assertEquals(result, expected)
+
+    def test_access_keylist_mapping_format(self):
+        proxy_config = self.proxy_config.copy()
+        proxy_config.update({
+                        'log-processor-access': {
+                            'source_filename_format':'%Y%m%d%H*',
+                            'class_path':
+                                'swift.stats.access_processor.AccessLogProcessor'
+                        }})
+        p = log_processor.LogProcessor(proxy_config, DumbLogger())
+        mapping = p.generate_keylist_mapping()
+        for k, v in mapping.items():
+            # these only work for Py2.7+
+            #self.assertIsInstance(k, str)
+            self.assertTrue(isinstance(k, str), type(k))
+
+    def test_stats_keylist_mapping_format(self):
+        proxy_config = self.proxy_config.copy()
+        proxy_config.update({
+                        'log-processor-stats': {
+                            'class_path':
+                                'swift.stats.stats_processor.StatsLogProcessor'
+                        }})
+        p = log_processor.LogProcessor(proxy_config, DumbLogger())
+        mapping = p.generate_keylist_mapping()
+        for k, v in mapping.items():
+            # these only work for Py2.7+
+            #self.assertIsInstance(k, str)
+            self.assertTrue(isinstance(k, str), type(k))

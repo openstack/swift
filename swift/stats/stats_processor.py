@@ -32,23 +32,23 @@ class StatsLogProcessor(object):
                 container_count,
                 object_count,
                 bytes_used) = line.split(',')
-                account = account.strip('"')
-                container_count = int(container_count.strip('"'))
-                object_count = int(object_count.strip('"'))
-                bytes_used = int(bytes_used.strip('"'))
-                aggr_key = (account, year, month, day, hour)
-                d = account_totals.get(aggr_key, {})
-                d['replica_count'] = d.setdefault('replica_count', 0) + 1
-                d['container_count'] = d.setdefault('container_count', 0) + \
-                                       container_count
-                d['object_count'] = d.setdefault('object_count', 0) + \
-                                    object_count
-                d['bytes_used'] = d.setdefault('bytes_used', 0) + \
-                                  bytes_used
-                account_totals[aggr_key] = d
             except (IndexError, ValueError):
                 # bad line data
-                pass
+                continue
+            account = account.strip('"')
+            container_count = int(container_count.strip('"'))
+            object_count = int(object_count.strip('"'))
+            bytes_used = int(bytes_used.strip('"'))
+            aggr_key = (account, year, month, day, hour)
+            d = account_totals.get(aggr_key, {})
+            d['replica_count'] = d.setdefault('replica_count', 0) + 1
+            d['container_count'] = d.setdefault('container_count', 0) + \
+                                   container_count
+            d['object_count'] = d.setdefault('object_count', 0) + \
+                                object_count
+            d['bytes_used'] = d.setdefault('bytes_used', 0) + \
+                              bytes_used
+            account_totals[aggr_key] = d
         return account_totals
 
     def keylist_mapping(self):
