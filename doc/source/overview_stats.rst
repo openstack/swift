@@ -93,20 +93,31 @@ Running the stats system on SAIO
 
         sudo apt-get install syslog-ng
 
-#. Add a destination rule to `/etc/syslog-ng/syslog-ng.conf`::
+#. Add the following to the end of `/etc/syslog-ng/syslog-ng.conf`::
 
-        destination df_syslog_hourly { file("/var/log/swift/access-$YEAR$MONTH$DAY$HOUR"); };
+		# Added for swift logging
+		destination df_local1 { file("/var/log/swift/proxy.log"); };
+		destination df_local1_err { file("/var/log/swift/proxy.error"); };
+		destination df_local1_hourly { file("/var/log/swift/hourly/$YEAR$MONTH$DAY$HOUR"); };
+		filter f_local1 { facility(local1) and level(info); };
 
-#. Edit the destination rules to standard logging in
-   `/etc/syslog-ng/syslog-ng.conf` by adding the destination just created.
-   This will cause syslog messages to be also put into a file, named by the
-   current hour, in `/var/log/swift`.::
+		filter f_local1_err { facility(local1) and not level(info); };
 
-        log {
-		    source(s_all);
-		    filter(f_syslog);
-		    destination(df_syslog);
-			destination(df_syslog_hourly);
+		# local1.info                        -/var/log/swift/proxy.log
+		# write to local file and to remove log server
+		log {
+		        source(s_all);
+		        filter(f_local1);
+		        destination(df_local1);
+		        destination(df_local1_hourly);
+		};
+
+		# local1.error                        -/var/log/swift/proxy.error
+		# write to local file and to remove log server
+		log {
+		        source(s_all);
+		        filter(f_local1_err);
+		        destination(df_local1_err);
 		};
 
 #. Restart syslog-ng
@@ -120,6 +131,7 @@ Running the stats system on SAIO
 		[log-processor-access]
 		swift_account = <your-stats-account-hash>
 		container_name = log_data
+		log_dir = /var/log/swift/hourly/
 		source_filename_format = access-%Y%m%d%H
 		class_path = swift.stats.access_processor.AccessLogProcessor
 		user = <your-user-name>
@@ -127,7 +139,8 @@ Running the stats system on SAIO
 		[log-processor-stats]
 		swift_account = <your-stats-account-hash>
 		container_name = account_stats
-		source_filename_format = stats-%Y%m%d%H_*
+		log_dir = /var/log/swift/stats/
+		source_filename_format = %Y%m%d%H_*
 		class_path = swift.stats.stats_processor.StatsLogProcessor
 		account_server_conf = /etc/swift/account-server/1.conf
 		user = <your-user-name>
