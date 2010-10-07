@@ -132,7 +132,7 @@ Running the stats system on SAIO
 		swift_account = <your-stats-account-hash>
 		container_name = log_data
 		log_dir = /var/log/swift/hourly/
-		source_filename_format = access-%Y%m%d%H
+		source_filename_format = %Y%m%d%H
 		class_path = swift.stats.access_processor.AccessLogProcessor
 		user = <your-user-name>
 
@@ -144,6 +144,10 @@ Running the stats system on SAIO
 		class_path = swift.stats.stats_processor.StatsLogProcessor
 		account_server_conf = /etc/swift/account-server/1.conf
 		user = <your-user-name>
+
+#. Add the following to the end of `/etc/swift/proxy-server.conf`::
+
+		log_facility = LOG_LOCAL1
 
 #. Create a `cron` job to run once per hour to create the stats logs. In
    `/etc/cron.d/swift-stats-log-creator`::
