@@ -145,7 +145,7 @@ Running the stats system on SAIO
 		account_server_conf = /etc/swift/account-server/1.conf
 		user = <your-user-name>
 
-#. Add the following to the end of `/etc/swift/proxy-server.conf`::
+#. Add the following under [app:proxy-server] in `/etc/swift/proxy-server.conf`::
 
 		log_facility = LOG_LOCAL1
 
