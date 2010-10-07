@@ -90,7 +90,7 @@ if __name__ == '__main__':
                       help='If set, will not delete the objects created')
 
     if len(sys.argv) == 1:
-        parser.print_usage()
+        parser.print_help()
         sys.exit(1)
     options, args = parser.parse_args()
     if options.saio:
