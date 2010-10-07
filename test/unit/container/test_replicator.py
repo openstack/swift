@@ -13,13 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Tests
-
 import unittest
-from swift.common import exceptions
+from swift.container import replicator
 
 
-class TestExceptions(unittest.TestCase):
+class TestReplicator(unittest.TestCase):
+    """
+    swift.container.replicator is currently just a subclass with some class
+    variables overridden, but at least this test stub will ensure proper Python
+    syntax.
+    """
 
     def test_placeholder(self):
         pass
