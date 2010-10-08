@@ -40,6 +40,8 @@ class LogProcessor(object):
 
     def __init__(self, conf, logger):
         stats_conf = conf.get('log-processor', {})
+        
+        self._internal_proxy = None
 
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
