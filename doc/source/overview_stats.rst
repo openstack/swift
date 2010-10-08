@@ -96,9 +96,9 @@ Running the stats system on SAIO
 #. Add the following to the end of `/etc/syslog-ng/syslog-ng.conf`::
 
 		# Added for swift logging
-		destination df_local1 { file("/var/log/swift/proxy.log"); };
-		destination df_local1_err { file("/var/log/swift/proxy.error"); };
-		destination df_local1_hourly { file("/var/log/swift/hourly/$YEAR$MONTH$DAY$HOUR"); };
+		destination df_local1 { file("/var/log/swift/proxy.log" owner(<username>) group(<groupname>)); };
+		destination df_local1_err { file("/var/log/swift/proxy.error" owner(<username>) group(<groupname>)); };
+		destination df_local1_hourly { file("/var/log/swift/hourly/$YEAR$MONTH$DAY$HOUR" owner(<username>) group(<groupname>)); };
 		filter f_local1 { facility(local1) and level(info); };
 
 		filter f_local1_err { facility(local1) and not level(info); };
