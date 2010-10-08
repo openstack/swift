@@ -80,6 +80,7 @@ class RateLimitMiddleware(object):
         """
         last_func = None
         if container_size:
+            container_size = int(container_size)
             for size, rate, func in self.container_limits:
                 if container_size < size:
                     break
@@ -90,7 +91,8 @@ class RateLimitMiddleware(object):
         return None
 
 
-    def _generate_key_rate_tuples(self, account_name, container_name, obj_name):
+    def get_ratelimitable_key_tuples(self, req_method, 
+                                     account_name, container_name, obj_name):
         """
         Returns a list of keys (to be used in memcache) that can be 
         generated given a path. Keys should be checked in order.
@@ -98,17 +100,21 @@ class RateLimitMiddleware(object):
         :param path: path from request
         """
         keys = []
-        if account_name:
+        if account_name and (
+            not (container_name or obj_name) or 
+            (container_name and not obj_name and req_method == 'PUT')):
             keys.append(("ratelimit/%s" % account_name, 
                          self.account_rate_limit))
 
-        if account_name and container_name and not obj_name:
+        if account_name and container_name and (
+            (not obj_name and req_method in ('GET','HEAD')) or
+            (obj_name and req_method in ('PUT','DELETE'))):
             container_size = None
             memcache_key = get_container_memcache_key(account_name, 
                                                       container_name)
             container_info = self.memcache_client.get(memcache_key)            
             if type(container_info) == dict:
-                container_size = int(container_info.get('container_size', 0))
+                container_size = container_info.get('container_size', 0)
                 container_rate = self.get_container_maxrate(container_size)
                 if container_rate:
                     keys.append(("ratelimit/%s/%s" % (account_name, 
@@ -157,9 +163,10 @@ class RateLimitMiddleware(object):
         if account_name in self.rate_limit_whitelist:
             return None
 
-        for key, max_rate in self._generate_key_rate_tuples(account_name,
-                                                            container_name,
-                                                            obj_name):
+        for key, max_rate in self.get_ratelimitable_key_tuples(req.method,
+                                                               account_name,
+                                                               container_name,
+                                                               obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if need_to_sleep > 0:  

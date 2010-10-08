@@ -877,6 +877,26 @@ class ContainerController(Controller):
                         self.account_name, self.container_name)
         resp = self.GETorHEAD_base(req, 'Container', part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
+        # set the memcache container size for ratelimiting
+        container_size = resp.headers.get('x-container-object-count')
+        status = resp.status_int
+        read_acl = None
+        write_acl = None
+        cache_key = get_container_memcache_key(self.account_name, 
+                                               self.container_name)
+        cache_value = self.app.memcache.get(cache_key)
+        if hasattr(cache_value, '__iter__'):
+            if type(cache_value) == dict:
+                read_acl = cache_value['read_acl']
+                write_acl = cache_value['write_acl']
+            else:
+                status_was, read_acl, write_acl = cache_value
+        self.app.memcache.set(cache_key, {'status': status, 
+                                          'read_acl': read_acl, 
+                                          'write_acl': write_acl,
+                                          'container_size': container_size},
+                              timeout=self.app.recheck_container_existence)
+
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
