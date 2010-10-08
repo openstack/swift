@@ -41,6 +41,8 @@ class AccountStat(Daemon):
         server_conf = appconfig('config:%s' % account_server_conf_loc,
                                 name='account-server')
         filename_format = stats_conf['source_filename_format']
+        if filename_format.count('*') > 1:
+            raise Exception('source filename format should have at max one *')
         self.filename_format = filename_format
         self.target_dir = target_dir
         mkdirs(self.target_dir)
@@ -96,6 +98,14 @@ class AccountStat(Daemon):
                                 statfile.write(line_data)
                                 hasher.update(line_data)
         file_hash = hasher.hexdigest()
-        src_filename = '_'.join([src_filename, file_hash])
+        hash_index = src_filename.find('*')
+        if hash_index < 0:
+            # if there is no * in the target filename, the uploader probably
+            # won't work because we are crafting a filename that doesn't
+            # fit the pattern
+            src_filename = '_'.join([src_filename, file_hash])
+        else:
+            parts = src_filename[:hash_index], src_filename[hash_index+1:]
+            src_filename = ''.join([parts[0], file_hash, parts[1]])
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
         shutil.rmtree(working_dir, ignore_errors=True)
