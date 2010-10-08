@@ -127,7 +127,7 @@ class TestLogProcessor(unittest.TestCase):
 
     def test_get_container_listing(self):
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        p._internal_proxy = DumbInternalProxy()
+        p.internal_proxy = DumbInternalProxy()
         result = p.get_container_listing('a', 'foo')
         expected = ['2010/03/14/13/obj1']
         self.assertEquals(result, expected)
@@ -148,7 +148,7 @@ class TestLogProcessor(unittest.TestCase):
 
     def test_get_object_data(self):
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
-        p._internal_proxy = DumbInternalProxy()
+        p.internal_proxy = DumbInternalProxy()
         result = list(p.get_object_data('a', 'c', 'o', False))
         expected = ['obj','data']
         self.assertEquals(result, expected)
@@ -163,7 +163,7 @@ class TestLogProcessor(unittest.TestCase):
                                 'swift.stats.stats_processor.StatsLogProcessor'
                         }})
         p = log_processor.LogProcessor(stats_proxy_config, DumbLogger())
-        p._internal_proxy = DumbInternalProxy()
+        p.internal_proxy = DumbInternalProxy()
         def get_object_data(*a,**kw):
             return [self.stats_test_line]
         p.get_object_data = get_object_data

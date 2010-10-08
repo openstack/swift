@@ -40,13 +40,20 @@ class LogProcessor(object):
 
     def __init__(self, conf, logger):
         stats_conf = conf.get('log-processor', {})
-        
-        self._internal_proxy = None
 
         if isinstance(logger, tuple):
             self.logger = get_logger(*logger)
         else:
             self.logger = logger
+
+        proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
+                                        '/etc/swift/proxy-server.conf')
+        self.proxy_server_conf = appconfig(
+                                    'config:%s' % proxy_server_conf_loc,
+                                    name='proxy-server')
+        self.internal_proxy = InternalProxy(self.proxy_server_conf,
+                                             self.logger,
+                                             retries=3)
 
         # load the processing plugins
         self.plugins = {}
@@ -61,20 +68,6 @@ class LogProcessor(object):
             klass = getattr(module, class_name)
             self.plugins[plugin_name]['instance'] = klass(plugin_conf)
             self.logger.debug('Loaded plugin "%s"' % plugin_name)
-
-    @property
-    def internal_proxy(self):
-        '''Lazy load internal proxy'''
-        if self._internal_proxy is None:
-            proxy_server_conf_loc = stats_conf.get('proxy_server_conf',
-                                            '/etc/swift/proxy-server.conf')
-            self.proxy_server_conf = appconfig(
-                                        'config:%s' % proxy_server_conf_loc,
-                                        name='proxy-server')
-            self._internal_proxy = InternalProxy(self.proxy_server_conf,
-                                                 self.logger,
-                                                 retries=3)
-        return self._internal_proxy
 
     def process_one_file(self, plugin_name, account, container, object_name):
         self.logger.info('Processing %s/%s/%s with plugin "%s"' % (account,
