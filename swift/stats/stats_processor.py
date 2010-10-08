@@ -15,6 +15,7 @@
 
 from swift.common.utils import get_logger
 
+
 class StatsLogProcessor(object):
     """Transform account storage stat logs"""
 

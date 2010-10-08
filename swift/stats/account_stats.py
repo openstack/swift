@@ -105,7 +105,7 @@ class AccountStat(Daemon):
             # fit the pattern
             src_filename = '_'.join([src_filename, file_hash])
         else:
-            parts = src_filename[:hash_index], src_filename[hash_index+1:]
+            parts = src_filename[:hash_index], src_filename[hash_index + 1:]
             src_filename = ''.join([parts[0], file_hash, parts[1]])
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
         shutil.rmtree(working_dir, ignore_errors=True)
