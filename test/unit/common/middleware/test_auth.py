@@ -67,25 +67,33 @@ def mock_http_connect(response, headers=None, with_exc=False):
             self.headers = headers
             if self.headers is None:
                 self.headers = {}
+
         def getresponse(self):
             if self.with_exc:
                 raise Exception('test')
             return self
+
         def getheader(self, header):
             return self.headers[header]
+
         def read(self, amt=None):
             return ''
+
         def close(self):
             return
+
     return lambda *args, **kwargs: FakeConn(response, headers, with_exc)
 
 
 class Logger(object):
+
     def __init__(self):
         self.error_value = None
         self.exception_value = None
+
     def error(self, msg, *args, **kwargs):
         self.error_value = (msg, args, kwargs)
+
     def exception(self, msg, *args, **kwargs):
         _, exc, _ = sys.exc_info()
         self.exception_value = (msg,
@@ -99,7 +107,7 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.i_was_called = True
-        req = Request(env)
+        req = Request.blank('', environ=env)
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](req)
             if resp:
@@ -109,6 +117,7 @@ class FakeApp(object):
 
 def start_response(*args):
     pass
+
 
 class TestAuth(unittest.TestCase):
 
@@ -416,7 +425,6 @@ class TestAuth(unittest.TestCase):
         resp = self.test_auth.authorize(req)
         resp = str(self.test_auth.authorize(req))
         self.assert_(resp.startswith('403'), resp)
-
 
 
 if __name__ == '__main__':

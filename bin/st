@@ -1132,6 +1132,11 @@ def st_stat(options, args):
     if not args:
         try:
             headers = conn.head_account()
+            if options.verbose > 1:
+                options.print_queue.put('''
+StorageURL: %s
+Auth Token: %s
+'''.strip('\n') % (conn.url, conn.token))
             container_count = int(headers.get('x-account-container-count', 0))
             object_count = int(headers.get('x-account-object-count', 0))
             bytes_used = int(headers.get('x-account-bytes-used', 0))
@@ -1397,8 +1402,10 @@ Example:
 '''.strip('\n') % globals())
     parser.add_option('-s', '--snet', action='store_true', dest='snet',
                       default=False, help='Use SERVICENET internal network')
-    parser.add_option('-q', '--quiet', action='store_false', dest='verbose',
-                      default=True, help='Suppress status output')
+    parser.add_option('-v', '--verbose', action='count', dest='verbose',
+                      default=1, help='Print more info')
+    parser.add_option('-q', '--quiet', action='store_const', dest='verbose',
+                      const=0, default=1, help='Suppress status output')
     parser.add_option('-a', '--all', action='store_true', dest='yes_all',
                       default=False, help='Indicate that you really want the '
                       'whole account for commands that require --all in such '

@@ -16,10 +16,10 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
+from swift.common import bench
 
 
-class TestExceptions(unittest.TestCase):
+class TestBench(unittest.TestCase):
 
     def test_placeholder(self):
         pass
