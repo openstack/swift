@@ -257,22 +257,21 @@ log_name = yarr'''
         f.write(conf)
         f.close()
         result = utils.readconf('/tmp/test')
-        expected = {'section1': {'foo': 'bar'}, 'section2': {'log_name': 'yarr'}}
+        expected = {'log_name': None,
+                    'section1': {'foo': 'bar'},
+                    'section2': {'log_name': 'yarr'}}
         self.assertEquals(result, expected)
         result = utils.readconf('/tmp/test', 'section1')
-        expected = {'foo': 'bar'}
+        expected = {'log_name': 'section1', 'foo': 'bar'}
         self.assertEquals(result, expected)
         result = utils.readconf('/tmp/test', 'section2').get('log_name')
         expected = 'yarr'
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1').get('log_name')
-        expected = 'section1'
         self.assertEquals(result, expected)
         result = utils.readconf('/tmp/test', 'section1', log_name='foo').get('log_name')
         expected = 'foo'
         self.assertEquals(result, expected)
         result = utils.readconf('/tmp/test', 'section1', defaults={'bar': 'baz'})
-        expected = {'foo': 'bar', 'bar': 'baz'}
+        expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
         self.assertEquals(result, expected)
         os.unlink('/tmp/test')
 
