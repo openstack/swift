@@ -34,12 +34,15 @@ class Daemon(object):
         """Override this to run forever"""
         raise NotImplementedError('run_forever not implemented')
 
-    def run(self, once=False):
+    def run(self, once=False, capture_stdout=True, capture_stderr=True):
         """Run the daemon"""
         # log uncaught exceptions
         sys.excepthook = lambda *exc_info: \
             self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-        sys.stdout = sys.stderr = utils.LoggerFileObject(self.logger)
+        if capture_stdout:
+            sys.stdout = utils.LoggerFileObject(self.logger)
+        if capture_stderr:
+            sys.stderr = utils.LoggerFileObject(self.logger)
 
         utils.drop_privileges(self.conf.get('user', 'swift'))
 
