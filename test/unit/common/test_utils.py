@@ -248,12 +248,11 @@ class TestUtils(unittest.TestCase):
             utils.load_libc_function('some_not_real_function')))
 
     def test_readconf(self):
-        conf = '''
-            [section1]
-            foo = bar
-            
-            [section2]
-            log_name = yarr
+        conf = '''[section1]
+foo = bar
+
+[section2]
+log_name = yarr
         '''
         result = utils.readconf(StringIO(conf))
         expected = {'section1': {'foo': 'bar'}, 'section2': {'log_name': 'yarr'}}
