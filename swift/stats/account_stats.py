@@ -60,6 +60,7 @@ class AccountStat(Daemon):
         src_filename = time.strftime(self.filename_format)
         working_dir = os.path.join(self.target_dir, '.stats_tmp')
         shutil.rmtree(working_dir, ignore_errors=True)
+        mkdirs(working_dir)
         tmp_filename = os.path.join(working_dir, src_filename)
         hasher = hashlib.md5()
         with open(tmp_filename, 'wb') as statfile:
