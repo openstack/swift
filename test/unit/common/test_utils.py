@@ -247,5 +247,32 @@ class TestUtils(unittest.TestCase):
         self.assert_(callable(
             utils.load_libc_function('some_not_real_function')))
 
+    def test_readconf(self):
+        conf = '''
+            [section1]
+            foo = bar
+            
+            [section2]
+            log_name = yarr
+        '''
+        result = utils.readconf(StringIO(conf))
+        expected = {'section1': {'foo': 'bar'}, 'section2': {'log_name': 'yarr'}}
+        self.assertEquals(result, expected)
+        result = utils.readconf(StringIO(conf), 'section1')
+        expected = {'foo': 'bar'}
+        self.assertEquals(result, expected)
+        result = utils.readconf(StringIO(conf), 'section2').get('log_name')
+        expected = 'yarr'
+        self.assertEquals(result, expected)
+        result = utils.readconf(StringIO(conf), 'section1').get('log_name')
+        expected = 'section1'
+        self.assertEquals(result, expected)
+        result = utils.readconf(StringIO(conf), 'section1', log_name='foo').get('log_name')
+        expected = 'foo'
+        self.assertEquals(result, expected)
+        result = utils.readconf(StringIO(conf), 'section1', defaults={'bar': 'baz'})
+        expected = {'foo': 'bar', 'bar': 'baz'}
+        self.assertEquals(result, expected)
+
 if __name__ == '__main__':
     unittest.main()
