@@ -17,7 +17,7 @@ import collections
 from urllib import unquote
 import copy
 
-from swift.common.utils import split_path
+from swift.common.utils import split_path, get_logger
 
 month_map = '_ Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()
 
@@ -34,6 +34,7 @@ class AccessLogProcessor(object):
                             conf.get('service_ips', '').split(',')\
                             if x.strip()]
         self.warn_percent = float(conf.get('warn_percent', '0.8'))
+        self.logger = get_logger(conf)
 
     def log_line_parser(self, raw_log):
         '''given a raw access log line, return a dict of the good parts'''
@@ -58,9 +59,12 @@ class AccessLogProcessor(object):
             headers,
             processing_time) = (unquote(x) for x in raw_log[16:].split(' '))
         except ValueError:
+            self.logger.debug('Bad line data: %s' % repr(raw_log))
             return {}
         if server != self.server_name:
             # incorrect server name in log line
+            self.logger.debug('Bad server name: found "%s" expected "%s"' \
+                               % (server, self.server_name))
             return {}
         (version,
         account,
@@ -185,8 +189,8 @@ class AccessLogProcessor(object):
             hourly_aggr_info[aggr_key] = d
         if bad_lines > (total_lines * self.warn_percent):
             name = '/'.join([account, container, object_name])
-            print >>sys.stderr, 'I found a bunch of bad lines in %s '\
-                        '(%d bad, %d total)' % (name, bad_lines, total_lines)
+            self.logger.warning('I found a bunch of bad lines in %s '\
+                        '(%d bad, %d total)' % (name, bad_lines, total_lines))
         return hourly_aggr_info
 
     def keylist_mapping(self):

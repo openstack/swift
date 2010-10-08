@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from swift.common.utils import get_logger
 
 class StatsLogProcessor(object):
     """Transform account storage stat logs"""
 
     def __init__(self, conf):
-        pass
+        self.logger = get_logger(conf)
 
     def process(self, obj_stream, account, container, object_name):
         '''generate hourly groupings of data from one stats log file'''
@@ -34,6 +35,7 @@ class StatsLogProcessor(object):
                 bytes_used) = line.split(',')
             except (IndexError, ValueError):
                 # bad line data
+                self.logger.debug('Bad line data: %s' % repr(line))
                 continue
             account = account.strip('"')
             container_count = int(container_count.strip('"'))

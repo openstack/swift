@@ -58,6 +58,7 @@ class LogProcessor(object):
             module = __import__(import_target, fromlist=[import_target])
             klass = getattr(module, class_name)
             self.plugins[plugin_name]['instance'] = klass(plugin_conf)
+            self.logger.debug('Loaded plugin "%s"' % plugin_name)
 
     @property
     def internal_proxy(self):
@@ -74,6 +75,11 @@ class LogProcessor(object):
         return self._internal_proxy
 
     def process_one_file(self, plugin_name, account, container, object_name):
+        self.logger.info('Processing %s/%s/%s with plugin "%s"' % (account,
+                                                               container,
+                                                               object_name,
+                                                               plugin_name)
+                                                               )
         # get an iter of the object data
         compressed = object_name.endswith('.gz')
         stream = self.get_object_data(account, container, object_name,
@@ -185,6 +191,10 @@ class LogProcessor(object):
                     try:
                         chunk = d.decompress(chunk)
                     except zlib.error:
+                        self.logger.debug('Bad compressed data for %s/%s/%s' %
+                                                                (swift_account,
+                                                                container_name,
+                                                                object_name))
                         raise BadFileDownload()  # bad compressed data
                 parts = chunk.split('\n')
                 parts[0] = last_part + parts[0]
