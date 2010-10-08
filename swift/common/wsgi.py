@@ -95,7 +95,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
     retry_until = time.time() + 30
     while not sock and time.time() < retry_until:
         try:
-            sock = listen(bind_addr)
+            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)))
             if 'cert_file' in conf:
                 sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
                     keyfile=conf['key_file'])
