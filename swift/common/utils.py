@@ -553,7 +553,7 @@ def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
 
-def readconf(conf, section_name, log_name=None, defaults=None):
+def readconf(conf, section_name=None, log_name=None, defaults=None):
     """
     Read config file and return config items as a dict
 
