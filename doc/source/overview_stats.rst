@@ -122,6 +122,12 @@ Running the stats system on SAIO
 
 #. Restart syslog-ng
 
+#. Create the log directories::
+
+		mkdir /var/log/swift/hourly
+		mkdir /var/log/swift/stats
+		chown -R <username>:<groupname> /var/log/swift
+
 #. Create `/etc/swift/log-processor.conf`::
 
 		[log-processor]
