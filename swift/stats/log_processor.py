@@ -73,8 +73,7 @@ class LogProcessor(object):
         self.logger.info('Processing %s/%s/%s with plugin "%s"' % (account,
                                                                container,
                                                                object_name,
-                                                               plugin_name)
-                                                               )
+                                                               plugin_name))
         # get an iter of the object data
         compressed = object_name.endswith('.gz')
         stream = self.get_object_data(account, container, object_name,
