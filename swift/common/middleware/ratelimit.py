@@ -18,13 +18,16 @@ from ConfigParser import ConfigParser, NoOptionError
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
 
+
 class MaxSleepTimeHit(Exception):
     pass
+
 
 class RateLimitMiddleware(object):
     """
     Rate limiting middleware
     """
+
     def __init__(self, app, conf, logger=None):
         self.app = app
         if logger:
@@ -32,7 +35,7 @@ class RateLimitMiddleware(object):
         else:
             self.logger = get_logger(conf)
         self.account_rate_limit = float(conf.get('account_ratelimit', 200.0))
-        self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds', 
+        self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
                                                    60))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
         self.rate_limit_whitelist = [acc.strip() for acc in
@@ -47,7 +50,7 @@ class RateLimitMiddleware(object):
             if conf_key.startswith('container_limit_'):
                 cont_size = int(conf_key[len('container_limit_'):])
                 rate = float(conf[conf_key])
-                conf_limits.append((cont_size,rate))
+                conf_limits.append((cont_size, rate))
 
         conf_limits.sort()
         self.container_limits = []
@@ -57,15 +60,15 @@ class RateLimitMiddleware(object):
                 next_size, next_rate = conf_limits[0]
                 slope = (float(next_rate) - float(cur_rate)) \
                       / (next_size - cur_size)
+
                 def new_scope(cur_size, slope, cur_rate):
                     # making new scope for variables
                     return lambda x: (x - cur_size) * slope + cur_rate
-                line_func = new_scope(cur_size, slope, cur_rate) 
+                line_func = new_scope(cur_size, slope, cur_rate)
             else:
-                line_func = lambda x : cur_rate
+                line_func = lambda x: cur_rate
 
             self.container_limits.append((cur_size, cur_rate, line_func))
-
 
     def get_container_maxrate(self, container_size):
         """
@@ -83,62 +86,59 @@ class RateLimitMiddleware(object):
                 return last_func(container_size)
         return None
 
-
-    def get_ratelimitable_key_tuples(self, req_method, 
+    def get_ratelimitable_key_tuples(self, req_method,
                                      account_name, container_name, obj_name):
         """
-        Returns a list of keys (to be used in memcache) that can be 
+        Returns a list of keys (to be used in memcache) that can be
         generated given a path. Keys should be checked in order.
-        
+
         :param path: path from request
         """
         keys = []
         if account_name and (
-            not (container_name or obj_name) or 
+            not (container_name or obj_name) or
             (container_name and not obj_name and req_method == 'PUT')):
-            keys.append(("ratelimit/%s" % account_name, 
+            keys.append(("ratelimit/%s" % account_name,
                          self.account_rate_limit))
 
         if account_name and container_name and (
-            (not obj_name and req_method in ('GET','HEAD')) or
-            (obj_name and req_method in ('PUT','DELETE'))):
+            (not obj_name and req_method in ('GET', 'HEAD')) or
+            (obj_name and req_method in ('PUT', 'DELETE'))):
             container_size = None
-            memcache_key = get_container_memcache_key(account_name, 
+            memcache_key = get_container_memcache_key(account_name,
                                                       container_name)
-            container_info = self.memcache_client.get(memcache_key)            
+            container_info = self.memcache_client.get(memcache_key)
             if type(container_info) == dict:
                 container_size = container_info.get('container_size', 0)
                 container_rate = self.get_container_maxrate(container_size)
                 if container_rate:
-                    keys.append(("ratelimit/%s/%s" % (account_name, 
+                    keys.append(("ratelimit/%s/%s" % (account_name,
                                                       container_name),
                                  container_rate))
         return keys
 
-
     def _get_sleep_time(self, key, max_rate):
         now_m = int(round(time.time() * self.clock_accuracy))
         time_per_request_m = int(round(self.clock_accuracy / max_rate))
-        running_time_m = self.memcache_client.incr(key, 
+        running_time_m = self.memcache_client.incr(key,
                                                    delta=time_per_request_m)
         need_to_sleep_m = 0
         request_time_limit = now_m + (time_per_request_m * max_rate)
         if running_time_m < now_m:
             next_avail_time = int(now_m + time_per_request_m)
-            self.memcache_client.set(key, str(next_avail_time), 
+            self.memcache_client.set(key, str(next_avail_time),
                                      serialize=False)
-        elif running_time_m - now_m - time_per_request_m > 0: 
+        elif running_time_m - now_m - time_per_request_m > 0:
             need_to_sleep_m = running_time_m - now_m - time_per_request_m
 
         max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
             # treat as no-op decrement time
             self.memcache_client.incr(key, delta=-time_per_request_m)
-            raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" % 
+            raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" %
                                   need_to_sleep_m)
 
         return float(need_to_sleep_m) / self.clock_accuracy
-            
 
     def handle_rate_limit(self, req, account_name, container_name, obj_name):
         if account_name in self.rate_limit_blacklist:
@@ -154,7 +154,7 @@ class RateLimitMiddleware(object):
                                                                obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
-                if need_to_sleep > 0:  
+                if need_to_sleep > 0:
                     time.sleep(need_to_sleep)
             except MaxSleepTimeHit, e:
                 self.logger.error('Returning 498 because of ops ' + \
@@ -162,9 +162,8 @@ class RateLimitMiddleware(object):
                 error_resp = Response(status='498 Rate Limited',
                                       body='Slow down', request=req)
                 return error_resp
-            
+
         return None
-                
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -178,11 +177,12 @@ class RateLimitMiddleware(object):
             return self.app(env, start_response)
         else:
             return rate_limit_resp(env, start_response)
-        
+
 
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
     def limit_filter(app):
         return RateLimitMiddleware(app, conf)
     return limit_filter
