@@ -91,8 +91,6 @@ class RateLimitMiddleware(object):
         """
         Returns a list of keys (to be used in memcache) that can be
         generated given a path. Keys should be checked in order.
-
-        :param path: path from request
         """
         keys = []
         if account_name and (
