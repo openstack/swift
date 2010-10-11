@@ -25,21 +25,16 @@ class RateLimitMiddleware(object):
     """
     Rate limiting middleware
     """
-
     def __init__(self, app, conf, logger=None):
         self.app = app
-        self.logger = logger
-
-        if logger is None:
-            self.logger = get_logger(conf)
-        else:
+        if logger:
             self.logger = logger
-
+        else:
+            self.logger = get_logger(conf)
         self.account_rate_limit = float(conf.get('account_ratelimit', 200.0))
         self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds', 
                                                    60))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
-
         self.rate_limit_whitelist = [acc.strip() for acc in
             conf.get('account_whitelist', '').split(',')
             if acc.strip()]
@@ -59,7 +54,6 @@ class RateLimitMiddleware(object):
         while conf_limits:
             cur_size, cur_rate = conf_limits.pop(0)
             if conf_limits:
-                # figure out slope for function between this point and next
                 next_size, next_rate = conf_limits[0]
                 slope = (float(next_rate) - float(cur_rate)) \
                       / (next_size - cur_size)
@@ -68,11 +62,10 @@ class RateLimitMiddleware(object):
                     return lambda x: (x - cur_size) * slope + cur_rate
                 line_func = new_scope(cur_size, slope, cur_rate) 
             else:
-                # don't have to worry about scope here- this is the last
-                # element in the list
                 line_func = lambda x : cur_rate
-        
+
             self.container_limits.append((cur_size, cur_rate, line_func))
+
 
     def get_container_maxrate(self, container_size):
         """
@@ -122,28 +115,23 @@ class RateLimitMiddleware(object):
                                  container_rate))
         return keys
 
+
     def _get_sleep_time(self, key, max_rate):
         now_m = int(round(time.time() * self.clock_accuracy))
         time_per_request_m = int(round(self.clock_accuracy / max_rate))
         running_time_m = self.memcache_client.incr(key, 
                                                    delta=time_per_request_m)
-
         need_to_sleep_m = 0
         request_time_limit = now_m + (time_per_request_m * max_rate)
-
         if running_time_m < now_m:
             next_avail_time = int(now_m + time_per_request_m)
             self.memcache_client.set(key, str(next_avail_time), 
                                      serialize=False)
-
         elif running_time_m - now_m - time_per_request_m > 0: 
-            #running_time_m > request_time_limit:
             need_to_sleep_m = running_time_m - now_m - time_per_request_m
-            
 
         max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
-            # make it accurate to 1% of clock accuracy
             # treat as no-op decrement time
             self.memcache_client.incr(key, delta=-time_per_request_m)
             raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" % 
@@ -152,12 +140,9 @@ class RateLimitMiddleware(object):
         return float(need_to_sleep_m) / self.clock_accuracy
             
 
-    def handle_rate_limit(self, req, account_name, container_name, obj_name,
-                          name=None):
-
+    def handle_rate_limit(self, req, account_name, container_name, obj_name):
         if account_name in self.rate_limit_blacklist:
             self.logger.error('Returning 497 because of blacklisting')
-
             return Response(status='497 Blacklisted',
                 body='Your account has been blacklisted', request=req)
         if account_name in self.rate_limit_whitelist:
@@ -171,7 +156,6 @@ class RateLimitMiddleware(object):
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if need_to_sleep > 0:  
                     time.sleep(need_to_sleep)
-
             except MaxSleepTimeHit, e:
                 self.logger.error('Returning 498 because of ops ' + \
                                    'rate limiting (Max Sleep) %s' % e)
@@ -182,15 +166,14 @@ class RateLimitMiddleware(object):
         return None
                 
 
-    def __call__(self, env, start_response, name=None):
-        #TODO : David- get rid of the name thing- used for debugging
+    def __call__(self, env, start_response):
         req = Request(env)
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)
         version, account, container, obj = split_path(req.path, 1, 4, True)
 
         rate_limit_resp = self.handle_rate_limit(req, account, container,
-                                                 obj, name=name)
+                                                 obj)
         if rate_limit_resp is None:
             return self.app(env, start_response)
         else:

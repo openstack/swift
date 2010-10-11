@@ -978,8 +978,6 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        #TODO : David - does this need to be using the 
-        # get_container_memcache_key function????
         self.app.memcache.delete('container%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container PUT')
