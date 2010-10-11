@@ -89,8 +89,8 @@ class RateLimitMiddleware(object):
     def get_ratelimitable_key_tuples(self, req_method,
                                      account_name, container_name, obj_name):
         """
-        Returns a list of keys (to be used in memcache) that can be
-        generated given a path. Keys should be checked in order.
+        Returns a list of key (used in memcache), ratelimit tuples. Keys 
+        should be checked in order.
         """
         keys = []
         if account_name and (
