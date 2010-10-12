@@ -76,7 +76,7 @@ class ObjectAuditor(Daemon):
                                 break
                             if fname.endswith('.data'):
                                 name = object_server.read_metadata(
-                                    os.path.join(fpath, fname))['name']
+                                    os.path.join(hash_path, fname))['name']
                                 break
                         if name:
                             _, account, container, obj = name.split('/', 3)
