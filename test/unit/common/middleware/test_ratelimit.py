@@ -13,14 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import sys
 import unittest
 import time
 from contextlib import contextmanager
 from threading import Thread
-
-import eventlet
 from webob import Request
 
 from swift.common.middleware import ratelimit

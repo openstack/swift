@@ -13,7 +13,6 @@
 # limitations under the License.
 import time
 from webob import Request, Response
-from ConfigParser import ConfigParser, NoOptionError
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
