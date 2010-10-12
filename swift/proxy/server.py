@@ -88,6 +88,7 @@ def delay_denial(func):
         return func(*a, **kw)
     return wrapped
 
+
 def get_container_memcache_key(account, container):
     path = '/%s/%s' % (account, container)
     return 'container%s' % path
@@ -290,8 +291,8 @@ class Controller(object):
             cache_timeout = self.app.recheck_container_existence
         else:
             cache_timeout = self.app.recheck_container_existence * 0.1
-        self.app.memcache.set(cache_key, {'status': result_code, 
-                                          'read_acl': read_acl, 
+        self.app.memcache.set(cache_key, {'status': result_code,
+                                          'read_acl': read_acl,
                                           'write_acl': write_acl,
                                           'container_size': container_size},
                               timeout=cache_timeout)
@@ -430,6 +431,7 @@ class Controller(object):
             if req.method == 'GET' and source.status in (200, 206):
                 res = Response(request=req, conditional_response=True)
                 res.bytes_transferred = 0
+
                 def file_iter():
                     try:
                         while True:
@@ -877,13 +879,13 @@ class ContainerController(Controller):
                 req.path_info, self.app.container_ring.replica_count)
 
         # set the memcache container size for ratelimiting if missing
-        cache_key = get_container_memcache_key(self.account_name, 
+        cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
         cache_value = self.app.memcache.get(cache_key)
         if not isinstance(cache_value, dict):
-            self.app.memcache.set(cache_key, 
-              {'status': resp.status_int, 
-               'read_acl': resp.headers.get('x-container-read'), 
+            self.app.memcache.set(cache_key,
+              {'status': resp.status_int,
+               'read_acl': resp.headers.get('x-container-read'),
                'write_acl': resp.headers.get('x-container-write'),
                'container_size': resp.headers.get('x-container-object-count')},
                                   timeout=self.app.recheck_container_existence)
@@ -969,9 +971,9 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name, 
+        cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
-        self.app.memcache.delete(cache_key) 
+        self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container PUT')
 
@@ -1023,7 +1025,7 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name, 
+        cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
         self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
@@ -1079,7 +1081,7 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name, 
+        cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
         self.app.memcache.delete(cache_key)
         resp = self.best_response(req, statuses, reasons, bodies,
@@ -1412,6 +1414,7 @@ class Application(BaseApplication):
                 logged_headers or '-',
                 trans_time,
             )))
+
 
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI proxy apps."""

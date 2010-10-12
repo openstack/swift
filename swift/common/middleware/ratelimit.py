@@ -25,6 +25,9 @@ class MaxSleepTimeHit(Exception):
 class RateLimitMiddleware(object):
     """
     Rate limiting middleware
+
+    Rate limits requests on both an Account and Container level.  Limits are
+    configurable.
     """
 
     def __init__(self, app, conf, logger=None):
@@ -70,6 +73,9 @@ class RateLimitMiddleware(object):
             self.container_limits.append((cur_size, cur_rate, line_func))
 
     def get_container_maxrate(self, container_size):
+        """
+        Returns number of requests allowed per second for given container size.
+        """
         last_func = None
         if container_size:
             container_size = int(container_size)
@@ -82,11 +88,17 @@ class RateLimitMiddleware(object):
                 return last_func(container_size)
         return None
 
-    def get_ratelimitable_key_tuples(self, req_method,
-                                     account_name, container_name, obj_name):
+    def get_ratelimitable_key_tuples(self, req_method, account_name,
+                                     container_name=None,
+                                     obj_name=None):
         """
-        Returns a list of key (used in memcache), ratelimit tuples. Keys 
+        Returns a list of key (used in memcache), ratelimit tuples. Keys
         should be checked in order.
+
+        :param req_method: HTTP method
+        :param account_name: account name from path
+        :param container_name: container name from path
+        :param obj_name: object name from path
         """
         keys = []
         if self.account_rate_limit and account_name and (
@@ -112,6 +124,14 @@ class RateLimitMiddleware(object):
         return keys
 
     def _get_sleep_time(self, key, max_rate):
+        '''
+        Returns the amount of time (a float in seconds) that the app
+        should sleep.  Throws a MaxSleepTimeHit exception if maximum
+        sleep time is exceeded.
+
+        :param key: a memcache key
+        :param max_rate: maximum rate allowed in requests per second
+        '''
         now_m = int(round(time.time() * self.clock_accuracy))
         time_per_request_m = int(round(self.clock_accuracy / max_rate))
         running_time_m = self.memcache_client.incr(key,
@@ -135,6 +155,13 @@ class RateLimitMiddleware(object):
         return float(need_to_sleep_m) / self.clock_accuracy
 
     def handle_rate_limit(self, req, account_name, container_name, obj_name):
+        '''
+        Performs rate limiting and account white/black listing.  Sleeps
+        if necessary.
+        :param account_name: account name from path
+        :param container_name: container name from path
+        :param obj_name: object name from path
+        '''
         if account_name in self.rate_limit_blacklist:
             self.logger.error('Returning 497 because of blacklisting')
             return Response(status='497 Blacklisted',
@@ -142,10 +169,11 @@ class RateLimitMiddleware(object):
         if account_name in self.rate_limit_whitelist:
             return None
 
-        for key, max_rate in self.get_ratelimitable_key_tuples(req.method,
-                                                               account_name,
-                                                               container_name,
-                                                               obj_name):
+        for key, max_rate in self.get_ratelimitable_key_tuples(
+            req.method,
+            account_name,
+            container_name=container_name,
+            obj_name=obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if need_to_sleep > 0:
@@ -160,6 +188,13 @@ class RateLimitMiddleware(object):
         return None
 
     def __call__(self, env, start_response):
+        """
+        WSGI entry point.
+        Wraps env in webob.Request object and passes it down.
+
+        :param env: WSGI environment dictionary
+        :param start_response: WSGI callable
+        """
         req = Request(env)
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)
@@ -174,6 +209,9 @@ class RateLimitMiddleware(object):
 
 
 def filter_factory(global_conf, **local_conf):
+    """
+    paste.deploy app factory for creating WSGI proxy apps.
+    """
     conf = global_conf.copy()
     conf.update(local_conf)
 
