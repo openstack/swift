@@ -71,9 +71,6 @@ class RateLimitMiddleware(object):
             self.container_limits.append((cur_size, cur_rate, line_func))
 
     def get_container_maxrate(self, container_size):
-        """
-        Will figure out the max_rate for a container size
-        """
         last_func = None
         if container_size:
             container_size = int(container_size)
