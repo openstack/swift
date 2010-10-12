@@ -232,10 +232,8 @@ class Controller(object):
         """
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
-
         path = '/%s/%s' % (account, container)
         cache_key = get_container_memcache_key(account, container)
-
         # Older memcache values (should be treated as if they aren't there):
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
         # Newer memcache values:
