@@ -15,6 +15,7 @@ use = egg:swift#account
 # log_name = account-server
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# backlog = 4096
 
 [account-replicator]
 # log_name = account-replicator

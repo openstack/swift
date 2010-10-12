@@ -22,6 +22,7 @@ use = egg:swift#object
 # disk_chunk_size = 65536
 # max_upload_time = 86400
 # slow = 1
+# backlog = 4096
 
 [object-replicator]
 # log_name = object-replicator

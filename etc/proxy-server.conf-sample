@@ -34,6 +34,7 @@ use = egg:swift#proxy
 # account_rate_limit = 200.0
 # rate_limit_account_whitelist = acct1,acct2,etc
 # rate_limit_account_blacklist = acct3,acct4,etc
+# backlog = 4096
 
 [filter:auth]
 use = egg:swift#auth

@@ -17,6 +17,7 @@ use = egg:swift#container
 # log_level = INFO
 # node_timeout = 3
 # conn_timeout = 0.5
+# backlog = 4096
 
 [container-replicator]
 # log_name = container-replicator
