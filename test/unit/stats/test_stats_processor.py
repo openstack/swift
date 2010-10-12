@@ -16,10 +16,10 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
+from swift.stats import stats_processor
 
 
-class TestExceptions(unittest.TestCase):
+class TestStatsProcessor(unittest.TestCase):
 
     def test_placeholder(self):
         pass

@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # Copyright (c) 2010 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,17 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Tests
+import sys
 
-import unittest
-from swift.common import exceptions
-
-
-class TestExceptions(unittest.TestCase):
-
-    def test_placeholder(self):
-        pass
-
+from swift.stats.log_processor import LogProcessorDaemon
+from swift.common import utils
 
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) < 2:
+        print "Usage: swift-log-stats-collector CONFIG_FILE"
+        sys.exit()
+    conf = utils.readconf(sys.argv[1], log_name='log-stats-collector')
+    stats = LogProcessorDaemon(conf).run(once=True)
