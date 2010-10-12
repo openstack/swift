@@ -339,6 +339,10 @@ class TestObjectController(unittest.TestCase):
                     return ''
 
                 def getexpect(self):
+                    if self.status == -2:
+                        raise HTTPException()
+                    if self.status == -3:
+                        return FakeConn(507)
                     return FakeConn(100)
             code_iter = iter(code_iter)
 
@@ -362,6 +366,8 @@ class TestObjectController(unittest.TestCase):
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
             test_status_map((200, 200, 201, 201, -1), 201)
+            test_status_map((200, 200, 201, 201, -2), 201)  # expect timeout
+            test_status_map((200, 200, 201, 201, -3), 201)  # error limited
             test_status_map((200, 200, 201, -1, -1), 503)
             test_status_map((200, 200, 503, 503, -1), 503)
 
@@ -429,8 +435,6 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.PUT(req)
             self.assertEquals(res.status_int, 413)
-
-
 
     def test_PUT_getresponse_exceptions(self):
         def mock_http_connect(*code_iter, **kwargs):
@@ -1338,23 +1342,22 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.PUT(req)
             self.assertEquals(res.status_int // 100, 2)  # success
-            
+
             # test 413 entity to large
             from swift.proxy import server
+            proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
+            req = Request.blank('/a/c/o', {}, headers={
+                'Transfer-Encoding': 'chunked',
+                'Content-Type': 'foo/bar'})
+            req.body_file = ChunkedFile(11)
+            self.app.memcache.store = {}
+            self.app.update_request(req)
             try:
                 server.MAX_FILE_SIZE = 10
-                proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
-                req = Request.blank('/a/c/o', {}, headers={
-                    'Transfer-Encoding': 'chunked',
-                    'Content-Type': 'foo/bar'})
-                req.body_file = ChunkedFile(11)
-                self.app.memcache.store = {}
-                self.app.update_request(req)
                 res = controller.PUT(req)
                 self.assertEquals(res.status_int, 413)
             finally:
                 server.MAX_FILE_SIZE = MAX_FILE_SIZE
-
 
     def test_chunked_put_and_a_bit_more(self):
         # Since we're starting up a lot here, we're going to test more than
@@ -1747,6 +1750,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_mismatched_etags(self):
         with save_globals():
+            # no etag supplied, object servers return success w/ diff values
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1758,7 +1762,22 @@ class TestObjectController(unittest.TestCase):
                        '68b329da9893e34099c7d8ad5cb9c940',
                        '68b329da9893e34099c7d8ad5cb9c941'])
             resp = controller.PUT(req)
-            self.assertEquals(resp.status_int, 422)
+            self.assertEquals(resp.status_int // 100, 5)  # server error
+
+            # req supplies etag, object servers return 422 - mismatch
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={
+                                    'Content-Length': '0',
+                                    'ETag': '68b329da9893e34099c7d8ad5cb9c940',
+                                })
+            self.app.update_request(req)
+            proxy_server.http_connect = fake_http_connect(200, 422, 422, 503,
+                etags=['68b329da9893e34099c7d8ad5cb9c940',
+                       '68b329da9893e34099c7d8ad5cb9c941',
+                       None,
+                       None])
+            resp = controller.PUT(req)
+            self.assertEquals(resp.status_int // 100, 4)  # client error
 
     def test_request_bytes_transferred_attr(self):
         with save_globals():

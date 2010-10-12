@@ -415,6 +415,7 @@ class Controller(object):
             if req.method == 'GET' and source.status in (200, 206):
                 res = Response(request=req, conditional_response=True)
                 res.bytes_transferred = 0
+
                 def file_iter():
                     try:
                         while True:
@@ -691,7 +692,7 @@ class ObjectController(Controller):
                 req.bytes_transferred += len_chunk
                 if req.bytes_transferred > MAX_FILE_SIZE:
                     return HTTPRequestEntityTooLarge(request=req)
-                for conn in conns:
+                for conn in list(conns):
                     try:
                         with ChunkWriteTimeout(self.app.node_timeout):
                             if req.headers.get('transfer-encoding'):
@@ -702,6 +703,13 @@ class ObjectController(Controller):
                         self.exception_occurred(conn.node, 'Object',
                             'Trying to write to %s' % req.path)
                         conns.remove(conn)
+                        if len(conns) <= len(nodes) / 2:
+                            self.app.logger.error(
+                                'Object PUT exceptions during send, %s/%s '
+                                'required connections, transaction %s' %
+                                (len(conns), len(nodes) // 2 + 1,
+                                 self.trans_id))
+                            return HTTPServiceUnavailable(request=req)
                 if req.headers.get('transfer-encoding') and chunk == '':
                     break
         except ChunkReadTimeout, err:
@@ -740,7 +748,9 @@ class ObjectController(Controller):
                 self.exception_occurred(conn.node, 'Object',
                     'Trying to get final status of PUT to %s' % req.path)
         if len(etags) > 1:
-            return HTTPUnprocessableEntity(request=req)
+            self.app.logger.error(
+                'Object servers returned %s mismatched etags' % len(etags))
+            return HTTPServerError(request=req)
         etag = len(etags) and etags.pop() or None
         while len(statuses) < len(nodes):
             statuses.append(503)
