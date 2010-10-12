@@ -80,9 +80,9 @@ class AccountAuditor(Daemon):
         """Run the account audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
-        all_brokers = self.broker_generator()
         while True:
             begin = time.time()
+            all_brokers = self.broker_generator()
             for broker in all_brokers:
                 self.account_audit(broker)
                 if time.time() - reported >= 3600:  # once an hour
@@ -97,8 +97,6 @@ class AccountAuditor(Daemon):
                 elapsed = time.time() - begin
                 if elapsed < self.interval:
                     time.sleep(self.interval - elapsed)
-            # reset all_brokers so we loop forever
-            all_brokers = self.broker_generator()
 
     def run_once(self):
         """Run the account audit once."""

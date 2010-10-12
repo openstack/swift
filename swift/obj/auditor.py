@@ -92,20 +92,21 @@ class ObjectAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            for df in self.DiskFile_generator():
+            all_dfs = self.DiskFile_generator()
+            for df in all_dfs:
                 self.object_audit(df)
-            if time.time() - reported >= 3600:  # once an hour
-                self.logger.info(
-                    'Since %s: Locally: %d passed audit, %d quarantined, %d '
-                    'errors' % (time.ctime(reported), self.passes,
-                                self.quarantines, self.errors))
-                reported = time.time()
-                self.passes = 0
-                self.quarantines = 0
-                self.errors = 0
-            elapsed = time.time() - begin
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
+                if time.time() - reported >= 3600:  # once an hour
+                    self.logger.info(
+                        'Since %s: Locally: %d passed audit, %d quarantined, %d '
+                        'errors' % (time.ctime(reported), self.passes,
+                                    self.quarantines, self.errors))
+                    reported = time.time()
+                    self.passes = 0
+                    self.quarantines = 0
+                    self.errors = 0
+                elapsed = time.time() - begin
+                if elapsed < self.interval:
+                    time.sleep(self.interval - elapsed)
 
     def run_once(self):
         """Run the object audit once."""
