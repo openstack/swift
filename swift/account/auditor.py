@@ -104,7 +104,7 @@ class AccountAuditor(Daemon):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = time.time()
-        self.container_audit(self.broker_generator().next())
+        self.account_audit(self.broker_generator().next())
         elapsed = time.time() - begin
         self.logger.info(
             'Account audit "once" mode completed: %.02fs' % elapsed)
