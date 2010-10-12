@@ -71,7 +71,7 @@ class AccountAuditor(Daemon):
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
                             if fname.endswith('.db'):
-                                broker = AccountBroker(os.path.join(fpath,
+                                broker = AccountBroker(os.path.join(hash_path,
                                                                       fname))
                                 if not broker.is_deleted():
                                     yield broker

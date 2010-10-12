@@ -70,8 +70,9 @@ class ContainerAuditor(Daemon):
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
                             if fname.endswith('.db'):
-                                broker = ContainerBroker(os.path.join(fpath,
-                                                                      fname))
+                                broker = ContainerBroker(os.path.join(
+                                                        hash_path,
+                                                        fname))
                                 if not broker.is_deleted():
                                     yield broker
 
