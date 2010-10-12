@@ -33,7 +33,7 @@ class RateLimitMiddleware(object):
             self.logger = logger
         else:
             self.logger = get_logger(conf)
-        self.account_rate_limit = float(conf.get('account_ratelimit', 200.0))
+        self.account_rate_limit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
                                                    60))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
@@ -89,7 +89,7 @@ class RateLimitMiddleware(object):
         should be checked in order.
         """
         keys = []
-        if account_name and (
+        if self.account_rate_limit and account_name and (
             not (container_name or obj_name) or
             (container_name and not obj_name and req_method == 'PUT')):
             keys.append(("ratelimit/%s" % account_name,
