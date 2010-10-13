@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 6001
+# backlog = 4096
 # workers = 1
 # user = swift
 # swift_dir = /etc/swift
@@ -17,7 +18,6 @@ use = egg:swift#container
 # log_level = INFO
 # node_timeout = 3
 # conn_timeout = 0.5
-# backlog = 4096
 
 [container-replicator]
 # log_name = container-replicator

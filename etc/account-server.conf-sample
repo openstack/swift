@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 6002
+# backlog = 4096
 # workers = 1
 # user = swift
 # swift_dir = /etc/swift
@@ -15,7 +16,6 @@ use = egg:swift#account
 # log_name = account-server
 # log_facility = LOG_LOCAL0
 # log_level = INFO
-# backlog = 4096
 
 [account-replicator]
 # log_name = account-replicator
