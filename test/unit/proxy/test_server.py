@@ -1326,8 +1326,10 @@ class TestObjectController(unittest.TestCase):
                 exp = 'HTTP/1.1 405'
                 self.assertEquals(headers[:len(exp)], exp)
                 # Check unhandled exception
-                orig_logger = prosrv.logger
-                del prosrv.logger
+                orig_update_request = prosrv.update_request
+                def broken_update_request(env, req):
+                    raise Exception('fake')
+                prosrv.update_request = broken_update_request
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
                 fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
@@ -1337,7 +1339,7 @@ class TestObjectController(unittest.TestCase):
                 headers = readuntil2crlfs(fd)
                 exp = 'HTTP/1.1 500'
                 self.assertEquals(headers[:len(exp)], exp)
-                prosrv.logger = orig_logger
+                prosrv.update_request = orig_update_request
                 # Okay, back to chunked put testing; Create account
                 ts = normalize_timestamp(time())
                 partition, nodes = prosrv.account_ring.get_nodes('a')
