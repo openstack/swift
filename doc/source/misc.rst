@@ -107,8 +107,8 @@ MemCacheD
     :members:
     :show-inheritance:
 
-Rate Limiting
-=============
+Ratelimit
+=========
 
 .. automodule:: swift.common.middleware.ratelimit
     :members:
