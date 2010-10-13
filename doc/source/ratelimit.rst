@@ -17,7 +17,7 @@ there will be no rate limiting.  Configuration available:
 
 ======================== =========  ===========================================
 Option                   Default     Description
-----------------------   ---------  -------------------------------------------
+------------------------ ---------  -------------------------------------------
 clock_accuracy           1000       Represents how accurate the proxy servers'
                                     system clocks are with each other. 1000
                                     means that all the proxies' clock are
@@ -38,8 +38,8 @@ account_blacklist        ''         Comma separated lists of account names that
 container_ratelimit_size ''         When set with container_limit_x = r:
                                     for containers of size x, limit requests
                                     per second to r.  Will limit GET and HEAD
-                                    requests to /account_name/container_name and
-                                    PUTs and DELETEs to
+                                    requests to /account_name/container_name
+				    and PUTs and DELETEs to
                                     /account_name/container_name/object_name
 ======================== =========  ===========================================
 
