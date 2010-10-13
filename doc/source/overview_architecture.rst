@@ -18,7 +18,7 @@ example, if a server is unavailable for an object PUT, it will ask the
 ring for a handoff server and route there instead.
 
 When objects are streamed to or from an object server, they are streamed
-directly through the proxy server to of from the user -- the proxy server
+directly through the proxy server to or from the user -- the proxy server
 does not spool them.
 
 --------
@@ -32,7 +32,7 @@ container, or account, they need to interact with the appropriate ring to
 determine its location in the cluster.
 
 The Ring maintains this mapping using zones, devices, partitions, and replicas.
-Each partition in the ring is replicated, by default, 3 times accross the
+Each partition in the ring is replicated, by default, 3 times across the
 cluster, and the locations for a partition are stored in the mapping maintained
 by the ring. The ring is also responsible for determining which devices are
 used for handoff in failure scenarios.

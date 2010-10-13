@@ -39,8 +39,8 @@ will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
 tokens and Swift storage accounts they create with a configurable reseller
-prefix (`AUTH_` by default with the included DevAuth). This prefix will allow
-deconflicting with other authentication servers that might be using the same
+prefix (`AUTH_` by default with the included DevAuth). This prefix will avoid
+conflicts with other authentication servers that might be using the same
 Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
 until one validates a token or all fail.
 
@@ -67,7 +67,7 @@ Example Authentication with DevAuth:
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize
-value should simply be a function that takes a webob.Request as an argument and
+value should simply be a function that takes a WebOb. Request as an argument and
 returns None if access is granted or returns a callable(environ,
 start_response) if access is denied. This callable is a standard WSGI callable.
 Generally, you should return 403 Forbidden for requests by an authenticated
@@ -131,7 +131,7 @@ then swift.authorize will be called once more. These are called delay_denial
 requests and currently include container read requests and object read and
 write requests. For these requests, the read or write access control string
 (X-Container-Read and X-Container-Write) will be fetched and set as the 'acl'
-attribute in the webob.Request passed to swift.authorize.
+attribute in the WebOb.Request passed to swift.authorize.
 
 The delay_denial procedures allow skipping possibly expensive access control
 string retrievals for requests that can be approved without that information,
@@ -179,7 +179,7 @@ The access control string has a standard format included with Swift, though
 this can be overridden if desired. The standard format can be parsed with
 swift.common.middleware.acl.parse_acl which converts the string into two arrays
 of strings: (referrers, groups). The referrers allow comparing the request's
-Referer header to control access. The groups allow comparing the
+Referrer header to control access. The groups allow comparing the
 request.remote_user (or other sources of group information) to control access.
 Checking referrer access can be accomplished by using the
 swift.common.middleware.acl.referrer_allowed function. Checking group access is

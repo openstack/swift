@@ -28,7 +28,7 @@ delete times out, the container won't be able to be deleted later and therefore
 the account won't be deleted either). The overall process continues even on a
 failure so that it doesn't get hung up reclaiming cluster space because of one
 troublesome spot. The account reaper will keep trying to delete an account
-until it evetually becomes empty, at which point the database reclaim process
+until it eventually becomes empty, at which point the database reclaim process
 within the db_replicator will eventually remove the database files.
 
 -------
