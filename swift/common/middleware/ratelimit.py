@@ -158,6 +158,7 @@ class RateLimitMiddleware(object):
         '''
         Performs rate limiting and account white/black listing.  Sleeps
         if necessary.
+
         :param account_name: account name from path
         :param container_name: container name from path
         :param obj_name: object name from path
