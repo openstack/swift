@@ -74,7 +74,11 @@ setup(
         'bin/swift-object-server',
         'bin/swift-object-updater', 'bin/swift-proxy-server',
         'bin/swift-ring-builder', 'bin/swift-stats-populate',
-        'bin/swift-stats-report'
+        'bin/swift-stats-report',
+        'bin/swift-bench',
+        'bin/swift-log-uploader',
+        'bin/swift-log-stats-collector',
+        'bin/swift-account-stats-logger',
         ],
     entry_points={
         'paste.app_factory': [

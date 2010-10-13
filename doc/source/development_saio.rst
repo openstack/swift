@@ -7,9 +7,7 @@ Instructions for setting up a dev VM
 ------------------------------------
 
 This documents setting up a virtual machine for doing Swift development. The
-virtual machine will emulate running a four node Swift cluster. It assumes
-you're using *VMware Fusion 3* on *Mac OS X Snow Leopard*, but should give a
-good idea what to do on other environments.
+virtual machine will emulate running a four node Swift cluster.
 
 * Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
 
@@ -17,20 +15,9 @@ good idea what to do on other environments.
   - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
-* Create guest virtual machine:
-
-  #. `Continue without disc`
-  #. `Use operating system installation disc image file`, pick the .iso
-     from above.
-  #. Select `Linux` and `Ubuntu 64-bit`.
-  #. Fill in the *Linux Easy Install* details.
-  #. `Customize Settings`, name the image whatever you want 
-     (`SAIO` for instance.)
-  #. When the `Settings` window comes up, select `Hard Disk`, create an
-     extra disk (the defaults are fine).
-  #. Start the virtual machine up and wait for the easy install to
-     finish.
-
+* Create guest virtual machine from the Ubuntu image (if you are going to use
+  a separate partition for swift data, be sure to add another device when
+  creating the VM)
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
@@ -41,11 +28,22 @@ good idea what to do on other environments.
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. `fdisk /dev/sdb` (set up a single partition)
-  #. `mkfs.xfs -i size=1024 /dev/sdb1`
+  #. If you would like to use another partition for storage:
+
+    #. `fdisk /dev/sdb` (set up a single partition)
+    #. `mkfs.xfs -i size=1024 /dev/sdb1`
+    #. Edit `/etc/fstab` and add
+       `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
+
+  #. If you would like to use a loopback device instead of another partition:
+
+    #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
+       (modify seek to make a larger or smaller partition)
+    #. `mkfs.xfs -i size=1024 /srv/swift-disk`
+    #. Edit `/etc/fstab` and add
+       `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
+
   #. `mkdir /mnt/sdb1`
-  #. Edit `/etc/fstab` and add
-     `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mount /mnt/sdb1`
   #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
@@ -56,7 +54,7 @@ good idea what to do on other environments.
   #. Add to `/etc/rc.local` (before the `exit 0`)::
 
         mkdir /var/run/swift
-        chown <your-user-name>:<your-user-name> /var/run/swift
+        chown <your-user-name>:<your-group-name> /var/run/swift
 
   #. Create /etc/rsyncd.conf::
 
@@ -64,7 +62,7 @@ good idea what to do on other environments.
         gid = <Your group name>
         log file = /var/log/rsyncd.log
         pid file = /var/run/rsyncd.pid
-
+        address = 127.0.0.1
 
         [account6012]
         max connections = 25
@@ -471,6 +469,11 @@ good idea what to do on other environments.
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
         sudo service rsyslog restart
         sudo service memcached restart
+
+  .. note::
+
+    If you are using a loopback device, substitute `/dev/sdb1` above with
+    `/srv/swift-disk`
 
   #. Create `~/bin/remakerings`::
 

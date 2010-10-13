@@ -17,7 +17,10 @@
 
 import unittest
 
-class TestAuditor(unittest.TestCase):
+from swift.common import direct_client
+
+
+class TestDirectClient(unittest.TestCase):
 
     def test_placeholder(self):
         pass

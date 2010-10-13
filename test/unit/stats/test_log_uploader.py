@@ -16,10 +16,10 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
+from swift.stats import log_uploader
 
 
-class TestExceptions(unittest.TestCase):
+class TestLogUploader(unittest.TestCase):
 
     def test_placeholder(self):
         pass

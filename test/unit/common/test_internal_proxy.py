@@ -16,10 +16,10 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
+from swift.common import internal_proxy
 
 
-class TestExceptions(unittest.TestCase):
+class TestInternalProxy(unittest.TestCase):
 
     def test_placeholder(self):
         pass

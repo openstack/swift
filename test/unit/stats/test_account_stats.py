@@ -16,10 +16,10 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
+from swift.stats import account_stats
 
 
-class TestExceptions(unittest.TestCase):
+class TestAccountStats(unittest.TestCase):
 
     def test_placeholder(self):
         pass
