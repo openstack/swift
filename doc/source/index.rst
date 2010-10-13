@@ -25,7 +25,7 @@ Overview:
     overview_auth
     overview_replication
     overview_stats
-    rate_limiting
+    ratelimit
 
 Development:
 

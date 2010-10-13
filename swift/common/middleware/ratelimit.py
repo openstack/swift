@@ -37,26 +37,26 @@ class RateLimitMiddleware(object):
             self.logger = logger
         else:
             self.logger = get_logger(conf)
-        self.account_rate_limit = float(conf.get('account_ratelimit', 0))
+        self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
                                                    60))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
-        self.rate_limit_whitelist = [acc.strip() for acc in
+        self.ratelimit_whitelist = [acc.strip() for acc in
             conf.get('account_whitelist', '').split(',')
             if acc.strip()]
-        self.rate_limit_blacklist = [acc.strip() for acc in
+        self.ratelimit_blacklist = [acc.strip() for acc in
             conf.get('account_blacklist', '').split(',')
             if acc.strip()]
         self.memcache_client = None
         conf_limits = []
         for conf_key in conf.keys():
-            if conf_key.startswith('container_limit_'):
-                cont_size = int(conf_key[len('container_limit_'):])
+            if conf_key.startswith('container_ratelimit_'):
+                cont_size = int(conf_key[len('container_ratelimit_'):])
                 rate = float(conf[conf_key])
                 conf_limits.append((cont_size, rate))
 
         conf_limits.sort()
-        self.container_limits = []
+        self.container_ratelimits = []
         while conf_limits:
             cur_size, cur_rate = conf_limits.pop(0)
             if conf_limits:
@@ -71,7 +71,7 @@ class RateLimitMiddleware(object):
             else:
                 line_func = lambda x: cur_rate
 
-            self.container_limits.append((cur_size, cur_rate, line_func))
+            self.container_ratelimits.append((cur_size, cur_rate, line_func))
 
     def get_container_maxrate(self, container_size):
         """
@@ -80,11 +80,10 @@ class RateLimitMiddleware(object):
         last_func = None
         if container_size:
             container_size = int(container_size)
-            for size, rate, func in self.container_limits:
+            for size, rate, func in self.container_ratelimits:
                 if container_size < size:
                     break
                 last_func = func
-
             if last_func:
                 return last_func(container_size)
         return None
@@ -102,11 +101,11 @@ class RateLimitMiddleware(object):
         :param obj_name: object name from path
         """
         keys = []
-        if self.account_rate_limit and account_name and (
+        if self.account_ratelimit and account_name and (
             not (container_name or obj_name) or
             (container_name and not obj_name and req_method == 'PUT')):
             keys.append(("ratelimit/%s" % account_name,
-                         self.account_rate_limit))
+                         self.account_ratelimit))
 
         if account_name and container_name and (
             (not obj_name and req_method in ('GET', 'HEAD')) or
@@ -155,7 +154,7 @@ class RateLimitMiddleware(object):
 
         return float(need_to_sleep_m) / self.clock_accuracy
 
-    def handle_rate_limit(self, req, account_name, container_name, obj_name):
+    def handle_ratelimit(self, req, account_name, container_name, obj_name):
         '''
         Performs rate limiting and account white/black listing.  Sleeps
         if necessary.
@@ -164,13 +163,12 @@ class RateLimitMiddleware(object):
         :param container_name: container name from path
         :param obj_name: object name from path
         '''
-        if account_name in self.rate_limit_blacklist:
+        if account_name in self.ratelimit_blacklist:
             self.logger.error('Returning 497 because of blacklisting')
             return Response(status='497 Blacklisted',
                 body='Your account has been blacklisted', request=req)
-        if account_name in self.rate_limit_whitelist:
+        if account_name in self.ratelimit_whitelist:
             return None
-
         for key, max_rate in self.get_ratelimitable_key_tuples(
             req.method,
             account_name,
@@ -186,7 +184,6 @@ class RateLimitMiddleware(object):
                 error_resp = Response(status='498 Rate Limited',
                                       body='Slow down', request=req)
                 return error_resp
-
         return None
 
     def __call__(self, env, start_response):
@@ -201,13 +198,11 @@ class RateLimitMiddleware(object):
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)
         version, account, container, obj = split_path(req.path, 1, 4, True)
-
-        rate_limit_resp = self.handle_rate_limit(req, account, container,
-                                                 obj)
-        if rate_limit_resp is None:
+        ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
+        if ratelimit_resp is None:
             return self.app(env, start_response)
         else:
-            return rate_limit_resp(env, start_response)
+            return ratelimit_resp(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):

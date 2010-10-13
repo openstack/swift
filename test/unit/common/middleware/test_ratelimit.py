@@ -126,9 +126,9 @@ class TestRateLimit(unittest.TestCase):
         return time_diff
 
     def test_get_container_maxrate(self):
-        conf_dict = {'container_limit_10': 200,
-                     'container_limit_50': 100,
-                     'container_limit_75': 30}
+        conf_dict = {'container_ratelimit_10': 200,
+                     'container_ratelimit_50': 100,
+                     'container_ratelimit_75': 30}
         test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
         self.assertEquals(test_ratelimit.get_container_maxrate(0), None)
         self.assertEquals(test_ratelimit.get_container_maxrate(5), None)
@@ -139,7 +139,7 @@ class TestRateLimit(unittest.TestCase):
     def test_get_ratelimitable_key_tuples(self):
         current_rate = 13
         conf_dict = {'account_ratelimit': current_rate,
-                     'container_limit_3': 200}
+                     'container_ratelimit_3': 200}
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_container_memcache_key('a', 'c')] = \
             {'container_size': 5}
@@ -303,8 +303,8 @@ class TestRateLimit(unittest.TestCase):
 
             def run(self):
                 for j in range(num_calls):
-                    self.result = the_app.handle_rate_limit(req, self.myname,
-                                                            None, None)
+                    self.result = the_app.handle_ratelimit(req, self.myname,
+                                                           None, None)
 
         nt = 15
         begin = time.time()
@@ -323,9 +323,9 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'clock_accuracy': 1000,
                      'account_ratelimit': 10,
                      'max_sleep_time_seconds': 4,
-                     'container_limit_10': 6,
-                     'container_limit_50': 2,
-                     'container_limit_75': 1}
+                     'container_ratelimit_10': 6,
+                     'container_ratelimit_50': 2,
+                     'container_ratelimit_75': 1}
         self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a/c')

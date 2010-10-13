@@ -470,16 +470,6 @@ error_suppression_interval    60               Time in seconds that must
                                                no longer error limited
 error_suppression_limit       10               Error count to consider a
                                                node error limited
-rate_limit                    20000.0          Max container level ops per
-                                               second
-account_rate_limit            200.0            Max account level ops per
-                                               second
-rate_limit_account_whitelist                   Comma separated list of 
-                                               account name hashes to not
-                                               rate limit
-rate_limit_account_blacklist                   Comma separated list of
-                                               account name hashes to block
-                                               completely
 ============================  ===============  =============================
 
 [auth]

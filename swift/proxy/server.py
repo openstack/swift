@@ -871,7 +871,7 @@ class ContainerController(Controller):
         resp = self.GETorHEAD_base(req, 'Container', part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
-        # set the memcache container size for ratelimiting if missing
+        # set the memcache container size for ratelimiting
         cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
         self.app.memcache.set(cache_key,
