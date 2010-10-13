@@ -109,7 +109,7 @@ class ContainerAuditor(Daemon):
 
     def container_audit(self, broker):
         """
-        Audit any containers found on the device
+        Audits the given container broker
 
         :param broker: a container broker
         """

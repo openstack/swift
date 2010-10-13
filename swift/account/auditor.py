@@ -109,7 +109,7 @@ class AccountAuditor(Daemon):
 
     def account_audit(self, broker):
         """
-        Audit any accounts found on the device
+        Audits the given account broker
 
         :param broker: an account broker
         """

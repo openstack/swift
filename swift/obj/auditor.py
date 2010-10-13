@@ -118,7 +118,11 @@ class ObjectAuditor(Daemon):
             'Object audit "once" mode completed: %.02fs' % elapsed)
 
     def object_audit(self, df):
-        """Walk the device, and audit any objects found."""
+        """
+        Given a DiskFile, check its consistency.
+        
+        :param df: a DiskFile object
+        """
         try:
             if os.path.getsize(df.data_file) != \
                     int(df.metadata['Content-Length']):
