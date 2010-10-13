@@ -20,9 +20,10 @@ use = egg:swift#object
 # conn_timeout = 0.5
 # network_chunk_size = 65536
 # disk_chunk_size = 65536
-# mb_per_sync = 512
 # max_upload_time = 86400
 # slow = 1
+# on PUTs, sync data every n MB
+# mb_per_sync = 512
 
 [object-replicator]
 # log_name = object-replicator
