@@ -45,3 +45,4 @@ use = egg:swift#object
 
 [object-auditor]
 # log_name = object-auditor
+# interval = 1800
