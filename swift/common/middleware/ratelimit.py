@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
+import eventlet
 from webob import Request, Response
 
 from swift.common.utils import split_path, cache_from_env, get_logger
@@ -178,7 +179,7 @@ class RateLimitMiddleware(object):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if need_to_sleep > 0:
-                    time.sleep(need_to_sleep)
+                    eventlet.sleep(need_to_sleep)
             except MaxSleepTimeHit, e:
                 self.logger.error('Returning 498 because of ops ' + \
                                    'rate limiting (Max Sleep) %s' % e)
