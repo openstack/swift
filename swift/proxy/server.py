@@ -235,19 +235,12 @@ class Controller(object):
                 account, container)
         path = '/%s/%s' % (account, container)
         cache_key = get_container_memcache_key(account, container)
-        # Older memcache values (should be treated as if they aren't there):
-        # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        # Newer memcache values:
-        # [older status value from above, read acl, write acl]
         cache_value = self.app.memcache.get(cache_key)
-        if hasattr(cache_value, '__iter__'):
-            if type(cache_value) == dict:
-                status = cache_value['status']
-                read_acl = cache_value['read_acl']
-                write_acl = cache_value['write_acl']
-            else:
-                status, read_acl, write_acl = cache_value
-            if status == 200:
+        if isinstance(cache_value, dict):
+            status = cache_value['status']
+            read_acl = cache_value['read_acl']
+            write_acl = cache_value['write_acl']
+            if status // 100 == 2:
                 return partition, nodes, read_acl, write_acl
         if not self.account_info(account)[1]:
             return (None, None, None, None)
@@ -881,9 +874,7 @@ class ContainerController(Controller):
         # set the memcache container size for ratelimiting if missing
         cache_key = get_container_memcache_key(self.account_name,
                                                self.container_name)
-        cache_value = self.app.memcache.get(cache_key)
-        if not isinstance(cache_value, dict):
-            self.app.memcache.set(cache_key,
+        self.app.memcache.set(cache_key,
               {'status': resp.status_int,
                'read_acl': resp.headers.get('x-container-read'),
                'write_acl': resp.headers.get('x-container-write'),
