@@ -97,8 +97,8 @@ class ObjectAuditor(Daemon):
                 self.object_audit(df)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
-                        'Since %s: Locally: %d passed audit, %d quarantined, %d '
-                        'errors' % (time.ctime(reported), self.passes,
+                        'Since %s: Locally: %d passed audit, %d quarantined, '
+                        '%d errors' % (time.ctime(reported), self.passes,
                                     self.quarantines, self.errors))
                     reported = time.time()
                     self.passes = 0
