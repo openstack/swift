@@ -363,23 +363,25 @@ class ObjectReplicator(Daemon):
                     do_listdir=(self.replication_count % 10) == 0,
                     reclaim_age=self.reclaim_age)
             self.suffix_hash += hashed
-            successes = 0
+            not_unmounted = 0
             nodes = itertools.chain(job['nodes'],
                         self.object_ring.get_more_nodes(int(job['partition'])))
-            while successes < (self.object_ring.replica_count - 1):
+            while not_unmounted < (self.object_ring.replica_count - 1):
                 node = next(nodes)
+                not_unmounted += 1
                 try:
                     with Timeout(60):
                         resp = http_connect(node['ip'], node['port'],
                                 node['device'], job['partition'], 'REPLICATE',
                             '', headers={'Content-Length': '0'}).getresponse()
+                        if resp.status == 507:
+                            not_unmounted -= 1
                         if resp.status != 200:
                             self.logger.error("Invalid response %s from %s" %
                                     (resp.status, node['ip']))
                             continue
                         remote_hash = pickle.loads(resp.read())
                         del resp
-                    successes += 1
                     suffixes = [suffix for suffix in local_hash
                                   if local_hash[suffix] !=
                                      remote_hash.get(suffix, -1)]
