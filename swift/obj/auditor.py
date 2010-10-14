@@ -100,9 +100,9 @@ class ObjectAuditor(Daemon):
                     self.passes = 0
                     self.quarantines = 0
                     self.errors = 0
-                elapsed = time.time() - begin
-                if elapsed < self.interval:
-                    time.sleep(self.interval - elapsed)
+            elapsed = time.time() - begin
+            if elapsed < self.interval:
+                time.sleep(self.interval - elapsed)
 
     def run_once(self):
         """Run the object audit once."""
