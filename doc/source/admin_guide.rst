@@ -209,7 +209,7 @@ Debugging Tips and Tools
 
 When a request is made to Swift, it is given a unique transaction id.  This
 id should be in every log line that has to do with that request.  This can
-be usefult when looking at all the services that are hit by a single request.
+be useful when looking at all the services that are hit by a single request.
 
 If you need to know where a specific account, container or object is in the
 cluster, `swift-get-nodes` will show the location where each replica should be.

@@ -15,7 +15,7 @@ most Linux platforms with the following software:
 And the following python libraries:
 
 * Eventlet 0.9.8
-* Webob 0.9.8
+* WebOb 0.9.8
 * Setuptools
 * Simplejson
 * Xattr
