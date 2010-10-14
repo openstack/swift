@@ -67,7 +67,7 @@ Example Authentication with DevAuth:
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize
-value should simply be a function that takes a webob. Request as an argument and
+value should simply be a function that takes a webob.Request as an argument and
 returns None if access is granted or returns a callable(environ,
 start_response) if access is denied. This callable is a standard WSGI callable.
 Generally, you should return 403 Forbidden for requests by an authenticated
