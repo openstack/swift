@@ -31,7 +31,7 @@ import ctypes
 import ctypes.util
 import fcntl
 import struct
-from ConfigParser import ConfigParser
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from tempfile import mkstemp
 import cPickle as pickle
 
@@ -56,7 +56,17 @@ _posix_fadvise = None
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
-HASH_PATH_SUFFIX = os.environ.get('SWIFT_HASH_PATH_SUFFIX', 'endcap')
+hash_conf = ConfigParser()
+HASH_PATH_SUFFIX = None
+if hash_conf.read('/etc/swift/swift.conf'):
+    try:
+        HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
+                                         'swift_hash_path_suffix')
+    except (NoSectionError, NoOptionError):
+        pass
+if HASH_PATH_SUFFIX is None:
+    sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
+             "from /etc/swift/swift.conf")
 
 # Used when reading config values
 TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
