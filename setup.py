@@ -92,6 +92,7 @@ setup(
             'auth=swift.common.middleware.auth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
+            'ratelimit=swift.common.middleware.ratelimit:filter_factory',
             ],
         },
     )

@@ -106,3 +106,10 @@ MemCacheD
 .. automodule:: swift.common.memcached
     :members:
     :show-inheritance:
+
+Ratelimit
+=========
+
+.. automodule:: swift.common.middleware.ratelimit
+    :members:
+    :show-inheritance:
