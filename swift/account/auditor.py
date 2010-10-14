@@ -92,8 +92,8 @@ class AccountAuditor(Daemon):
                                             self.account_passes,
                                             self.account_failures))
                     reported = time.time()
-                    self.container_passes = 0
-                    self.container_failures = 0
+                    self.account_passes = 0
+                    self.account_failures = 0
                 elapsed = time.time() - begin
                 if elapsed < self.interval:
                     time.sleep(self.interval - elapsed)
