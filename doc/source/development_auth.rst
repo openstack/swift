@@ -39,8 +39,8 @@ will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
 tokens and Swift storage accounts they create with a configurable reseller
-prefix (`AUTH_` by default with the included DevAuth). This prefix will allow
-deconflicting with other authentication servers that might be using the same
+prefix (`AUTH_` by default with the included DevAuth). This prefix will avoid
+conflicts with other authentication servers that might be using the same
 Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
 until one validates a token or all fail.
 
