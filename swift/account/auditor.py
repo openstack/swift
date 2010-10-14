@@ -14,17 +14,11 @@
 # limitations under the License.
 
 import os
-import socket
 import time
 from random import random
 
-from eventlet import Timeout
-
 from swift.account import server as account_server
 from swift.common.db import AccountBroker
-from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import ConnectionTimeout
-from swift.common.ring import Ring
 from swift.common.utils import get_logger
 from swift.common.daemon import Daemon
 

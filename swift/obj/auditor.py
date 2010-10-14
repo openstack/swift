@@ -14,13 +14,9 @@
 # limitations under the License.
 
 import os
-import socket
 import time
 from hashlib import md5
 from random import random
-from urllib import quote
-
-from eventlet import Timeout
 
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash

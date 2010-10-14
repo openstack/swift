@@ -14,12 +14,8 @@
 # limitations under the License.
 
 import os
-import socket
 import time
 from random import random
-from urllib import quote
-
-from eventlet import Timeout
 
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
