@@ -16,7 +16,7 @@
 import os
 import socket
 import time
-from random import choice, random
+from random import random
 
 from eventlet import Timeout
 

@@ -17,7 +17,7 @@ import os
 import socket
 import time
 from hashlib import md5
-from random import choice, random
+from random import random
 from urllib import quote
 
 from eventlet import Timeout
