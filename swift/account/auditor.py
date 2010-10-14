@@ -109,7 +109,7 @@ class AccountAuditor(Daemon):
         """
         try:
             info = broker.get_info()
-        except:
+        except Exception:
             self.account_failures += 1
             self.logger.error('ERROR Could not get account info %s' %
                 (broker.db_file))

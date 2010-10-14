@@ -140,7 +140,7 @@ class ObjectAuditor(Daemon):
             renamer(df.datadir, os.path.join(self.devices, device,
                 'quarantined', 'objects', os.path.basename(df.datadir)))
             return
-        except:
+        except Exception:
             self.errors += 1
             self.logger.exception('ERROR Trying to audit %s' % df.datadir)
             return

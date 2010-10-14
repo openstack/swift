@@ -111,7 +111,7 @@ class ContainerAuditor(Daemon):
         """
         try:
             info = broker.get_info()
-        except:
+        except Exception:
             self.container_failures += 1
             self.logger.error('ERROR Could not get container info %s' %
                 (broker.db_file))
