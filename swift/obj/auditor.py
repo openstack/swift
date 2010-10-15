@@ -66,7 +66,7 @@ class ObjectAuditor(Daemon):
                             continue
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
-                            path = ops.path.join(hash_path, fname)
+                            path = os.path.join(hash_path, fname)
                             yield path, device
 
     def run_forever(self):    # pragma: no cover
