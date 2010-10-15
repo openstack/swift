@@ -80,7 +80,7 @@ class ObjectAuditor(Daemon):
                                                         partition, account,
                                                         container, obj,
                                                         keep_data_fp=True)
-                            yield df
+                            yield df, device
 
     def run_forever(self):    # pragma: no cover
         """Run the object audit until stopped."""
@@ -89,8 +89,8 @@ class ObjectAuditor(Daemon):
         while True:
             begin = time.time()
             all_dfs = self.DiskFile_generator()
-            for df in all_dfs:
-                self.object_audit(df)
+            for df, device in all_dfs:
+                self.object_audit(df, device)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
                         'Since %s: Locally: %d passed audit, %d quarantined, '
@@ -108,16 +108,18 @@ class ObjectAuditor(Daemon):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
         begin = time.time()
-        self.object_audit(self.DiskFile_generator().next())
+        df, device = self.DiskFile_generator().next()
+        self.object_audit(df, device)
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)
 
-    def object_audit(self, df):
+    def object_audit(self, df, device):
         """
         Given a DiskFile, check its consistency.
         
         :param df: a DiskFile object
+        :param device: the device where the file may be quarantined
         """
         try:
             if os.path.getsize(df.data_file) != \
