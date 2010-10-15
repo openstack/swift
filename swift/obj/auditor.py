@@ -20,7 +20,7 @@ from random import random
 
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
-from swift.common.utils import get_logger, renamer
+from swift.common.utils import get_logger, renamer, audit_location_generator
 from swift.common.exceptions import AuditException
 from swift.common.daemon import Daemon
 
