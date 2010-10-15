@@ -139,13 +139,13 @@ class ObjectAuditor(Daemon):
         except AuditException, err:
             self.quarantines += 1
             self.logger.error('ERROR Object %s failed audit and will be '
-                'quarantined: %s' % (df.datadir, err))
-            invalidate_hash(os.path.dirname(df.datadir))
+                'quarantined: %s' % (path, err))
+            invalidate_hash(os.path.dirname(path))
             renamer(df.datadir, os.path.join(self.devices, device,
-                'quarantined', 'objects', os.path.basename(df.datadir)))
+                'quarantined', 'objects', os.path.basename(path)))
             return
         except Exception:
             self.errors += 1
-            self.logger.exception('ERROR Trying to audit %s' % df.datadir)
+            self.logger.exception('ERROR Trying to audit %s' % path)
             return
         self.passes += 1
