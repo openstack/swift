@@ -34,7 +34,7 @@ wsgi.ACCEPT_ERRNO.add(ECONNRESET)
 from eventlet.green import socket, ssl
 
 from swift.common.utils import get_logger, drop_privileges, \
-    LoggerFileObject, NullLogger
+    validate_configuration, LoggerFileObject, NullLogger
 
 
 def monkey_patch_mimetools():
@@ -112,6 +112,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
     worker_count = int(conf.get('workers', '1'))
     drop_privileges(conf.get('user', 'swift'))
+    validate_configuration()
 
     def run_server():
         wsgi.HttpProtocol.default_request_version = "HTTP/1.0"

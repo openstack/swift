@@ -45,6 +45,7 @@ class Daemon(object):
             sys.stderr = utils.LoggerFileObject(self.logger)
 
         utils.drop_privileges(self.conf.get('user', 'swift'))
+        utils.validate_configuration()
 
         try:
             os.setsid()

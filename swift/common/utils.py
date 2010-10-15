@@ -57,19 +57,22 @@ _posix_fadvise = None
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
 hash_conf = ConfigParser()
-HASH_PATH_SUFFIX = None
+HASH_PATH_SUFFIX = ''
 if hash_conf.read('/etc/swift/swift.conf'):
     try:
         HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
                                          'swift_hash_path_suffix')
     except (NoSectionError, NoOptionError):
         pass
-if HASH_PATH_SUFFIX is None:
-    sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
-             "from /etc/swift/swift.conf")
 
 # Used when reading config values
 TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
+
+
+def validate_configuration():
+    if HASH_PATH_SUFFIX == '':
+        sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
+                 "from /etc/swift/swift.conf")
 
 
 def load_libc_function(func_name):
