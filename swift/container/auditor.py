@@ -65,7 +65,7 @@ class ContainerAuditor(Daemon):
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
                             path = os.path.join(hash_path, fname)
-                            yield path, device
+                            yield path, device, partition
 
     def run_forever(self):  # pragma: no cover
         """Run the container audit until stopped."""
