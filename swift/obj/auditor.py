@@ -95,8 +95,13 @@ class ObjectAuditor(Daemon):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
         begin = time.time()
-        path, device = self.audit_location_generator().next()
-        self.object_audit(path, device)
+        try:
+            path, device = self.audit_location_generator(
+                                object_server.DATADIR).next()
+        except StopIteration:
+            self.logger.info('Nothing to audit')
+        else:
+            self.object_audit(path, device)
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)

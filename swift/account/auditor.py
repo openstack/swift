@@ -92,9 +92,13 @@ class AccountAuditor(Daemon):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = time.time()
-        location, device = self.audit_location_generator(
+        try:
+            location, device = self.audit_location_generator(
                                     account_server.DATADIR).next()
-        self.account_audit(location)
+        except StopIteration:
+            self.logger.info('Nothing to audit')
+        else:
+            self.account_audit(location)
         elapsed = time.time() - begin
         self.logger.info(
             'Account audit "once" mode completed: %.02fs' % elapsed)

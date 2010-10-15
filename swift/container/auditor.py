@@ -93,9 +93,13 @@ class ContainerAuditor(Daemon):
         """Run the container audit once."""
         self.logger.info('Begin container audit "once" mode')
         begin = time.time()
-        location, device = self.audit_location_generator(
+        try:
+            location, device = self.audit_location_generator(
                                     container_server.DATADIR).next()
-        self.container_audit(location)
+        except StopIteration:
+            self.logger.info('Nothing to audit')
+        else:
+            self.container_audit(location)
         elapsed = time.time() - begin
         self.logger.info(
             'Container audit "once" mode completed: %.02fs' % elapsed)
