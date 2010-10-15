@@ -39,15 +39,14 @@ class ObjectAuditor(Daemon):
         self.quarantines = 0
         self.errors = 0
 
-    def DiskFile_generator(self):
+    def audit_location_generator(self, datadir):
         for device in os.listdir(self.devices):
             if self.mount_check and not\
                     os.path.ismount(os.path.join(self.devices, device)):
                 self.logger.debug(
                     'Skipping %s as it is not mounted' % device)
                 continue
-            datadir = os.path.join(self.devices, device,
-                                   object_server.DATADIR)
+            datadir = os.path.join(self.devices, device, datadir)
             if not os.path.exists(datadir):
                 continue
             partitions = os.listdir(datadir)
@@ -65,22 +64,10 @@ class ObjectAuditor(Daemon):
                         hash_path = os.path.join(suff_path, hsh)
                         if not os.path.isdir(hash_path):
                             continue
-                        name = None
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
-                            if fname.endswith('.ts'):
-                                break
-                            if fname.endswith('.data'):
-                                name = object_server.read_metadata(
-                                    os.path.join(hash_path, fname))['name']
-                                break
-                        if name:
-                            _, account, container, obj = name.split('/', 3)
-                            df = object_server.DiskFile(self.devices, device,
-                                                        partition, account,
-                                                        container, obj,
-                                                        keep_data_fp=True)
-                            yield df, device
+                            path = ops.path.join(hash_path, fname)
+                            yield path, device
 
     def run_forever(self):    # pragma: no cover
         """Run the object audit until stopped."""
@@ -88,9 +75,9 @@ class ObjectAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            all_dfs = self.DiskFile_generator()
-            for df, device in all_dfs:
-                self.object_audit(df, device)
+            all_locs = self.audit_location_generator(object_server.DATADIR)
+            for path, device in all_locs:
+                self.object_audit(path, device)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
                         'Since %s: Locally: %d passed audit, %d quarantined, '
@@ -108,20 +95,28 @@ class ObjectAuditor(Daemon):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
         begin = time.time()
-        df, device = self.DiskFile_generator().next()
-        self.object_audit(df, device)
+        path, device = self.audit_location_generator().next()
+        self.object_audit(path, device)
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)
 
-    def object_audit(self, df, device):
+    def object_audit(self, path, device):
         """
-        Given a DiskFile, check its consistency.
+        Audits the given object path
         
-        :param df: a DiskFile object
+        :param path: a path to an object
         :param device: the device where the file may be quarantined
         """
         try:
+            if not path.endswith('.data'):
+                return
+            name = object_server.read_metadata(path)['name']
+            _, account, container, obj = name.split('/', 3)
+            df = object_server.DiskFile(self.devices, device,
+                                        partition, account,
+                                        container, obj,
+                                        keep_data_fp=True)
             if os.path.getsize(df.data_file) != \
                     int(df.metadata['Content-Length']):
                 raise AuditException('Content-Length of %s does not match '

@@ -36,15 +36,14 @@ class AccountAuditor(Daemon):
         self.account_passes = 0
         self.account_failures = 0
 
-    def broker_generator(self):
+    def audit_location_generator(self, datadir):
         for device in os.listdir(self.devices):
             if self.mount_check and not\
                     os.path.ismount(os.path.join(self.devices, device)):
                 self.logger.debug(
                     'Skipping %s as it is not mounted' % device)
                 continue
-            datadir = os.path.join(self.devices, device,
-                                   account_server.DATADIR)
+            datadir = os.path.join(self.devices, device, datadir)
             if not os.path.exists(datadir):
                 continue
             partitions = os.listdir(datadir)
@@ -64,11 +63,8 @@ class AccountAuditor(Daemon):
                             continue
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
-                            if fname.endswith('.db'):
-                                broker = AccountBroker(os.path.join(hash_path,
-                                                                      fname))
-                                if not broker.is_deleted():
-                                    yield broker
+                            path = ops.path.join(hash_path, fname)
+                            yield path, device
 
     def run_forever(self):  # pragma: no cover
         """Run the account audit until stopped."""
@@ -76,9 +72,9 @@ class AccountAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            all_brokers = self.broker_generator()
-            for broker in all_brokers:
-                self.account_audit(broker)
+            all_locs = self.audit_location_generator(account_server.DATADIR)
+            for path, device in all_locs:
+                self.account_audit(path)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
                         'Since %s: Account audits: %s passed audit, '
@@ -96,23 +92,28 @@ class AccountAuditor(Daemon):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = time.time()
-        self.account_audit(self.broker_generator().next())
+        location, device = self.audit_location_generator(
+                                    account_server.DATADIR).next()
+        self.account_audit(location)
         elapsed = time.time() - begin
         self.logger.info(
             'Account audit "once" mode completed: %.02fs' % elapsed)
 
-    def account_audit(self, broker):
+    def account_audit(self, path):
         """
-        Audits the given account broker
+        Audits the given account path
 
-        :param broker: an account broker
+        :param path: the path to an account db
         """
         try:
-            info = broker.get_info()
+            if not path.endswith('.db'):
+                return
+            broker = AccountBroker(path)
+            if not broker.is_deleted():
+                info = broker.get_info()
+                self.account_passes += 1
+                self.logger.debug('Audit passed for %s' % broker.db_file)
         except Exception:
             self.account_failures += 1
             self.logger.error('ERROR Could not get account info %s' %
                 (broker.db_file))
-        else:
-            self.account_passes += 1
-            self.logger.debug('Audit passed for %s' % broker.db_file)
