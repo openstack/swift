@@ -199,6 +199,12 @@ virtual machine will emulate running a four node Swift cluster.
         [filter:cache]
         use = egg:swift#memcache
 
+  #. Create `/etc/swift/swift.conf`::
+
+        [swift-hash]
+        # random unique string that can never change (DO NOT LOSE)
+        swift_hash_path_suffix = changeme
+
   #. Create `/etc/swift/account-server/1.conf`::
 
         [DEFAULT]
