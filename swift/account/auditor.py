@@ -64,7 +64,7 @@ class AccountAuditor(Daemon):
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
                             path = os.path.join(hash_path, fname)
-                            yield path, device
+                            yield path, device, partition
 
     def run_forever(self):  # pragma: no cover
         """Run the account audit until stopped."""
@@ -73,7 +73,7 @@ class AccountAuditor(Daemon):
         while True:
             begin = time.time()
             all_locs = self.audit_location_generator(account_server.DATADIR)
-            for path, device in all_locs:
+            for path, device, partition in all_locs:
                 self.account_audit(path)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
@@ -96,7 +96,7 @@ class AccountAuditor(Daemon):
             location = ''
             gen = self.audit_location_generator(account_server.DATADIR)
             while not location.endswith('.db'):
-                location, device = gen.next()
+                location, device, partition = gen.next()
         except StopIteration:
             self.logger.info('Nothing to audit')
         else:

@@ -67,7 +67,7 @@ class ObjectAuditor(Daemon):
                         for fname in sorted(os.listdir(hash_path),
                                             reverse=True):
                             path = os.path.join(hash_path, fname)
-                            yield path, device
+                            yield path, device, partition
 
     def run_forever(self):    # pragma: no cover
         """Run the object audit until stopped."""
@@ -76,8 +76,8 @@ class ObjectAuditor(Daemon):
         while True:
             begin = time.time()
             all_locs = self.audit_location_generator(object_server.DATADIR)
-            for path, device in all_locs:
-                self.object_audit(path, device)
+            for path, device, partition in all_locs:
+                self.object_audit(path, device, partition)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
                         'Since %s: Locally: %d passed audit, %d quarantined, '
@@ -99,21 +99,22 @@ class ObjectAuditor(Daemon):
             location = ''
             gen = self.audit_location_generator(object_server.DATADIR)
             while not location.endswith('.data'):
-                location, device = gen.next()
+                location, device, partition = gen.next()
         except StopIteration:
             self.logger.info('Nothing to audit')
         else:
-            self.object_audit(location, device)
+            self.object_audit(location, device, partition)
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)
 
-    def object_audit(self, path, device):
+    def object_audit(self, path, device, partition):
         """
         Audits the given object path
         
         :param path: a path to an object
-        :param device: the device where the file may be quarantined
+        :param device: the device the path is on
+        :param partition: the partition the path is on
         """
         try:
             if not path.endswith('.data'):
