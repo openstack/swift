@@ -259,7 +259,7 @@ class ObjectController(object):
         self.log_requests = conf.get('log_requests', 't')[:1].lower() == 't'
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
-        self.bytes_per_sync = int(conf.get('mb_per_sync', 512) * 1024 * 1024)
+        self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
 
     def container_update(self, op, account, container, obj, headers_in,
                          headers_out, objdevice):
