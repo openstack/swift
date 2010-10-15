@@ -94,8 +94,10 @@ class ContainerAuditor(Daemon):
         self.logger.info('Begin container audit "once" mode')
         begin = time.time()
         try:
-            location, device = self.audit_location_generator(
-                                    container_server.DATADIR).next()
+            location = ''
+            gen = self.audit_location_generator(container_server.DATADIR)
+            while not location.endswith('.db'):
+                location, device = gen.next()
         except StopIteration:
             self.logger.info('Nothing to audit')
         else:
