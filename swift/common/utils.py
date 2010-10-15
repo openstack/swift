@@ -608,3 +608,46 @@ def write_pickle(obj, dest, tmp):
         fo.flush()
         os.fsync(fd)
         renamer(tmppath, dest)
+
+def audit_location_generator(devices, datadir, mount_check=True, logger=None):
+    '''
+    Given a devices path and a data directory, yield (path, device,
+    partition) for all files in that directory
+
+    :param devices: parent directory of the devices to be audited
+    :param datadir: a directory located under self.devices. This should be
+    one of the DATADIR constants defined in the account, container, and
+    object servers.
+    :param mount_check: Flag to check if a mount check should be performed
+    on devices
+    :param logger: a logger object
+    '''
+    for device in os.listdir(devices):
+        if mount_check and not\
+                os.path.ismount(os.path.join(devices, device)):
+            if logger:
+                logger.debug(
+                    'Skipping %s as it is not mounted' % device)
+            continue
+        datadir = os.path.join(devices, device, datadir)
+        if not os.path.exists(datadir):
+            continue
+        partitions = os.listdir(datadir)
+        for partition in partitions:
+            part_path = os.path.join(datadir, partition)
+            if not os.path.isdir(part_path):
+                continue
+            suffixes = os.listdir(part_path)
+            for suffix in suffixes:
+                suff_path = os.path.join(part_path, suffix)
+                if not os.path.isdir(suff_path):
+                    continue
+                hashes = os.listdir(suff_path)
+                for hsh in hashes:
+                    hash_path = os.path.join(suff_path, hsh)
+                    if not os.path.isdir(hash_path):
+                        continue
+                    for fname in sorted(os.listdir(hash_path),
+                                        reverse=True):
+                        path = os.path.join(hash_path, fname)
+                        yield path, device, partition

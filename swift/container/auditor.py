@@ -19,7 +19,7 @@ from random import random
 
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, audit_location_generator
 from swift.common.daemon import Daemon
 
 
@@ -37,43 +37,16 @@ class ContainerAuditor(Daemon):
         self.container_passes = 0
         self.container_failures = 0
 
-    def audit_location_generator(self, datadir):
-        for device in os.listdir(self.devices):
-            if self.mount_check and not\
-                    os.path.ismount(os.path.join(self.devices, device)):
-                self.logger.debug(
-                    'Skipping %s as it is not mounted' % device)
-                continue
-            datadir = os.path.join(self.devices, device, datadir)
-            if not os.path.exists(datadir):
-                continue
-            partitions = os.listdir(datadir)
-            for partition in partitions:
-                part_path = os.path.join(datadir, partition)
-                if not os.path.isdir(part_path):
-                    continue
-                suffixes = os.listdir(part_path)
-                for suffix in suffixes:
-                    suff_path = os.path.join(part_path, suffix)
-                    if not os.path.isdir(suff_path):
-                        continue
-                    hashes = os.listdir(suff_path)
-                    for hsh in hashes:
-                        hash_path = os.path.join(suff_path, hsh)
-                        if not os.path.isdir(hash_path):
-                            continue
-                        for fname in sorted(os.listdir(hash_path),
-                                            reverse=True):
-                            path = os.path.join(hash_path, fname)
-                            yield path, device, partition
-
     def run_forever(self):  # pragma: no cover
         """Run the container audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            all_locs = self.audit_location_generator(container_server.DATADIR)
+            all_locs = audit_location_generator(self.devices,
+                                                container_server.DATADIR,
+                                                mount_check=self.mount_check,
+                                                logger=self.logger)
             for path, device, partition in all_locs:
                 self.container_audit(path)
                 if time.time() - reported >= 3600:  # once an hour
@@ -95,7 +68,10 @@ class ContainerAuditor(Daemon):
         begin = time.time()
         try:
             location = ''
-            gen = self.audit_location_generator(container_server.DATADIR)
+            gen = audit_location_generator(self.devices,
+                                           container_server.DATADIR,
+                                           mount_check=self.mount_check,
+                                           logger=self.logger)
             while not location.endswith('.db'):
                 location, device, partition = gen.next()
         except StopIteration:
