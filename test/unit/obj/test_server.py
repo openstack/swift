@@ -56,7 +56,7 @@ class TestObjectController(unittest.TestCase):
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(conf)
-        self.object_controller.chunks_per_sync = 1
+        self.object_controller.bytes_per_sync = 1
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
