@@ -64,7 +64,7 @@ class AccountAuditor(Daemon):
     def run_once(self):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
-        begin = time.time()
+        begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             account_server.DATADIR,
                                             mount_check=self.mount_check,

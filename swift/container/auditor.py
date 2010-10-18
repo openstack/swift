@@ -65,7 +65,7 @@ class ContainerAuditor(Daemon):
     def run_once(self):
         """Run the container audit once."""
         self.logger.info('Begin container audit "once" mode')
-        begin = time.time()
+        begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             container_server.DATADIR,
                                             mount_check=self.mount_check,

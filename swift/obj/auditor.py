@@ -67,7 +67,7 @@ class ObjectAuditor(Daemon):
     def run_once(self):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
-        begin = time.time()
+        begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
                                             mount_check=self.mount_check,
