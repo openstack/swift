@@ -363,7 +363,7 @@ class ObjectReplicator(Daemon):
                     do_listdir=(self.replication_count % 10) == 0,
                     reclaim_age=self.reclaim_age)
             self.suffix_hash += hashed
-            attempts_left = self.object_ring.replica_count
+            attempts_left = self.object_ring.replica_count - 1
             nodes = itertools.chain(job['nodes'],
                         self.object_ring.get_more_nodes(int(job['partition'])))
             while attempts_left > 0:
