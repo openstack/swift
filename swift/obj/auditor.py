@@ -95,7 +95,10 @@ class ObjectAuditor(Daemon):
         try:
             if not path.endswith('.data'):
                 return
-            name = object_server.read_metadata(path)['name']
+            try:
+                name = object_server.read_metadata(path)['name']
+            except Exception, exc:
+                raise AuditException('Error when reading metadata: %s' % exc)
             _, account, container, obj = name.split('/', 3)
             df = object_server.DiskFile(self.devices, device,
                                         partition, account,

@@ -97,5 +97,5 @@ class AccountAuditor(Daemon):
                 self.logger.debug('Audit passed for %s' % broker.db_file)
         except Exception:
             self.account_failures += 1
-            self.logger.error('ERROR Could not get account info %s' %
+            self.logger.exception('ERROR Could not get account info %s' %
                 (broker.db_file))
