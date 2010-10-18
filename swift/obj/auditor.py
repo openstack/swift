@@ -68,18 +68,21 @@ class ObjectAuditor(Daemon):
         """Run the object audit once."""
         self.logger.info('Begin object audit "once" mode')
         begin = time.time()
-        try:
-            location = ''
-            gen = audit_location_generator(self.devices,
-                                           object_server.DATADIR,
-                                           mount_check=self.mount_check,
-                                           logger=self.logger)
-            while not location.endswith('.data'):
-                location, device, partition = gen.next()
-        except StopIteration:
-            self.logger.info('Nothing to audit')
-        else:
-            self.object_audit(location, device, partition)
+        all_locs = audit_location_generator(self.devices,
+                                            object_server.DATADIR,
+                                            mount_check=self.mount_check,
+                                            logger=self.logger)
+        for path, device, partition in all_locs:
+            self.object_audit(path, device, partition)
+            if time.time() - reported >= 3600:  # once an hour
+                self.logger.info(
+                    'Since %s: Locally: %d passed audit, %d quarantined, '
+                    '%d errors' % (time.ctime(reported), self.passes,
+                                self.quarantines, self.errors))
+                reported = time.time()
+                self.passes = 0
+                self.quarantines = 0
+                self.errors = 0
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)

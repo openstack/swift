@@ -65,18 +65,21 @@ class AccountAuditor(Daemon):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = time.time()
-        try:
-            location = ''
-            gen = audit_location_generator(self.devices,
-                                           account_server.DATADIR,
-                                           mount_check=self.mount_check,
-                                           logger=self.logger)
-            while not location.endswith('.db'):
-                location, device, partition = gen.next()
-        except StopIteration:
-            self.logger.info('Nothing to audit')
-        else:
-            self.account_audit(location)
+        all_locs = audit_location_generator(self.devices,
+                                            account_server.DATADIR,
+                                            mount_check=self.mount_check,
+                                            logger=self.logger)
+        for path, device, partition in all_locs:
+            self.account_audit(path)
+            if time.time() - reported >= 3600:  # once an hour
+                self.logger.info(
+                    'Since %s: Account audits: %s passed audit, '
+                    '%s failed audit' % (time.ctime(reported),
+                                        self.account_passes,
+                                        self.account_failures))
+                reported = time.time()
+                self.account_passes = 0
+                self.account_failures = 0
         elapsed = time.time() - begin
         self.logger.info(
             'Account audit "once" mode completed: %.02fs' % elapsed)

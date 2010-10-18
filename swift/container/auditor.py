@@ -66,18 +66,21 @@ class ContainerAuditor(Daemon):
         """Run the container audit once."""
         self.logger.info('Begin container audit "once" mode')
         begin = time.time()
-        try:
-            location = ''
-            gen = audit_location_generator(self.devices,
-                                           container_server.DATADIR,
-                                           mount_check=self.mount_check,
-                                           logger=self.logger)
-            while not location.endswith('.db'):
-                location, device, partition = gen.next()
-        except StopIteration:
-            self.logger.info('Nothing to audit')
-        else:
-            self.container_audit(location)
+        all_locs = audit_location_generator(self.devices,
+                                            container_server.DATADIR,
+                                            mount_check=self.mount_check,
+                                            logger=self.logger)
+        for path, device, partition in all_locs:
+            self.container_audit(path)
+            if time.time() - reported >= 3600:  # once an hour
+                self.logger.info(
+                    'Since %s: Container audits: %s passed audit, '
+                    '%s failed audit' % (time.ctime(reported),
+                                        self.container_passes,
+                                        self.container_failures))
+                reported = time.time()
+                self.container_passes = 0
+                self.container_failures = 0
         elapsed = time.time() - begin
         self.logger.info(
             'Container audit "once" mode completed: %.02fs' % elapsed)
