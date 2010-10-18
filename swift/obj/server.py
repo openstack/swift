@@ -259,7 +259,7 @@ class ObjectController(object):
         self.log_requests = conf.get('log_requests', 't')[:1].lower() == 't'
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
-        self.chunks_per_sync = int(conf.get('chunks_per_sync', 8000))
+        self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
 
     def container_update(self, op, account, container, obj, headers_in,
                          headers_out, objdevice):
@@ -359,11 +359,10 @@ class ObjectController(object):
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
         upload_size = 0
+        last_sync = 0
         with file.mkstemp() as (fd, tmppath):
             if 'content-length' in request.headers:
                 fallocate(fd, int(request.headers['content-length']))
-            chunk_count = 0
-            dropped_cache = 0
             for chunk in iter(lambda: request.body_file.read(
                     self.network_chunk_size), ''):
                 upload_size += len(chunk)
@@ -373,13 +372,11 @@ class ObjectController(object):
                 while chunk:
                     written = os.write(fd, chunk)
                     chunk = chunk[written:]
-                chunk_count += 1
                 # For large files sync every 512MB (by default) written
-                if chunk_count % self.chunks_per_sync == 0:
+                if upload_size - last_sync >= self.bytes_per_sync:
                     os.fdatasync(fd)
-                    drop_buffer_cache(fd, dropped_cache,
-                        upload_size - dropped_cache)
-                    dropped_cache = upload_size
+                    drop_buffer_cache(fd, last_sync, upload_size - last_sync)
+                    last_sync = upload_size
 
             if 'content-length' in request.headers and \
                     int(request.headers['content-length']) != upload_size:

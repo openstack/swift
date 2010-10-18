@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 80
+# backlog = 4096
 # swift_dir = /etc/swift
 # workers = 1
 # user = swift
@@ -8,7 +9,7 @@
 # key_file = /etc/swift/proxy.key
 
 [pipeline:main]
-pipeline = healthcheck cache auth proxy-server
+pipeline = healthcheck cache ratelimit auth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -28,12 +29,6 @@ use = egg:swift#proxy
 # error_suppression_interval = 60
 # How many errors can accumulate before a node is temporarily ignored.
 # error_suppression_limit = 10
-# How many ops per second to one container (as a float)
-# rate_limit = 20000.0
-# How many ops per second for account-level operations
-# account_rate_limit = 200.0
-# rate_limit_account_whitelist = acct1,acct2,etc
-# rate_limit_account_blacklist = acct3,acct4,etc
 
 [filter:auth]
 use = egg:swift#auth
@@ -56,3 +51,27 @@ use = egg:swift#memcache
 # Default for memcache_servers is below, but you can specify multiple servers
 # with the format: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211
+
+[filter:ratelimit]
+use = egg:swift#ratelimit
+# clock_accuracy should represent how accurate the proxy servers' system clocks
+# are with each other. 1000 means that all the proxies' clock are accurate to
+# each other within 1 millisecond.  No ratelimit should be higher than the
+# clock accuracy.
+# clock_accuracy = 1000
+# max_sleep_time_seconds = 60
+
+# account_ratelimit of 0 means disabled
+# account_ratelimit = 0
+
+# these are comma separated lists of account names
+# account_whitelist = a,b
+# account_blacklist = c,d
+
+# with container_limit_x = r
+# for containers of size x limit requests per second to r.  The container
+# rate will be linearly interpolated from the values given. With the values
+# below, a container of size 5 will get a rate of 75.
+# container_ratelimit_0 = 100
+# container_ratelimit_10 = 50
+# container_ratelimit_50 = 20

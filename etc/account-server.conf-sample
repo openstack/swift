@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 6002
+# backlog = 4096
 # workers = 1
 # user = swift
 # swift_dir = /etc/swift
