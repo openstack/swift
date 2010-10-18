@@ -124,8 +124,9 @@ class ObjectAuditor(Daemon):
             self.logger.error('ERROR Object %s failed audit and will be '
                 'quarantined: %s' % (path, err))
             invalidate_hash(os.path.dirname(path))
-            renamer(os.path.dirname(path), os.path.join(self.devices, device,
-                'quarantined', 'objects', os.path.basename(path)))
+            renamer_path = os.path.dirname(path)
+            renamer(renamer_path, os.path.join(self.devices, device,
+                'quarantined', 'objects', os.path.basename(renamer_path)))
             return
         except Exception:
             self.errors += 1
