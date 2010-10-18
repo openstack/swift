@@ -19,6 +19,7 @@ from setuptools.command.sdist import sdist
 import os
 import subprocess
 
+from swift import __version__ as version
 
 class local_sdist(sdist):
     """Customized sdist hook - builds the ChangeLog file from VC first"""
@@ -36,7 +37,6 @@ class local_sdist(sdist):
 
 
 name = 'swift'
-version = '1.0.2'
 
 setup(
     name=name,
