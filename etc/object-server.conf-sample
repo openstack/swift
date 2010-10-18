@@ -50,5 +50,3 @@ use = egg:swift#object
 # log_name = object-auditor
 # Will audit, at most, 1 object per device per interval
 # interval = 1800
-# node_timeout = 10
-# conn_timeout = 0.5

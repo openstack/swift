@@ -47,10 +47,6 @@ use = egg:swift#account
 # log_name = account-auditor
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
-# Maximum containers randomly picked for a given account audit
-# max_container_count = 100
-# node_timeout = 10
-# conn_timeout = 0.5
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 

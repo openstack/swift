@@ -43,7 +43,3 @@ use = egg:swift#container
 # log_name = container-auditor
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
-# Maximum objects randomly picked for a given container audit
-# max_object_count = 100
-# node_timeout = 10
-# conn_timeout = 0.5
