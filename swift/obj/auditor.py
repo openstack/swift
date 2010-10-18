@@ -87,7 +87,7 @@ class ObjectAuditor(Daemon):
     def object_audit(self, path, device, partition):
         """
         Audits the given object path
-        
+
         :param path: a path to an object
         :param device: the device the path is on
         :param partition: the partition the path is on
@@ -121,7 +121,7 @@ class ObjectAuditor(Daemon):
             self.logger.error('ERROR Object %s failed audit and will be '
                 'quarantined: %s' % (path, err))
             invalidate_hash(os.path.dirname(path))
-            renamer(df.datadir, os.path.join(self.devices, device,
+            renamer(os.path.dirname(path), os.path.join(self.devices, device,
                 'quarantined', 'objects', os.path.basename(path)))
             return
         except Exception:
