@@ -198,7 +198,7 @@ YOU HAVE A FEW OPTIONS:
                 (token, time()))
             conn.commit()
         if parsed.port is None:
-            port = 80
+            port = {'http': 80, 'https': 443}.get(parsed.scheme, 80)
         else:
             port = parsed.port
         conn = http_connect(parsed.hostname, port, 'PUT', parsed.path,
