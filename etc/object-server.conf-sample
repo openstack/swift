@@ -32,8 +32,15 @@ use = egg:swift#object
 # daemonize = on
 # run_pause = 30
 # concurrency = 1
-# timeout = 300
-# stats_interval = 3600
+# stats_interval = 300
+# max duration of a partition rsync
+# rsync_timeout = 600
+# passed to rsync for io op timeout
+# rsync_io_timeout = 10
+# max duration of an http request
+# http_timeout = 60
+# attempts to kill all workers if nothing replicates for lockup_timeout seconds
+# lockup_timeout = 900
 # The replicator also performs reclamation
 # reclaim_age = 604800
 

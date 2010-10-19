@@ -538,13 +538,12 @@ class ObjectController(object):
             unquote(request.path), 2, 3, True)
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
-        if suffix:
-            recalculate_hashes(os.path.join(self.devices, device,
-                DATADIR, partition), suffix.split('-'))
-            return Response()
         path = os.path.join(self.devices, device, DATADIR, partition)
         if not os.path.exists(path):
             mkdirs(path)
+        if suffix:
+            recalculate_hashes(path, suffix.split('-'))
+            return Response()
         _, hashes = get_hashes(path, do_listdir=False)
         return Response(body=pickle.dumps(hashes))
 
