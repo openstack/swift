@@ -148,7 +148,7 @@ class RateLimitMiddleware(object):
         max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
             # treat as no-op decrement time
-            self.memcache_client.incr(key, delta=-time_per_request_m)
+            self.memcache_client.decr(key, delta=time_per_request_m)
             raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" %
                                   need_to_sleep_m)
 
