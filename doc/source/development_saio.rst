@@ -2,9 +2,9 @@
 SAIO - Swift All In One
 =======================
 
-------------------------------------
+---------------------------------------------
 Instructions for setting up a development VM
-------------------------------------
+---------------------------------------------
 
 This documents setting up a virtual machine for doing Swift development. The
 virtual machine will emulate running a four node Swift cluster.
@@ -17,13 +17,9 @@ virtual machine will emulate running a four node Swift cluster.
 
 * Create guest virtual machine from the Ubuntu image. 
 
-----------------
-First scenario: partition for storage
-----------------
-
-If you are going to use a separate partition for swift data, be sure to add another device when
-  creating the VM, and follow these instructions. 
-  
+-----------------------------------------
+Installing dependencies and the core code
+-----------------------------------------
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
@@ -34,7 +30,17 @@ If you are going to use a separate partition for swift data, be sure to add anot
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. To use another partition for storage:
+  #. Next, choose either see :ref:`partition-section` or :ref:`loopback-section`. 
+
+
+.. _partition-section:
+
+Using a partition for storage
+=============================
+
+If you are going to use a separate partition for Swift data, be sure to add another device when
+  creating the VM, and follow these instructions. 
+  
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
   #. Edit `/etc/fstab` and add
@@ -51,25 +57,15 @@ If you are going to use a separate partition for swift data, be sure to add anot
 
         mkdir /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
-  
-----------------
-Second scenario: loopback device for storage
-----------------  
+
+
+.. _loopback-section:
+
+Using a loopback device for storage
+===================================
 
 If you want to use a loopback device instead of another partition, follow these instructions. 
 
-
-* As root on guest (you'll have to log in as you, then `sudo su -`):
-
-  #. `apt-get install python-software-properties`
-  #. `add-apt-repository ppa:swift-core/ppa`
-  #. `apt-get update`
-  #. `apt-get install curl gcc bzr memcached python-configobj
-     python-coverage python-dev python-nose python-setuptools python-simplejson
-     python-xattr sqlite3 xfsprogs python-webob python-eventlet
-     python-greenlet python-pastedeploy`
-  #. Install anything else you want, like screen, ssh, vim, etc.
-  #. To use a loopback device instead of another partition:
   #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
        (modify seek to make a larger or smaller partition)
   #. `mkfs.xfs -i size=1024 /srv/swift-disk`
@@ -89,10 +85,8 @@ If you want to use a loopback device instead of another partition, follow these 
         chown <your-user-name>:<your-group-name> /var/run/swift
 
 ----------------
-Configuring each node
+Setting up rsync
 ----------------
-
-Sample configuration files are provided with all defaults in line-by-line comments. 
 
   #. Create /etc/rsyncd.conf::
 
@@ -182,7 +176,14 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
   #. `service rsync restart`
 
-* As you on guest:
+
+------------------------------------------------
+Getting the code and setting up test environment
+------------------------------------------------
+
+Sample configuration files are provided with all defaults in line-by-line comments. 
+
+Do these commands as you on guest:
 
   #. `mkdir ~/bin`
   #. Create `~/.bazaar/bazaar.conf`::
@@ -202,6 +203,13 @@ Sample configuration files are provided with all defaults in line-by-line commen
         export PATH=${PATH}:~/bin
 
   #. `. ~/.bashrc`
+  
+---------------------
+Configuring each node
+---------------------
+
+Sample configuration files are provided with all defaults in line-by-line comments.
+  
   #. Create `/etc/swift/auth-server.conf`::
 
         [DEFAULT]
@@ -369,7 +377,6 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [container-auditor]
 
-
   #. Create `/etc/swift/container-server/3.conf`::
 
         [DEFAULT]
@@ -390,7 +397,6 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [container-updater]
 
         [container-auditor]
-
 
   #. Create `/etc/swift/container-server/4.conf`::
 
@@ -498,12 +504,12 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [object-auditor]
 
-  #. Create `~/bin/resetswift`::
-  .. note::
+------------------------------------
+Setting up scripts for running Swift
+------------------------------------
 
-    If you are using a loopback device, substitute `/dev/sdb1` above with
-    `/srv/swift-disk`
-
+  #. Create `~/bin/resetswift.` If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`::
+  
         #!/bin/bash
 
         swift-init all stop
@@ -590,9 +596,14 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
 If you plan to work on documentation (and who doesn't?!):
 
-  #. `sudo apt-get install python-sphinx`
-  #. `python setup.py build_sphinx`
+On Ubuntu:
+  #. `sudo apt-get install python-sphinx` installs Sphinx.
+  #. `python setup.py build_sphinx` builds the documentation.
 
+On MacOS: 
+  #. 'sudo easy_install -U sphinx' installs Sphinx.
+  #. `python setup.py build_sphinx` builds the documentation.
+  
 ----------------
 Debugging Issues
 ----------------
