@@ -58,7 +58,8 @@ class Bench(object):
             self.account = conf.account
             self.url = conf.url
             self.ip, self.port = self.url.split('/')[2].split(':')
-        self.container_name = conf.container_name
+        self.containers = ['%s_%d' % (conf.container_name, i)
+            for i in xrange(int(conf.num_containers))]
 
         self.object_size = int(conf.object_size)
         self.object_sources = conf.object_sources
@@ -151,16 +152,16 @@ class BenchDELETE(Bench):
         if time.time() - self.heartbeat >= 15:
             self.heartbeat = time.time()
             self._log_status('DEL')
-        device, partition, name = self.names.pop()
+        device, partition, name, container_name = self.names.pop()
         with self.connection() as conn:
             try:
                 if self.use_proxy:
                     client.delete_object(self.url, self.token,
-                        self.container_name, name, http_conn=conn)
+                        container_name, name, http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_delete_object(node, partition,
-                        self.account, self.container_name, name)
+                        self.account, container_name, name)
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
@@ -179,16 +180,16 @@ class BenchGET(Bench):
         if time.time() - self.heartbeat >= 15:
             self.heartbeat = time.time()
             self._log_status('GETS')
-        device, partition, name = random.choice(self.names)
+        device, partition, name, container_name = random.choice(self.names)
         with self.connection() as conn:
             try:
                 if self.use_proxy:
                     client.get_object(self.url, self.token,
-                        self.container_name, name, http_conn=conn)
+                        container_name, name, http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_get_object(node, partition,
-                        self.account, self.container_name, name)
+                        self.account, container_name, name)
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
@@ -204,8 +205,9 @@ class BenchPUT(Bench):
         self.msg = 'PUTS'
         if self.use_proxy:
             with self.connection() as conn:
-                client.put_container(self.url, self.token,
-                    self.container_name, http_conn=conn)
+                for container_name in self.containers:
+                    client.put_container(self.url, self.token,
+                        container_name, http_conn=conn)
 
     def _run(self, thread):
         if time.time() - self.heartbeat >= 15:
@@ -218,19 +220,20 @@ class BenchPUT(Bench):
             source = '0' * self.object_size
         device = random.choice(self.devices)
         partition = str(random.randint(1, 3000))
+        container_name = random.choice(self.containers)
         with self.connection() as conn:
             try:
                 if self.use_proxy:
                     client.put_object(self.url, self.token,
-                        self.container_name, name, source,
+                        container_name, name, source,
                         content_length=len(source), http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_put_object(node, partition,
-                        self.account, self.container_name, name, source,
+                        self.account, container_name, name, source,
                         content_length=len(source))
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
-        self.names.append((device, partition, name))
+        self.names.append((device, partition, name, container_name))
         self.complete += 1
