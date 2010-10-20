@@ -601,7 +601,7 @@ On Ubuntu:
   #. `python setup.py build_sphinx` builds the documentation.
 
 On MacOS: 
-  #. 'sudo easy_install -U sphinx' installs Sphinx.
+  #. `sudo easy_install -U sphinx` installs Sphinx.
   #. `python setup.py build_sphinx` builds the documentation.
   
 ----------------
