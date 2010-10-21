@@ -107,6 +107,9 @@ class ObjectAuditor(Daemon):
                                         partition, account,
                                         container, obj,
                                         keep_data_fp=True)
+            if df.data_file is None:
+                # file is deleted, we found the tombstone
+                return
             if os.path.getsize(df.data_file) != \
                     int(df.metadata['Content-Length']):
                 raise AuditException('Content-Length of %s does not match '
