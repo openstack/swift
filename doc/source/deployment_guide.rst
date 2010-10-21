@@ -230,8 +230,6 @@ log_name            object-auditor  Label used when logging
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
 interval            1800            Minimum time for a pass to take
-node_timeout        10              Request timeout to external services
-conn_timeout        0.5             Connection timeout to external services
 ==================  ==============  ==========================================
 
 ------------------------------
@@ -319,8 +317,6 @@ log_name            container-auditor  Label used when logging
 log_facility        LOG_LOCAL0         Syslog log facility
 log_level           INFO               Logging level
 interval            1800               Minimum time for a pass to take
-node_timeout        10                 Request timeout to external services
-conn_timeout        0.5                Connection timeout to external services
 ==================  =================  =======================================
 
 ----------------------------
@@ -388,10 +384,6 @@ log_name              account-auditor  Label used when logging
 log_facility          LOG_LOCAL0       Syslog log facility
 log_level             INFO             Logging level
 interval              1800             Minimum time for a pass to take
-max_container_count   100              Maximum containers randomly picked for
-                                       a given account audit
-node_timeout          10               Request timeout to external services
-conn_timeout          0.5              Connection timeout to external services
 ====================  ===============  =======================================
 
 [account-reaper]
