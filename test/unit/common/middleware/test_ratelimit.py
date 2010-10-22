@@ -36,15 +36,7 @@ class FakeMemcache(object):
         return True
 
     def incr(self, key, delta=1, timeout=0):
-        if delta < 0:
-            raise "Cannot incr by a negative number"
-        self.store[key] = int(self.store.setdefault(key, 0)) + delta
-        return int(self.store[key])
-
-    def decr(self, key, delta=1, timeout=0):
-        if delta < 0:
-            raise "Cannot decr by a negative number"
-        self.store[key] = int(self.store.setdefault(key, 0)) - delta
+        self.store[key] = int(self.store.setdefault(key, 0)) + int(delta)
         if self.store[key] < 0:
             self.store[key] = 0
         return int(self.store[key])

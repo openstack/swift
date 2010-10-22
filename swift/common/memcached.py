@@ -168,49 +168,42 @@ class MemcacheRing(object):
     def incr(self, key, delta=1, timeout=0):
         """
         Increments a key which has a numeric value by delta.
-        If the key can't be found, it's added as delta.
+        If the key can't be found, it's added as delta or 0 if delta < 0.
+        If passed a negative number, will use memcached's decr. Returns
+        the int stored in memcached
+        Note: The data memcached stores as the result of incr/decr is
+        an unsigned int.  decr's that result in a number below 0 are
+        stored as 0.
 
         :param key: key
         :param delta: amount to add to the value of key (or set as the value
-                      if the key is not found)
+                      if the key is not found) will be cast to an int
         :param timeout: ttl in memcache
         """
         key = md5hash(key)
+        command = 'incr'
+        if delta < 0:
+            command = 'decr'
+        delta = str(int(abs(delta)))
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('incr %s %s\r\n' % (key, delta))
+                sock.sendall('%s %s %s\r\n' % (command, key, delta))
                 line = fp.readline().strip().split()
                 if line[0].upper() == 'NOT_FOUND':
-                    line[0] = str(delta)
-                    sock.sendall('add %s %d %d %s noreply\r\n%s\r\n' % \
-                                  (key, 0, timeout, len(line[0]), line[0]))
-                ret = int(line[0].strip())
-                self._return_conn(server, fp, sock)
-                return ret
-            except Exception, e:
-                self._exception_occurred(server, e)
-
-    def decr(self, key, delta=1, timeout=0):
-        """
-        Decrements a key which has a numeric value by delta.
-        If the key can't be found, it's added as 0.  Memcached
-        will treat data values below 0 as 0 with incr/decr.
-
-        :param key: key
-        :param delta: amount to subtract to the value of key (or set
-                      as the value if the key is not found)
-        :param timeout: ttl in memcache
-        """
-        key = md5hash(key)
-        for (server, fp, sock) in self._get_conns(key):
-            try:
-                sock.sendall('decr %s %s\r\n' % (key, delta))
-                line = fp.readline().strip().split()
-                if line[0].upper() == 'NOT_FOUND':
-                    line[0] = '0'
-                    sock.sendall('add %s %d %d %s noreply\r\n%s\r\n' %
-                                 (key, 0, timeout, len(line[0]), line[0]))
-                ret = int(line[0].strip())
+                    add_val = delta
+                    if command == 'decr':
+                        add_val = '0'
+                    sock.sendall('add %s %d %d %s\r\n%s\r\n' % \
+                                  (key, 0, timeout, len(add_val), add_val))
+                    line = fp.readline().strip().split()
+                    if line[0].upper() == 'NOT_STORED':
+                        sock.sendall('%s %s %s\r\n' % (command, key, delta))
+                        line = fp.readline().strip().split()
+                        ret = int(line[0].strip())
+                    else:
+                        ret = int(add_val)
+                else:
+                    ret = int(line[0].strip())
                 self._return_conn(server, fp, sock)
                 return ret
             except Exception, e:
