@@ -27,6 +27,9 @@ clock_accuracy           1000       Represents how accurate the proxy servers'
 max_sleep_time_seconds   60         App will immediately return a 498 response
                                     if the necessary sleep time ever exceeds
                                     the given max_sleep_time_seconds.
+log_sleep_time_seconds   0          To allow visibility into rate limiting set
+                                    this value > 0 and all sleeps greater than
+                                    the number will be logged.
 account_ratelimit        0          If set, will limit all requests to
                                     /account_name and PUTs to
                                     /account_name/container_name. Number is in

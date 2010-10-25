@@ -98,9 +98,12 @@ class FakeApp(object):
 
 
 class FakeLogger(object):
+    # a thread safe logger
 
     def error(self, msg):
-        # a thread safe logger
+        pass
+
+    def info(self, msg):
         pass
 
 
@@ -289,7 +292,7 @@ class TestRateLimit(unittest.TestCase):
         the_498s = [t for t in all_results if t.startswith('Slow down')]
         self.assertEquals(len(the_498s), 2)
         time_took = time.time() - begin
-        self.assert_(1.5 <= round(time_took,1) < 1.7, time_took)
+        self.assert_(1.5 <= round(time_took, 1) < 1.7, time_took)
 
     def test_ratelimit_max_rate_multiple_acc(self):
         num_calls = 4
@@ -326,7 +329,7 @@ class TestRateLimit(unittest.TestCase):
             thread.join()
         time_took = time.time() - begin
         # the all 15 threads still take 1.5 secs
-        self.assert_(1.5 <= round(time_took,1) < 1.7)
+        self.assert_(1.5 <= round(time_took, 1) < 1.7)
 
     def test_ratelimit_acc_vrs_container(self):
         conf_dict = {'clock_accuracy': 1000,
