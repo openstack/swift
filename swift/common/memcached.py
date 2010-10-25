@@ -184,7 +184,7 @@ class MemcacheRing(object):
         command = 'incr'
         if delta < 0:
             command = 'decr'
-        delta = str(int(abs(delta)))
+        delta = str(abs(int(delta)))
         for (server, fp, sock) in self._get_conns(key):
             try:
                 sock.sendall('%s %s %s\r\n' % (command, key, delta))
