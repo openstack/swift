@@ -41,6 +41,9 @@ class FakeMemcache(object):
             self.store[key] = 0
         return int(self.store[key])
 
+    def decr(self, key, delta=1, timeout=0):
+        return self.incr(key, delta=-delta, timeout=timeout)
+
     @contextmanager
     def soft_lock(self, key, timeout=0, retries=5):
         yield True

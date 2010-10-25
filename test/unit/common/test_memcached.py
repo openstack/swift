@@ -167,6 +167,19 @@ class TestMemcached(unittest.TestCase):
         memcache_client.incr('some_key', delta=-15)
         self.assertEquals(memcache_client.get('some_key'), '0')
 
+    def test_decr(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client.decr('some_key', delta=5)
+        self.assertEquals(memcache_client.get('some_key'), '0')
+        memcache_client.incr('some_key', delta=15)
+        self.assertEquals(memcache_client.get('some_key'), '15')
+        memcache_client.decr('some_key', delta=4)
+        self.assertEquals(memcache_client.get('some_key'), '11')
+        memcache_client.decr('some_key', delta=15)
+        self.assertEquals(memcache_client.get('some_key'), '0')
+
     def test_retry(self):
         logging.getLogger().addHandler(NullLoggingHandler())
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211', '1.2.3.5:11211'])

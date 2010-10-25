@@ -209,6 +209,19 @@ class MemcacheRing(object):
             except Exception, e:
                 self._exception_occurred(server, e)
 
+    def decr(self, key, delta=1, timeout=0):
+        """
+        Decrements a key which has a numeric value by delta. Calls incr with
+        -delta.
+
+        :param key: key
+        :param delta: amount to subtract to the value of key (or set the
+                      value to 0 if the key is not found) will be cast to
+                      an int
+        :param timeout: ttl in memcache
+        """
+        self.incr(key, delta=-delta, timeout=timeout)
+
     def delete(self, key):
         """
         Deletes a key/value pair from memcache.
