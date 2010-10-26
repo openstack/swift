@@ -1080,6 +1080,9 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '5'})
             self.app.update_request(req)
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200)
+                #                 acct cont
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
 
