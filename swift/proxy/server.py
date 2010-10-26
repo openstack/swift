@@ -644,7 +644,8 @@ class ObjectController(Controller):
                         environ=req.environ, headers=req.headers)
             new_req.content_length = source_resp.content_length
             new_req.etag = source_resp.etag
-            new_req.headers['X-Copy-From'] = source_header.split('/', 2)[2]
+            #new_req.headers['X-Copy-From'] = source_header.split('/', 2)[2]
+            del new_req.headers['X-Copy-From']
             for k, v in source_resp.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
