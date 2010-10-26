@@ -1098,8 +1098,7 @@ class TestObjectController(unittest.TestCase):
                 #                 acct cont acct cont objc
             self.app.memcache.store = {}
             resp = controller.PUT(req)
-            self.assertEquals(resp.status_int, 201)
-            self.assertEquals(resp.headers['x-copied-from'], 'c/o')
+            self.assertEquals(resp.status_int, 400)
 
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
