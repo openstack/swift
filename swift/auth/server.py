@@ -197,7 +197,11 @@ YOU HAVE A FEW OPTIONS:
                 (?, ?, '.super_admin', '.single_use', '.reseller_admin')''',
                 (token, time()))
             conn.commit()
-        conn = http_connect(parsed.hostname, parsed.port, 'PUT', parsed.path,
+        if parsed.port is None:
+            port = {'http': 80, 'https': 443}.get(parsed.scheme, 80)
+        else:
+            port = parsed.port
+        conn = http_connect(parsed.hostname, port, 'PUT', parsed.path,
                 {'X-Auth-Token': token}, ssl=(parsed.scheme == 'https'))
         resp = conn.getresponse()
         resp.read()

@@ -2,9 +2,9 @@
 SAIO - Swift All In One
 =======================
 
-------------------------------------
-Instructions for setting up a dev VM
-------------------------------------
+---------------------------------------------
+Instructions for setting up a development VM
+---------------------------------------------
 
 This documents setting up a virtual machine for doing Swift development. The
 virtual machine will emulate running a four node Swift cluster.
@@ -15,9 +15,11 @@ virtual machine will emulate running a four node Swift cluster.
   - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
-* Create guest virtual machine from the Ubuntu image (if you are going to use
-  a separate partition for swift data, be sure to add another device when
-  creating the VM)
+* Create guest virtual machine from the Ubuntu image. 
+
+-----------------------------------------
+Installing dependencies and the core code
+-----------------------------------------
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
@@ -28,21 +30,21 @@ virtual machine will emulate running a four node Swift cluster.
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. If you would like to use another partition for storage:
+  #. Next, choose either see :ref:`partition-section` or :ref:`loopback-section`. 
 
-    #. `fdisk /dev/sdb` (set up a single partition)
-    #. `mkfs.xfs -i size=1024 /dev/sdb1`
-    #. Edit `/etc/fstab` and add
+
+.. _partition-section:
+
+Using a partition for storage
+=============================
+
+If you are going to use a separate partition for Swift data, be sure to add another device when
+  creating the VM, and follow these instructions. 
+  
+  #. `fdisk /dev/sdb` (set up a single partition)
+  #. `mkfs.xfs -i size=1024 /dev/sdb1`
+  #. Edit `/etc/fstab` and add
        `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
-
-  #. If you would like to use a loopback device instead of another partition:
-
-    #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
-       (modify seek to make a larger or smaller partition)
-    #. `mkfs.xfs -i size=1024 /srv/swift-disk`
-    #. Edit `/etc/fstab` and add
-       `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
-
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
   #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
@@ -55,6 +57,36 @@ virtual machine will emulate running a four node Swift cluster.
 
         mkdir /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
+
+
+.. _loopback-section:
+
+Using a loopback device for storage
+===================================
+
+If you want to use a loopback device instead of another partition, follow these instructions. 
+
+  #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
+       (modify seek to make a larger or smaller partition)
+  #. `mkfs.xfs -i size=1024 /srv/swift-disk`
+  #. Edit `/etc/fstab` and add
+       `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
+  #. `mkdir /mnt/sdb1`
+  #. `mount /mnt/sdb1`
+  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
+  #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
+  #. `mkdir /srv`
+  #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
+  #. `mkdir -p /etc/swift/object-server /etc/swift/container-server /etc/swift/account-server /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4 /var/run/swift`
+  #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4]/ /var/run/swift` -- **Make sure to include the trailing slash after /srv/[1-4]/**
+  #. Add to `/etc/rc.local` (before the `exit 0`)::
+
+        mkdir /var/run/swift
+        chown <your-user-name>:<your-group-name> /var/run/swift
+
+----------------
+Setting up rsync
+----------------
 
   #. Create /etc/rsyncd.conf::
 
@@ -144,7 +176,14 @@ virtual machine will emulate running a four node Swift cluster.
 
   #. `service rsync restart`
 
-* As you on guest:
+
+------------------------------------------------
+Getting the code and setting up test environment
+------------------------------------------------
+
+Sample configuration files are provided with all defaults in line-by-line comments. 
+
+Do these commands as you on guest:
 
   #. `mkdir ~/bin`
   #. Create `~/.bazaar/bazaar.conf`::
@@ -164,6 +203,13 @@ virtual machine will emulate running a four node Swift cluster.
         export PATH=${PATH}:~/bin
 
   #. `. ~/.bashrc`
+  
+---------------------
+Configuring each node
+---------------------
+
+Sample configuration files are provided with all defaults in line-by-line comments.
+  
   #. Create `/etc/swift/auth-server.conf`::
 
         [DEFAULT]
@@ -331,7 +377,6 @@ virtual machine will emulate running a four node Swift cluster.
 
         [container-auditor]
 
-
   #. Create `/etc/swift/container-server/3.conf`::
 
         [DEFAULT]
@@ -352,7 +397,6 @@ virtual machine will emulate running a four node Swift cluster.
         [container-updater]
 
         [container-auditor]
-
 
   #. Create `/etc/swift/container-server/4.conf`::
 
@@ -460,8 +504,12 @@ virtual machine will emulate running a four node Swift cluster.
 
         [object-auditor]
 
-  #. Create `~/bin/resetswift`::
+------------------------------------
+Setting up scripts for running Swift
+------------------------------------
 
+  #. Create `~/bin/resetswift.` If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`::
+  
         #!/bin/bash
 
         swift-init all stop
@@ -475,11 +523,6 @@ virtual machine will emulate running a four node Swift cluster.
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
         sudo service rsyslog restart
         sudo service memcached restart
-
-  .. note::
-
-    If you are using a loopback device, substitute `/dev/sdb1` above with
-    `/srv/swift-disk`
 
   #. Create `~/bin/remakerings`::
 
@@ -553,9 +596,14 @@ virtual machine will emulate running a four node Swift cluster.
 
 If you plan to work on documentation (and who doesn't?!):
 
-  #. `sudo apt-get install python-sphinx`
-  #. `python setup.py build_sphinx`
+On Ubuntu:
+  #. `sudo apt-get install python-sphinx` installs Sphinx.
+  #. `python setup.py build_sphinx` builds the documentation.
 
+On MacOS: 
+  #. `sudo easy_install -U sphinx` installs Sphinx.
+  #. `python setup.py build_sphinx` builds the documentation.
+  
 ----------------
 Debugging Issues
 ----------------

@@ -39,6 +39,7 @@ CONF_DEFAULTS = {
     'num_gets': '10000',
     'delete': 'yes',
     'container_name': uuid.uuid4().hex,
+    'num_containers': '20',
     'use_proxy': 'yes',
     'url': '',
     'account': '',

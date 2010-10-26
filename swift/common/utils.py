@@ -629,10 +629,10 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
 
     :param devices: parent directory of the devices to be audited
     :param datadir: a directory located under self.devices. This should be
-    one of the DATADIR constants defined in the account, container, and
-    object servers.
+                    one of the DATADIR constants defined in the account,
+                    container, and object servers.
     :param mount_check: Flag to check if a mount check should be performed
-    on devices
+                    on devices
     :param logger: a logger object
     '''
     for device in os.listdir(devices):

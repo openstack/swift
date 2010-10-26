@@ -98,6 +98,17 @@ class MockMemcached(object):
                     self.outbuf += str(val[2]) + '\r\n'
                 else:
                     self.outbuf += 'NOT_FOUND\r\n'
+            elif parts[0].lower() == 'decr':
+                if parts[1] in self.cache:
+                    val = list(self.cache[parts[1]])
+                    if int(val[2]) - int(parts[2]) > 0:
+                        val[2] = str(int(val[2]) - int(parts[2]))
+                    else:
+                        val[2] = '0'
+                    self.cache[parts[1]] = val
+                    self.outbuf += str(val[2]) + '\r\n'
+                else:
+                    self.outbuf += 'NOT_FOUND\r\n'
     def readline(self):
         if self.down:
             raise Exception('mock is down')
@@ -151,6 +162,23 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get('some_key'), '10')
         memcache_client.incr('some_key', delta=1)
         self.assertEquals(memcache_client.get('some_key'), '11')
+        memcache_client.incr('some_key', delta=-5)
+        self.assertEquals(memcache_client.get('some_key'), '6')
+        memcache_client.incr('some_key', delta=-15)
+        self.assertEquals(memcache_client.get('some_key'), '0')
+
+    def test_decr(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client.decr('some_key', delta=5)
+        self.assertEquals(memcache_client.get('some_key'), '0')
+        memcache_client.incr('some_key', delta=15)
+        self.assertEquals(memcache_client.get('some_key'), '15')
+        memcache_client.decr('some_key', delta=4)
+        self.assertEquals(memcache_client.get('some_key'), '11')
+        memcache_client.decr('some_key', delta=15)
+        self.assertEquals(memcache_client.get('some_key'), '0')
 
     def test_retry(self):
         logging.getLogger().addHandler(NullLoggingHandler())

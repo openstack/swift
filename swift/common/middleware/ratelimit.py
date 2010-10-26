@@ -40,6 +40,8 @@ class RateLimitMiddleware(object):
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
                                                    60))
+        self.log_sleep_time_seconds = float(conf.get('log_sleep_time_seconds',
+                                                   0))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
         self.ratelimit_whitelist = [acc.strip() for acc in
             conf.get('account_whitelist', '').split(',')
@@ -148,7 +150,7 @@ class RateLimitMiddleware(object):
         max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
             # treat as no-op decrement time
-            self.memcache_client.incr(key, delta=-time_per_request_m)
+            self.memcache_client.decr(key, delta=time_per_request_m)
             raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" %
                                   need_to_sleep_m)
 
@@ -176,6 +178,11 @@ class RateLimitMiddleware(object):
             obj_name=obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
+                if self.log_sleep_time_seconds and \
+                        need_to_sleep > self.log_sleep_time_seconds:
+                    self.logger.info("Ratelimit sleep log: %s for %s/%s/%s" % (
+                            need_to_sleep, account_name,
+                            container_name, obj_name))
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
             except MaxSleepTimeHit, e:
