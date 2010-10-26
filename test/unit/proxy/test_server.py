@@ -1076,15 +1076,6 @@ class TestObjectController(unittest.TestCase):
                 #                 acct cont obj  obj  obj
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
-            
-            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '5'})
-            self.app.update_request(req)
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200)
-                #                 acct cont
-            resp = controller.PUT(req)
-            self.assertEquals(resp.status_int, 400)
 
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
@@ -1093,6 +1084,18 @@ class TestObjectController(unittest.TestCase):
             proxy_server.http_connect = \
                 fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
                 #                 acct cont acct cont objc obj  obj  obj
+            self.app.memcache.store = {}
+            resp = controller.PUT(req)
+            self.assertEquals(resp.status_int, 201)
+            self.assertEquals(resp.headers['x-copied-from'], 'c/o')
+
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '5',
+                                          'X-Copy-From': 'c/o'})
+            self.app.update_request(req)
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 200, 200, 200)
+                #                 acct cont acct cont objc
             self.app.memcache.store = {}
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
