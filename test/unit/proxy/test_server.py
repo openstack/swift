@@ -1076,6 +1076,12 @@ class TestObjectController(unittest.TestCase):
                 #                 acct cont obj  obj  obj
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
+            
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '5'})
+            self.app.update_request(req)
+            resp = controller.PUT(req)
+            self.assertEquals(resp.status_int, 400)
 
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
