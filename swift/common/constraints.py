@@ -100,10 +100,7 @@ def check_object_creation(req, object_name):
     if req.content_length is None and \
             req.headers.get('transfer-encoding') != 'chunked':
         return HTTPLengthRequired(request=req)
-    if ((req.method == 'COPY' or
-            (req.method == 'PUT' and 'X-Copy-From' in req.headers)) and
-            req.headers.get('transfer-encoding') != 'chunked' and
-            req.content_length > 0):
+    if 'X-Copy-From' in req.headers and req.content_length:
         return HTTPBadRequest(body='Copy requests require a zero byte body',
                               request=req, content_type='text/plain')
     if len(object_name) > MAX_OBJECT_NAME_LENGTH:
