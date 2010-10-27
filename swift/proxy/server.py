@@ -769,7 +769,8 @@ class ObjectController(Controller):
         resp = self.best_response(req, statuses, reasons, bodies, 'Object PUT',
                                   etag=etag)
         if source_header:
-            resp.headers['X-Copied-From'] = source_header.split('/', 2)[2]
+            resp.headers['X-Copied-From'] = quote(
+                                                source_header.split('/', 2)[2])
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v
