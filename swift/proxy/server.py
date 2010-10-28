@@ -848,7 +848,7 @@ class ObjectController(Controller):
         del new_headers['Destination']
         new_path = '/' + self.account_name + dest
         new_req = Request.blank(new_path,
-                        environ={'REQUEST_METHOD': 'PUT'}, headers=new_headers)
+                        environ={'REQUEST_METHOD': 'COPY'}, headers=new_headers)
         return self.PUT(new_req)
 
 
