@@ -774,6 +774,8 @@ class ObjectController(Controller):
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v
+            # reset the bytes, since the user didn't actually send anything
+            req.bytes_transferred = 0
         resp.last_modified = float(req.headers['X-Timestamp'])
         return resp
 
