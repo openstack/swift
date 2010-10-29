@@ -278,14 +278,15 @@ class ContainerController(object):
         except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
-        header_format = req.accept.first_match(['text/plain',
-                                                'application/json',
-                                                'application/xml'])
-        format = query_format if query_format else header_format
-        if format.startswith('application/'):
-            format = format[12:]
+        header_format = req.accept.best_match(['text/plain',
+                                               'application/json',
+                                               'application/xml'])
+        format = query_format or header_format or 'text/plain'
+        if '/' in format:
+            format = format.split('/')[-1]
         container_list = broker.list_objects_iter(limit, marker, prefix,
                                                   delimiter, path)
+        print "format is %s" % format
         if format == 'json':
             out_content_type = 'application/json'
             json_pattern = ['"name":%s', '"hash":"%s"', '"bytes":%s',
