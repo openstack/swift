@@ -71,6 +71,7 @@ class DomainRemapMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
     def domain_filter(app):
         return DomainRemapMiddleware(app, conf)
     return domain_filter
