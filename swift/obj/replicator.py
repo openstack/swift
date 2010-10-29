@@ -232,7 +232,7 @@ class ObjectReplicator(Daemon):
         """
         Execute the rsync binary to replicate a partition.
 
-        :returns: a tuple of (rsync exit code, rsync standard output)
+        :returns: return code of rsync process. 0 is successful
         """
         start_time = time.time()
         ret_val = None

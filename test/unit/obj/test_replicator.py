@@ -22,12 +22,14 @@ from shutil import rmtree
 import cPickle as pickle
 import logging
 import fcntl
+import time
 from contextlib import contextmanager
 
 from eventlet.green import subprocess
-
-from swift.obj import replicator as object_replicator
+from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
+from swift.obj import replicator as object_replicator
+from swift.obj.server import DiskFile
 
 def _ips():
     return ['127.0.0.0',]
@@ -39,15 +41,53 @@ class NullHandler(logging.Handler):
 null_logger = logging.getLogger("testing")
 null_logger.addHandler(NullHandler())
 
+
+def mock_http_connect(status):
+
+    class FakeConn(object):
+
+        def __init__(self, status, *args, **kwargs):
+            self.status = status
+            self.reason = 'Fake'
+            self.host = args[0]
+            self.port = args[1]
+            self.method = args[4]
+            self.path = args[5]
+            self.with_exc = False
+            self.headers = kwargs.get('headers',{})
+
+        def getresponse(self):
+            if self.with_exc:
+                raise Exception('test')
+            return self
+
+        def getheader(self, header):
+            return self.headers[header]
+
+        def read(self, amt=None):
+            return pickle.dumps({})
+
+        def close(self):
+            return
+    return lambda *args, **kwargs: FakeConn(status, *args, **kwargs)
+
+process_errors = []
+
 class MockProcess(object):
     ret_code = None
     ret_log = None
+    check_args = None
 
     class Stream(object):
         def read(self):
             return MockProcess.ret_log.next()
 
     def __init__(self, *args, **kwargs):
+        targs = MockProcess.check_args.next()
+        for targ in targs:
+            if targ not in args[0]:
+                process_errors.append("Invalid: %s not in %s" % (targ,
+                                                                 args))
         self.stdout = self.Stream()
 
     def wait(self):
@@ -58,6 +98,7 @@ def _mock_process(ret):
     orig_process = subprocess.Popen
     MockProcess.ret_code = (i[0] for i in ret)
     MockProcess.ret_log = (i[1] for i in ret)
+    MockProcess.check_args = (i[2] for i in ret)
     object_replicator.subprocess.Popen = MockProcess
     yield
     object_replicator.subprocess.Popen = orig_process
@@ -98,7 +139,9 @@ class TestObjectReplicator(unittest.TestCase):
         os.mkdir(os.path.join(self.devices, 'sda'))
         self.objects = os.path.join(self.devices, 'sda', 'objects')
         os.mkdir(self.objects)
+        self.parts = {}
         for part in ['0','1','2', '3']:
+            self.parts[part] = os.path.join(self.objects, part)
             os.mkdir(os.path.join(self.objects, part))
         self.ring = _create_test_ring(self.testdir)
         self.conf = dict(
@@ -106,6 +149,46 @@ class TestObjectReplicator(unittest.TestCase):
             timeout='300', stats_interval='1')
         self.replicator = object_replicator.ObjectReplicator(
             self.conf)
+
+    def tearDown(self):
+        process_errors = []
+        rmtree(self.testdir, ignore_errors=1)
+
+    def test_run_once(self):
+        replicator = object_replicator.ObjectReplicator(
+            dict(swift_dir=self.testdir, devices=self.devices,
+                mount_check='false', timeout='300', stats_interval='1'))
+        object_replicator.http_connect = mock_http_connect(200)
+
+        cur_part = '0'
+        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
+
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time.time()) + '.data'),
+                 'wb')
+        f.write('1234567890')
+        f.close()
+
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects, cur_part, data_dir)
+        process_arg_checker = []
+
+        nodes = [node for node in
+                 self.ring.get_part_nodes(int(cur_part)) \
+                     if node['ip'] not in _ips()]
+
+        for node in nodes:
+            rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
+            process_arg_checker.append((0, '',
+                                        ['rsync', whole_path_from, rsync_mod]))
+
+        with _mock_process(process_arg_checker):
+            replicator.run_once()
+
+        self.assertFalse(process_errors)
+
 
 #    def test_check_ring(self):
 #        self.replicator.collect_jobs('sda', 0, self.ring)
