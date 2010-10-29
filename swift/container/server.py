@@ -286,7 +286,6 @@ class ContainerController(object):
             format = format.split('/')[-1]
         container_list = broker.list_objects_iter(limit, marker, prefix,
                                                   delimiter, path)
-        print "format is %s" % format
         if format == 'json':
             out_content_type = 'application/json'
             json_pattern = ['"name":%s', '"hash":"%s"', '"bytes":%s',
