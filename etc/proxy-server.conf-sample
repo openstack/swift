@@ -9,7 +9,7 @@
 # key_file = /etc/swift/proxy.key
 
 [pipeline:main]
-pipeline = healthcheck cache ratelimit auth proxy-server
+pipeline = catch_errors healthcheck cache ratelimit auth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -76,3 +76,6 @@ use = egg:swift#ratelimit
 # container_ratelimit_0 = 100
 # container_ratelimit_10 = 50
 # container_ratelimit_50 = 20
+
+[filter:cate_errors]
+use = egg:swift#catch_errors
