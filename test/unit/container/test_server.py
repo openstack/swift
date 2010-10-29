@@ -481,16 +481,18 @@ class TestContainerController(unittest.TestCase):
 
     def test_GET_json(self):
         # make a container
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+        req = Request.blank('/sda1/p/a/jsonc', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})
         resp = self.controller.PUT(req)
         # test an empty container
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank('/sda1/p/a/jsonc?format=json',
+            environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(eval(resp.body), [])
         # fill the container
         for i in range(3):
-            req = Request.blank('/sda1/p/a/c/%s'%i, environ=
+            req = Request.blank('/sda1/p/a/jsonc/%s'%i, environ=
                     {'REQUEST_METHOD': 'PUT',
                     'HTTP_X_TIMESTAMP': '1',
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
@@ -514,28 +516,33 @@ class TestContainerController(unittest.TestCase):
                     "bytes":0,
                     "content_type":"text/plain",
                     "last_modified":"1970-01-01T00:00:01"}]
-        req = Request.blank('/sda1/p/a/c?format=json', environ={'REQUEST_METHOD': 'GET'})
+
+        req = Request.blank('/sda1/p/a/jsonc?format=json',
+                environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/json')
-        result = eval(resp.body)
-        self.assertEquals(result, json_body)
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
-        req.accept = 'application/json'
-        resp = self.controller.GET(req)
-        self.assertEquals(resp.content_type, 'application/json')
-        result = eval(resp.body)
-        self.assertEquals(result, json_body)
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
-        req.accept = 'application/*'
-        resp = self.controller.GET(req)
-        result = eval(resp.body)
-        self.assertEquals(result, json_body)
+        self.assertEquals(eval(resp.body), json_body)
+
+        for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',
+                 '*/*;q=0.9,application/json;q=1.0', 'application/*'):
+            req = Request.blank('/sda1/p/a/jsonc',
+                    environ={'REQUEST_METHOD': 'GET'})
+            req.accept = accept
+            resp = self.controller.GET(req)
+            self.assertEquals(eval(resp.body), json_body,
+                'Invalid body for Accept: %s' % accept)
+            self.assertEquals(resp.content_type, 'application/json',
+                'Invalid content_type for Accept: %s' % accept)
 
     def test_GET_plain(self):
         # make a container
         req = Request.blank('/sda1/p/a/plainc', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})
         resp = self.controller.PUT(req)
+        # test an empty container
+        req = Request.blank('/sda1/p/a/plainc', environ={'REQUEST_METHOD': 'GET'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
         # fill the container
         for i in range(3):
             req = Request.blank('/sda1/p/a/plainc/%s'%i, environ=
@@ -555,13 +562,16 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.body, plain_body)
 
         for accept in ('', 'text/plain', 'application/xml;q=0.8,*/*;q=0.9',
-                       '*/*;q=0.9,application/xml;q=0.8', '*/*'):
+                '*/*;q=0.9,application/xml;q=0.8', '*/*',
+                'text/plain,application/xml'):
             req = Request.blank('/sda1/p/a/plainc',
                     environ={'REQUEST_METHOD': 'GET'})
             req.accept = accept
             resp = self.controller.GET(req)
-            self.assertEquals(resp.body, plain_body)
-            self.assertEquals(resp.content_type, 'text/plain')
+            self.assertEquals(resp.body, plain_body,
+                'Invalid body for Accept: %s' % accept)
+            self.assertEquals(resp.content_type, 'text/plain',
+                'Invalid content_type for Accept: %s' % accept)
 
         # test conflicting formats
         req = Request.blank('/sda1/p/a/plainc?format=plain',
@@ -609,13 +619,15 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.body, xml_body)
 
         for xml_accept in ('application/xml', 'application/xml;q=1.0,*/*;q=0.9',
-                           '*/*;q=0.9,application/xml;q=1.0'):
+                 '*/*;q=0.9,application/xml;q=1.0'):
             req = Request.blank('/sda1/p/a/xmlc',
                     environ={'REQUEST_METHOD': 'GET'})
             req.accept = xml_accept
             resp = self.controller.GET(req)
-            self.assertEquals(resp.body, xml_body)
-            self.assertEquals(resp.content_type, 'application/xml')
+            self.assertEquals(resp.body, xml_body,
+                'Invalid body for Accept: %s' % xml_accept)
+            self.assertEquals(resp.content_type, 'application/xml',
+                'Invalid content_type for Accept: %s' % xml_accept)
 
     def test_GET_marker(self):
         # make a container
