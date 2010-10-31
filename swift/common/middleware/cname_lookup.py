@@ -15,10 +15,16 @@
 
 from webob import Request
 from webob.exc import HTTPBadRequest
+import dns.resolver
+
+from swift.common.utils import cache_from_env
 
 
 def lookup_cname(domain):
-    return domain
+    answer = dns.resolver.query(domain, 'CNAME').rrset
+    ttl = answer.ttl
+    result = answer.name.to_text()
+    return ttl, result
 
 
 class CNAMELookupMiddleware(object):
@@ -37,19 +43,37 @@ class CNAMELookupMiddleware(object):
         self.app = app
         self.storage_domain = conf.get('storage_domain', 'example.com')
         self.lookup_depth = int(conf.get('lookup_depth', '1'))
+        self.memcache = None
 
     def __call__(self, env, start_response):
         given_domain = env['HTTP_HOST']
         if ':' in given_domain:
             given_domain, _ = given_domain.rsplit(':', 1)
         if not given_domain.endswith(self.storage_domain):
+            if self.memcache is None:
+                self.memcache = cache_from_env(env)
             for tries in xrange(self.lookup_depth):
-                found_domain = lookup_cname(given_domain)
+                found_domain = None
+                if self.memcache:
+                    found_domain = self.memcache.get(given_domain)
+                if not found_domain:
+                    ttl, found_domain = lookup_cname(given_domain)
+                    if self.memcache:
+                        self.memcache.set(given_domain, found_domain,
+                                          timeout=ttl)
+                if found_domain is None:
+                    # something weird happened
+                    #TODO: set error and break from loop
+                    found_domain = ''
+                if found_domain == given_domain:
+                    # we're at the last lookup
+                    #TODO: set error and break from loop
                 if found_domain.endswith(self.storage_domain):
                     break
                 else:
                     given_domain = found_domain
             else:
+                #TODO: change to error flag check rather than else
                 if found_domain:
                     msg = 'CNAME lookup failed after %d tries' % \
                             self.lookup_depth
