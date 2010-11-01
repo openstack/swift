@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, get_param, hash_path, \
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
-
+from swift.common.exceptions import InvalidPathError
 
 DATADIR = 'accounts'
 
@@ -60,7 +60,7 @@ class AccountController(object):
         """Handle HTTP DELETE request."""
         try:
             drive, part, account = split_path(unquote(req.path), 3)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
@@ -77,7 +77,12 @@ class AccountController(object):
 
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        drive, part, account, container = split_path(unquote(req.path), 3, 4)
+        try:
+            drive, part, account, container = split_path(unquote(req.path),
+                                                         3, 4)
+        except InvalidPathError, err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain',
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
@@ -130,7 +135,7 @@ class AccountController(object):
         try:
             drive, part, account, container = split_path(unquote(req.path),
                                                          3, 4)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
@@ -161,7 +166,7 @@ class AccountController(object):
         """Handle HTTP GET request."""
         try:
             drive, part, account = split_path(unquote(req.path), 3)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
@@ -252,7 +257,7 @@ class AccountController(object):
         """
         try:
             post_args = split_path(unquote(req.path), 3)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         drive, partition, hash = post_args
@@ -270,7 +275,7 @@ class AccountController(object):
         """Handle HTTP POST request."""
         try:
             drive, part, account = split_path(unquote(req.path), 3)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
         if 'x-timestamp' not in req.headers or \

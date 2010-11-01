@@ -52,3 +52,6 @@ class DriveNotMounted(Exception):
 
 class LockTimeout(MessageTimeout):
     pass
+
+class InvalidPathError(Exception):
+    pass

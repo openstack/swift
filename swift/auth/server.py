@@ -30,6 +30,7 @@ from webob.exc import HTTPBadRequest, HTTPConflict, HTTPForbidden, \
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
 from swift.common.utils import get_logger, split_path
+from swift.common.exceptions import InvalidPathError
 
 
 class AuthController(object):
@@ -415,7 +416,7 @@ YOU HAVE A FEW OPTIONS:
         """
         try:
             _, token = split_path(request.path, minsegs=2)
-        except ValueError:
+        except InvalidPathError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
         validation = self.validate_token(token)
@@ -451,7 +452,7 @@ YOU HAVE A FEW OPTIONS:
         """
         try:
             _, account_name, user_name = split_path(request.path, minsegs=3)
-        except ValueError:
+        except InvalidPathError:
             return HTTPBadRequest()
         create_reseller_admin = \
             request.headers.get('x-auth-user-reseller-admin') == 'true'
@@ -607,6 +608,8 @@ YOU HAVE A FEW OPTIONS:
             else:
                 return HTTPBadRequest(request=env)(env, start_response)
             response = handler(req)
+        except InvalidPathError:
+            return HTTPNotFound()(env, start_response)
         except:
             self.logger.exception('ERROR Unhandled exception in ReST request')
             return HTTPServiceUnavailable(request=req)(env, start_response)

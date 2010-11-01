@@ -41,7 +41,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
-from swift.common.exceptions import ConnectionTimeout
+from swift.common.exceptions import ConnectionTimeout, InvalidPathError
 from swift.obj.replicator import get_hashes, invalidate_hash, \
     recalculate_hashes
 
@@ -313,7 +313,7 @@ class ObjectController(object):
         try:
             device, partition, account, container, obj = \
                 split_path(unquote(request.path), 5, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), request=request,
                         content_type='text/plain')
         if 'x-timestamp' not in request.headers or \
@@ -342,7 +342,7 @@ class ObjectController(object):
         try:
             device, partition, account, container, obj = \
                 split_path(unquote(request.path), 5, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), request=request,
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
@@ -414,7 +414,7 @@ class ObjectController(object):
         try:
             device, partition, account, container, obj = \
                 split_path(unquote(request.path), 5, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), request=request,
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
@@ -474,7 +474,7 @@ class ObjectController(object):
         try:
             device, partition, account, container, obj = \
                 split_path(unquote(request.path), 5, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             resp = HTTPBadRequest(request=request)
             resp.content_type = 'text/plain'
             resp.body = str(err)
@@ -502,7 +502,7 @@ class ObjectController(object):
         try:
             device, partition, account, container, obj = \
                 split_path(unquote(request.path), 5, 5, True)
-        except ValueError, e:
+        except InvalidPathError, e:
             return HTTPBadRequest(body=str(e), request=request,
                         content_type='text/plain')
         if 'x-timestamp' not in request.headers or \
@@ -534,8 +534,12 @@ class ObjectController(object):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix = split_path(
-            unquote(request.path), 2, 3, True)
+        try:
+            device, partition, suffix = split_path(
+                unquote(request.path), 2, 3, True)
+        except InvalidPathError, e:
+            return HTTPBadRequest(body=str(e), request=request,
+                                  content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         path = os.path.join(self.devices, device, DATADIR, partition)

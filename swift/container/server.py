@@ -35,7 +35,7 @@ from swift.common.utils import get_logger, get_param, hash_path, \
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import ConnectionTimeout
+from swift.common.exceptions import ConnectionTimeout, InvalidPathError
 from swift.common.db_replicator import ReplicatorRpc
 
 DATADIR = 'containers'
@@ -130,7 +130,7 @@ class ContainerController(object):
         try:
             drive, part, account, container, obj = split_path(
                 unquote(req.path), 4, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
         if 'x-timestamp' not in req.headers or \
@@ -166,7 +166,7 @@ class ContainerController(object):
         try:
             drive, part, account, container, obj = split_path(
                 unquote(req.path), 4, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
         if 'x-timestamp' not in req.headers or \
@@ -212,7 +212,7 @@ class ContainerController(object):
         try:
             drive, part, account, container, obj = split_path(
                 unquote(req.path), 4, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
         if self.mount_check and not check_mount(self.root, drive):
@@ -239,7 +239,7 @@ class ContainerController(object):
         try:
             drive, part, account, container, obj = split_path(
                 unquote(req.path), 4, 5, True)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
         if self.mount_check and not check_mount(self.root, drive):
@@ -343,7 +343,7 @@ class ContainerController(object):
         """
         try:
             post_args = split_path(unquote(req.path), 3)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
         drive, partition, hash = post_args
@@ -361,7 +361,7 @@ class ContainerController(object):
         """Handle HTTP POST request."""
         try:
             drive, part, account, container = split_path(unquote(req.path), 4)
-        except ValueError, err:
+        except InvalidPathError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
         if 'x-timestamp' not in req.headers or \
