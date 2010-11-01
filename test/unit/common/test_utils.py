@@ -29,7 +29,7 @@ from StringIO import StringIO
 from eventlet import sleep
 
 from swift.common import utils
-from swift.common.exceptions import InvalidPathError
+
 
 class TestUtils(unittest.TestCase):
     """ Tests for swift.common.utils """
@@ -87,36 +87,36 @@ class TestUtils(unittest.TestCase):
 
     def test_split_path(self):
         """ Test swift.common.utils.split_account_path """
-        self.assertRaises(InvalidPathError, utils.split_path, '')
-        self.assertRaises(InvalidPathError, utils.split_path, '/')
-        self.assertRaises(InvalidPathError, utils.split_path, '//')
+        self.assertRaises(ValueError, utils.split_path, '')
+        self.assertRaises(ValueError, utils.split_path, '/')
+        self.assertRaises(ValueError, utils.split_path, '//')
         self.assertEquals(utils.split_path('/a'), ['a'])
-        self.assertRaises(InvalidPathError, utils.split_path, '//a')
+        self.assertRaises(ValueError, utils.split_path, '//a')
         self.assertEquals(utils.split_path('/a/'), ['a'])
-        self.assertRaises(InvalidPathError, utils.split_path, '/a/c')
-        self.assertRaises(InvalidPathError, utils.split_path, '//c')
-        self.assertRaises(InvalidPathError, utils.split_path, '/a/c/')
-        self.assertRaises(InvalidPathError, utils.split_path, '/a//')
-        self.assertRaises(InvalidPathError, utils.split_path, '/a', 2)
-        self.assertRaises(InvalidPathError, utils.split_path, '/a', 2, 3)
-        self.assertRaises(InvalidPathError, utils.split_path, '/a', 2, 3, True)
+        self.assertRaises(ValueError, utils.split_path, '/a/c')
+        self.assertRaises(ValueError, utils.split_path, '//c')
+        self.assertRaises(ValueError, utils.split_path, '/a/c/')
+        self.assertRaises(ValueError, utils.split_path, '/a//')
+        self.assertRaises(ValueError, utils.split_path, '/a', 2)
+        self.assertRaises(ValueError, utils.split_path, '/a', 2, 3)
+        self.assertRaises(ValueError, utils.split_path, '/a', 2, 3, True)
         self.assertEquals(utils.split_path('/a/c', 2), ['a', 'c'])
         self.assertEquals(utils.split_path('/a/c/o', 3), ['a', 'c', 'o'])
-        self.assertRaises(InvalidPathError, utils.split_path, '/a/c/o/r', 3, 3)
+        self.assertRaises(ValueError, utils.split_path, '/a/c/o/r', 3, 3)
         self.assertEquals(utils.split_path('/a/c/o/r', 3, 3, True),
                           ['a', 'c', 'o/r'])
         self.assertEquals(utils.split_path('/a/c', 2, 3, True),
                           ['a', 'c', None])
-        self.assertRaises(InvalidPathError, utils.split_path, '/a', 5, 4)
+        self.assertRaises(ValueError, utils.split_path, '/a', 5, 4)
         self.assertEquals(utils.split_path('/a/c/', 2), ['a', 'c'])
         self.assertEquals(utils.split_path('/a/c/', 2, 3), ['a', 'c', ''])
         try:
             utils.split_path('o\nn e', 2)
-        except InvalidPathError, err:
+        except ValueError, err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
         try:
             utils.split_path('o\nn e', 2, 3, True)
-        except InvalidPathError, err:
+        except ValueError, err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
     def test_NullLogger(self):

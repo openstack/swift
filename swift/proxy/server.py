@@ -39,7 +39,7 @@ from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
     MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
-    ChunkWriteTimeout, ConnectionTimeout, InvalidPathError
+    ChunkWriteTimeout, ConnectionTimeout
 
 
 def update_headers(response, headers):
@@ -1260,7 +1260,7 @@ class BaseApplication(object):
         :param path: path from request
         :returns: tuple of (controller class, path dictionary)
 
-        :raises: InvalidPathError (thrown by split_path) if given invalid path
+        :raises: ValueError (thrown by split_path) id given invalid path
         """
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
@@ -1299,8 +1299,6 @@ class BaseApplication(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except InvalidPathError:
-            HTTPNotFound()(env, start_response)
         except:
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
@@ -1330,7 +1328,7 @@ class BaseApplication(object):
         try:
             try:
                 controller, path_parts = self.get_controller(req.path)
-            except InvalidPathError:
+            except ValueError:
                 return HTTPNotFound(request=req)
             if not check_utf8(req.path_info):
                 return HTTPPreconditionFailed(request=req, body='Invalid UTF8')

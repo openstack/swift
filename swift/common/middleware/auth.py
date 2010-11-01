@@ -21,7 +21,7 @@ from webob.exc import HTTPForbidden, HTTPUnauthorized, HTTPNotFound
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, split_path, TRUE_VALUES
-from swift.common.exceptions import InvalidPathError
+
 
 class DevAuth(object):
     """Auth Middleware that uses the dev auth server."""
@@ -85,7 +85,7 @@ class DevAuth(object):
                 try:
                     version, rest = split_path(env.get('PATH_INFO', ''),
                                                1, 2, True)
-                except InvalidPathError, err:
+                except ValueError, err:
                     return HTTPNotFound()(env, start_response)
                 if rest and rest.startswith(self.reseller_prefix):
                     # Handle anonymous access to accounts I'm the definitive
@@ -148,10 +148,11 @@ class DevAuth(object):
         """
         Returns None if the request is authorized to continue or a standard
         WSGI response callable if not.
-
-        :raises: InvalidPathError (thrown by split_path) if given invalid path
         """
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        try:
+            version, account, container, obj = split_path(req.path, 1, 4, True)
+        except ValueError:
+            return HTTPNotFound(request=req)
         if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
         user_groups = (req.remote_user or '').split(',')

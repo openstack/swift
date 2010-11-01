@@ -27,7 +27,6 @@ from webob import Request
 from swift.auth import server as auth_server
 from swift.common.db import DatabaseConnectionError, get_db_connection
 from swift.common.utils import get_logger
-from swift.common.exceptions import InvalidPathError
 
 
 class TestException(Exception):
@@ -242,8 +241,9 @@ class TestAuthServer(unittest.TestCase):
             len(set(repr(a) for a in cfaccounts) - set(failed)), 2)
 
     def test_auth_bad_path(self):
-        self.assertRaises(InvalidPathError, self.controller.handle_auth,
+        res = self.controller.handle_auth(
             Request.blank('', environ={'REQUEST_METHOD': 'GET'}))
+        self.assertEquals(res.status_int, 400)
         res = self.controller.handle_auth(Request.blank('/bad',
                 environ={'REQUEST_METHOD': 'GET'}))
         self.assertEquals(res.status_int, 400)

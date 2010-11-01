@@ -18,7 +18,6 @@ from urllib import unquote
 import copy
 
 from swift.common.utils import split_path, get_logger
-from swift.common.exceptions import InvalidPathError
 
 month_map = '_ Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()
 
@@ -70,7 +69,7 @@ class AccessLogProcessor(object):
         try:
             (version, account, container_name, object_name) = \
                 split_path(request, 2, 4, True)
-        except InvalidPathError, e:
+        except ValueError, e:
             self.logger.debug(
                 'Invalid path: %s from data: %s' % (e, repr(raw_log)))
             return {}

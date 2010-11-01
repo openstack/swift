@@ -30,7 +30,6 @@ from webob.exc import HTTPBadRequest, HTTPConflict, HTTPForbidden, \
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
 from swift.common.utils import get_logger, split_path
-from swift.common.exceptions import InvalidPathError
 
 
 class AuthController(object):
@@ -416,7 +415,7 @@ YOU HAVE A FEW OPTIONS:
         """
         try:
             _, token = split_path(request.path, minsegs=2)
-        except InvalidPathError:
+        except ValueError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
         validation = self.validate_token(token)
@@ -452,7 +451,7 @@ YOU HAVE A FEW OPTIONS:
         """
         try:
             _, account_name, user_name = split_path(request.path, minsegs=3)
-        except InvalidPathError:
+        except ValueError:
             return HTTPBadRequest()
         create_reseller_admin = \
             request.headers.get('x-auth-user-reseller-admin') == 'true'
@@ -517,8 +516,12 @@ YOU HAVE A FEW OPTIONS:
 
         :param request: A webob.Request instance.
         """
-        pathsegs = \
-            split_path(request.path, minsegs=1, maxsegs=3, rest_with_last=True)
+        try:
+            pathsegs = \
+                split_path(request.path, minsegs=1, maxsegs=3,
+                           rest_with_last=True)
+        except ValueError:
+            return HTTPBadRequest()
         if pathsegs[0] == 'v1' and pathsegs[2] == 'auth':
             account = pathsegs[1]
             user = request.headers.get('x-storage-user')
@@ -608,8 +611,6 @@ YOU HAVE A FEW OPTIONS:
             else:
                 return HTTPBadRequest(request=env)(env, start_response)
             response = handler(req)
-        except InvalidPathError:
-            return HTTPNotFound()(env, start_response)
         except:
             self.logger.exception('ERROR Unhandled exception in ReST request')
             return HTTPServiceUnavailable(request=req)(env, start_response)

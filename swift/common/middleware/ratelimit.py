@@ -18,7 +18,7 @@ from webob.exc import HTTPNotFound
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
-from swift.common.exceptions import InvalidPathError
+
 
 class MaxSleepTimeHit(Exception):
     pass
@@ -207,7 +207,7 @@ class RateLimitMiddleware(object):
             self.memcache_client = cache_from_env(env)
         try:
             version, account, container, obj = split_path(req.path, 1, 4, True)
-        except InvalidPathError:
+        except ValueError:
             return HTTPNotFound()(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
         if ratelimit_resp is None:
