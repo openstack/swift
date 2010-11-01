@@ -17,7 +17,6 @@ virtual machine will emulate running a four node Swift cluster.
 
 * Create guest virtual machine from the Ubuntu image. 
 
-Additional information about setting up a Swift development snapshot on other distributions is available on the wiki at http://wiki.openstack.org/SAIOInstructions.
 
 -----------------------------------------
 Installing dependencies and the core code
