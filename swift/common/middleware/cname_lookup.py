@@ -20,7 +20,7 @@ import dns.resolver
 from swift.common.utils import cache_from_env
 
 
-def lookup_cname(domain):
+def lookup_cname(domain):  # pragma: no cover
     answer = dns.resolver.query(domain, 'CNAME').rrset
     ttl = answer.ttl
     result = answer.name.to_text()
@@ -94,7 +94,7 @@ class CNAMELookupMiddleware(object):
         return self.app(env, start_response)
 
 
-def filter_factory(global_conf, **local_conf):
+def filter_factory(global_conf, **local_conf):  # pragma: no cover
     conf = global_conf.copy()
     conf.update(local_conf)
 
