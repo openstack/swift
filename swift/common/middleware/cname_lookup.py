@@ -47,11 +47,13 @@ class CNAMELookupMiddleware(object):
 
     def __call__(self, env, start_response):
         given_domain = env['HTTP_HOST']
+        port = ''
         if ':' in given_domain:
-            given_domain, _ = given_domain.rsplit(':', 1)
+            given_domain, port = given_domain.rsplit(':', 1)
         if not given_domain.endswith(self.storage_domain):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
+            error = True
             for tries in xrange(self.lookup_depth):
                 found_domain = None
                 if self.memcache:
@@ -63,17 +65,24 @@ class CNAMELookupMiddleware(object):
                                           timeout=ttl)
                 if found_domain is None:
                     # something weird happened
-                    #TODO: set error and break from loop
-                    found_domain = ''
-                if found_domain == given_domain:
+                    error = True
+                    break
+                elif found_domain == given_domain:
                     # we're at the last lookup
-                    #TODO: set error and break from loop
-                if found_domain.endswith(self.storage_domain):
+                    error = True
+                    break
+                elif found_domain.endswith(self.storage_domain):
+                    # Found it!
+                    if port:
+                        env['HTTP_HOST'] = ':'.join([found_domain, port])
+                    else:
+                        env['HTTP_HOST'] = found_domain
+                    error = False
                     break
                 else:
+                    # try one more deep in the chain
                     given_domain = found_domain
-            else:
-                #TODO: change to error flag check rather than else
+            if error:
                 if found_domain:
                     msg = 'CNAME lookup failed after %d tries' % \
                             self.lookup_depth
@@ -82,34 +91,6 @@ class CNAMELookupMiddleware(object):
                 resp = HTTPBadRequest(request=Request(env), body=msg,
                                       content_type='text/plain')
                 return resp(env, start_response)
-        return self.app(env, start_response)
-        
-        if given_domain != self.storage_domain and \
-            given_domain.endswith(self.storage_domain):
-            parts_to_parse = given_domain[:-len(self.storage_domain)]
-            parts_to_parse = parts_to_parse.strip('.').split('.')
-            len_parts_to_parse = len(parts_to_parse)
-            if len_parts_to_parse == 2:
-                container, account = parts_to_parse
-            elif len_parts_to_parse == 1:
-                container, account = None, parts_to_parse[0]
-            else:
-                resp = HTTPBadRequest(request=Request(env),
-                                      body='Bad domain in host header',
-                                      content_type='text/plain')
-                return resp(env, start_response)
-            if '_' not in account and '-' in account:
-                account = account.replace('-', '_', 1)
-            path = env['PATH_INFO'].strip('/')
-            new_path_parts = ['', self.path_root, account]
-            if container:
-                new_path_parts.append(container)
-            if path.startswith(self.path_root):
-                path = path[len(self.path_root):].lstrip('/')
-            if path:
-                new_path_parts.append(path)
-            new_path = '/'.join(new_path_parts)
-            env['PATH_INFO'] = new_path
         return self.app(env, start_response)
 
 
