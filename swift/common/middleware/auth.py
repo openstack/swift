@@ -85,7 +85,7 @@ class DevAuth(object):
                 try:
                     version, rest = split_path(env.get('PATH_INFO', ''),
                                                1, 2, True)
-                except ValueError, err:
+                except ValueError:
                     return HTTPNotFound()(env, start_response)
                 if rest and rest.startswith(self.reseller_prefix):
                     # Handle anonymous access to accounts I'm the definitive
@@ -106,10 +106,10 @@ class DevAuth(object):
     def get_groups(self, token, memcache_client=None):
         """
         Get groups for the given token.
-        
+
         If memcache_client is set, token credentials will be cached
         appropriately.
-        
+
         With a cache miss, or no memcache_client, the configurated external
         authentication server will be queried for the group information.
 

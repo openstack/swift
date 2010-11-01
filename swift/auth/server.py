@@ -517,9 +517,8 @@ YOU HAVE A FEW OPTIONS:
         :param request: A webob.Request instance.
         """
         try:
-            pathsegs = \
-                split_path(request.path, minsegs=1, maxsegs=3,
-                           rest_with_last=True)
+            pathsegs = split_path(request.path, minsegs=1, maxsegs=3,
+                                  rest_with_last=True)
         except ValueError:
             return HTTPBadRequest()
         if pathsegs[0] == 'v1' and pathsegs[2] == 'auth':
