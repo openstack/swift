@@ -241,8 +241,9 @@ class TestAuthServer(unittest.TestCase):
             len(set(repr(a) for a in cfaccounts) - set(failed)), 2)
 
     def test_auth_bad_path(self):
-        self.assertRaises(ValueError, self.controller.handle_auth,
+        res = self.controller.handle_auth(
             Request.blank('', environ={'REQUEST_METHOD': 'GET'}))
+        self.assertEquals(res.status_int, 400)
         res = self.controller.handle_auth(Request.blank('/bad',
                 environ={'REQUEST_METHOD': 'GET'}))
         self.assertEquals(res.status_int, 400)
