@@ -619,7 +619,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.body, xml_body)
 
         for xml_accept in ('application/xml', 'application/xml;q=1.0,*/*;q=0.9',
-                 '*/*;q=0.9,application/xml;q=1.0'):
+                 '*/*;q=0.9,application/xml;q=1.0', 'application/xml,text/xml'):
             req = Request.blank('/sda1/p/a/xmlc',
                     environ={'REQUEST_METHOD': 'GET'})
             req.accept = xml_accept
@@ -628,6 +628,13 @@ class TestContainerController(unittest.TestCase):
                 'Invalid body for Accept: %s' % xml_accept)
             self.assertEquals(resp.content_type, 'application/xml',
                 'Invalid content_type for Accept: %s' % xml_accept)
+
+        req = Request.blank('/sda1/p/a/xmlc',
+                environ={'REQUEST_METHOD': 'GET'})
+        req.accept = 'text/xml'
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.content_type, 'text/xml')
+        self.assertEquals(resp.body, xml_body)
 
     def test_GET_marker(self):
         # make a container

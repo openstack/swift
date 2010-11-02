@@ -278,16 +278,15 @@ class ContainerController(object):
         except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
-        header_format = req.accept.best_match(['text/plain',
-                                               'application/json',
-                                               'application/xml'])
-        format = query_format or header_format or 'text/plain'
-        if '/' in format:
-            format = format.split('/')[-1]
+        if query_format:
+            req.accept = 'application/%s' % query_format.lower()
+        out_content_type = req.accept.best_match(
+                                ['text/plain', 'application/json',
+                                 'application/xml', 'text/xml'],
+                                default_match='text/plain')
         container_list = broker.list_objects_iter(limit, marker, prefix,
                                                   delimiter, path)
-        if format == 'json':
-            out_content_type = 'application/json'
+        if out_content_type == 'application/json':
             json_pattern = ['"name":%s', '"hash":"%s"', '"bytes":%s',
                             '"content_type":%s, "last_modified":"%s"']
             json_pattern = '{' + ','.join(json_pattern) + '}'
@@ -307,8 +306,7 @@ class ContainerController(object):
                                                     content_type,
                                                     created_at))
             container_list = '[' + ','.join(json_out) + ']'
-        elif format == 'xml':
-            out_content_type = 'application/xml'
+        elif out_content_type.endswith('/xml'):
             xml_output = []
             for (name, created_at, size, content_type, etag) in container_list:
                 # escape name and format date here
@@ -330,7 +328,6 @@ class ContainerController(object):
         else:
             if not container_list:
                 return HTTPNoContent(request=req, headers=resp_headers)
-            out_content_type = 'text/plain'
             container_list = '\n'.join(r[0] for r in container_list) + '\n'
         ret = Response(body=container_list, request=req, headers=resp_headers)
         ret.content_type = out_content_type
