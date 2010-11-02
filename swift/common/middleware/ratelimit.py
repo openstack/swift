@@ -14,6 +14,7 @@
 import time
 import eventlet
 from webob import Request, Response
+from webob.exc import HTTPNotFound
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
@@ -204,7 +205,10 @@ class RateLimitMiddleware(object):
         req = Request(env)
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        try:
+            version, account, container, obj = split_path(req.path, 1, 4, True)
+        except ValueError:
+            return HTTPNotFound()(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
         if ratelimit_resp is None:
             return self.app(env, start_response)

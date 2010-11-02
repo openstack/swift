@@ -4,7 +4,7 @@ Rate Limiting
 
 Rate limiting in swift is implemented as a pluggable middleware.  Rate
 limiting is performed on requests that result in database writes to the
-account and container sqlite dbs.  It uses memcached and is dependant on
+account and container sqlite dbs.  It uses memcached and is dependent on
 the proxy servers having highly synchronized time.  The rate limits are
 limited by the accuracy of the proxy server clocks.
 

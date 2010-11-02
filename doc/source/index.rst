@@ -40,7 +40,7 @@ Deployment:
 
 .. toctree::
     :maxdepth: 1
-
+    
     deployment_guide
     admin_guide
     debian_package_guide
