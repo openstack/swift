@@ -77,7 +77,12 @@ class AccountController(object):
 
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        drive, part, account, container = split_path(unquote(req.path), 3, 4)
+        try:
+            drive, part, account, container = split_path(unquote(req.path),
+                                                         3, 4)
+        except ValueError, err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain',
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)

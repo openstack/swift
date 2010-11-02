@@ -366,6 +366,26 @@ class TestRateLimit(unittest.TestCase):
         time_took = time.time() - begin
         self.assert_(round(time_took, 1) == .4)
 
+    def test_call_invalid_path(self):
+        env = {'REQUEST_METHOD': 'GET',
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '//v1/AUTH_1234567890',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '80',
+               'swift.cache': FakeMemcache(),
+               'SERVER_PROTOCOL': 'HTTP/1.0'}
+
+        app = lambda *args, **kwargs: None
+        rate_mid = ratelimit.RateLimitMiddleware(app, {},
+                                                 logger=FakeLogger())
+
+        class a_callable(object):
+
+            def __call__(self, *args, **kwargs):
+                pass
+        resp = rate_mid.__call__(env, a_callable())
+        self.assert_('404 Not Found' in resp[0])
+
 
 if __name__ == '__main__':
     unittest.main()

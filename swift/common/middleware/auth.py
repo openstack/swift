@@ -16,7 +16,7 @@
 from time import time
 
 from eventlet.timeout import Timeout
-from webob.exc import HTTPForbidden, HTTPUnauthorized
+from webob.exc import HTTPForbidden, HTTPUnauthorized, HTTPNotFound
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
@@ -82,8 +82,11 @@ class DevAuth(object):
                 # With a non-empty reseller_prefix, I would like to be called
                 # back for anonymous access to accounts I know I'm the
                 # definitive auth for.
-                version, rest = split_path(env.get('PATH_INFO', ''),
-                                           1, 2, True)
+                try:
+                    version, rest = split_path(env.get('PATH_INFO', ''),
+                                               1, 2, True)
+                except ValueError:
+                    return HTTPNotFound()(env, start_response)
                 if rest and rest.startswith(self.reseller_prefix):
                     # Handle anonymous access to accounts I'm the definitive
                     # auth for.
@@ -103,10 +106,10 @@ class DevAuth(object):
     def get_groups(self, token, memcache_client=None):
         """
         Get groups for the given token.
-        
+
         If memcache_client is set, token credentials will be cached
         appropriately.
-        
+
         With a cache miss, or no memcache_client, the configurated external
         authentication server will be queried for the group information.
 
@@ -146,7 +149,10 @@ class DevAuth(object):
         Returns None if the request is authorized to continue or a standard
         WSGI response callable if not.
         """
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        try:
+            version, account, container, obj = split_path(req.path, 1, 4, True)
+        except ValueError:
+            return HTTPNotFound(request=req)
         if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
         user_groups = (req.remote_user or '').split(',')
