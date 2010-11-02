@@ -38,4 +38,3 @@ Production
 
 We do not have documentation yet on how to set up and configure Swift for a 
 production cluster, but hope to begin work on those soon.
-

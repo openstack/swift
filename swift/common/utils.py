@@ -208,6 +208,7 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
                            trailing data, raises ValueError.
     :returns: list of segments with a length of maxsegs (non-existant
               segments will return as None)
+    :raises: ValueError if given an invalid path
     """
     if not maxsegs:
         maxsegs = minsegs
@@ -621,6 +622,7 @@ def write_pickle(obj, dest, tmp):
         fo.flush()
         os.fsync(fd)
         renamer(tmppath, dest)
+
 
 def audit_location_generator(devices, datadir, mount_check=True, logger=None):
     '''

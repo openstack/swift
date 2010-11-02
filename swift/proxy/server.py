@@ -1261,6 +1261,8 @@ class BaseApplication(object):
 
         :param path: path from request
         :returns: tuple of (controller class, path dictionary)
+
+        :raises: ValueError (thrown by split_path) id given invalid path
         """
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
