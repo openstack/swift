@@ -534,8 +534,12 @@ class ObjectController(object):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix = split_path(
-            unquote(request.path), 2, 3, True)
+        try:
+            device, partition, suffix = split_path(
+                unquote(request.path), 2, 3, True)
+        except ValueError, e:
+            return HTTPBadRequest(body=str(e), request=request,
+                                  content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         path = os.path.join(self.devices, device, DATADIR, partition)

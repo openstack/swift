@@ -66,10 +66,13 @@ class AccessLogProcessor(object):
             self.logger.debug('Bad server name: found "%s" expected "%s"' \
                                % (server, self.server_name))
             return {}
-        (version,
-        account,
-        container_name,
-        object_name) = split_path(request, 2, 4, True)
+        try:
+            (version, account, container_name, object_name) = \
+                split_path(request, 2, 4, True)
+        except ValueError, e:
+            self.logger.debug(
+                'Invalid path: %s from data: %s' % (e, repr(raw_log)))
+            return {}
         if container_name is not None:
             container_name = container_name.split('?', 1)[0]
         if object_name is not None:
