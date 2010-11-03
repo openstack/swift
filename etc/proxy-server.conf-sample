@@ -82,6 +82,6 @@ use = egg:swift#domain_remap
 # storage_domain = example.com
 # path_root = v1
 
-[filter:cate_errors]
+[filter:catch_errors]
 use = egg:swift#catch_errors
 
