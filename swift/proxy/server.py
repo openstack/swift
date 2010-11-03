@@ -629,7 +629,7 @@ class ObjectController(Controller):
                 return HTTPPreconditionFailed(request=req,
                     body='X-Copy-From header must be of the form'
                     '<container name>/<object name>')
-            source_req = Request.blank(source_header)
+            source_req = Request.blank(source_header, environ=req.environ)
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
             self.object_name = src_obj_name

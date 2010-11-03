@@ -120,7 +120,7 @@ class TestObject(unittest.TestCase):
                               'X-Copy-From': '%s/%s' % (self.container,
                                                         self.obj)})
             return check_response(conn)
-        resp = retry(put, use_account=3)
+        resp = retry(copy, use_account=3)
         resp.read()
         self.assertEquals(resp.status, 403)
         # verify third account can write "obj1" to shared container
@@ -141,7 +141,7 @@ class TestObject(unittest.TestCase):
                               'X-Copy-From': '%s/%s' % (self.container,
                                                         self.obj)})
             return check_response(conn)
-        resp = retry(put, use_account=3)
+        resp = retry(copy, use_account=3)
         resp.read()
         self.assertEquals(resp.status, 403)
         # clean up "obj1"
