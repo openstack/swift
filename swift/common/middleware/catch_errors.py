@@ -42,7 +42,7 @@ class CatchErrorMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
-    
+
     def except_filter(app):
         return CatchErrorMiddleware(app, conf)
     return except_filter
