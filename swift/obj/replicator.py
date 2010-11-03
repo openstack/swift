@@ -61,7 +61,7 @@ def hash_suffix(path, reclaim_age):
         elif files:
             files.sort(reverse=True)
             meta = data = tomb = None
-            for filename in files:
+            for filename in files[:]:
                 if not meta and filename.endswith('.meta'):
                     meta = filename
                 if not data and filename.endswith('.data'):

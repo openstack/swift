@@ -24,6 +24,7 @@ import logging
 import fcntl
 import time
 from contextlib import contextmanager
+from eventlet import tpool
 
 from eventlet.green import subprocess
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
@@ -158,36 +159,95 @@ class TestObjectReplicator(unittest.TestCase):
         replicator = object_replicator.ObjectReplicator(
             dict(swift_dir=self.testdir, devices=self.devices,
                 mount_check='false', timeout='300', stats_interval='1'))
+        was_connector = object_replicator.http_connect
         object_replicator.http_connect = mock_http_connect(200)
-
         cur_part = '0'
         df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
-
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
         f.write('1234567890')
         f.close()
-
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, cur_part, data_dir)
         process_arg_checker = []
-
         nodes = [node for node in
                  self.ring.get_part_nodes(int(cur_part)) \
                      if node['ip'] not in _ips()]
-
         for node in nodes:
             rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
-            process_arg_checker.append((0, '',
-                                        ['rsync', whole_path_from, rsync_mod]))
-
+            process_arg_checker.append(
+                (0, '', ['rsync', whole_path_from, rsync_mod]))
         with _mock_process(process_arg_checker):
             replicator.run_once()
-
         self.assertFalse(process_errors)
+
+        object_replicator.http_connect = was_connector
+
+    def test_hash_suffix_one_file(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                     normalize_timestamp(time.time() - 100) + '.ts'),
+                 'wb')
+        f.write('1234567890')
+        f.close()
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects, '0', data_dir)
+        object_replicator.hash_suffix(whole_path_from, 101)
+        self.assertEquals(len(os.listdir(self.parts['0'])), 1)
+
+        object_replicator.hash_suffix(whole_path_from, 99)
+        self.assertEquals(len(os.listdir(self.parts['0'])), 0)
+
+    def test_hash_suffix_multi_file_one(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        for tdiff in [1,50,100,500]:
+            for suff in ['.meta','.data','.ts']:
+                f = open(os.path.join(df.datadir,
+                        normalize_timestamp(int(time.time()) - tdiff) + suff),
+                         'wb')
+                f.write('1234567890')
+                f.close()
+
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects, '0', data_dir)
+        hsh_path = os.listdir(whole_path_from)[0]
+        whole_hsh_path = os.path.join(whole_path_from, hsh_path)
+
+        object_replicator.hash_suffix(whole_path_from, 99)
+        # only the tombstone should be left
+        self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
+
+
+    def test_hash_suffix_multi_file_two(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        for tdiff in [1,50,100,500]:
+            suffs = ['.meta','.data']
+            if tdiff > 50:
+                suffs.append('.ts')
+            for suff in suffs:
+                f = open(os.path.join(df.datadir,
+                        normalize_timestamp(int(time.time()) - tdiff) + suff),
+                         'wb')
+                f.write('1234567890')
+                f.close()
+
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects, '0', data_dir)
+        hsh_path = os.listdir(whole_path_from)[0]
+        whole_hsh_path = os.path.join(whole_path_from, hsh_path)
+
+        object_replicator.hash_suffix(whole_path_from, 99)
+        # only the meta and data should be left
+        self.assertEquals(len(os.listdir(whole_hsh_path)), 2)
 
 
 #    def test_check_ring(self):
