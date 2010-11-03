@@ -87,5 +87,20 @@ class TestDomainRemap(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, '/v1/a/c/obj')
 
+    def test_domain_remap_account_matching_ending_not_domain(self):
+        req = Request.blank('/dontchange', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.aexample.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/dontchange')
+
+    def test_domain_remap_configured_with_empty_storage_domain(self):
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(),
+                                                      {'storage_domain': ''})
+        req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/test')
+
+
 if __name__ == '__main__':
     unittest.main()

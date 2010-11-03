@@ -32,15 +32,18 @@ class DomainRemapMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.storage_domain = conf.get('storage_domain', 'example.com')
+        if self.storage_domain and self.storage_domain[0] != '.':
+            self.storage_domain = '.' + self.storage_domain
         self.path_root = conf.get('path_root', 'v1').strip('/')
 
     def __call__(self, env, start_response):
+        if not self.storage_domain:
+            return self.app(env, start_response)
         given_domain = env['HTTP_HOST']
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
-        if given_domain != self.storage_domain and \
-            given_domain.endswith(self.storage_domain):
+        if given_domain.endswith(self.storage_domain):
             parts_to_parse = given_domain[:-len(self.storage_domain)]
             parts_to_parse = parts_to_parse.strip('.').split('.')
             len_parts_to_parse = len(parts_to_parse)
