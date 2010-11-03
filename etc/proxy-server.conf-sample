@@ -77,6 +77,11 @@ use = egg:swift#ratelimit
 # container_ratelimit_10 = 50
 # container_ratelimit_50 = 20
 
+[filter:domain_remap]
+use = egg:swift#domain_remap
+# storage_domain = example.com
+# path_root = v1
+
 [filter:cname_lookup]
 use = egg:swift#cname_lookup
 # storage_domain = example.com
