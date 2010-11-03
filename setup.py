@@ -93,6 +93,7 @@ setup(
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
             'ratelimit=swift.common.middleware.ratelimit:filter_factory',
+            'domain_remap=swift.common.middleware.domain_remap:filter_factory',
             ],
         },
     )
