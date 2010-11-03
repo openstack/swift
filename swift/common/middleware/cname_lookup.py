@@ -21,6 +21,12 @@ from swift.common.utils import cache_from_env
 
 
 def lookup_cname(domain):  # pragma: no cover
+    """
+    Given a domain, returns it's DNS CNAME mapping and DNS ttl.
+    
+    :param domain: domain to query on
+    :returns: (ttl, result)
+    """
     answer = dns.resolver.query(domain, 'CNAME').rrset
     ttl = answer.ttl
     result = answer.name.to_text()
@@ -29,23 +35,22 @@ def lookup_cname(domain):  # pragma: no cover
 
 class CNAMELookupMiddleware(object):
     """
-    Middleware that translates container and account parts of a domain to
-    path parameters that the proxy server understands.
-
-    container.account.storageurl/object gets translated to
-    container.account.storageurl/path_root/account/container/object
-
-    account.storageurl/path_root/container/object gets translated to
-    account.storageurl/path_root/account/container/object
+    Middleware that translates a unknown domain in the host header to
+    something that ends with the configured storage_domain by looking up
+    the given domain's CNAME record in DNS.
     """
 
     def __init__(self, app, conf):
         self.app = app
         self.storage_domain = conf.get('storage_domain', 'example.com')
+        if self.storage_domain and self.storage_domain[0] != '.':
+            self.storage_domain = '.' + self.storage_domain
         self.lookup_depth = int(conf.get('lookup_depth', '1'))
         self.memcache = None
 
     def __call__(self, env, start_response):
+        if not self.storage_domain:
+            return self.app(env, start_response)
         given_domain = env['HTTP_HOST']
         port = ''
         if ':' in given_domain:
@@ -70,6 +75,7 @@ class CNAMELookupMiddleware(object):
                 elif found_domain == given_domain:
                     # we're at the last lookup
                     error = True
+                    found_domain = None
                     break
                 elif found_domain.endswith(self.storage_domain):
                     # Found it!

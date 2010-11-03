@@ -37,12 +37,17 @@ class TestCNAMELookup(unittest.TestCase):
                                                       {'lookup_depth': 2})
 
     def test_passthrough(self):
+        
+        def my_lookup(d):
+            return 0, d
+        cname_lookup.lookup_cname = my_lookup
+
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'example.com'})
+                            headers={'Host': 'foo.example.com'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'example.com:8080'})
+                            headers={'Host': 'foo.example.com:8080'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
 
@@ -87,7 +92,8 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
         
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, ['CNAME lookup failed after 2 tries'])
+        self.assertEquals(resp,
+                         ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_something_weird(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -122,4 +128,30 @@ class TestCNAMELookup(unittest.TestCase):
                                           'swift.cache': memcache},
                             headers={'Host': 'mysite.com'})
         resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, 'FAKE APP')
+
+    def test_cname_matching_ending_not_domain(self):
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'foo.com'})
+
+        def my_lookup(d):
+            return 0, 'c.aexample.com'
+        cname_lookup.lookup_cname = my_lookup
+
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp,
+                         ['CNAME lookup failed to resolve to a valid domain'])
+
+    def test_cname_configured_with_empty_storage_domain(self):
+        app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
+                                                {'storage_domain': '',
+                                                 'lookup_depth': 2})
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.a.example.com'})
+
+        def my_lookup(d):
+            return 0, None
+        cname_lookup.lookup_cname = my_lookup
+
+        resp = app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
