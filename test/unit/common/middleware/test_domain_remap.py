@@ -19,12 +19,16 @@ from webob import Request
 
 from swift.common.middleware import domain_remap
 
+
 class FakeApp(object):
+
     def __call__(self, env, start_response):
         return env['PATH_INFO']
 
+
 def start_response(*args):
     pass
+
 
 class TestDomainRemap(unittest.TestCase):
 
