@@ -77,7 +77,12 @@ class AccountController(object):
 
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        drive, part, account, container = split_path(unquote(req.path), 3, 4)
+        try:
+            drive, part, account, container = split_path(unquote(req.path),
+                                                         3, 4)
+        except ValueError, err:
+            return HTTPBadRequest(body=str(err), content_type='text/plain',
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
@@ -199,16 +204,15 @@ class AccountController(object):
         except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
-        header_format = req.accept.first_match(['text/plain',
-                                                'application/json',
-                                                'application/xml'])
-        format = query_format if query_format else header_format
-        if format.startswith('application/'):
-            format = format[12:]
+        if query_format:
+            req.accept = 'application/%s' % query_format.lower()
+        out_content_type = req.accept.best_match(
+                                ['text/plain', 'application/json',
+                                 'application/xml', 'text/xml'],
+                                default_match='text/plain')
         account_list = broker.list_containers_iter(limit, marker, prefix,
                                                   delimiter)
-        if format == 'json':
-            out_content_type = 'application/json'
+        if out_content_type == 'application/json':
             json_pattern = ['"name":%s', '"count":%s', '"bytes":%s']
             json_pattern = '{' + ','.join(json_pattern) + '}'
             json_out = []
@@ -220,8 +224,7 @@ class AccountController(object):
                     json_out.append(json_pattern %
                         (name, object_count, bytes_used))
             account_list = '[' + ','.join(json_out) + ']'
-        elif format == 'xml':
-            out_content_type = 'application/xml'
+        elif out_content_type.endswith('/xml'):
             output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
                            '<account name="%s">' % account]
             for (name, object_count, bytes_used, is_subdir) in account_list:
@@ -238,7 +241,6 @@ class AccountController(object):
         else:
             if not account_list:
                 return HTTPNoContent(request=req, headers=resp_headers)
-            out_content_type = 'text/plain'
             account_list = '\n'.join(r[0] for r in account_list) + '\n'
         ret = Response(body=account_list, request=req, headers=resp_headers)
         ret.content_type = out_content_type

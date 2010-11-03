@@ -36,18 +36,13 @@ class FakeMemcache(object):
         return True
 
     def incr(self, key, delta=1, timeout=0):
-        if delta < 0:
-            raise "Cannot incr by a negative number"
-        self.store[key] = int(self.store.setdefault(key, 0)) + delta
-        return int(self.store[key])
-
-    def decr(self, key, delta=1, timeout=0):
-        if delta < 0:
-            raise "Cannot decr by a negative number"
-        self.store[key] = int(self.store.setdefault(key, 0)) - delta
+        self.store[key] = int(self.store.setdefault(key, 0)) + int(delta)
         if self.store[key] < 0:
             self.store[key] = 0
         return int(self.store[key])
+
+    def decr(self, key, delta=1, timeout=0):
+        return self.incr(key, delta=-delta, timeout=timeout)
 
     @contextmanager
     def soft_lock(self, key, timeout=0, retries=5):
@@ -98,9 +93,12 @@ class FakeApp(object):
 
 
 class FakeLogger(object):
+    # a thread safe logger
 
     def error(self, msg):
-        # a thread safe logger
+        pass
+
+    def info(self, msg):
         pass
 
 
@@ -289,7 +287,7 @@ class TestRateLimit(unittest.TestCase):
         the_498s = [t for t in all_results if t.startswith('Slow down')]
         self.assertEquals(len(the_498s), 2)
         time_took = time.time() - begin
-        self.assert_(1.5 <= round(time_took,1) < 1.7, time_took)
+        self.assert_(1.5 <= round(time_took, 1) < 1.7, time_took)
 
     def test_ratelimit_max_rate_multiple_acc(self):
         num_calls = 4
@@ -326,7 +324,7 @@ class TestRateLimit(unittest.TestCase):
             thread.join()
         time_took = time.time() - begin
         # the all 15 threads still take 1.5 secs
-        self.assert_(1.5 <= round(time_took,1) < 1.7)
+        self.assert_(1.5 <= round(time_took, 1) < 1.7)
 
     def test_ratelimit_acc_vrs_container(self):
         conf_dict = {'clock_accuracy': 1000,
@@ -367,6 +365,26 @@ class TestRateLimit(unittest.TestCase):
         runthreads(threads, 3)
         time_took = time.time() - begin
         self.assert_(round(time_took, 1) == .4)
+
+    def test_call_invalid_path(self):
+        env = {'REQUEST_METHOD': 'GET',
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '//v1/AUTH_1234567890',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '80',
+               'swift.cache': FakeMemcache(),
+               'SERVER_PROTOCOL': 'HTTP/1.0'}
+
+        app = lambda *args, **kwargs: None
+        rate_mid = ratelimit.RateLimitMiddleware(app, {},
+                                                 logger=FakeLogger())
+
+        class a_callable(object):
+
+            def __call__(self, *args, **kwargs):
+                pass
+        resp = rate_mid.__call__(env, a_callable())
+        self.assert_('404 Not Found' in resp[0])
 
 
 if __name__ == '__main__':

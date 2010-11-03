@@ -14,6 +14,7 @@
 import time
 import eventlet
 from webob import Request, Response
+from webob.exc import HTTPNotFound
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
@@ -40,6 +41,8 @@ class RateLimitMiddleware(object):
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
                                                    60))
+        self.log_sleep_time_seconds = float(conf.get('log_sleep_time_seconds',
+                                                   0))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
         self.ratelimit_whitelist = [acc.strip() for acc in
             conf.get('account_whitelist', '').split(',')
@@ -176,6 +179,11 @@ class RateLimitMiddleware(object):
             obj_name=obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
+                if self.log_sleep_time_seconds and \
+                        need_to_sleep > self.log_sleep_time_seconds:
+                    self.logger.info("Ratelimit sleep log: %s for %s/%s/%s" % (
+                            need_to_sleep, account_name,
+                            container_name, obj_name))
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
             except MaxSleepTimeHit, e:
@@ -197,7 +205,10 @@ class RateLimitMiddleware(object):
         req = Request(env)
         if self.memcache_client is None:
             self.memcache_client = cache_from_env(env)
-        version, account, container, obj = split_path(req.path, 1, 4, True)
+        try:
+            version, account, container, obj = split_path(req.path, 1, 4, True)
+        except ValueError:
+            return HTTPNotFound()(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
         if ratelimit_resp is None:
             return self.app(env, start_response)

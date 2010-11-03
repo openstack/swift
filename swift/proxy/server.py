@@ -644,7 +644,8 @@ class ObjectController(Controller):
                         environ=req.environ, headers=req.headers)
             new_req.content_length = source_resp.content_length
             new_req.etag = source_resp.etag
-            new_req.headers['X-Copy-From'] = source_header.split('/', 2)[2]
+            # we no longer need the X-Copy-From header
+            del new_req.headers['X-Copy-From']
             for k, v in source_resp.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
@@ -767,8 +768,9 @@ class ObjectController(Controller):
             bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies, 'Object PUT',
                                   etag=etag)
-        if 'x-copy-from' in req.headers:
-            resp.headers['X-Copied-From'] = req.headers['x-copy-from']
+        if source_header:
+            resp.headers['X-Copied-From'] = quote(
+                                                source_header.split('/', 2)[2])
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v
@@ -1257,6 +1259,8 @@ class BaseApplication(object):
 
         :param path: path from request
         :returns: tuple of (controller class, path dictionary)
+
+        :raises: ValueError (thrown by split_path) id given invalid path
         """
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
