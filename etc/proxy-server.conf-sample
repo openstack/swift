@@ -86,6 +86,7 @@ use = egg:swift#domain_remap
 use = egg:swift#catch_errors
 
 [filter:cname_lookup]
+# Note: this middleware requires python-dnspython
 use = egg:swift#cname_lookup
 # storage_domain = example.com
 # lookup_depth = 1

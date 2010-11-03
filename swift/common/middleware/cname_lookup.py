@@ -31,10 +31,10 @@ class CNAMELookupMiddleware(object):
     """
     Middleware that translates container and account parts of a domain to
     path parameters that the proxy server understands.
-    
+
     container.account.storageurl/object gets translated to
     container.account.storageurl/path_root/account/container/object
-    
+
     account.storageurl/path_root/container/object gets translated to
     account.storageurl/path_root/account/container/object
     """
