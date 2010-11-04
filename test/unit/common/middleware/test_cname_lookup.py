@@ -14,11 +14,16 @@
 # limitations under the License.
 
 import unittest
+from nose import SkipTest
 
 from webob import Request
 
-from swift.common.middleware import cname_lookup
-
+try:
+    # this test requires the dnspython package to be installed
+    from swift.common.middleware import cname_lookup
+    skip = False
+except ImportError:
+    skip = True
 
 class FakeApp(object):
 
@@ -33,11 +38,13 @@ def start_response(*args):
 class TestCNAMELookup(unittest.TestCase):
 
     def setUp(self):
+        if skip:
+            raise SkipTest
         self.app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
                                                       {'lookup_depth': 2})
 
     def test_passthrough(self):
-        
+
         def my_lookup(d):
             return 0, d
         cname_lookup.lookup_cname = my_lookup

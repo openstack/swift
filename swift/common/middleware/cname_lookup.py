@@ -23,7 +23,7 @@ from swift.common.utils import cache_from_env
 def lookup_cname(domain):  # pragma: no cover
     """
     Given a domain, returns it's DNS CNAME mapping and DNS ttl.
-    
+
     :param domain: domain to query on
     :returns: (ttl, result)
     """
