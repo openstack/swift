@@ -36,5 +36,6 @@ following docs will be useful:
 Production
 ----------
 
-We do not have documentation yet on how to set up and configure Swift for a 
-production cluster, but hope to begin work on those soon.
+If you want to set up and configure Swift for a production cluster, the following doc should be useful:
+
+* :doc:`Multiple Server Swift Installation <howto_installmultinode>`
