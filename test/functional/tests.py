@@ -170,6 +170,15 @@ class TestAccount(Base):
         self.assert_status(412)
         self.assert_body('Bad URL')
 
+    def testInvalidPath(self):
+        was_url = self.env.account.conn.storage_url
+        self.env.account.conn.storage_url = "/%s" % was_url
+        self.env.account.conn.make_request('GET')
+        try:
+            self.assert_status(404)
+        finally:
+            self.env.account.conn.storage_url = was_url
+
     def testPUT(self):
         self.env.account.conn.make_request('PUT')
         self.assert_status([403, 405])

@@ -516,8 +516,11 @@ YOU HAVE A FEW OPTIONS:
 
         :param request: A webob.Request instance.
         """
-        pathsegs = \
-            split_path(request.path, minsegs=1, maxsegs=3, rest_with_last=True)
+        try:
+            pathsegs = split_path(request.path, minsegs=1, maxsegs=3,
+                                  rest_with_last=True)
+        except ValueError:
+            return HTTPBadRequest()
         if pathsegs[0] == 'v1' and pathsegs[2] == 'auth':
             account = pathsegs[1]
             user = request.headers.get('x-storage-user')
