@@ -131,17 +131,28 @@ class TestObject(unittest.TestCase):
         resp = retry(put, use_account=3)
         resp.read()
         self.assertEquals(resp.status, 201)
-        # verify third account STILL can not copy from private container
-        def copy(url, token, parsed, conn):
-            conn.request('PUT', '%s/%s/%s' % (parsed.path,
-                                              shared_container,
-                                              'private_object'),
+        # verify third account can copy "obj1" to shared container
+        def copy2(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s/%s' % (parsed.path,
+                                               shared_container,
+                                               'obj1'),
                          '', {'X-Auth-Token': token,
-                              'Content-Length': '0',
-                              'X-Copy-From': '%s/%s' % (self.container,
-                                                        self.obj)})
+                              'Destination': '%s/%s' % (shared_container,
+                                              'obj1')})
             return check_response(conn)
-        resp = retry(copy, use_account=3)
+        resp = retry(copy2, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        # verify third account STILL can not copy from private container
+        def copy3(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s/%s' % (parsed.path,
+                                               self.container,
+                                               self.obj),
+                         '', {'X-Auth-Token': token,
+                              'Destination': '%s/%s' % (shared_container,
+                                              'private_object')})
+            return check_response(conn)
+        resp = retry(copy3, use_account=3)
         resp.read()
         self.assertEquals(resp.status, 403)
         # clean up "obj1"

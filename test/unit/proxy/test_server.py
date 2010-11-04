@@ -1904,6 +1904,23 @@ class TestObjectController(unittest.TestCase):
             res = controller.PUT(req)
         self.assert_(called[0])
 
+    def test_COPY_calls_authorize(self):
+        called = [False]
+
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                                headers={'Destination': 'c/o'})
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.COPY(req)
+        self.assert_(called[0])
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"

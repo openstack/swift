@@ -629,7 +629,8 @@ class ObjectController(Controller):
                 return HTTPPreconditionFailed(request=req,
                     body='X-Copy-From header must be of the form'
                     '<container name>/<object name>')
-            source_req = Request.blank(source_header, environ=req.environ)
+            source_req = req.copy_get()
+            source_req.path_info = source_header
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
             self.object_name = src_obj_name
@@ -820,6 +821,7 @@ class ObjectController(Controller):
                                   'Object DELETE')
 
     @public
+    @delay_denial
     def COPY(self, req):
         """HTTP COPY request handler."""
         dest = req.headers.get('Destination')
@@ -845,8 +847,8 @@ class ObjectController(Controller):
         new_headers['Content-Length'] = 0
         del new_headers['Destination']
         new_path = '/' + self.account_name + dest
-        new_req = Request.blank(new_path,
-                        environ={'REQUEST_METHOD': 'PUT'}, headers=new_headers)
+        new_req = Request.blank(new_path, environ=req.environ,
+                                headers=new_headers)
         return self.PUT(new_req)
 
 
