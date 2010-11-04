@@ -73,8 +73,7 @@ class LogProcessor(object):
             self._internal_proxy = InternalProxy(proxy_server_conf,
                                                  self.logger,
                                                  retries=3)
-        else:
-            return self._internal_proxy
+        return self._internal_proxy
 
     def process_one_file(self, plugin_name, account, container, object_name):
         self.logger.info('Processing %s/%s/%s with plugin "%s"' % (account,
