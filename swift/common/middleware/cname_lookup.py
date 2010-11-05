@@ -16,8 +16,9 @@
 from webob import Request
 from webob.exc import HTTPBadRequest
 import dns.resolver
+from dns.exception import DNSException
 
-from swift.common.utils import cache_from_env
+from swift.common.utils import cache_from_env, get_logger
 
 
 def lookup_cname(domain):  # pragma: no cover
@@ -27,10 +28,14 @@ def lookup_cname(domain):  # pragma: no cover
     :param domain: domain to query on
     :returns: (ttl, result)
     """
-    answer = dns.resolver.query(domain, 'CNAME').rrset
-    ttl = answer.ttl
-    result = answer.name.to_text()
-    return ttl, result
+    try:
+        answer = dns.resolver.query(domain, 'CNAME').rrset
+        ttl = answer.ttl
+        result = answer.items[0].to_text()
+        result = result.rstrip('.')
+        return ttl, result
+    except DNSException:
+        return 0, domain
 
 
 class CNAMELookupMiddleware(object):
@@ -47,6 +52,7 @@ class CNAMELookupMiddleware(object):
             self.storage_domain = '.' + self.storage_domain
         self.lookup_depth = int(conf.get('lookup_depth', '1'))
         self.memcache = None
+        self.logger = get_logger(conf)
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -55,16 +61,19 @@ class CNAMELookupMiddleware(object):
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
-        if not given_domain.endswith(self.storage_domain):
+        if given_domain == self.storage_domain[1:]: # strip initial '.'
+            return self.app(env, start_response)
+        a_domain = given_domain
+        if not a_domain.endswith(self.storage_domain):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
             error = True
             for tries in xrange(self.lookup_depth):
                 found_domain = None
                 if self.memcache:
-                    found_domain = self.memcache.get(given_domain)
+                    found_domain = self.memcache.get(a_domain)
                 if not found_domain:
-                    ttl, found_domain = lookup_cname(given_domain)
+                    ttl, found_domain = lookup_cname(a_domain)
                     if self.memcache:
                         self.memcache.set(given_domain, found_domain,
                                           timeout=ttl)
@@ -79,6 +88,8 @@ class CNAMELookupMiddleware(object):
                     break
                 elif found_domain.endswith(self.storage_domain):
                     # Found it!
+                    self.logger.info('Mapped %s to %s' % (given_domain,
+                                                          found_domain))
                     if port:
                         env['HTTP_HOST'] = ':'.join([found_domain, port])
                     else:
@@ -87,7 +98,9 @@ class CNAMELookupMiddleware(object):
                     break
                 else:
                     # try one more deep in the chain
-                    given_domain = found_domain
+                    self.logger.debug('Following CNAME chain for  %s to %s' %
+                                     (given_domain, found_domain))
+                    a_domain = found_domain
             if error:
                 if found_domain:
                     msg = 'CNAME lookup failed after %d tries' % \
