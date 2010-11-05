@@ -5,3 +5,4 @@ dist
 ChangeLog
 .coverage
 swift.egg-info
+.DS_Store
