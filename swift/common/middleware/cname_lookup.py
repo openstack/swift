@@ -35,7 +35,7 @@ def lookup_cname(domain):  # pragma: no cover
         result = result.rstrip('.')
         return ttl, result
     except DNSException:
-        return 0, domain
+        return 0, None
 
 
 class CNAMELookupMiddleware(object):
@@ -79,12 +79,8 @@ class CNAMELookupMiddleware(object):
                         memcache_key = ''.join(['cname-', given_domain])
                         self.memcache.set(memcache_key, found_domain,
                                           timeout=ttl)
-                if found_domain is None:
-                    # something weird happened
-                    error = True
-                    break
-                elif found_domain == given_domain:
-                    # we're at the last lookup
+                if found_domain is None or found_domain == a_domain:
+                    # no CNAME records or we're at the last lookup
                     error = True
                     found_domain = None
                     break
