@@ -18,9 +18,9 @@ import os
 from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 
-from swift.common.utils import readconf
 from swift.common import internal_proxy
 from swift.stats import log_processor
+
 
 @contextmanager
 def tmpfile(content):
@@ -32,12 +32,10 @@ def tmpfile(content):
     finally:
         os.unlink(file_name)
 
-class FakeApp(object):
+
+class FakeUploadApp(object):
     def __init__(self, *args, **kwargs):
         pass
-
-    def __call__(self, env, start_response):
-        return "FAKE APP"
 
 
 class DumbLogger(object):
@@ -86,23 +84,26 @@ class TestLogProcessor(unittest.TestCase):
                     }
                    }
 
-    def test_create_internal_proxy(self):
-        internal_proxy.BaseApplication = FakeApp
+    def test_lazy_load_internal_proxy(self):
+        # stub out internal_proxy's upload_app
+        internal_proxy.BaseApplication = FakeUploadApp
         dummy_proxy_config = """[app:proxy-server]
 use = egg:swift#proxy
 """
-        dummy_config_template = """[log-processor]
-proxy_server_conf = %s
-swift_account = 
-"""
         with tmpfile(dummy_proxy_config) as proxy_config_file:
-            dummy_config = dummy_config_template % proxy_config_file
-            with tmpfile(dummy_config) as config_file:
-                conf = readconf(config_file)
-                d = log_processor.LogProcessorDaemon(conf)
-                self.assert_(isinstance(d.log_processor.internal_proxy,
-                                        log_processor.InternalProxy))
-                                        
+            conf = {'log-processor': {
+                    'proxy_server_conf': proxy_config_file,
+                }
+            }
+            p = log_processor.LogProcessor(conf, DumbLogger())
+            self.assert_(isinstance(p._internal_proxy,
+                                    None.__class__))
+            self.assert_(isinstance(p.internal_proxy,
+                                    log_processor.InternalProxy))
+            self.assertEquals(p.internal_proxy, p._internal_proxy)
+
+        # reset FakeUploadApp
+        reload(internal_proxy)
 
     def test_access_log_line_parser(self):
         access_proxy_config = self.proxy_config.copy()
