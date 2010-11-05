@@ -14,8 +14,29 @@
 # limitations under the License.
 
 import unittest
+import os
+from contextlib import contextmanager
+from tempfile import NamedTemporaryFile
 
+from swift.common import internal_proxy
 from swift.stats import log_processor
+
+
+@contextmanager
+def tmpfile(content):
+    with NamedTemporaryFile('w', delete=False) as f:
+        file_name = f.name
+        f.write(str(content))
+    try:
+        yield file_name
+    finally:
+        os.unlink(file_name)
+
+
+class FakeUploadApp(object):
+    def __init__(self, *args, **kwargs):
+        pass
+
 
 class DumbLogger(object):
     def __getattr__(self, n):
@@ -62,6 +83,27 @@ class TestLogProcessor(unittest.TestCase):
                       
                     }
                    }
+
+    def test_lazy_load_internal_proxy(self):
+        # stub out internal_proxy's upload_app
+        internal_proxy.BaseApplication = FakeUploadApp
+        dummy_proxy_config = """[app:proxy-server]
+use = egg:swift#proxy
+"""
+        with tmpfile(dummy_proxy_config) as proxy_config_file:
+            conf = {'log-processor': {
+                    'proxy_server_conf': proxy_config_file,
+                }
+            }
+            p = log_processor.LogProcessor(conf, DumbLogger())
+            self.assert_(isinstance(p._internal_proxy,
+                                    None.__class__))
+            self.assert_(isinstance(p.internal_proxy,
+                                    log_processor.InternalProxy))
+            self.assertEquals(p.internal_proxy, p._internal_proxy)
+
+        # reset FakeUploadApp
+        reload(internal_proxy)
 
     def test_access_log_line_parser(self):
         access_proxy_config = self.proxy_config.copy()
