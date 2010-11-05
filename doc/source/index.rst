@@ -41,6 +41,7 @@ Deployment:
 .. toctree::
     :maxdepth: 1
     
+    howto_installmultinode
     deployment_guide
     admin_guide
     debian_package_guide
