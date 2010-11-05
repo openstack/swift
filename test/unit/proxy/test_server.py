@@ -1782,6 +1782,21 @@ class TestObjectController(unittest.TestCase):
             self.assert_(hasattr(req, 'bytes_transferred'))
             self.assertEquals(req.bytes_transferred, 10)
 
+    def test_copy_zero_bytes_transferred_attr(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
+                                  body='1234567890')
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'X-Copy-From': 'c/o2',
+                                         'Content-Length': '0'})
+            self.app.update_request(req)
+            res = controller.PUT(req)
+            self.assert_(hasattr(req, 'bytes_transferred'))
+            self.assertEquals(req.bytes_transferred, 0)
+
     def test_response_bytes_transferred_attr(self):
         with save_globals():
             proxy_server.http_connect = \
@@ -1904,6 +1919,23 @@ class TestObjectController(unittest.TestCase):
             res = controller.PUT(req)
         self.assert_(called[0])
 
+    def test_COPY_calls_authorize(self):
+        called = [False]
+
+        def authorize(req):
+            called[0] = True
+            return HTTPUnauthorized(request=req)
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                            'container', 'object')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                                headers={'Destination': 'c/o'})
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.COPY(req)
+        self.assert_(called[0])
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
