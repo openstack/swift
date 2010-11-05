@@ -71,11 +71,13 @@ class CNAMELookupMiddleware(object):
             for tries in xrange(self.lookup_depth):
                 found_domain = None
                 if self.memcache:
-                    found_domain = self.memcache.get(a_domain)
+                    memcache_key = ''.join(['cname-', a_domain])
+                    found_domain = self.memcache.get(memcache_key)
                 if not found_domain:
                     ttl, found_domain = lookup_cname(a_domain)
                     if self.memcache:
-                        self.memcache.set(given_domain, found_domain,
+                        memcache_key = ''.join(['cname-', given_domain])
+                        self.memcache.set(memcache_key, found_domain,
                                           timeout=ttl)
                 if found_domain is None:
                     # something weird happened
