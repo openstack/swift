@@ -29,7 +29,6 @@ from urllib import quote
 from contextlib import contextmanager
 import ctypes
 import ctypes.util
-import fcntl
 import struct
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from tempfile import mkstemp
@@ -621,6 +620,7 @@ def write_pickle(obj, dest, tmp):
         fo.flush()
         os.fsync(fd)
         renamer(tmppath, dest)
+
 
 def audit_location_generator(devices, datadir, mount_check=True, logger=None):
     '''
