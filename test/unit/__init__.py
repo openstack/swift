@@ -1,5 +1,8 @@
 """ Swift tests """
 
+import os
+from contextlib import contextmanager
+from tempfile import NamedTemporaryFile
 from eventlet.green import socket
 
 
@@ -22,6 +25,18 @@ def connect_tcp(hostport):
     rv = socket.socket()
     rv.connect(hostport)
     return rv
+
+
+@contextmanager
+def tmpfile(content):
+    with NamedTemporaryFile('w', delete=False) as f:
+        file_name = f.name
+        f.write(str(content))
+    try:
+        yield file_name
+    finally:
+        os.unlink(file_name)
+
 
 class MockTrue(object):
     """

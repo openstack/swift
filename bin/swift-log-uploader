@@ -17,15 +17,25 @@
 import sys
 
 from swift.stats.log_uploader import LogUploader
+from swift.common.utils import parse_options
 from swift.common import utils
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print "Usage: swift-log-uploader CONFIG_FILE plugin"
-        sys.exit()
-    uploader_conf = utils.readconf(sys.argv[1], 'log-processor')
-    plugin = sys.argv[2]
+    conf_file, options = parse_options(usage="Usage: %prog CONFIG_FILE PLUGIN")
+    try:
+        plugin = options['extra_args'][0]
+    except IndexError:
+        print "Error: missing plugin name"
+        sys.exit(1)
+
+    uploader_conf = utils.readconf(conf_file, 'log-processor')
     section_name = 'log-processor-%s' % plugin
-    plugin_conf = utils.readconf(sys.argv[1], section_name)
+    plugin_conf = utils.readconf(conf_file, section_name)
     uploader_conf.update(plugin_conf)
+
+    # pre-configure logger
+    logger = utils.get_logger(uploader_conf, plugin,
+                              log_to_console=options.get('verbose', False))
+    # currently LogUploader only supports run_once
+    options['once'] = True
     uploader = LogUploader(uploader_conf, plugin).run(once=True)

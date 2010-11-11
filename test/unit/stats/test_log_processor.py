@@ -14,23 +14,10 @@
 # limitations under the License.
 
 import unittest
-import os
-from contextlib import contextmanager
-from tempfile import NamedTemporaryFile
+from test.unit import tmpfile
 
 from swift.common import internal_proxy
 from swift.stats import log_processor
-
-
-@contextmanager
-def tmpfile(content):
-    with NamedTemporaryFile('w', delete=False) as f:
-        file_name = f.name
-        f.write(str(content))
-    try:
-        yield file_name
-    finally:
-        os.unlink(file_name)
 
 
 class FakeUploadApp(object):

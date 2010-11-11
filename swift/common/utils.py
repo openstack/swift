@@ -32,6 +32,7 @@ import ctypes.util
 import fcntl
 import struct
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
 
@@ -284,17 +285,6 @@ class LoggerFileObject(object):
         return self
 
 
-def drop_privileges(user):
-    """
-    Sets the userid of the current process
-
-    :param user: User id to change privileges to
-    """
-    user = pwd.getpwnam(user)
-    os.setgid(user[3])
-    os.setuid(user[2])
-
-
 class NamedLogger(object):
     """Cheesy version of the LoggerAdapter available in Python 3"""
 
@@ -344,7 +334,7 @@ class NamedLogger(object):
         call('%s %s: %s' % (self.server, msg, emsg), *args)
 
 
-def get_logger(conf, name=None):
+def get_logger(conf, name=None, log_to_console=False):
     """
     Get the current system logger using config settings.
 
@@ -356,11 +346,18 @@ def get_logger(conf, name=None):
 
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger
+    :param log_to_console: Add handler which writes to console on stderr
     """
     root_logger = logging.getLogger()
     if hasattr(get_logger, 'handler') and get_logger.handler:
         root_logger.removeHandler(get_logger.handler)
         get_logger.handler = None
+    if log_to_console:
+        # check if a previous call to get_logger already added a console logger
+        if hasattr(get_logger, 'console') and get_logger.console:
+            root_logger.removeHandler(get_logger.console)
+        get_logger.console = logging.StreamHandler(sys.__stderr__)
+        root_logger.addHandler(get_logger.console)
     if conf is None:
         root_logger.setLevel(logging.INFO)
         return NamedLogger(root_logger, name)
@@ -374,6 +371,111 @@ def get_logger(conf, name=None):
     root_logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
     return NamedLogger(root_logger, name)
+
+
+def drop_privileges(user):
+    """
+    Sets the userid/groupid of the current process, get session leader, etc.
+
+    :param user: User name to change privileges to
+    """
+    user = pwd.getpwnam(user)
+    os.setgid(user[3])
+    os.setuid(user[2])
+    try:
+        os.setsid()
+    except OSError:
+        pass
+    os.chdir('/')  # in case you need to rmdir on where you started the daemon
+    os.umask(0)  # ensure files are created with the correct privledges
+
+
+def capture_stdio(logger, **kwargs):
+    """
+    Log unhaneled exceptions, close stdio, capture stdout and stderr.
+
+    param logger: Logger object to use
+    """
+    # log uncaught exceptions
+    sys.excepthook = lambda * exc_info: \
+        logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
+
+    # collect stdio file desc not in use for logging
+    stdio_fds = [0, 1, 2]
+    if hasattr(get_logger, 'console'):
+        stdio_fds.remove(get_logger.console.stream.fileno())
+
+    with open(os.devnull, 'r+b') as nullfile:
+        # close stdio (excludes fds open for logging)
+        for desc in stdio_fds:
+            try:
+                os.dup2(nullfile.fileno(), desc)
+            except OSError:
+                pass
+
+    # redirect stdio
+    if kwargs.pop('capture_stdout', True):
+        sys.stdout = LoggerFileObject(logger)
+    if kwargs.pop('capture_stderr', True):
+        sys.stderr = LoggerFileObject(logger)
+
+
+def daemonize(conf, logger, **kwargs):
+    """
+    Perform standard python/linux daemonization operations.
+
+    :param user: Configuration dict to read settings from (i.e. user)
+    :param logger: Logger object to handle stdio redirect and uncaught exc
+    """
+
+    drop_privileges(conf.get('user', 'swift'))
+    capture_stdio(logger, **kwargs)
+
+
+def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
+    """
+    Parse standard swift server/daemon options with optparse.OptionParser.
+
+    :param usage: String describing usage
+    :param once: Boolean indicating the "once" option is avaiable
+    :param test_args: Override sys.argv; used in testing
+
+    :returns : Tuple of (config, options); config is an absolute path to the
+               config file, options is the parser options as a dictionary.
+
+    :raises SystemExit: First arg (CONFIG) is required, file must exist
+    """
+    parser = OptionParser(usage)
+    parser.add_option("-v", "--verbose", default=False, action="store_true",
+                      help="log to console")
+    if once:
+        parser.add_option("-o", "--once", default=False, action="store_true",
+                          help="only run one pass of daemon")
+
+    # if test_args is None, optparse will use sys.argv[:1]
+    options, args = parser.parse_args(args=test_args)
+
+    if not args:
+        parser.print_usage()
+        print "Error: missing config file argument"
+        sys.exit(1)
+    config = os.path.abspath(args.pop(0))
+    if not os.path.exists(config):
+        parser.print_usage()
+        print "Error: unable to locate %s" % config
+        sys.exit(1)
+
+    extra_args = []
+    # if any named options appear in remaining args, set the option to True
+    for arg in args:
+        if arg in options.__dict__:
+            setattr(options, arg, True)
+        else:
+            extra_args.append(arg)
+
+    options = vars(options)
+    options['extra_args'] = extra_args
+    return config, options
 
 
 def whataremyips():

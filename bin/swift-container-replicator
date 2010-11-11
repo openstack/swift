@@ -14,16 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
-from swift.common import db, utils
 from swift.container.replicator import ContainerReplicator
+from swift.common.utils import parse_options
+from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: swift-container-replicator CONFIG_FILE [once]"
-        sys.exit(1)
-    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    conf = utils.readconf(sys.argv[1], 'container-replicator')
-    ContainerReplicator(conf).run(once)
-
+    conf_file, options = parse_options(once=True)
+    run_daemon(ContainerReplicator, conf_file, **options)

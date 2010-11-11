@@ -34,7 +34,7 @@ wsgi.ACCEPT_ERRNO.add(ECONNRESET)
 from eventlet.green import socket, ssl
 
 from swift.common.utils import get_logger, drop_privileges, \
-    validate_configuration, LoggerFileObject, NullLogger
+    validate_configuration, capture_stdio, NullLogger
 
 
 def monkey_patch_mimetools():
@@ -57,9 +57,8 @@ def monkey_patch_mimetools():
     mimetools.Message.parsetype = parsetype
 
 
-# We might be able to pull pieces of this out to test, but right now it seems
-# like more work than it's worth.
-def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
+# TODO: pull pieces of this out to test
+def run_wsgi(conf_file, app_section, *args, **kwargs):
     """
     Loads common settings from conf, then instantiates app and runs
     the server using the specified number of workers.
@@ -70,25 +69,22 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
 
     try:
         conf = appconfig('config:%s' % conf_file, name=app_section)
-        log_name = conf.get('log_name', app_section)
-        app = loadapp('config:%s' % conf_file,
-            global_conf={'log_name': log_name})
     except Exception, e:
         print "Error trying to load config %s: %s" % (conf_file, e)
         return
-    if 'logger' in kwargs:
-        logger = kwargs['logger']
-    else:
-        logger = get_logger(conf, log_name)
-    # log uncaught exceptions
-    sys.excepthook = lambda * exc_info: \
-        logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-    sys.stdout = sys.stderr = LoggerFileObject(logger)
+    validate_configuration()
 
-    try:
-        os.setsid()
-    except OSError:
-        no_cover = True     # pass
+    # pre-configure logger
+    log_name = conf.get('log_name', app_section)
+    if 'logger' in kwargs:
+        logger = kwargs.pop('logger')
+    else:
+        logger = get_logger(conf, log_name,
+                            log_to_console=kwargs.pop('verbose', False))
+
+    # redirect errors to logger and close stdio
+    capture_stdio(logger)
+
     bind_addr = (conf.get('bind_ip', '0.0.0.0'),
                  int(conf.get('bind_port', kwargs.get('default_port', 8080))))
     sock = None
@@ -112,7 +108,9 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
     worker_count = int(conf.get('workers', '1'))
     drop_privileges(conf.get('user', 'swift'))
-    validate_configuration()
+
+    # finally after binding to ports and privilege drop, run app __init__ code
+    app = loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})
 
     def run_server():
         wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
@@ -169,6 +167,9 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):   # pragma: no cover
         except OSError, err:
             if err.errno not in (errno.EINTR, errno.ECHILD):
                 raise
+        except KeyboardInterrupt:
+            logger.info('User quit')
+            break
     greenio.shutdown_safe(sock)
     sock.close()
     logger.info('Exited')

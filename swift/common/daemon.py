@@ -16,6 +16,7 @@
 import os
 import sys
 import signal
+from re import sub
 from swift.common import utils
 
 
@@ -34,23 +35,10 @@ class Daemon(object):
         """Override this to run forever"""
         raise NotImplementedError('run_forever not implemented')
 
-    def run(self, once=False, capture_stdout=True, capture_stderr=True):
+    def run(self, once=False, **kwargs):
         """Run the daemon"""
-        # log uncaught exceptions
-        sys.excepthook = lambda *exc_info: \
-            self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-        if capture_stdout:
-            sys.stdout = utils.LoggerFileObject(self.logger)
-        if capture_stderr:
-            sys.stderr = utils.LoggerFileObject(self.logger)
-
-        utils.drop_privileges(self.conf.get('user', 'swift'))
         utils.validate_configuration()
-
-        try:
-            os.setsid()
-        except OSError:
-            pass
+        utils.daemonize(self.conf, self.logger, **kwargs)
 
         def kill_children(*args):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -63,3 +51,40 @@ class Daemon(object):
             self.run_once()
         else:
             self.run_forever()
+
+
+def run_daemon(klass, conf_file, section_name='',
+               once=False, **kwargs):
+    """
+    Loads settings from conf, then instantiates daemon "klass" and runs the
+    daemon with the specified once kwarg.  The section_name will be derived
+    from the daemon "klass" if not provided (e.g. ObjectReplicator =>
+    object-replicator).
+
+    :param klass: Class to instantiate, subclass of common.daemon.Daemon
+    :param conf_file: Path to configuration file
+    :param section_name: Section name from conf file to load config from
+    :param once: Passed to daemon run method
+    """
+    # very often the config section_name is based on the class name
+    # the None singleton will be passed through to readconf as is
+    if section_name is '':
+        section_name = sub(r'([a-z])([A-Z])', r'\1-\2',
+                           klass.__name__).lower()
+    conf = utils.readconf(conf_file, section_name,
+                          log_name=kwargs.get('log_name'))
+
+    # once on command line (i.e. daemonize=false) will over-ride config
+    once = once or conf.get('daemonize', 'true') not in utils.TRUE_VALUES
+
+    # pre-configure logger
+    if 'logger' in kwargs:
+        logger = kwargs.pop('logger')
+    else:
+        logger = utils.get_logger(conf, conf.get('log_name', section_name),
+                                  log_to_console=kwargs.pop('verbose', False))
+    try:
+        klass(conf).run(once=once, **kwargs)
+    except KeyboardInterrupt:
+        logger.info('User quit')
+    logger.info('Exited')

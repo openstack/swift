@@ -13,16 +13,94 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Tests
+# TODO: Test kill_children signal handlers
 
 import unittest
-from swift.common import daemon
+from getpass import getuser
+import logging
+from StringIO import StringIO
+from test.unit import tmpfile
+
+from swift.common import daemon, utils
+
+
+class MyDaemon(daemon.Daemon):
+
+    def __init__(self, conf):
+        self.conf = conf
+        self.logger = utils.get_logger(None)
+        MyDaemon.forever_called = False
+        MyDaemon.once_called = False
+
+    def run_forever(self):
+        MyDaemon.forever_called = True
+
+    def run_once(self):
+        MyDaemon.once_called = True
+
+    def run_raise(self):
+        raise OSError
+
+    def run_quit(self):
+        raise KeyboardInterrupt
 
 
 class TestDaemon(unittest.TestCase):
 
-    def test_placeholder(self):
-        pass
+    def test_create(self):
+        d = daemon.Daemon({})
+        self.assertEquals(d.conf, {})
+        self.assert_(isinstance(d.logger, utils.NamedLogger))
+
+    def test_stubs(self):
+        d = daemon.Daemon({})
+        self.assertRaises(NotImplementedError, d.run_once)
+        self.assertRaises(NotImplementedError, d.run_forever)
+
+
+class TestRunDaemon(unittest.TestCase):
+
+    def setUp(self):
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.daemonize = lambda *args: None
+
+    def tearDown(self):
+        reload(utils)
+
+    def test_run(self):
+        d = MyDaemon({})
+        self.assertFalse(MyDaemon.forever_called)
+        self.assertFalse(MyDaemon.once_called)
+        # test default
+        d.run()
+        self.assertEquals(d.forever_called, True)
+        # test once
+        d.run(once=True)
+        self.assertEquals(d.once_called, True)
+
+    def test_run_daemon(self):
+        sample_conf = """[my-daemon]
+user = %s
+""" % getuser()
+        with tmpfile(sample_conf) as conf_file:
+            daemon.run_daemon(MyDaemon, conf_file)
+            self.assertEquals(MyDaemon.forever_called, True)
+            daemon.run_daemon(MyDaemon, conf_file, once=True)
+            self.assertEquals(MyDaemon.once_called, True)
+
+            # test raise in daemon code
+            MyDaemon.run_once = MyDaemon.run_raise
+            self.assertRaises(OSError, daemon.run_daemon, MyDaemon,
+                              conf_file, once=True)
+
+            # test user quit
+            MyDaemon.run_forever = MyDaemon.run_quit
+            sio = StringIO()
+            logger = logging.getLogger()
+            logger.addHandler(logging.StreamHandler(sio))
+            logger = utils.get_logger(None, 'server')
+            daemon.run_daemon(MyDaemon, conf_file, logger=logger)
+            self.assert_('user quit' in sio.getvalue().lower())
 
 
 if __name__ == '__main__':
