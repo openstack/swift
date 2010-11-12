@@ -156,8 +156,9 @@ class InternalProxy(object):
             tries += 1
         return 200 <= resp.status_int < 300
 
-    def get_container_list(self, account, container, marker=None, limit=None,
-                           prefix=None, delimiter=None, full_listing=True):
+    def get_container_list(self, account, container, marker=None,
+                           end_marker=None, limit=None, prefix=None,
+                           delimiter=None, full_listing=True):
         """
         Get container listing.
 
@@ -173,7 +174,7 @@ class InternalProxy(object):
         if full_listing:
             rv = []
             listing = self.get_container_list(account, container, marker,
-                limit, prefix, delimiter, full_listing=False)
+                end_marker, limit, prefix, delimiter, full_listing=False)
             while listing:
                 rv.extend(listing)
                 if not delimiter:
@@ -181,12 +182,14 @@ class InternalProxy(object):
                 else:
                     marker = listing[-1].get('name', listing[-1].get('subdir'))
                 listing = self.get_container_list(account, container, marker,
-                    limit, prefix, delimiter, full_listing=False)
+                    end_marker, limit, prefix, delimiter, full_listing=False)
             return rv
         path = '/v1/%s/%s' % (account, container)
         qs = 'format=json'
         if marker:
             qs += '&marker=%s' % quote(marker)
+        if end_marker:
+            qs += '&end_marker=%s' % quote(marker)
         if limit:
             qs += '&limit=%d' % limit
         if prefix:
