@@ -428,8 +428,8 @@ def daemonize(conf, logger, **kwargs):
     :param logger: Logger object to handle stdio redirect and uncaught exc
     """
 
-    drop_privileges(conf.get('user', 'swift'))
     capture_stdio(logger, **kwargs)
+    drop_privileges(conf.get('user', 'swift'))
 
 
 def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
