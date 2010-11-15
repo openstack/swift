@@ -424,7 +424,7 @@ def daemonize(conf, logger, **kwargs):
     """
     Perform standard python/linux daemonization operations.
 
-    :param user: Configuration dict to read settings from (i.e. user)
+    :param conf: Configuration dict to read settings from (i.e. user)
     :param logger: Logger object to handle stdio redirect and uncaught exc
     """
 
