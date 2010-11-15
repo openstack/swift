@@ -101,6 +101,9 @@ class FakeLogger(object):
     def info(self, msg):
         pass
 
+    def warning(self, msg):
+        pass
+
 
 def start_response(*args):
     pass
@@ -385,6 +388,20 @@ class TestRateLimit(unittest.TestCase):
                 pass
         resp = rate_mid.__call__(env, a_callable())
         self.assert_('404 Not Found' in resp[0])
+
+    def test_no_memcache(self):
+        current_rate = 13
+        num_calls = 5
+        conf_dict = {'account_ratelimit': current_rate}
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        ratelimit.http_connect = mock_http_connect(204)
+        req = Request.blank('/v/a')
+        req.environ['swift.cache'] = None
+        make_app_call = lambda: self.test_ratelimit(req.environ,
+                                                    start_response)
+        self._run(make_app_call, num_calls, current_rate)
+
+
 
 
 if __name__ == '__main__':
