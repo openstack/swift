@@ -34,8 +34,8 @@ import eventlet
 from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
 from eventlet.timeout import Timeout
 import simplejson
-from webob import Request
-from webob.exc import HTTPUnauthorized
+from webob import Request, Response
+from webob.exc import HTTPNotFound, HTTPUnauthorized
 
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.proxy import server as proxy_server
@@ -53,7 +53,9 @@ logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 def fake_http_connect(*code_iter, **kwargs):
+
     class FakeConn(object):
+
         def __init__(self, status, etag=None, body=''):
             self.status = status
             self.reason = 'Fake'
@@ -158,6 +160,7 @@ class FakeRing(object):
 
 
 class FakeMemcache(object):
+
     def __init__(self):
         self.store = {}
 
@@ -212,9 +215,12 @@ def save_globals():
 class TestProxyServer(unittest.TestCase):
 
     def test_unhandled_exception(self):
+
         class MyApp(proxy_server.Application):
+
             def get_controller(self, path):
                 raise Exception('this shouldnt be caught')
+
         app = MyApp(None, FakeMemcache(), account_ring=FakeRing(),
                 container_ring=FakeRing(), object_ring=FakeRing())
         req = Request.blank('/account', environ={'REQUEST_METHOD': 'HEAD'})
@@ -323,8 +329,11 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 204, 500, 404), 503)
 
     def test_PUT_connect_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -344,6 +353,7 @@ class TestObjectController(unittest.TestCase):
                     if self.status == -3:
                         return FakeConn(507)
                     return FakeConn(100)
+
             code_iter = iter(code_iter)
 
             def connect(*args, **ckwargs):
@@ -351,7 +361,9 @@ class TestObjectController(unittest.TestCase):
                 if status == -1:
                     raise HTTPException()
                 return FakeConn(status)
+
             return connect
+
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
@@ -372,8 +384,11 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 503, 503, -1), 503)
 
     def test_PUT_send_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -437,8 +452,11 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(res.status_int, 413)
 
     def test_PUT_getresponse_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -633,6 +651,7 @@ class TestObjectController(unittest.TestCase):
                 dev['port'] = 1
 
             class SlowBody():
+
                 def __init__(self):
                     self.sent = 0
 
@@ -642,6 +661,7 @@ class TestObjectController(unittest.TestCase):
                         self.sent += 1
                         return ' '
                     return ''
+
             req = Request.blank('/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
                 headers={'Content-Length': '4', 'Content-Type': 'text/plain'})
@@ -680,11 +700,13 @@ class TestObjectController(unittest.TestCase):
                 dev['port'] = 1
 
             class SlowBody():
+
                 def __init__(self):
                     self.sent = 0
 
                 def read(self, size=-1):
                     raise Exception('Disconnected')
+
             req = Request.blank('/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
                 headers={'Content-Length': '4', 'Content-Type': 'text/plain'})
@@ -1334,7 +1356,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put(self):
         # quick test of chunked put w/o PATH_TO_TEST_XFS
+
         class ChunkedFile():
+
             def __init__(self, bytes):
                 self.bytes = bytes
                 self.read_bytes = 0
@@ -1495,8 +1519,10 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(headers[:len(exp)], exp)
                 # Check unhandled exception
                 orig_update_request = prosrv.update_request
+
                 def broken_update_request(env, req):
                     raise Exception('fake')
+
                 prosrv.update_request = broken_update_request
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
@@ -1545,8 +1571,10 @@ class TestObjectController(unittest.TestCase):
                 # in a test for logging x-forwarded-for (first entry only).
 
                 class Logger(object):
+
                     def info(self, msg):
                         self.msg = msg
+
                 orig_logger = prosrv.logger
                 prosrv.logger = Logger()
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1568,8 +1596,10 @@ class TestObjectController(unittest.TestCase):
                 # Turn on header logging.
 
                 class Logger(object):
+
                     def info(self, msg):
                         self.msg = msg
+
                 orig_logger = prosrv.logger
                 prosrv.logger = Logger()
                 prosrv.log_headers = True
@@ -1726,6 +1756,52 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(headers[:len(exp)], exp)
                 body = fd.read()
                 self.assertEquals(body, 'oh hai123456789abcdef')
+                # Create a container for our segmented/manifest object testing
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/segmented HTTP/1.1\r\nHost: localhost\r\n'
+                         'Connection: close\r\nX-Storage-Token: t\r\n'
+                         'Content-Length: 0\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Create the object segments
+                for segment in xrange(5):
+                    sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                    fd = sock.makefile()
+                    fd.write('PUT /v1/a/segmented/name/%s HTTP/1.1\r\nHost: '
+                        'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                        't\r\nContent-Length: 5\r\n\r\n1234 ' % str(segment))
+                    fd.flush()
+                    headers = readuntil2crlfs(fd)
+                    exp = 'HTTP/1.1 201'
+                    self.assertEquals(headers[:len(exp)], exp)
+                # Create the object manifest file
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/segmented/name HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nX-Object-Manifest: '
+                    'segmented/name/\r\nContent-Type: text/jibberish\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure retrieving the manifest file gets the whole object
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('X-Object-Manifest: segmented/name/' in headers)
+                self.assert_('Content-Type: text/jibberish' in headers)
+                body = fd.read()
+                self.assertEquals(body, '1234 1234 1234 1234 1234 ')
             finally:
                 prospa.kill()
                 acc1spa.kill()
@@ -1937,6 +2013,7 @@ class TestObjectController(unittest.TestCase):
             res = controller.COPY(req)
         self.assert_(called[0])
 
+
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
@@ -2080,7 +2157,9 @@ class TestContainerController(unittest.TestCase):
                 self.assertEquals(resp.status_int, 404)
 
     def test_put_locking(self):
+
         class MockMemcache(FakeMemcache):
+
             def __init__(self, allow_lock=None):
                 self.allow_lock = allow_lock
                 super(MockMemcache, self).__init__()
@@ -2091,6 +2170,7 @@ class TestContainerController(unittest.TestCase):
                     yield True
                 else:
                     raise MemcacheLockError()
+
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
@@ -2667,6 +2747,257 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
+
+
+class FakeObjectController(object):
+
+    def __init__(self):
+        self.app = self
+        self.logger = self
+        self.account_name = 'a'
+        self.container_name = 'c'
+        self.object_name = 'o'
+        self.trans_id = 'tx1'
+        self.object_ring = FakeRing()
+        self.node_timeout = 1
+
+    def exception(self, *args):
+        self.exception_args = args
+        self.exception_info = sys.exc_info()
+
+    def GETorHEAD_base(self, *args):
+        self.GETorHEAD_base_args = args
+        req = args[0]
+        path = args[4]
+        body = data = path[-1] * int(path[-1])
+        if req.range and req.range.ranges:
+            body = ''
+            for start, stop in req.range.ranges:
+                body += data[start:stop]
+        resp = Response(app_iter=iter(body))
+        return resp
+
+    def iter_nodes(self, partition, nodes, ring):
+        for node in nodes:
+            yield node
+        for node in ring.get_more_nodes(partition):
+            yield node
+
+
+class Stub(object):
+    pass
+
+
+class TestSegmentedIterable(unittest.TestCase):
+
+    def setUp(self):
+        self.controller = FakeObjectController()
+
+    def test_load_next_segment_unexpected_error(self):
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, None,
+            None)._load_next_segment)
+        self.assertEquals(self.controller.exception_args[0],
+            'ERROR: While processing manifest /a/c/o tx1')
+
+    def test_load_next_segment_with_no_segments(self):
+        self.assertRaises(StopIteration,
+            proxy_server.SegmentedIterable(self.controller, 'lc',
+            [])._load_next_segment)
+
+    def test_load_next_segment_with_one_segment(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '1')
+
+    def test_load_next_segment_with_two_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '1')
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '22')
+
+    def test_load_next_segment_with_two_segments_skip_first(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.segment = 0
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '22')
+
+    def test_load_next_segment_with_seek(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.segment = 0
+        segit.seek = 1
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        self.assertEquals(str(self.controller.GETorHEAD_base_args[0].range),
+            'bytes=1-')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '2')
+
+    def test_load_next_segment_with_get_error(self):
+
+        def local_GETorHEAD_base(*args):
+            return HTTPNotFound()
+
+        self.controller.GETorHEAD_base = local_GETorHEAD_base
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])._load_next_segment)
+        self.assertEquals(self.controller.exception_args[0],
+            'ERROR: While processing manifest /a/c/o tx1')
+        self.assertEquals(str(self.controller.exception_info[1]),
+            'Could not load object segment /a/lc/o1: 404')
+
+    def test_iter_unexpected_error(self):
+        self.assertRaises(Exception, ''.join,
+            proxy_server.SegmentedIterable(self.controller, None, None))
+        self.assertEquals(self.controller.exception_args[0],
+            'ERROR: While processing manifest /a/c/o tx1')
+
+    def test_iter_with_no_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [])
+        self.assertEquals(''.join(segit), '')
+
+    def test_iter_with_one_segment(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])
+        segit.response = Stub()
+        self.assertEquals(''.join(segit), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+    def test_iter_with_two_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.response = Stub()
+        self.assertEquals(''.join(segit), '122')
+        self.assertEquals(segit.response.bytes_transferred, 3)
+
+    def test_iter_with_get_error(self):
+
+        def local_GETorHEAD_base(*args):
+            return HTTPNotFound()
+
+        self.controller.GETorHEAD_base = local_GETorHEAD_base
+        self.assertRaises(Exception, ''.join,
+            proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}]))
+        self.assertEquals(self.controller.exception_args[0],
+            'ERROR: While processing manifest /a/c/o tx1')
+        self.assertEquals(str(self.controller.exception_info[1]),
+            'Could not load object segment /a/lc/o1: 404')
+
+    def test_app_iter_range_unexpected_error(self):
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, None,
+            None).app_iter_range(None, None).next)
+        self.assertEquals(self.controller.exception_args[0],
+            'ERROR: While processing manifest /a/c/o tx1')
+
+    def test_app_iter_range_with_no_segments(self):
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(None, None)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(3, None)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(3, 5)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(None, 5)), '')
+
+    def test_app_iter_range_with_one_segment(self):
+        listing = [{'name': 'o1', 'bytes': 1}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        self.assertEquals(''.join(segit.app_iter_range(3, None)), '')
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        self.assertEquals(''.join(segit.app_iter_range(3, 5)), '')
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 5)), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+    def test_app_iter_range_with_two_segments(self):
+        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)), '122')
+        self.assertEquals(segit.response.bytes_transferred, 3)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(1, None)), '22')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(1, 5)), '22')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 2)), '12')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+    def test_app_iter_range_with_many_segments(self):
+        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2},
+            {'name': 'o3', 'bytes': 3}, {'name': 'o4', 'bytes': 4}, {'name':
+            'o5', 'bytes': 5}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)),
+            '122333444455555')
+        self.assertEquals(segit.response.bytes_transferred, 15)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(3, None)),
+            '333444455555')
+        self.assertEquals(segit.response.bytes_transferred, 12)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(5, None)), '3444455555')
+        self.assertEquals(segit.response.bytes_transferred, 10)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 6)), '122333')
+        self.assertEquals(segit.response.bytes_transferred, 6)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 7)), '1223334')
+        self.assertEquals(segit.response.bytes_transferred, 7)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(3, 7)), '3334')
+        self.assertEquals(segit.response.bytes_transferred, 4)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
+        self.assertEquals(segit.response.bytes_transferred, 2)
 
 
 if __name__ == '__main__':

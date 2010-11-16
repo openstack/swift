@@ -14,6 +14,10 @@
 # limitations under the License.
 
 from __future__ import with_statement
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import mimetypes
 import os
 import time
@@ -22,6 +26,7 @@ from ConfigParser import ConfigParser
 from urllib import unquote, quote
 import uuid
 import functools
+from hashlib import md5
 
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
@@ -92,6 +97,138 @@ def delay_denial(func):
 def get_container_memcache_key(account, container):
     path = '/%s/%s' % (account, container)
     return 'container%s' % path
+
+
+class SegmentedIterable(object):
+    """
+    Iterable that returns the object contents for a segmented object in Swift.
+
+    In addition to these params, you can also set the `response` attr just
+    after creating the SegmentedIterable and it will update the response's
+    `bytes_transferred` value (used to log the size of the request).
+
+    :param controller: The ObjectController instance to work with.
+    :param container: The container the object segments are within.
+    :param listing: The listing of object segments to iterate over; this is a
+                    standard JSON decoded container listing.
+    """
+
+    def __init__(self, controller, container, listing):
+        self.controller = controller
+        self.container = container
+        self.listing = listing
+        self.segment = -1
+        self.seek = 0
+        self.segment_iter = None
+        self.position = 0
+        self.response = None
+
+    def _load_next_segment(self):
+        """
+        Loads the self.segment_iter with the next object segment's contents.
+
+        :raises: StopIteration when there are no more object segments.
+        """
+        try:
+            self.segment += 1
+            if self.segment >= len(self.listing):
+                raise StopIteration()
+            obj = self.listing[self.segment]
+            partition, nodes = self.controller.app.object_ring.get_nodes(
+                self.controller.account_name, self.container, obj['name'])
+            path = '/%s/%s/%s' % (self.controller.account_name, self.container,
+                obj['name'])
+            req = Request.blank(path)
+            if self.seek:
+                req.range = 'bytes=%s-' % self.seek
+                self.seek = 0
+            resp = self.controller.GETorHEAD_base(req, 'Object', partition,
+                self.controller.iter_nodes(partition, nodes,
+                self.controller.app.object_ring), path,
+                self.controller.app.object_ring.replica_count)
+            if resp.status_int // 100 != 2:
+                raise Exception('Could not load object segment %s: %s' % (path,
+                    resp.status_int))
+            self.segment_iter = resp.app_iter
+        except Exception, err:
+            if not isinstance(err, StopIteration):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+            raise
+
+    def __iter__(self):
+        """ Standard iterator function that returns the object's contents. """
+        try:
+            while True:
+                if not self.segment_iter:
+                    self._load_next_segment()
+                while True:
+                    with ChunkReadTimeout(self.controller.app.node_timeout):
+                        try:
+                            chunk = self.segment_iter.next()
+                            break
+                        except StopIteration:
+                            self._load_next_segment()
+                self.position += len(chunk)
+                if self.response:
+                    self.response.bytes_transferred = getattr(self.response,
+                        'bytes_transferred', 0) + len(chunk)
+                yield chunk
+        except Exception, err:
+            if not isinstance(err, StopIteration):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+            raise
+
+    def app_iter_range(self, start, stop):
+        """
+        Non-standard iterator function for use with Webob in serving Range
+        requests more quickly. This will skip over segments and do a range
+        request on the first segment to return data from, if needed.
+
+        :param start: The first byte (zero-based) to return. None for 0.
+        :param stop: The last byte (zero-based) to return. None for end.
+        """
+        try:
+            if start:
+                if len(self.listing) <= self.segment + 1:
+                    return
+                while start >= self.position + \
+                        self.listing[self.segment + 1]['bytes']:
+                    self.segment += 1
+                    if len(self.listing) <= self.segment + 1:
+                        return
+                    self.position += self.listing[self.segment]['bytes']
+                self.seek = start - self.position
+            else:
+                start = 0
+            if stop is not None:
+                length = stop - start
+            else:
+                length = None
+            for chunk in self:
+                if length is not None:
+                    length -= len(chunk)
+                    if length < 0:
+                        # Chop off the extra:
+                        if self.response:
+                            self.response.bytes_transferred = \
+                               getattr(self.response, 'bytes_transferred', 0) \
+                               + length
+                        yield chunk[:length]
+                        break
+                yield chunk
+        except Exception, err:
+            if not isinstance(err, StopIteration):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+            raise
 
 
 class Controller(object):
@@ -526,9 +663,47 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        return self.GETorHEAD_base(req, 'Object', partition,
+        resp = self.GETorHEAD_base(req, 'Object', partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
+        # If we get a 416 Requested Range Not Satisfiable we have to check if
+        # we were actually requesting a manifest object and then redo the range
+        # request on the whole object.
+        if resp.status_int == 416:
+            req_range = req.range
+            req.range = None
+            resp2 = self.GETorHEAD_base(req, 'Object', partition,
+                    self.iter_nodes(partition, nodes, self.app.object_ring),
+                    req.path_info, self.app.object_ring.replica_count)
+            if 'x-object-manifest' not in resp2.headers:
+                return resp
+            resp = resp2
+            req.range = req_range
+        if 'x-object-manifest' in resp.headers:
+            lcontainer, lprefix = \
+                resp.headers['x-object-manifest'].split('/', 1)
+            lpartition, lnodes = self.app.container_ring.get_nodes(
+                self.account_name, lcontainer)
+            lreq = Request.blank('/%s/%s?prefix=%s&format=json' %
+                (self.account_name, lcontainer, lprefix))
+            lresp = self.GETorHEAD_base(lreq, 'Container', lpartition, lnodes,
+                lreq.path_info, self.app.container_ring.replica_count)
+            if 'swift.authorize' in req.environ:
+                req.acl = lresp.headers.get('x-container-read')
+                aresp = req.environ['swift.authorize'](req)
+                if aresp:
+                    return aresp
+            listing = json.loads(lresp.body)
+            content_length = sum(o['bytes'] for o in listing)
+            etag = md5('"'.join(o['hash'] for o in listing)).hexdigest()
+            headers = {'X-Object-Manifest': resp.headers['x-object-manifest'],
+                'Content-Type': resp.content_type, 'Content-Length':
+                content_length, 'ETag': etag}
+            resp = Response(app_iter=SegmentedIterable(self, lcontainer,
+                listing), headers=headers, request=req,
+                conditional_response=True)
+            resp.app_iter.response = resp
+        return resp
 
     @public
     @delay_denial
