@@ -38,14 +38,6 @@ def _ips():
 object_replicator.whataremyips = _ips
 
 
-class NullHandler(logging.Handler):
-
-    def emit(self, record):
-        pass
-null_logger = logging.getLogger("testing")
-null_logger.addHandler(NullHandler())
-
-
 def mock_http_connect(status):
 
     class FakeConn(object):
@@ -326,15 +318,6 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.replicate()
         self.assertFalse(os.access(part_path, os.F_OK))
 
-    def test_rsync(self):
-        jobs = self.replicator.collect_jobs()
-        job = jobs[0]
-        node = job['nodes'][0]
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        with _mock_process([(0, ''), (0, ''), (0, '')]):
-            self.replicator.rsync(node, job, [data_dir])
-
     def test_run_once_recover_from_failure(self):
         replicator = object_replicator.ObjectReplicator(
             dict(swift_dir=self.testdir, devices=self.devices,
@@ -377,11 +360,11 @@ class TestObjectReplicator(unittest.TestCase):
         object_replicator.http_connect = was_connector
 
     def test_run(self):
-        with _mock_process([(0, '')]*100):
+        with _mock_process([(0, '')] * 100):
             self.replicator.replicate()
 
     def test_run_withlog(self):
-        with _mock_process([(0, "stuff in log")]*100):
+        with _mock_process([(0, "stuff in log")] * 100):
             self.replicator.replicate()
 
 if __name__ == '__main__':

@@ -61,7 +61,7 @@ def hash_suffix(path, reclaim_age):
         elif files:
             files.sort(reverse=True)
             meta = data = tomb = None
-            for filename in files[:]:
+            for filename in list(files):
                 if not meta and filename.endswith('.meta'):
                     meta = filename
                 if not data and filename.endswith('.data'):
@@ -471,6 +471,10 @@ class ObjectReplicator(Daemon):
             self.last_replication_count = self.replication_count
 
     def collect_jobs(self):
+        """
+        Returns a sorted list of jobs (dictionaries) that specify the
+        partitions, nodes, etc to be rsynced.
+        """
         jobs = []
         ips = whataremyips()
         for local_dev in [dev for dev in self.object_ring.devs
