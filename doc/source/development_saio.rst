@@ -60,6 +60,7 @@ If you are going to use a separate partition for Swift data, be sure to add anot
 
         mkdir /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
+  #. Next, skip to :ref:`rsync-section`. 
 
 
 .. _loopback-section:
@@ -86,6 +87,8 @@ If you want to use a loopback device instead of another partition, follow these 
 
         mkdir /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
+
+.. _rsync-section:
 
 ----------------
 Setting up rsync
