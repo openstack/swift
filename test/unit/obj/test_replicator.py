@@ -23,6 +23,7 @@ import cPickle as pickle
 import logging
 import fcntl
 import time
+import tempfile
 from contextlib import contextmanager
 from eventlet import tpool
 
@@ -131,7 +132,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
         # Setup a test ring (stolen from common/test_ring.py)
-        self.testdir = os.path.join('/dev/shm', 'test_replicator')
+        self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
