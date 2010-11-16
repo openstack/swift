@@ -38,4 +38,4 @@ if __name__ == '__main__':
                               log_to_console=options.get('verbose', False))
     # currently LogUploader only supports run_once
     options['once'] = True
-    uploader = LogUploader(uploader_conf, plugin).run(once=True)
+    uploader = LogUploader(uploader_conf, plugin).run(**options)
