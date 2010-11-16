@@ -29,7 +29,6 @@ from urllib import quote
 from contextlib import contextmanager
 import ctypes
 import ctypes.util
-import fcntl
 import struct
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from optparse import OptionParser
