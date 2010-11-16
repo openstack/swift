@@ -189,7 +189,7 @@ class InternalProxy(object):
         if marker:
             qs += '&marker=%s' % quote(marker)
         if end_marker:
-            qs += '&end_marker=%s' % quote(marker)
+            qs += '&end_marker=%s' % quote(end_marker)
         if limit:
             qs += '&limit=%d' % limit
         if prefix:
