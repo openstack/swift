@@ -165,6 +165,7 @@ class InternalProxy(object):
         :param account: account name for the container
         :param container: container name to get the listing of
         :param marker: marker query
+        :param end_marker: end marker query
         :param limit: limit to query
         :param prefix: prefix query
         :param delimeter: delimeter for query
