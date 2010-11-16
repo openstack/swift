@@ -60,12 +60,6 @@ table.docutils {
 	font-size: 11px;
 }
 
-.tweet_list li {
-    font-size: 0.9em;
-    border-bottom: 1px solid #eee;
-    padding: 5px 0;
-}
-
-.tweet_list li .tweet_avatar {
-    float: left;
+a tt {
+	color:#CF2F19;
 }
