@@ -71,8 +71,10 @@ TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
 
 def validate_configuration():
     if HASH_PATH_SUFFIX == '':
-        sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
-                 "from /etc/swift/swift.conf")
+        print "Error: [swift-hash]: swift_hash_path_suffix missing from " \
+                "/etc/swift/swift.conf"
+        sys.exit(1)
+        
 
 
 def load_libc_function(func_name):

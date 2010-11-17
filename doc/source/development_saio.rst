@@ -561,11 +561,7 @@ Setting up scripts for running Swift
 
         #!/bin/bash
 
-        swift-init auth-server start
-        swift-init proxy-server start
-        swift-init account-server start
-        swift-init container-server start
-        swift-init object-server start
+        swift-init main start
 
   #. Create `~/bin/startrest`::
 
@@ -574,15 +570,7 @@ Setting up scripts for running Swift
         # Replace devauth with whatever your super_admin key is (recorded in
         # /etc/swift/auth-server.conf).
         swift-auth-recreate-accounts -K devauth
-        swift-init object-updater start
-        swift-init container-updater start
-        swift-init object-replicator start
-        swift-init container-replicator start
-        swift-init account-replicator start
-        swift-init object-auditor start
-        swift-init container-auditor start
-        swift-init account-auditor start
-        swift-init account-reaper start
+        swift-init rest start
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
