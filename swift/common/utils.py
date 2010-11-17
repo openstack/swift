@@ -386,12 +386,12 @@ def drop_privileges(user):
     except OSError:
         pass
     os.chdir('/')  # in case you need to rmdir on where you started the daemon
-    os.umask(0)  # ensure files are created with the correct privledges
+    os.umask(0)  # ensure files are created with the correct privileges
 
 
 def capture_stdio(logger, **kwargs):
     """
-    Log unhaneled exceptions, close stdio, capture stdout and stderr.
+    Log unhandled exceptions, close stdio, capture stdout and stderr.
 
     param logger: Logger object to use
     """
@@ -436,7 +436,7 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
     Parse standard swift server/daemon options with optparse.OptionParser.
 
     :param usage: String describing usage
-    :param once: Boolean indicating the "once" option is avaiable
+    :param once: Boolean indicating the "once" option is available
     :param test_args: Override sys.argv; used in testing
 
     :returns : Tuple of (config, options); config is an absolute path to the
