@@ -176,16 +176,7 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(sio.getvalue(), '')
 
     def test_LoggerFileObject(self):
-        if isinstance(sys.stdout, utils.LoggerFileObject):
-            # This may happen if some other not so nice test allowed stdout to
-            # be caputred by daemonize w/o cleaning up after itself (i.e.
-            # test_db_replicator.TestDBReplicator.test_run_once).  Normally
-            # nose would clean this up for us (which works well and is
-            # probably the best solution).  But when running with --nocapture,
-            # this condition would cause the first print to acctually be
-            # redirected to a log call and the test would fail - so we have to
-            # go old school
-            sys.stdout = sys.__stdout__
+        reload(sys)  # reset stdio redirection
         orig_stdout = sys.stdout
         orig_stderr = sys.stderr
         sio = StringIO()
@@ -438,6 +429,9 @@ log_name = yarr'''
         # stdio not captured
         self.assertFalse(hasattr(utils.sys, 'stdout'))
         self.assertFalse(hasattr(utils.sys, 'stderr'))
+
+        # reset mocks on utils
+        reload(utils)
 
     def test_get_logger_console(self):
         reload(utils)  # reset get_logger attrs
