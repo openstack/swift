@@ -179,7 +179,7 @@ class Controller(object):
         path = '/%s' % account
         cache_key = 'account%s' % path
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache.get(cache_key):
+        if self.app.memcache and self.app.memcache.get(cache_key):
             return partition, nodes
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
@@ -214,7 +214,9 @@ class Controller(object):
             cache_timeout = self.app.recheck_account_existence
         else:
             cache_timeout = self.app.recheck_account_existence * 0.1
-        self.app.memcache.set(cache_key, result_code, timeout=cache_timeout)
+        if self.app.memcache:
+            self.app.memcache.set(cache_key, result_code,
+                                  timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes
         return (None, None)
@@ -234,14 +236,16 @@ class Controller(object):
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
         path = '/%s/%s' % (account, container)
-        cache_key = get_container_memcache_key(account, container)
-        cache_value = self.app.memcache.get(cache_key)
-        if isinstance(cache_value, dict):
-            status = cache_value['status']
-            read_acl = cache_value['read_acl']
-            write_acl = cache_value['write_acl']
-            if status // 100 == 2:
-                return partition, nodes, read_acl, write_acl
+        cache_key = None
+        if self.app.memcache:
+            cache_key = get_container_memcache_key(account, container)
+            cache_value = self.app.memcache.get(cache_key)
+            if isinstance(cache_value, dict):
+                status = cache_value['status']
+                read_acl = cache_value['read_acl']
+                write_acl = cache_value['write_acl']
+                if status // 100 == 2:
+                    return partition, nodes, read_acl, write_acl
         if not self.account_info(account)[1]:
             return (None, None, None, None)
         result_code = 0
@@ -284,11 +288,13 @@ class Controller(object):
             cache_timeout = self.app.recheck_container_existence
         else:
             cache_timeout = self.app.recheck_container_existence * 0.1
-        self.app.memcache.set(cache_key, {'status': result_code,
-                                          'read_acl': read_acl,
-                                          'write_acl': write_acl,
-                                          'container_size': container_size},
-                              timeout=cache_timeout)
+        if cache_key and self.app.memcache:
+            self.app.memcache.set(cache_key,
+                                  {'status': result_code,
+                                   'read_acl': read_acl,
+                                   'write_acl': write_acl,
+                                   'container_size': container_size},
+                                  timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes, read_acl, write_acl
         return (None, None, None, None)
@@ -886,10 +892,11 @@ class ContainerController(Controller):
         resp = self.GETorHEAD_base(req, 'Container', part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
-        # set the memcache container size for ratelimiting
-        cache_key = get_container_memcache_key(self.account_name,
-                                               self.container_name)
-        self.app.memcache.set(cache_key,
+        if self.app.memcache:
+            # set the memcache container size for ratelimiting
+            cache_key = get_container_memcache_key(self.account_name,
+                                                   self.container_name)
+            self.app.memcache.set(cache_key,
               {'status': resp.status_int,
                'read_acl': resp.headers.get('x-container-read'),
                'write_acl': resp.headers.get('x-container-write'),
@@ -977,9 +984,10 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name,
-                                               self.container_name)
-        self.app.memcache.delete(cache_key)
+        if self.app.memcache:
+            cache_key = get_container_memcache_key(self.account_name,
+                                                   self.container_name)
+            self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container PUT')
 
@@ -1031,9 +1039,10 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name,
-                                               self.container_name)
-        self.app.memcache.delete(cache_key)
+        if self.app.memcache:
+            cache_key = get_container_memcache_key(self.account_name,
+                                                   self.container_name)
+            self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
                                   'Container POST')
 
@@ -1087,9 +1096,10 @@ class ContainerController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        cache_key = get_container_memcache_key(self.account_name,
-                                               self.container_name)
-        self.app.memcache.delete(cache_key)
+        if self.app.memcache:
+            cache_key = get_container_memcache_key(self.account_name,
+                                                   self.container_name)
+            self.app.memcache.delete(cache_key)
         resp = self.best_response(req, statuses, reasons, bodies,
                                   'Container DELETE')
         if 200 <= resp.status_int <= 299:
@@ -1169,7 +1179,8 @@ class AccountController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        if self.app.memcache:
+            self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
                                   'Account PUT')
 
@@ -1216,7 +1227,8 @@ class AccountController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        if self.app.memcache:
+            self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
                                   'Account POST')
 
