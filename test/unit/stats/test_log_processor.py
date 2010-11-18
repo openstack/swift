@@ -46,12 +46,16 @@ class DumbLogger(object):
         pass
 
 class DumbInternalProxy(object):
-    def get_container_list(self, account, container, marker=None):
+    def get_container_list(self, account, container, marker=None,
+                           end_marker=None):
         n = '2010/03/14/13/obj1'
         if marker is None or n > marker:
+            if end_marker and n <= end_marker:
+                return [{'name': n}]
+            elif end_marker:
+                return []
             return [{'name': n}]
-        else:
-            return []
+        return []
 
     def get_object(self, account, container, object_name):
         code = 200

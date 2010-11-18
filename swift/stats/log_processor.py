@@ -158,15 +158,14 @@ class LogProcessor(object):
         container_listing = self.internal_proxy.get_container_list(
                                     swift_account,
                                     container_name,
-                                    marker=search_key)
+                                    marker=search_key,
+                                    end_marker=end_key)
         results = []
         if container_listing is not None:
             if listing_filter is None:
                 listing_filter = set()
             for item in container_listing:
                 name = item['name']
-                if end_key and name > end_key:
-                    break
                 if name not in listing_filter:
                     results.append(name)
         return results

@@ -200,6 +200,7 @@ class AccountController(object):
                     return  HTTPPreconditionFailed(request=req,
                         body='Maximum limit is %d' % ACCOUNT_LISTING_LIMIT)
             marker = get_param(req, 'marker', '')
+            end_marker = get_param(req, 'end_marker')
             query_format = get_param(req, 'format')
         except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
@@ -210,8 +211,8 @@ class AccountController(object):
                                 ['text/plain', 'application/json',
                                  'application/xml', 'text/xml'],
                                 default_match='text/plain')
-        account_list = broker.list_containers_iter(limit, marker, prefix,
-                                                  delimiter)
+        account_list = broker.list_containers_iter(limit, marker, end_marker,
+                                                   prefix, delimiter)
         if out_content_type == 'application/json':
             json_pattern = ['"name":%s', '"count":%s', '"bytes":%s']
             json_pattern = '{' + ','.join(json_pattern) + '}'
