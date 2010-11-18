@@ -821,7 +821,7 @@ from optparse import OptionParser
 from os import environ, listdir, makedirs, utime
 from os.path import basename, dirname, getmtime, getsize, isdir, join
 from Queue import Empty, Queue
-from sys import argv, exit, stderr
+from sys import argv, exit, stderr, stdout
 from threading import enumerate as threading_enumerate, Thread
 from time import sleep
 
@@ -969,14 +969,23 @@ def st_delete(options, args):
 st_download_help = '''
 download --all OR download container [object] [object] ...
     Downloads everything in the account (with --all), or everything in a
-    container, or a list of objects depending on the args given.'''.strip('\n')
+    container, or a list of objects depending on the args given. Use
+    the -o [--output] <filename> option to redirect the output to a file 
+    or if "-" then the just redirect to stdout.  '''.strip('\n')
 def st_download(options, args):
     if (not args and not options.yes_all) or (args and options.yes_all):
         options.error_queue.put('Usage: %s [options] %s' %
                                 (basename(argv[0]), st_download_help))
         return
     object_queue = Queue(10000)
-    def _download_object((container, obj), conn):
+    def _download_object(queue_arg, conn):
+        if len(queue_arg) == 2: 
+            container, obj = queue_arg
+            out_file = None
+        elif len(queue_arg) == 3:
+            container, obj, out_file = queue_arg
+        else:
+            raise Exception("Invalid queue_arg length of %s" % len(queue_arg)) 
         try:
             headers, body = \
                 conn.get_object(container, obj, resp_chunk_size=65536)
@@ -998,7 +1007,12 @@ def st_download(options, args):
                 dirpath = dirname(path)
                 if dirpath and not isdir(dirpath):
                     mkdirs(dirpath)
-                fp = open(path, 'wb')
+                if out_file == "-":
+                    fp = stdout
+                elif out_file:
+                    fp = open(out_file, 'wb')
+                else:
+                    fp = open(path, 'wb')
                 read_length = 0
                 md5sum = md5()
                 for chunk in body :
@@ -1013,7 +1027,7 @@ def st_download(options, args):
                 options.error_queue.put(
                     '%s: read_length != content_length, %d != %d' %
                     (path, read_length, content_length))
-            if 'x-object-meta-mtime' in headers:
+            if 'x-object-meta-mtime' in headers and not options.out_file:
                 mtime = float(headers['x-object-meta-mtime'])
                 utime(path, (mtime, mtime))
             if options.verbose:
@@ -1070,8 +1084,12 @@ def st_download(options, args):
     elif len(args) == 1:
         _download_container(args[0], create_connection())
     else:
-        for obj in args[1:]:
-            object_queue.put((args[0], obj))
+        if len(args) == 2:
+            obj = args[1]
+            object_queue.put((args[0], obj, options.out_file))
+        else:
+            for obj in args[1:]:
+                object_queue.put((args[0], obj))
     while not container_queue.empty():
         sleep(0.01)
     for thread in container_threads:
@@ -1438,10 +1456,14 @@ Example:
                       help='User name for obtaining an auth token')
     parser.add_option('-K', '--key', dest='key',
                       help='Key for obtaining an auth token')
+    parser.add_option('-o', '--output', dest='out_file',
+                      help='For a single file download stream the output other location ')
     args = argv[1:]
     if not args:
         args.append('-h')
     (options, args) = parser.parse_args(args)
+    if options.out_file == '-':
+        options.verbose = 0 
 
     required_help = '''
 Requires ST_AUTH, ST_USER, and ST_KEY environment variables be set or

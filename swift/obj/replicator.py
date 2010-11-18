@@ -61,7 +61,7 @@ def hash_suffix(path, reclaim_age):
         elif files:
             files.sort(reverse=True)
             meta = data = tomb = None
-            for filename in files:
+            for filename in list(files):
                 if not meta and filename.endswith('.meta'):
                     meta = filename
                 if not data and filename.endswith('.data'):
@@ -232,7 +232,7 @@ class ObjectReplicator(Daemon):
         """
         Execute the rsync binary to replicate a partition.
 
-        :returns: a tuple of (rsync exit code, rsync standard output)
+        :returns: return code of rsync process. 0 is successful
         """
         start_time = time.time()
         ret_val = None
@@ -470,6 +470,40 @@ class ObjectReplicator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
+    def collect_jobs(self):
+        """
+        Returns a sorted list of jobs (dictionaries) that specify the
+        partitions, nodes, etc to be rsynced.
+        """
+        jobs = []
+        ips = whataremyips()
+        for local_dev in [dev for dev in self.object_ring.devs
+                if dev and dev['ip'] in ips and dev['port'] == self.port]:
+            dev_path = join(self.devices_dir, local_dev['device'])
+            obj_path = join(dev_path, 'objects')
+            tmp_path = join(dev_path, 'tmp')
+            if self.mount_check and not os.path.ismount(dev_path):
+                self.logger.warn('%s is not mounted' % local_dev['device'])
+                continue
+            unlink_older_than(tmp_path, time.time() - self.reclaim_age)
+            if not os.path.exists(obj_path):
+                continue
+            for partition in os.listdir(obj_path):
+                try:
+                    nodes = [node for node in
+                        self.object_ring.get_part_nodes(int(partition))
+                             if node['id'] != local_dev['id']]
+                    jobs.append(dict(path=join(obj_path, partition),
+                        nodes=nodes, delete=len(nodes) > 2,
+                        partition=partition))
+                except ValueError:
+                    continue
+        random.shuffle(jobs)
+        # Partititons that need to be deleted take priority
+        jobs.sort(key=lambda job: not job['delete'])
+        self.job_count = len(jobs)
+        return jobs
+
     def replicate(self):
         """Run a replication pass"""
         self.start = time.time()
@@ -479,38 +513,11 @@ class ObjectReplicator(Daemon):
         self.replication_count = 0
         self.last_replication_count = -1
         self.partition_times = []
-        jobs = []
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
         try:
-            ips = whataremyips()
             self.run_pool = GreenPool(size=self.concurrency)
-            for local_dev in [
-                    dev for dev in self.object_ring.devs
-                    if dev and dev['ip'] in ips and dev['port'] == self.port]:
-                dev_path = join(self.devices_dir, local_dev['device'])
-                obj_path = join(dev_path, 'objects')
-                tmp_path = join(dev_path, 'tmp')
-                if self.mount_check and not os.path.ismount(dev_path):
-                    self.logger.warn('%s is not mounted' % local_dev['device'])
-                    continue
-                unlink_older_than(tmp_path, time.time() - self.reclaim_age)
-                if not os.path.exists(obj_path):
-                    continue
-                for partition in os.listdir(obj_path):
-                    try:
-                        nodes = [node for node in
-                            self.object_ring.get_part_nodes(int(partition))
-                                 if node['id'] != local_dev['id']]
-                        jobs.append(dict(path=join(obj_path, partition),
-                            nodes=nodes, delete=len(nodes) > 2,
-                            partition=partition))
-                    except ValueError:
-                        continue
-            random.shuffle(jobs)
-            # Partititons that need to be deleted take priority
-            jobs.sort(key=lambda job: not job['delete'])
-            self.job_count = len(jobs)
+            jobs = self.collect_jobs()
             for job in jobs:
                 if not self.check_ring():
                     self.logger.info(
