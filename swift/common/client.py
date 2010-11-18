@@ -32,6 +32,7 @@ except:
 from swift.common.bufferedhttp \
     import BufferedHTTPConnection as HTTPConnection
 
+
 def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf8 strings before quoting
