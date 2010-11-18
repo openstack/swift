@@ -29,8 +29,11 @@ try:
 except:
     from time import sleep
 
-from swift.common.bufferedhttp \
-    import BufferedHTTPConnection as HTTPConnection
+try:
+    from swift.common.bufferedhttp \
+        import BufferedHTTPConnection as HTTPConnection
+except:
+    from httplib import HTTPConnection
 
 
 def quote(value, safe='/'):
