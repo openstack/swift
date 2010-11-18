@@ -1473,14 +1473,11 @@ def parse_args(parser, args, enforce_requires=True):
     if not args:
         args = ['-h']
     (options, args) = parser.parse_args(args)
-    required_help = '''
+    if enforce_requires and \
+            not (options.auth and options.user and options.key):
+        exit('''
 Requires ST_AUTH, ST_USER, and ST_KEY environment variables be set or
-overridden with -A, -U, or -K.'''.strip('\n')
-    for attr in ('auth', 'user', 'key'):
-        if not getattr(options, attr, None):
-            setattr(options, attr, environ.get('ST_%s' % attr.upper()))
-            if not getattr(options, attr, None) and enforce_requires:
-                exit(required_help)
+overridden with -A, -U, or -K.'''.strip('\n'))
     return options, args
 
 
@@ -1506,10 +1503,13 @@ Example:
     parser.add_option('-q', '--quiet', action='store_const', dest='verbose',
                       const=0, default=1, help='Suppress status output')
     parser.add_option('-A', '--auth', dest='auth',
+                      default=environ.get('ST_AUTH'),
                       help='URL for obtaining an auth token')
     parser.add_option('-U', '--user', dest='user',
+                      default=environ.get('ST_USER'),
                       help='User name for obtaining an auth token')
     parser.add_option('-K', '--key', dest='key',
+                      default=environ.get('ST_KEY'),
                       help='Key for obtaining an auth token')
     parser.disable_interspersed_args()
     (options, args) = parse_args(parser, argv[1:], enforce_requires=False)
