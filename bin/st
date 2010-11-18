@@ -1483,7 +1483,7 @@ overridden with -A, -U, or -K.'''.strip('\n'))
 
 if __name__ == '__main__':
     parser = OptionParser(version='%prog 1.0', usage='''
-Usage: %%prog [options] <command> [options] [args]
+Usage: %%prog <command> [options] [args]
 
 Commands:
   %(st_stat_help)s
