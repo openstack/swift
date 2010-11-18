@@ -1478,9 +1478,10 @@ def parse_args(parser, args):
 Requires ST_AUTH, ST_USER, and ST_KEY environment variables be set or
 overridden with -A, -U, or -K.'''.strip('\n')
     for attr in ('auth', 'user', 'key'):
-        if not getattr(options, attr, None) and \
-                not environ.get('ST_%s' % attr.upper()):
-            exit(required_help)
+        if not getattr(options, attr, None):
+            setattr(options, attr, environ.get('ST_%s' % attr.upper()))
+            if not getattr(options, attr, None):
+                exit(required_help)
     return options, args
 
 
