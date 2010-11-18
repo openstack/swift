@@ -16,6 +16,7 @@
 import unittest
 
 import os
+import sys
 import signal
 from shutil import rmtree
 from contextlib import contextmanager
@@ -25,57 +26,7 @@ from collections import defaultdict
 from test import bin  # for reloading...
 from test.bin import swift_init  # for testing...
 
-
-CONF_FILES = (
-    'auth-server.conf',
-    'auth-server.pid',
-    'proxy-server/proxy-server.conf',
-    'proxy-server.conf',
-    'proxy.conf',
-    'object-server/1.conf',
-    'object-server/2.conf',
-    'object-server/3.conf',
-    'object-server/4.conf',
-    'account-server/a1.conf',
-    'account-server/a2.conf',
-    'account-server/a3.conf',
-    'container-server/1/container-server.conf',
-    'container-server/2/container-server.conf',
-    'container-server/3/container-server.conf',
-    'container-server/4/container-server.conf',
-    'container-server/5/container-server.conf',
-    'container-replicator/bogus.conf',
-)
-
-PID_FILES = (
-    ('auth-server.pid', 10),
-    ('proxy-server/proxy-server.pid', 21),
-    ('proxy-server.pid', 22),
-    ('object-server/1.pid', 31),
-    ('object-server/2.pid', 32),
-    ('object-server/3.pid', 33),
-    ('object-server/4.pid', 34),
-    ('object-auditor/2.pid', 42),
-    ('object-auditor/1.pid', 41),
-    ('object-auditor/3.pid', 43),
-    ('container-replicator/1/container-server.pid', 51),
-    ('container-replicator/2/container-server.pid', 52),
-    ('container-replicator/3/container-server.pid', 53),
-    ('container-replicator/4/container-server.pid', 54),
-    ('container-replicator/5/container-server.pid', 55),
-)
-
-# maps all servers to a list of running pids as defined in PID_FILES
-PID_MAP = defaultdict(list)
-for server in swift_init.ALL_SERVERS:
-    for pid_file, pid in PID_FILES:
-        if pid_file.startswith(server) and pid_file.endswith('.pid'):
-            PID_MAP[server].append(pid)
-    PID_MAP[server].sort()
-ALL_PIDS = [p for server, pids in PID_MAP.items() for p in pids]
-
 DUMMY_SIG = 1
-
 
 @contextmanager
 def temptree(files, contents=''):
@@ -101,34 +52,16 @@ def temptree(files, contents=''):
 class MockOs():
 
     def __init__(self, pids):
+        self.running_pids = pids
         self.pid_sigs = defaultdict(list)
-        for pid in pids:
-            self.pid_sigs[pid]
         self.closed_fds = []
         self.child_pid = 9999  # fork defaults to test parent process path
         self.execlp_called = False
 
     def kill(self, pid, sig):
-        if pid not in self.pid_sigs:
+        if pid not in self.running_pids:
             raise OSError(3, 'No such process')
         self.pid_sigs[pid].append(sig)
-
-    """
-    def pass_func(self, *args, **kwargs):
-        pass
-
-    chdir = setsid = umask = pass_func
-
-    def dup2(self, source, target):
-        self.closed_fds.append(target)
-
-    def fork(self):
-        return self.child_pid
-
-    def execlp(self, *args):
-        self.execlp_called = True
-
-    """
 
     def __getattr__(self, name):
         # I only over-ride portions of the os module
@@ -137,6 +70,17 @@ class MockOs():
         except AttributeError:
             return getattr(os, name)
 
+
+def pop_stream(f):
+    """read everything out of file from the top and clear it out
+    """
+    f.flush()
+    f.seek(0)
+    output = f.read()
+    f.seek(0)
+    f.truncate()
+    print >> sys.stderr, output
+    return output
 
 class TestSwiftInitModule(unittest.TestCase):
 
@@ -148,33 +92,54 @@ class TestSwiftInitModule(unittest.TestCase):
                           len(swift_init.REST_SERVERS))
 
     def test_search_tree(self):
-        with temptree(CONF_FILES) as t:
-            auth_conf = swift_init.search_tree(t, 'auth-server*', '.conf')
-            self.assertEquals(len(auth_conf), 1)
-            self.assertEquals(auth_conf[0],
-                              os.path.join(t, 'auth-server.conf'))
-            proxy_conf = swift_init.search_tree(t, 'proxy*', 'conf')
-            self.assertEquals(len(proxy_conf), 3)
-            self.assertEquals(proxy_conf[0],
-                              os.path.join(t, 'proxy-server.conf'))
-            object_confs = swift_init.search_tree(t, 'object-server*', '.conf')
-            self.assertEquals(len(object_confs), 4)
-            for i, conf in enumerate(object_confs):
-                path = os.path.join(t, 'object-server/%d.conf' % (i + 1))
-                self.assertEquals(conf, path)
-            account_confs = swift_init.search_tree(t, 'account-server*',
-                                                   '.conf')
-            self.assertEquals(len(account_confs), 3)
-            for i, conf in enumerate(account_confs):
-                path = os.path.join(t, 'account-server/a%d.conf' % (i + 1))
-                self.assertEquals(conf, path)
-            container_confs = swift_init.search_tree(t, 'container-server*',
-                                                     '.conf')
-            self.assertEquals(len(container_confs), 5)
-            for i, conf in enumerate(container_confs):
-                path = os.path.join(t,
-                        'container-server/%s/container-server.conf' % (i + 1))
-                self.assertEquals(conf, path)
+        # file match & ext miss
+        with temptree(['asdf.conf', 'blarg.conf', 'asdf.cfg']) as t:
+            asdf = swift_init.search_tree(t, 'a*', '.conf')
+            self.assertEquals(len(asdf), 1)
+            self.assertEquals(asdf[0],
+                              os.path.join(t, 'asdf.conf'))
+
+        # multi-file match & glob miss & sort
+        with temptree(['application.bin', 'apple.bin', 'apropos.bin']) as t:
+            app_bins = swift_init.search_tree(t, 'app*', 'bin')
+            self.assertEquals(len(app_bins), 2)
+            self.assertEquals(app_bins[0],
+                              os.path.join(t, 'apple.bin'))
+            self.assertEquals(app_bins[1],
+                              os.path.join(t, 'application.bin'))
+
+        # test file in folder & ext miss & glob miss
+        files = (
+            'sub/file1.ini',
+            'sub/file2.conf',
+            'sub.bin',
+            'bus.ini',
+            'bus/file3.ini',
+        )
+        with temptree(files) as t:
+            sub_ini = swift_init.search_tree(t, 'sub*', '.ini')
+            self.assertEquals(len(sub_ini), 1)
+            self.assertEquals(sub_ini[0],
+                              os.path.join(t, 'sub/file1.ini'))
+
+        # test multi-file in folder & sub-folder & ext miss & glob miss
+        files = (
+            'folder_file.txt',
+            'folder/1.txt',
+            'folder/sub/2.txt',
+            'folder2/3.txt',
+            'Folder3/4.txt'
+            'folder.rc',
+        )
+        with temptree(files) as t:
+            folder_texts = swift_init.search_tree(t, 'folder*', '.txt')
+            self.assertEquals(len(folder_texts), 4)
+            f1 = os.path.join(t, 'folder_file.txt')
+            f2 = os.path.join(t, 'folder/1.txt')
+            f3 = os.path.join(t, 'folder/sub/2.txt')
+            f4 = os.path.join(t, 'folder2/3.txt')
+            for f in [f1, f2, f3, f4]:
+                self.assert_(f in folder_texts)
 
     def test_write_file(self):
         with temptree([]) as t:
@@ -269,166 +234,338 @@ class TestSwiftServerClass(unittest.TestCase):
         self.assertEquals(ini_file, server.get_ini_file_name(pid_file))
 
     def test_ini_files(self):
-        with temptree(CONF_FILES) as t:
+        # test get single ini file
+        ini_files = (
+            'proxy-server.conf',
+            'proxy-server.ini',
+            'auth-server.conf',
+        )
+        with temptree(ini_files) as t:
             swift_init.SWIFT_DIR = t
-            servers = \
-                'auth object account-auditor container-replicator'.split()
-            for server in servers:
-                server = swift_init.SwiftServer(server)
-                ini_files = server.ini_files()
-                conf_files = [self.join_swift_dir(x) for x in CONF_FILES if
-                              x.startswith('%s-server' % server.type) and
-                              x.endswith('.conf')]
-                self.assertEquals(ini_files, conf_files)
+            server = swift_init.SwiftServer('proxy')
+            ini_files = server.ini_files()
+            self.assertEquals(len(ini_files), 1)
+            ini_file = ini_files[0]
+            self.assertEquals(ini_file, self.join_swift_dir('proxy-server.conf'))
 
-                # test config number kwarg returns the correct single config
-                for i in range(len(ini_files)):
-                    ini_files = server.ini_files(number=i + 1)
-                    self.assertEquals(len(ini_files), 1)
-                    self.assertEquals(ini_files[0], conf_files[i])
-
-                # and returns empty for missing config number
-                ini_files = server.ini_files(number=i + 2)
-                self.assertEquals(ini_files, [])
-
-
-    def test_pid_files(self):
-        files, contents = zip(*PID_FILES)
-        # throw some garbage files in the mix too
-        files += CONF_FILES
-        files += tuple([f.replace('.conf', '.bogus') for f in CONF_FILES])
-
-        def assert_pid_files(server):
-            server = swift_init.SwiftServer(server)
-            pid_files = server.pid_files()
-            # should only find pids files
-            self.assertEquals(len(pid_files), len(PID_MAP[server.server]))
-            real_files = sorted([x for x in files if x.startswith(server.server) and
-                          x.endswith('.pid')])
-            for i, pid_file in enumerate(pid_files):
-                self.assertEquals(pid_file, self.join_run_dir(real_files[i]))
-
-            # test config number kwarg returns the correct single pid file
-            for i in range(len(pid_files)):
-                ini_files = server.ini_files(number=i + 1)
-                pid_files = server.pid_files(number=i + 1)
-                self.assertEquals(len(pid_files), 1)
-                pid_file = pid_files[0]
-                self.assertEquals(pid_file, self.join_run_dir(real_files[i]))
-
-        with temptree(files, contents) as t:
-            swift_init.RUN_DIR = t
+        # test multi server conf files & grouping of server-type config
+        ini_files = (
+            'object-server1.conf',
+            'object-server/2.conf',
+            'object-server/object3.conf',
+            'object-server/conf/server4.conf',
+            'object-server.txt',
+            'proxy-server.conf',
+        )
+        with temptree(ini_files) as t:
             swift_init.SWIFT_DIR = t
-            servers = \
-                'auth proxy object object-auditor container-replicator'.split()
-            for server in servers:
-                assert_pid_files(server)
+            server = swift_init.SwiftServer('object-replicator')
+            ini_files = server.ini_files()
+            self.assertEquals(len(ini_files), 4)
+            c1 = self.join_swift_dir('object-server1.conf')
+            c2 = self.join_swift_dir('object-server/2.conf')
+            c3 = self.join_swift_dir('object-server/object3.conf')
+            c4 = self.join_swift_dir('object-server/conf/server4.conf')
+            for c in [c1, c2, c3, c4]:
+                self.assert_(c in ini_files)
+            # test configs returned sorted
+            sorted_confs = sorted([c1, c2, c3, c4])
+            self.assertEquals(ini_files, sorted_confs)
+
+
+        # test get single numbered conf
+        ini_files = (
+            'account-server/1.conf',
+            'account-server/2.conf',
+            'account-server/3.conf',
+            'account-server/4.conf',
+        )
+        with temptree(ini_files) as t:
+            swift_init.SWIFT_DIR = t
+            server = swift_init.SwiftServer('account')
+            ini_files = server.ini_files(number=2)
+            self.assertEquals(len(ini_files), 1)
+            ini_file = ini_files[0]
+            self.assertEquals(ini_file,
+                              self.join_swift_dir('account-server/2.conf'))
+            # test missing config number
+            ini_files = server.ini_files(number=5)
+            self.assertFalse(ini_files)
+
+        # test verbose & quiet
+        ini_files = (
+            'auth-server.ini',
+            'container-server/1.conf',
+        )
+        with temptree(ini_files) as t:
+            swift_init.SWIFT_DIR = t
+            old_stdout = sys.stdout
+            try:
+                with open('std.out', 'w+') as f:
+                    sys.stdout = f
+                    server = swift_init.SwiftServer('auth')
+                    # check warn "unable to locate"
+                    ini_files = server.ini_files()
+                    self.assertFalse(ini_files)
+                    self.assert_('unable to locate' in pop_stream(f).lower())
+                    # check quiet will silence warning
+                    ini_files = server.ini_files(verbose=True, quiet=True)
+                    self.assertEquals(pop_stream(f), '')
+                    # check found config no warning
+                    server = swift_init.SwiftServer('container-auditor')
+                    ini_files = server.ini_files()
+                    self.assertEquals(pop_stream(f), '')
+                    # check missing config number warn "unable to locate"
+                    ini_files = server.ini_files(number=2)
+                    self.assert_('unable to locate' in pop_stream(f).lower())
+                    # check verbose lists configs
+                    ini_files = server.ini_files(number=2, verbose=True)
+                    c1 = self.join_swift_dir('container-server/1.conf')
+                    self.assert_(c1 in pop_stream(f))
+            finally:
+                sys.stdout = old_stdout
 
     def test_iter_pid_files(self):
-        with temptree(*zip(*PID_FILES)) as t:
+        """
+        SwiftServer.iter_pid_files is kinda boring, test the
+        SwiftServer.pid_files stuff here as well
+        """
+        pid_files = (
+            ('proxy-server.pid', 1),
+            ('auth-server.pid', 'blah'),
+            ('object-replicator/1.pid', 11),
+            ('object-replicator/2.pid', 12),
+        )
+        files, contents = zip(*pid_files)
+        with temptree(files, contents) as t:
             swift_init.RUN_DIR = t
-            servers = \
-                'auth proxy object object-auditor container-replicator'.split()
-            # build up a mapping of pid_files to pids for these server types
-            pid_file_map = {}
-            for name, pid in PID_FILES:
-                if [server for server in servers if server in name]:
-                    pid_file_map[self.join_run_dir(name)] = pid
-            for i, server in enumerate(servers):
-                server = swift_init.SwiftServer(server)
+            server = swift_init.SwiftServer('proxy')
+            # test get one file
+            iter = server.iter_pid_files()
+            pid_file, pid = iter.next()
+            self.assertEquals(pid_file, self.join_run_dir('proxy-server.pid'))
+            self.assertEquals(pid, 1)
+            # ... and only one file
+            self.assertRaises(StopIteration, iter.next)
+            # test invalid value in pid file
+            server = swift_init.SwiftServer('auth')
+            self.assertRaises(ValueError, server.iter_pid_files().next)
+            # test object-server doesn't steal pids from object-replicator
+            server = swift_init.SwiftServer('object')
+            self.assertRaises(StopIteration, server.iter_pid_files().next)
+            # test multi-pid iter
+            server = swift_init.SwiftServer('object-replicator')
+            real_map = {
+                11: self.join_run_dir('object-replicator/1.pid'),
+                12: self.join_run_dir('object-replicator/2.pid'),
+            }
+            pid_map = {}
+            for pid_file, pid in server.iter_pid_files():
+                pid_map[pid] = pid_file
+            self.assertEquals(pid_map, real_map)
+
+        # test get pid_files by number
+        ini_files = (
+            'object-server/1.conf',
+            'object-server/2.conf',
+            'object-server/3.conf',
+            'object-server/4.conf',
+        )
+
+        pid_files = (
+            ('object-server/1.pid', 1),
+            ('object-server/2.pid', 2),
+            ('object-server/5.pid', 5),
+        )
+
+        with temptree(ini_files) as swift_dir:
+            swift_init.SWIFT_DIR = swift_dir
+            files, pids = zip(*pid_files)
+            with temptree(files, pids) as t:
+                swift_init.RUN_DIR = t
+                server = swift_init.SwiftServer('object')
+                # test get all pid files
+                real_map = {
+                    1: self.join_run_dir('object-server/1.pid'),
+                    2: self.join_run_dir('object-server/2.pid'),
+                    5: self.join_run_dir('object-server/5.pid'),
+                }
+                pid_map = {}
                 for pid_file, pid in server.iter_pid_files():
-                    self.assertEquals(pid, pid_file_map[pid_file])
-                    del pid_file_map[pid_file]
-            self.assert_(pid_file_map == {})  # all pid_files used up
+                    pid_map[pid] = pid_file
+                self.assertEquals(pid_map, real_map)
+                # test get pid with matching conf
+                pids = list(server.iter_pid_files(number=2))
+                self.assertEquals(len(pids), 1)
+                pid_file, pid = pids[0]
+                self.assertEquals(pid, 2)
+                self.assertEquals(pid_file, self.join_run_dir('object-server/2.pid'))
+                # try to iter on a pid number with a matching conf but no pid
+                pids = list(server.iter_pid_files(number=3))
+                self.assertFalse(pids)
+                # test get pids w/o matching conf
+                pids = list(server.iter_pid_files(number=5))
+                self.assertFalse(pids)
 
     def test_signal_pids(self):
-        # stale pid file cleanup is tested in get_running_pids
-        def assert_server_signaled_pids(server):
-            server = swift_init.SwiftServer(server)
-            signaled_pids = server.signal_pids(DUMMY_SIG)
-            self.assertEquals(sorted(signaled_pids.keys()), PID_MAP[server.server])
-            for pid in signaled_pids:
-                self.assertEquals(swift_init.os.pid_sigs[pid], [1])
-
-        with temptree(*zip(*PID_FILES)) as t:
+        pid_files = (
+            ('proxy-server.pid', 1),
+            ('auth-server.pid', 2),
+        )
+        files, pids = zip(*pid_files)
+        with temptree(files, pids) as t:
             swift_init.RUN_DIR = t
-            swift_init.os = MockOs(ALL_PIDS)
-            servers = \
-                'auth proxy object object-auditor container-replicator'.split()
-            for server in servers:
-                assert_server_signaled_pids(server)
+            # mock os with both pids running
+            swift_init.os = MockOs([1, 2])
+            server = swift_init.SwiftServer('proxy')
+            pids = server.signal_pids(DUMMY_SIG)
+            self.assertEquals(len(pids), 1)
+            self.assert_(1 in pids)
+            self.assertEquals(swift_init.os.pid_sigs[1], [DUMMY_SIG])
+            # make sure other process not signaled
+            self.assertFalse(2 in pids)
+            self.assertFalse(2 in swift_init.os.pid_sigs)
+            # capture stdio
+            old_stdout = sys.stdout
+            try:
+                with open('std.out', 'w+') as f:
+                    sys.stdout = f
+                    #test print details
+                    pids = server.signal_pids(DUMMY_SIG)
+                    output = pop_stream(f)
+                    self.assert_('pid: %s' % 1 in output)
+                    self.assert_('signal: %s' % DUMMY_SIG in output)
+                    # test no details on signal.SIG_DFL
+                    pids = server.signal_pids(signal.SIG_DFL)
+                    self.assertEquals(pop_stream(f), '')
+                    # reset mock os so only the other server is running
+                    swift_init.os = MockOs([2])
+                    # test pid not running
+                    pids = server.signal_pids(signal.SIG_DFL)
+                    self.assert_(1 not in pids)
+                    self.assert_(1 not in swift_init.os.pid_sigs)
+                    # test remove stale pid file
+                    self.assertFalse(os.path.exists(
+                        self.join_run_dir('proxy-server.pid')))
+                    # reset mock os with no running pids
+                    swift_init.os = MockOs([])
+                    server = swift_init.SwiftServer('auth')
+                    # test verbose warns on removing pid file
+                    pids = server.signal_pids(signal.SIG_DFL, verbose=True)
+                    output = pop_stream(f)
+                    self.assert_('stale pid' in output.lower())
+                    self.assert_(self.join_run_dir('auth-server.pid') in output)
+            finally:
+                sys.stdout = old_stdout
 
     def test_get_running_pids(self):
-        def assert_running_pids(server):
-            # all pids running to start
-            swift_init.os = MockOs(ALL_PIDS)
-            server = swift_init.SwiftServer(server)
-            running_pids = server.get_running_pids()
-            # make sure we only get pids for this server
-            self.assertEquals(sorted(running_pids.keys()), PID_MAP[server.server])
-            for pid in running_pids:
-                # verify the correct signal on the mock
-                self.assertEquals(swift_init.os.pid_sigs[pid],
-                                  [signal.SIG_DFL])
-            current_pids = list(PID_MAP[server.server])
-            # each pass will assert the pid from the previous run was removed
-            last_pid = -1  # this pid is skipped on the first pass
-            for pid in list(current_pids):
-                # setup current running pids
-                swift_init.os = MockOs(current_pids)
-                if not (last_pid == -1):
-                    # any valid pid should show up in iter_pid_files
-                    self.assert_(last_pid in [
-                        p for f, p in list(server.iter_pid_files())])
-                running_pids = server.get_running_pids()
-                self.assert_(pid in running_pids)
-                self.assertFalse(last_pid in running_pids)
-                # assert stale pid files were removed!
-                self.assertEquals(len(running_pids), len(server.pid_files()))
-                if last_pid in ALL_PIDS:
-                    self.assertFalse(last_pid in [
-                        p for f, p in list(server.iter_pid_files())])
-                # get ready for next iter, simulate pid died (i.e. remove # pid)
-                last_pid = pid
-                current_pids.remove(pid)
-            self.assertEquals(len(current_pids), 0)
-            swift_init.os = MockOs(current_pids)
-            self.assertEquals(len(server.get_running_pids()), 0)
-
-        with temptree(*zip(*PID_FILES)) as t:
+        # test only gets running pids
+        pid_files = (
+            ('test-server1.pid', 1),
+            ('test-server2.pid', 2),
+        )
+        with temptree(*zip(*pid_files)) as t:
             swift_init.RUN_DIR = t
-            servers = \
-                'auth proxy object object-auditor container-replicator'.split()
-            for server in servers:
-                assert_running_pids(server)
+            server = swift_init.SwiftServer('test-server')
+            # mock os, only pid '1' is running
+            swift_init.os = MockOs([1])
+            running_pids = server.get_running_pids()
+            self.assertEquals(len(running_pids), 1)
+            self.assert_(1 in running_pids)
+            self.assert_(2 not in running_pids)
+            # test persistant running pid files
+            self.assert_(os.path.exists(os.path.join(t, 'test-server1.pid')))
+            # test clean up stale pids
+            self.assertFalse(os.path.exists(os.path.join(t, 'test-server2.pid')))
+            # reset mock os, no pids running
+            swift_init.os = MockOs([])
+            running_pids = server.get_running_pids()
+            self.assertFalse(running_pids)
+            # and now all pid files are cleaned out
+            self.assertFalse(os.path.exists(os.path.join(t, 'test-server1.pid')))
+            all_pids = os.listdir(t)
+            self.assertEquals(len(all_pids), 0)
+
+        # test only get pids for right server
+        pid_files = (
+            ('thing-doer.pid', 1),
+            ('thing-sayer.pid', 2),
+            ('other-doer.pid', 3),
+            ('other-sayer.pid', 4),
+        )
+        files, pids = zip(*pid_files)
+        with temptree(files, pids) as t:
+            swift_init.RUN_DIR = t
+            # all pids are running
+            swift_init.os = MockOs(pids)
+            server = swift_init.SwiftServer('thing-doer')
+            running_pids = server.get_running_pids()
+            # only thing-doer.pid, 1 
+            self.assertEquals(len(running_pids), 1)
+            self.assert_(1 in running_pids)
+            # no other pids returned
+            for n in (2, 3, 4):
+                self.assert_(n not in running_pids)
+            # assert stale pids for other servers ignored
+            swift_init.os = MockOs([1])  # only thing-doer is running
+            running_pids = server.get_running_pids()
+            for f in ('thing-sayer.pid', 'other-doer.pid', 'other-sayer.pid'):
+                # other server pid files persist
+                self.assert_(os.path.exists, os.path.join(t, f))
+            # verify that servers are in fact not running
+            for server_name in ('thing-sayer', 'other-doer', 'other-sayer'):
+                server = swift_init.SwiftServer(server_name)
+                running_pids = server.get_running_pids()
+                self.assertFalse(running_pids)
+            # and now all OTHER pid files are cleaned out
+            all_pids = os.listdir(t)
+            self.assertEquals(len(all_pids), 1)
+            self.assert_(os.path.exists(os.path.join(t, 'thing-doer.pid')))
+
 
     def test_kill_running_pids(self):
-        def assert_kill_running_pids(server):
-            server = swift_init.SwiftServer(server)
-            # all pids running
-            swift_init.os = MockOs(ALL_PIDS)
-
-            pid_files = server.pid_files()
-            killed_pids = server.kill_running_pids()
-            self.assertEquals(len(killed_pids), len(pid_files))
-
-            # reinit mock os
-            swift_init.os = MockOs(ALL_PIDS)
-            # make sure graceful sends sighup on servers that support it
-            huped_pids = server.kill_running_pids(graceful=True)
-            if server.server in swift_init.GRACEFUL_SHUTDOWN_SERVERS:
-                captured_sig = signal.SIGHUP
-            else:
-                captured_sig = signal.SIGTERM
-            for pid in huped_pids:
-                self.assertEquals(swift_init.os.pid_sigs[pid], [captured_sig])
-
-        with temptree(*zip(*PID_FILES)) as t:
+        pid_files = (
+            ('object-server.pid', 1),
+            ('object-replicator1.pid', 11),
+            ('object-replicator2.pid', 12),
+        )
+        files, pids = zip(*pid_files)
+        with temptree(files, pids) as t:
             swift_init.RUN_DIR = t
-            servers = \
-                'auth proxy object object-auditor container-replicator'.split()
-            for server in servers:
-                assert_kill_running_pids(server)
+            server = swift_init.SwiftServer('object')
+            # test no servers running
+            pids = server.kill_running_pids()
+            self.assertFalse(pids)
+            # start up pid
+            swift_init.os = MockOs([1])
+            # test kill one pid
+            pids = server.kill_running_pids()
+            self.assertEquals(len(pids), 1)
+            self.assert_(1 in pids)
+            self.assertEquals(swift_init.os.pid_sigs[1], [signal.SIGTERM])
+            # reset os mock
+            swift_init.os = MockOs([1])
+            # test shutdown
+            self.assert_('object-server' in swift_init.GRACEFUL_SHUTDOWN_SERVERS)
+            pids = server.kill_running_pids(graceful=True)
+            self.assertEquals(len(pids), 1)
+            self.assert_(1 in pids)
+            self.assertEquals(swift_init.os.pid_sigs[1], [signal.SIGHUP])
+            # start up other servers
+            swift_init.os = MockOs([11, 12])
+            # test multi server kill & ignore graceful on unsupport server
+            self.assertFalse('object-replicator' in
+                             swift_init.GRACEFUL_SHUTDOWN_SERVERS)
+            server = swift_init.SwiftServer('object-replicator')
+            pids = server.kill_running_pids(graceful=True)
+            self.assertEquals(len(pids), 2)
+            for pid in (11, 12):
+                self.assert_(pid in pids)
+                self.assertEquals(swift_init.os.pid_sigs[pid],
+                                  [signal.SIGTERM])
+            # and the other pid is of course not signaled
+            self.assert_(1 not in swift_init.os.pid_sigs)
+
 
     #TODO: more tests
     def test_status(self):

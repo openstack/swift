@@ -489,7 +489,7 @@ class SwiftServer():
         return self.signal_pids(signal.SIG_DFL, **kwargs)  # send noop
 
     def kill_running_pids(self, **kwargs):
-        """Get running pids
+        """Kill running pids
 
         :param graceful: if True, attempt SIGHUP on supporting servers
 
