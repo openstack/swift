@@ -1470,7 +1470,7 @@ def st_upload(options, args, print_queue, error_queue):
         error_queue.put('Account not found')
 
 
-def parse_args(parser, args):
+def parse_args(parser, args, enforce_requires=True):
     if not args:
         args = ['-h']
     (options, args) = parser.parse_args(args)
@@ -1480,7 +1480,7 @@ overridden with -A, -U, or -K.'''.strip('\n')
     for attr in ('auth', 'user', 'key'):
         if not getattr(options, attr, None):
             setattr(options, attr, environ.get('ST_%s' % attr.upper()))
-            if not getattr(options, attr, None):
+            if not getattr(options, attr, None) and enforce_requires:
                 exit(required_help)
     return options, args
 
@@ -1513,7 +1513,7 @@ Example:
     parser.add_option('-K', '--key', dest='key',
                       help='Key for obtaining an auth token')
     parser.disable_interspersed_args()
-    (options, args) = parse_args(parser, argv[1:])
+    (options, args) = parse_args(parser, argv[1:], enforce_requires=False)
     parser.enable_interspersed_args()
 
     commands = ('delete', 'download', 'list', 'post', 'stat', 'upload')
