@@ -870,7 +870,7 @@ def st_delete(parser, args, print_queue, error_queue):
     args = args[1:]
     if (not args and not options.yes_all) or (args and options.yes_all):
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_delete_help))
+                        (basename(argv[0]), st_delete_help))
         return
 
     object_queue = Queue(10000)
@@ -887,7 +887,7 @@ def st_delete(parser, args, print_queue, error_queue):
             if err.http_status != 404:
                 raise
             error_queue.put('Object %s not found' %
-                                    repr('%s/%s' % (container, obj)))
+                            repr('%s/%s' % (container, obj)))
     container_queue = Queue(10000)
 
     def _delete_container(container, conn):
@@ -995,7 +995,7 @@ def st_download(options, args, print_queue, error_queue):
         exit('-o option only allowed for single file downloads')
     if (not args and not options.yes_all) or (args and options.yes_all):
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_download_help))
+                        (basename(argv[0]), st_download_help))
         return
 
     object_queue = Queue(10000)
@@ -1044,11 +1044,10 @@ def st_download(options, args, print_queue, error_queue):
                 fp.close()
             if md5sum.hexdigest() != etag:
                 error_queue.put('%s: md5sum != etag, %s != %s' %
-                                        (path, md5sum.hexdigest(), etag))
+                                (path, md5sum.hexdigest(), etag))
             if read_length != content_length:
-                error_queue.put(
-                    '%s: read_length != content_length, %d != %d' %
-                    (path, read_length, content_length))
+                error_queue.put('%s: read_length != content_length, %d != %d' %
+                                (path, read_length, content_length))
             if 'x-object-meta-mtime' in headers and not options.out_file:
                 mtime = float(headers['x-object-meta-mtime'])
                 utime(path, (mtime, mtime))
@@ -1058,7 +1057,7 @@ def st_download(options, args, print_queue, error_queue):
             if err.http_status != 404:
                 raise
             error_queue.put('Object %s not found' %
-                                    repr('%s/%s' % (container, obj)))
+                            repr('%s/%s' % (container, obj)))
 
     container_queue = Queue(10000)
 
@@ -1151,7 +1150,7 @@ def st_list(options, args, print_queue, error_queue):
         exit('-d option only allowed for container listings')
     if len(args) > 1:
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_list_help))
+                        (basename(argv[0]), st_list_help))
         return
     conn = Connection(options.auth, options.user, options.key,
         snet=options.snet)
@@ -1278,10 +1277,10 @@ Content Length: %s
             if err.http_status != 404:
                 raise
             error_queue.put('Object %s not found' %
-                                    repr('%s/%s' % (args[0], args[1])))
+                            repr('%s/%s' % (args[0], args[1])))
     else:
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_stat_help))
+                        (basename(argv[0]), st_stat_help))
 
 
 st_post_help = '''
@@ -1350,10 +1349,10 @@ def st_post(options, args, print_queue, error_queue):
             if err.http_status != 404:
                 raise
             error_queue.put('Object %s not found' %
-                                    repr('%s/%s' % (args[0], args[1])))
+                            repr('%s/%s' % (args[0], args[1])))
     else:
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_post_help))
+                        (basename(argv[0]), st_post_help))
 
 
 st_upload_help = '''
@@ -1371,7 +1370,7 @@ def st_upload(options, args, print_queue, error_queue):
     args = args[1:]
     if len(args) < 2:
         error_queue.put('Usage: %s [options] %s' %
-                                (basename(argv[0]), st_upload_help))
+                        (basename(argv[0]), st_upload_help))
         return
 
     file_queue = Queue(10000)
