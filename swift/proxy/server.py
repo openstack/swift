@@ -688,6 +688,11 @@ class ObjectController(Controller):
                 (self.account_name, lcontainer, lprefix))
             lresp = self.GETorHEAD_base(lreq, 'Container', lpartition, lnodes,
                 lreq.path_info, self.app.container_ring.replica_count)
+            if lresp.status_int // 100 != 2:
+                lresp = HTTPNotFound(request=req)
+                lresp.headers['X-Object-Manifest'] = \
+                    resp.headers['x-object-manifest']
+                return lresp
             if 'swift.authorize' in req.environ:
                 req.acl = lresp.headers.get('x-container-read')
                 aresp = req.environ['swift.authorize'](req)
@@ -699,6 +704,9 @@ class ObjectController(Controller):
             headers = {'X-Object-Manifest': resp.headers['x-object-manifest'],
                 'Content-Type': resp.content_type, 'Content-Length':
                 content_length, 'ETag': etag}
+            for key, value in resp.headers.iteritems():
+                if key.lower().startswith('x-object-meta-'):
+                    headers[key] = value
             resp = Response(app_iter=SegmentedIterable(self, lcontainer,
                 listing), headers=headers, request=req,
                 conditional_response=True)
