@@ -867,18 +867,20 @@ class QueueFunctionThread(Thread):
 
 
 st_delete_help = '''
-delete --all OR delete container [object] [object] ...
+delete --all OR delete container [--leave-segments] [object] [object] ...
     Deletes everything in the account (with --all), or everything in a
-    container, or a list of objects depending on the args given. Note that
-    object segments won't be deleted unless you're deleting everything in the
-    account or specifically deleting the segments' container or object
-    names.'''.strip('\n')
+    container, or a list of objects depending on the args given. Segments of
+    manifest objects will be deleted as well, unless you specify the
+    --leave-segments option.'''.strip('\n')
 
 
 def st_delete(parser, args, print_queue, error_queue):
     parser.add_option('-a', '--all', action='store_true', dest='yes_all',
         default=False, help='Indicates that you really want to delete '
         'everything in the account')
+    parser.add_option('', '--leave-segments', action='store_true',
+        dest='leave_segments', default=False, help='Indicates that you want '
+        'the segments of manifest objects left alone')
     (options, args) = parse_args(parser, args)
     args = args[1:]
     if (not args and not options.yes_all) or (args and options.yes_all):
@@ -886,11 +888,42 @@ def st_delete(parser, args, print_queue, error_queue):
                         (basename(argv[0]), st_delete_help))
         return
 
+    def _delete_segment((container, obj), conn):
+        conn.delete_object(container, obj)
+        if options.verbose:
+            print_queue.put('%s/%s' % (container, obj))
+
     object_queue = Queue(10000)
 
     def _delete_object((container, obj), conn):
         try:
+            old_manifest = None
+            if not options.leave_segments:
+                try:
+                    old_manifest = conn.head_object(container, obj).get(
+                        'x-object-manifest')
+                except ClientException, err:
+                    if err.http_status != 404:
+                        raise
             conn.delete_object(container, obj)
+            if old_manifest:
+                segment_queue = Queue(10000)
+                scontainer, sprefix = old_manifest.split('/', 1)
+                for delobj in conn.get_container(scontainer,
+                                                 prefix=sprefix)[1]:
+                    segment_queue.put((scontainer, delobj['name']))
+                if not segment_queue.empty():
+                    segment_threads = [QueueFunctionThread(segment_queue,
+                        _delete_segment, create_connection()) for _ in
+                        xrange(10)]
+                    for thread in segment_threads:
+                        thread.start()
+                    while not segment_queue.empty():
+                        sleep(0.01)
+                    for thread in segment_threads:
+                        thread.abort = True
+                        while thread.isAlive():
+                            thread.join(0.01)
             if options.verbose:
                 path = options.yes_all and join(container, obj) or obj
                 if path[:1] in ('/', '\\'):
@@ -901,6 +934,7 @@ def st_delete(parser, args, print_queue, error_queue):
                 raise
             error_queue.put('Object %s not found' %
                             repr('%s/%s' % (container, obj)))
+
     container_queue = Queue(10000)
 
     def _delete_container(container, conn):
@@ -986,7 +1020,7 @@ def st_delete(parser, args, print_queue, error_queue):
 
 
 st_download_help = '''
-download --all OR download container [object] [object] ...
+download --all OR download container [options] [object] [object] ...
     Downloads everything in the account (with --all), or everything in a
     container, or a list of objects depending on the args given. For a single
     object download, you may use the -o [--output] <filename> option to
@@ -1030,14 +1064,13 @@ def st_download(options, args, print_queue, error_queue):
             path = options.yes_all and join(container, obj) or obj
             if path[:1] in ('/', '\\'):
                 path = path[1:]
+            md5sum = None
             if content_type.split(';', 1)[0] == 'text/directory':
                 if not isdir(path):
                     mkdirs(path)
                 read_length = 0
                 if 'x-object-manifest' not in headers:
                     md5sum = md5()
-                else:
-                    md5sum = None
                 for chunk in body:
                     read_length += len(chunk)
                     if md5sum:
@@ -1382,11 +1415,8 @@ upload [options] container file_or_directory [file_or_directory] [...]
     Uploads to the given container the files and directories specified by the
     remaining args. -c or --changed is an option that will only upload files
     that have changed since the last upload. -S <size> or --segment-size <size>
-    is an option that will upload files in segments no larger than <size> and
-    then create a "manifest" file that will download all the segments as if it
-    were the original file. The segments will be uploaded to a
-    <container>_segments container so as to not pollute the main <container>
-    listings.'''.strip('\n')
+    and --leave-segments are options as well (see --help for more).
+'''.strip('\n')
 
 
 def st_upload(options, args, print_queue, error_queue):
@@ -1399,6 +1429,10 @@ def st_upload(options, args, print_queue, error_queue):
         'the original file. The segments will be uploaded to a '
         '<container>_segments container so as to not pollute the main '
         '<container> listings.')
+    parser.add_option('', '--leave-segments', action='store_true',
+        dest='leave_segments', default=False, help='Indicates that you want '
+        'the older segments of manifest objects left alone (in the case of '
+        'overwrites)')
     (options, args) = parse_args(parser, args)
     args = args[1:]
     if len(args) < 2:
@@ -1451,17 +1485,19 @@ def st_upload(options, args, print_queue, error_queue):
                 # manifest object and need to delete the old segments
                 # ourselves.
                 old_manifest = None
-                try:
-                    headers = conn.head_object(container, obj)
-                    cl = int(headers.get('content-length'))
-                    mt = headers.get('x-object-meta-mtime')
-                    if options.changed and cl == getsize(path) and \
-                            mt == put_headers['x-object-meta-mtime']:
-                        return
-                    old_manifest = headers.get('x-object-manifest')
-                except ClientException, err:
-                    if err.http_status != 404:
-                        raise
+                if options.changed or not options.leave_segments:
+                    try:
+                        headers = conn.head_object(container, obj)
+                        cl = int(headers.get('content-length'))
+                        mt = headers.get('x-object-meta-mtime')
+                        if options.changed and cl == getsize(path) and \
+                                mt == put_headers['x-object-meta-mtime']:
+                            return
+                        if not options.leave_segments:
+                            old_manifest = headers.get('x-object-manifest')
+                    except ClientException, err:
+                        if err.http_status != 404:
+                            raise
                 if options.segment_size and \
                         getsize(path) < options.segment_size:
                     full_size = getsize(path)
@@ -1541,9 +1577,9 @@ def st_upload(options, args, print_queue, error_queue):
         snet=options.snet)
     create_connection = lambda: Connection(options.auth, options.user,
         options.key, preauthurl=url, preauthtoken=token, snet=options.snet)
-    file_threads = [QueueFunctionThread(object_queue, _object_job,
+    object_threads = [QueueFunctionThread(object_queue, _object_job,
         create_connection()) for _ in xrange(10)]
-    for thread in file_threads:
+    for thread in object_threads:
         thread.start()
     conn = create_connection()
     # Try to create the container, just in case it doesn't exist. If this
@@ -1564,7 +1600,7 @@ def st_upload(options, args, print_queue, error_queue):
                 object_queue.put({'path': arg})
         while not object_queue.empty():
             sleep(0.01)
-        for thread in file_threads:
+        for thread in object_threads:
             thread.abort = True
             while thread.isAlive():
                 thread.join(0.01)
