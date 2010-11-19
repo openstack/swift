@@ -79,14 +79,6 @@ class TestUtils(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
-        self.logger = logging.getLogger()
-        self.starting_handlers = list(self.logger.handlers)
-
-    def tearDown(self):
-        # don't let extra handlers pile up redirecting stdio and other stuff...
-        for handler in self.logger.handlers:
-            if handler not in self.starting_handlers:
-                self.logger.removeHandler(handler)
 
     def test_normalize_timestamp(self):
         """ Test swift.common.utils.normalize_timestamp """
@@ -178,7 +170,6 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(sio.getvalue(), '')
 
     def test_LoggerFileObject(self):
-        reload(sys)  # reset stdio redirection
         orig_stdout = sys.stdout
         orig_stderr = sys.stderr
         sio = StringIO()
@@ -436,12 +427,10 @@ log_name = yarr'''
         self.assert_(utils.sys.excepthook is not None)
         # when logging to console, stderr remains open
         self.assertEquals(utils.os.closed_fds, [0, 1])
+        logger.logger.removeHandler(utils.get_logger.console)
         # stdio not captured
         self.assertFalse(hasattr(utils.sys, 'stdout'))
         self.assertFalse(hasattr(utils.sys, 'stderr'))
-
-        # reset mocks on utils
-        reload(utils)
 
     def test_get_logger_console(self):
         reload(utils)  # reset get_logger attrs
@@ -455,6 +444,7 @@ log_name = yarr'''
         old_handler = utils.get_logger.console
         logger = utils.get_logger(None, log_to_console=True)
         self.assertNotEquals(utils.get_logger.console, old_handler)
+        logger.logger.removeHandler(utils.get_logger.console)
 
 if __name__ == '__main__':
     unittest.main()
