@@ -940,8 +940,8 @@ class ContainerBroker(DatabaseBroker):
                     rv.append(row['name'])
         return list(set(rv))
 
-    def list_objects_iter(self, limit, marker, prefix, delimiter, path=None,
-                          format=None):
+    def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
+                          path=None, format=None):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -949,6 +949,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param limit: maximum number of entries to get
         :param marker: marker query
+        :param end_marker: end marker query
         :param prefix: prefix query
         :param delimeter: delimeter for query
         :param path: if defined, will set the prefix and delimter based on
@@ -977,6 +978,9 @@ class ContainerBroker(DatabaseBroker):
                 query = '''SELECT name, created_at, size, content_type, etag
                            FROM object WHERE'''
                 query_args = []
+                if end_marker:
+                    query += ' name <= ? AND'
+                    query_args.append(end_marker)
                 if marker and marker >= prefix:
                     query += ' name > ? AND'
                     query_args.append(marker)
@@ -1440,7 +1444,8 @@ class AccountBroker(DatabaseBroker):
                     rv.append(row['name'])
         return list(set(rv))
 
-    def list_containers_iter(self, limit, marker, prefix, delimiter):
+    def list_containers_iter(self, limit, marker, end_marker, prefix,
+                             delimiter):
         """
         Get a list of containerss sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1448,6 +1453,7 @@ class AccountBroker(DatabaseBroker):
 
         :param limit: maximum number of entries to get
         :param marker: marker query
+        :param end_marker: end marker query
         :param prefix: prefix query
         :param delimeter: delimeter for query
 
@@ -1469,6 +1475,9 @@ class AccountBroker(DatabaseBroker):
                     FROM container
                     WHERE deleted = 0 AND """
                 query_args = []
+                if end_marker:
+                    query += ' name <= ? AND'
+                    query_args.append(end_marker)
                 if marker and marker >= prefix:
                     query += ' name > ? AND'
                     query_args.append(marker)
