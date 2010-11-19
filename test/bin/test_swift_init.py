@@ -566,11 +566,24 @@ class TestSwiftServerClass(unittest.TestCase):
             # and the other pid is of course not signaled
             self.assert_(1 not in swift_init.os.pid_sigs)
 
-
-    #TODO: more tests
     def test_status(self):
-        pass
+        # test supplied pids doesn't call get_running_pids
+        called = []
+        def mock(*args, **kwargs):
+            called.append(True)
+        server = swift_init.SwiftServer('test')
+        server.get_running_pids = mock
+        pids = {
+            1: 'test-server.pid'
+        }
+        server.status(pids=pids)
+        self.assertFalse(called)
+        # and again with out pids
+        server.status()
+        self.assert_(called)
+
     
+    #TODO: more tests
     def test_spawn(self):
         pass
 
