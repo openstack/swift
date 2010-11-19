@@ -56,6 +56,38 @@ def monkey_patch_mimetools():
 
     mimetools.Message.parsetype = parsetype
 
+def get_socket(conf, default_port=8080):
+    """Bind socket to bind ip:port in conf
+
+    :param conf: Configuration dict to read settings from
+    :param default_port: port to use if not specified in conf
+
+    :returns : a socket object as returned from socket.listen or ssl.wrap_socket
+               if conf specifies cert_file
+    """
+    bind_addr = (conf.get('bind_ip', '0.0.0.0'),
+                 int(conf.get('bind_port', default_port)))
+    sock = None
+    retry_until = time.time() + 30
+    while not sock and time.time() < retry_until:
+        try:
+            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)))
+            if 'cert_file' in conf:
+                sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
+                    keyfile=conf['key_file'])
+        except socket.error, err:
+            if err.args[0] != errno.EADDRINUSE:
+                raise
+            sleep(0.1)
+    if not sock:
+        raise Exception('Could not bind to %s:%s after trying for 30 seconds' %
+                        bind_addr)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # in my experience, sockets can hang around forever without keepalive
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
+    return sock
+
 
 # TODO: pull pieces of this out to test
 def run_wsgi(conf_file, app_section, *args, **kwargs):
@@ -84,29 +116,9 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
 
     # redirect errors to logger and close stdio
     capture_stdio(logger)
-
-    bind_addr = (conf.get('bind_ip', '0.0.0.0'),
-                 int(conf.get('bind_port', kwargs.get('default_port', 8080))))
-    sock = None
-    retry_until = time.time() + 30
-    while not sock and time.time() < retry_until:
-        try:
-            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)))
-            if 'cert_file' in conf:
-                sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
-                    keyfile=conf['key_file'])
-        except socket.error, err:
-            if err.args[0] != errno.EADDRINUSE:
-                raise
-            sleep(0.1)
-    if not sock:
-        raise Exception('Could not bind to %s:%s after trying for 30 seconds' %
-                        bind_addr)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # in my experience, sockets can hang around forever without keepalive
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
-    worker_count = int(conf.get('workers', '1'))
+    # bind to address and port
+    sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
+    # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
 
     # finally after binding to ports and privilege drop, run app __init__ code
@@ -125,6 +137,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
                 raise
         pool.waitall()
 
+    worker_count = int(conf.get('workers', '1'))
     # Useful for profiling [no forks].
     if worker_count == 0:
         run_server()

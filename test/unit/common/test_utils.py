@@ -40,10 +40,11 @@ class MockOs():
             setattr(self, func, self.pass_func)
         self.called_funcs = {}
         for func in called_funcs:
-            c_func = partial(self.called_func, name)
+            c_func = partial(self.called_func, func)
             setattr(self, func, c_func)
         for func in raise_funcs:
-            setattr(self, func, self.raise_func)
+            r_func = partial(self.raise_func, func)
+            setattr(self, func, r_func)
 
     def pass_func(self, *args, **kwargs):
         pass
@@ -53,7 +54,8 @@ class MockOs():
     def called_func(self, name, *args, **kwargs):
         self.called_funcs[name] = True
 
-    def raise_func(self, *args, **kwargs):
+    def raise_func(self, name, *args, **kwargs):
+        self.called_funcs[name] = True
         raise OSError()
 
     def dup2(self, source, target):
@@ -378,51 +380,59 @@ log_name = yarr'''
         self.assertEquals(result, expected)
         os.unlink('/tmp/test')
 
-    def test_daemonize(self):
-        # default args
-        conf = {'user': getuser()}
-        logger = utils.get_logger(None, 'daemon')
-
-        # over-ride utils system modules with mocks
-        utils.os = MockOs()
-        utils.sys = MockSys()
-
-        utils.daemonize(conf, logger)
-        self.assert_(utils.sys.excepthook is not None)
-        self.assertEquals(utils.os.closed_fds, [0, 1, 2])
-        self.assert_(utils.sys.stdout is not None)
-        self.assert_(utils.sys.stderr is not None)
+    def test_drop_privileges(self):
+        user = getuser()
+        # over-ride os with mock
+        required_func_calls = ('setgid', 'setuid', 'setsid', 'chdir', 'umask')
+        utils.os = MockOs(called_funcs=required_func_calls)
+        # exercise the code
+        utils.drop_privileges(user)
+        for func in required_func_calls:
+            self.assert_(utils.os.called_funcs[func])
 
         # reset; test same args, OSError trying to get session leader
-        utils.os = MockOs(raise_funcs=('setsid',))
-        utils.sys = MockSys()
+        utils.os = MockOs(called_funcs=required_func_calls,
+                          raise_funcs=('setsid',))
+        for func in required_func_calls:
+            self.assertFalse(utils.os.called_funcs.get(func, False))
+        utils.drop_privileges(user)
+        for func in required_func_calls:
+            self.assert_(utils.os.called_funcs[func])
 
-        utils.daemonize(conf, logger)
+    def test_capture_stdio(self):
+        # stubs
+        logger = utils.get_logger(None, 'dummy')
+
+        # mock utils system modules
+        utils.sys = MockSys()
+        utils.os = MockOs()
+
+        # basic test
+        utils.capture_stdio(logger)
         self.assert_(utils.sys.excepthook is not None)
         self.assertEquals(utils.os.closed_fds, [0, 1, 2])
         self.assert_(utils.sys.stdout is not None)
         self.assert_(utils.sys.stderr is not None)
 
-        # reset; test same args, exc when trying to close stdio
+        # reset; test same args, but exc when trying to close stdio
         utils.os = MockOs(raise_funcs=('dup2',))
         utils.sys = MockSys()
 
-        utils.daemonize(conf, logger)
+        # test unable to close stdio
+        utils.capture_stdio(logger)
         self.assert_(utils.sys.excepthook is not None)
-        # unable to close stdio
         self.assertEquals(utils.os.closed_fds, [])
         self.assert_(utils.sys.stdout is not None)
         self.assert_(utils.sys.stderr is not None)
 
         # reset; test some other args
+        logger = utils.get_logger(None, log_to_console=True)
         utils.os = MockOs()
         utils.sys = MockSys()
 
-        conf = {'user': getuser()}
-        logger = utils.get_logger(None, log_to_console=True)
-        logger = logging.getLogger()
-        utils.daemonize(conf, logger, capture_stdout=False,
-                        capture_stderr=False)
+        # test console log
+        utils.capture_stdio(logger, capture_stdout=False,
+                            capture_stderr=False)
         self.assert_(utils.sys.excepthook is not None)
         # when logging to console, stderr remains open
         self.assertEquals(utils.os.closed_fds, [0, 1])

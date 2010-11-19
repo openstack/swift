@@ -38,7 +38,8 @@ class Daemon(object):
     def run(self, once=False, **kwargs):
         """Run the daemon"""
         utils.validate_configuration()
-        utils.daemonize(self.conf, self.logger, **kwargs)
+        utils.capture_stdio(self.logger, **kwargs)
+        utils.drop_privileges(self.conf.get('user', 'swift'))
 
         def kill_children(*args):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
