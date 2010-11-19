@@ -14,14 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 from swift.stats.account_stats import AccountStat
-from swift.common import utils
+from swift.common.utils import parse_options
+from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: swift-account-stats-logger CONFIG_FILE"
-        sys.exit()
-    stats_conf = utils.readconf(sys.argv[1], 'log-processor-stats')
-    stats = AccountStat(stats_conf).run(once=True)
+    conf_file, options = parse_options()
+    # currently AccountStat only supports run_once
+    options['once'] = True
+    run_daemon(AccountStat, conf_file, section_name='log-processor-stats',
+               **options)

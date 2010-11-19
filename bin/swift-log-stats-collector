@@ -14,14 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 from swift.stats.log_processor import LogProcessorDaemon
-from swift.common import utils
+from swift.common.utils import parse_options
+from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: swift-log-stats-collector CONFIG_FILE"
-        sys.exit()
-    conf = utils.readconf(sys.argv[1], log_name='log-stats-collector')
-    stats = LogProcessorDaemon(conf).run(once=True)
+    conf_file, options = parse_options()
+    # currently the LogProcessorDaemon only supports run_once
+    options['once'] = True
+    run_daemon(LogProcessorDaemon, conf_file, section_name=None,
+               log_name='log-stats-collector', **options)

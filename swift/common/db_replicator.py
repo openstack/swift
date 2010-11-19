@@ -93,10 +93,6 @@ class Replicator(Daemon):
     def __init__(self, conf):
         self.conf = conf
         self.logger = get_logger(conf)
-        # log uncaught exceptions
-        sys.excepthook = lambda * exc_info: \
-                self.logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
-        sys.stdout = sys.stderr = LoggerFileObject(self.logger)
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
