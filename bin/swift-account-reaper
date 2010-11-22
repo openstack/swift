@@ -14,15 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 from swift.account.reaper import AccountReaper
-from swift.common import utils
+from swift.common.utils import parse_options
+from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: account-reaper CONFIG_FILE [once]"
-        sys.exit()
-    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    conf = utils.readconf(sys.argv[1], 'account-reaper')
-    reaper = AccountReaper(conf).run(once)
+    conf_file, options = parse_options(once=True)
+    run_daemon(AccountReaper, conf_file, **options)

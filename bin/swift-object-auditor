@@ -14,16 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 from swift.obj.auditor import ObjectAuditor
-from swift.common import utils
+from swift.common.utils import parse_options
+from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print "Usage: swift-object-auditor CONFIG_FILE [once]"
-        sys.exit()
-
-    once = len(sys.argv) > 2 and sys.argv[2] == 'once'
-    conf = utils.readconf(sys.argv[1], 'object-auditor')
-    ObjectAuditor(conf).run(once)
+    conf_file, options = parse_options(once=True)
+    run_daemon(ObjectAuditor, conf_file, **options)

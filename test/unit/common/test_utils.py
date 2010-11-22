@@ -25,10 +25,53 @@ import unittest
 from getpass import getuser
 from shutil import rmtree
 from StringIO import StringIO
+from functools import partial
+from tempfile import NamedTemporaryFile
 
 from eventlet import sleep
 
 from swift.common import utils
+
+
+class MockOs():
+    def __init__(self, pass_funcs=[], called_funcs=[], raise_funcs=[]):
+        self.closed_fds = []
+        for func in pass_funcs:
+            setattr(self, func, self.pass_func)
+        self.called_funcs = {}
+        for func in called_funcs:
+            c_func = partial(self.called_func, func)
+            setattr(self, func, c_func)
+        for func in raise_funcs:
+            r_func = partial(self.raise_func, func)
+            setattr(self, func, r_func)
+
+    def pass_func(self, *args, **kwargs):
+        pass
+
+    chdir = setsid = setgid = setuid = umask = pass_func
+
+    def called_func(self, name, *args, **kwargs):
+        self.called_funcs[name] = True
+
+    def raise_func(self, name, *args, **kwargs):
+        self.called_funcs[name] = True
+        raise OSError()
+
+    def dup2(self, source, target):
+        self.closed_fds.append(target)
+
+    def __getattr__(self, name):
+        # I only over-ride portions of the os module
+        try:
+            return object.__getattr__(self, name)
+        except AttributeError:
+            return getattr(os, name)
+
+
+class MockSys():
+
+    __stderr__ = sys.__stderr__
 
 
 class TestUtils(unittest.TestCase):
@@ -182,10 +225,63 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(IOError, lfo.readline, 1024)
         lfo.tell()
 
-    def test_drop_privileges(self):
-        # Note that this doesn't really drop privileges as it just sets them to
-        # what they already are; but it exercises the code at least.
-        utils.drop_privileges(getuser())
+    def test_parse_options(self):
+        # use mkstemp to get a file that is definately on disk
+        with NamedTemporaryFile() as f:
+            conf_file = f.name
+            conf, options = utils.parse_options(test_args=[conf_file])
+            self.assertEquals(conf, conf_file)
+            # assert defaults
+            self.assertEquals(options['verbose'], False)
+            self.assert_('once' not in options)
+            # assert verbose as option
+            conf, options = utils.parse_options(test_args=[conf_file, '-v'])
+            self.assertEquals(options['verbose'], True)
+            # check once option
+            conf, options = utils.parse_options(test_args=[conf_file],
+                                                once=True)
+            self.assertEquals(options['once'], False)
+            test_args = [conf_file, '--once']
+            conf, options = utils.parse_options(test_args=test_args, once=True)
+            self.assertEquals(options['once'], True)
+            # check options as arg parsing
+            test_args = [conf_file, 'once', 'plugin_name', 'verbose']
+            conf, options = utils.parse_options(test_args=test_args, once=True)
+            self.assertEquals(options['verbose'], True)
+            self.assertEquals(options['once'], True)
+            self.assertEquals(options['extra_args'], ['plugin_name'])
+
+    def test_parse_options_errors(self):
+        orig_stdout = sys.stdout
+        orig_stderr = sys.stderr
+        stdo = StringIO()
+        stde = StringIO()
+        utils.sys.stdout = stdo
+        utils.sys.stderr = stde
+        err_msg = """Usage: test usage
+
+Error: missing config file argument
+"""
+        test_args = []
+        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
+                          test_args)
+        self.assertEquals(stdo.getvalue(), err_msg)
+
+        # verify conf file must exist, context manager will delete temp file
+        with NamedTemporaryFile() as f:
+            conf_file = f.name
+        err_msg += """Usage: test usage
+
+Error: unable to locate %s
+""" % conf_file
+        test_args = [conf_file]
+        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
+                          test_args)
+        self.assertEquals(stdo.getvalue(), err_msg)
+
+        # reset stdio
+        utils.sys.stdout = orig_stdout
+        utils.sys.stderr = orig_stderr
 
     def test_NamedLogger(self):
         sio = StringIO()
@@ -274,6 +370,81 @@ log_name = yarr'''
         expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
         self.assertEquals(result, expected)
         os.unlink('/tmp/test')
+
+    def test_drop_privileges(self):
+        user = getuser()
+        # over-ride os with mock
+        required_func_calls = ('setgid', 'setuid', 'setsid', 'chdir', 'umask')
+        utils.os = MockOs(called_funcs=required_func_calls)
+        # exercise the code
+        utils.drop_privileges(user)
+        for func in required_func_calls:
+            self.assert_(utils.os.called_funcs[func])
+
+        # reset; test same args, OSError trying to get session leader
+        utils.os = MockOs(called_funcs=required_func_calls,
+                          raise_funcs=('setsid',))
+        for func in required_func_calls:
+            self.assertFalse(utils.os.called_funcs.get(func, False))
+        utils.drop_privileges(user)
+        for func in required_func_calls:
+            self.assert_(utils.os.called_funcs[func])
+
+    def test_capture_stdio(self):
+        # stubs
+        logger = utils.get_logger(None, 'dummy')
+
+        # mock utils system modules
+        utils.sys = MockSys()
+        utils.os = MockOs()
+
+        # basic test
+        utils.capture_stdio(logger)
+        self.assert_(utils.sys.excepthook is not None)
+        self.assertEquals(utils.os.closed_fds, [0, 1, 2])
+        self.assert_(utils.sys.stdout is not None)
+        self.assert_(utils.sys.stderr is not None)
+
+        # reset; test same args, but exc when trying to close stdio
+        utils.os = MockOs(raise_funcs=('dup2',))
+        utils.sys = MockSys()
+
+        # test unable to close stdio
+        utils.capture_stdio(logger)
+        self.assert_(utils.sys.excepthook is not None)
+        self.assertEquals(utils.os.closed_fds, [])
+        self.assert_(utils.sys.stdout is not None)
+        self.assert_(utils.sys.stderr is not None)
+
+        # reset; test some other args
+        logger = utils.get_logger(None, log_to_console=True)
+        utils.os = MockOs()
+        utils.sys = MockSys()
+
+        # test console log
+        utils.capture_stdio(logger, capture_stdout=False,
+                            capture_stderr=False)
+        self.assert_(utils.sys.excepthook is not None)
+        # when logging to console, stderr remains open
+        self.assertEquals(utils.os.closed_fds, [0, 1])
+        logger.logger.removeHandler(utils.get_logger.console)
+        # stdio not captured
+        self.assertFalse(hasattr(utils.sys, 'stdout'))
+        self.assertFalse(hasattr(utils.sys, 'stderr'))
+
+    def test_get_logger_console(self):
+        reload(utils)  # reset get_logger attrs
+        logger = utils.get_logger(None)
+        self.assertFalse(hasattr(utils.get_logger, 'console'))
+        logger = utils.get_logger(None, log_to_console=True)
+        self.assert_(hasattr(utils.get_logger, 'console'))
+        self.assert_(isinstance(utils.get_logger.console,
+                                logging.StreamHandler))
+        # make sure you can't have two console handlers
+        old_handler = utils.get_logger.console
+        logger = utils.get_logger(None, log_to_console=True)
+        self.assertNotEquals(utils.get_logger.console, old_handler)
+        logger.logger.removeHandler(utils.get_logger.console)
 
 if __name__ == '__main__':
     unittest.main()
