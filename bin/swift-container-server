@@ -14,11 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
+from swift.common.utils import parse_options
 from swift.common.wsgi import run_wsgi
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        sys.exit("Usage: %s CONFIG_FILE" % sys.argv[0])
-    run_wsgi(sys.argv[1], 'container-server', default_port=6001)
+    conf_file, options = parse_options()
+    run_wsgi(conf_file, 'container-server', default_port=6001, **options)
