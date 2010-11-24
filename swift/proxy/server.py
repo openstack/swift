@@ -179,7 +179,7 @@ class Controller(object):
         path = '/%s' % account
         cache_key = 'account%s' % path
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache and self.app.memcache.get(cache_key):
+        if self.app.memcache and self.app.memcache.get(cache_key) == 200:
             return partition, nodes
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
@@ -198,7 +198,10 @@ class Controller(object):
                         result_code = 200
                         break
                     elif resp.status == 404:
-                        result_code = 404 if not result_code else -1
+                        if result_code == 0:
+                            result_code = 404
+                        elif result_code != 404:
+                            result_code = -1
                     elif resp.status == 507:
                         self.error_limit(node)
                         continue
@@ -244,7 +247,7 @@ class Controller(object):
                 status = cache_value['status']
                 read_acl = cache_value['read_acl']
                 write_acl = cache_value['write_acl']
-                if status // 100 == 2:
+                if status == 200:
                     return partition, nodes, read_acl, write_acl
         if not self.account_info(account)[1]:
             return (None, None, None, None)
@@ -272,7 +275,10 @@ class Controller(object):
                             resp.getheader('X-Container-Object-Count')
                         break
                     elif resp.status == 404:
-                        result_code = 404 if not result_code else -1
+                        if result_code == 0:
+                            result_code = 404
+                        elif result_code != 404:
+                            result_code = -1
                     elif resp.status == 507:
                         self.error_limit(node)
                         continue
