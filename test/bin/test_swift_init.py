@@ -640,7 +640,15 @@ class TestSwiftServerClass(unittest.TestCase):
                             1: '1.pid',
                             2: '2.pid',
                         }
-                        self.assertEquals(server.status(pids=pids), 0)
+                        # shouldn't call get_running_pids
+                        called = []
+
+                        def mock(*args, **kwargs):
+                            called.append(True)
+                        server.get_running_pids = mock
+                        status = server.status(pids=pids)
+                        self.assertEquals(status, 0)
+                        self.assertFalse(called)
                         output = pop_stream(f).strip().splitlines()
                         self.assertEquals(len(output), 2)
                         for line in output:
