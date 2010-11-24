@@ -37,10 +37,11 @@ class DumbInternalProxy(object):
                            end_marker=None):
         n = '2010/03/14/13/obj1'
         if marker is None or n > marker:
-            if end_marker and n <= end_marker:
-                return [{'name': n}]
-            elif end_marker:
-                return []
+            if end_marker:
+                if n <= end_marker:
+                    return [{'name': n}]
+                else:
+                    return []
             return [{'name': n}]
         return []
 
@@ -178,6 +179,10 @@ use = egg:swift#proxy
                                             end_date='2010031412')
         expected = []
         self.assertEquals(result, expected)
+        result = p.get_container_listing('a', 'foo', start_date='2010031412',
+                                            end_date='2010031413')
+        expected = ['2010/03/14/13/obj1']
+        self.assertEquals(result, expected)
 
     def test_get_object_data(self):
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
@@ -212,7 +217,6 @@ use = egg:swift#proxy
         p = log_processor.LogProcessor(self.proxy_config, DumbLogger())
         result = p.generate_keylist_mapping()
         expected = {}
-        print p.plugins
         self.assertEquals(result, expected)
 
     def test_generate_keylist_mapping_with_dummy_plugins(self):
