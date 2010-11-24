@@ -47,7 +47,6 @@ from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, MAX_FILE_SIZE
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 
-
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
@@ -211,6 +210,67 @@ def save_globals():
 
 # tests
 
+class TestController(unittest.TestCase):
+
+    def setUp(self):
+        self.account_ring = FakeRing()
+
+        app = proxy_server.Application(None, FakeMemcache(),
+            account_ring=self.account_ring, container_ring=FakeRing(),
+            object_ring=FakeRing())
+        self.controller = proxy_server.Controller(app)
+
+    def check_account_info_return(self, account, partition, nodes):
+        p, n = self.account_ring.get_nodes(account)
+        self.assertEqual(p, partition)
+        self.assertEqual(n, nodes)
+
+    def test_account_info_404_200(self):
+        account = 'test_account_info_404_200'
+
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            partition, nodes = self.controller.account_info(account)
+            self.assertEqual(partition, None)
+            self.assertEqual(nodes, None)
+
+            proxy_server.http_connect = fake_http_connect(200)
+            partition, nodes = self.controller.account_info(account)
+            self.check_account_info_return(account, partition, nodes)
+
+    def test_account_info_404(self):
+        account = 'test_account_info_404'
+
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            partition, nodes = self.controller.account_info(account)
+            self.assertEqual(partition, None)
+            self.assertEqual(nodes, None)
+
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            partition, nodes = self.controller.account_info(account)
+            self.assertEqual(partition, None)
+            self.assertEqual(nodes, None)
+
+    def test_account_info_200(self):
+        account = 'test_account_info_200'
+
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200)
+            partition, nodes = self.controller.account_info(account)
+            self.check_account_info_return(account, partition, nodes)
+
+    def test_account_info_200_200(self):
+        account = 'test_account_info_200_200'
+
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200)
+            partition, nodes = self.controller.account_info(account)
+            self.check_account_info_return(account, partition, nodes)
+
+            proxy_server.http_connect = fake_http_connect(200)
+            partition, nodes = self.controller.account_info(account)
+            self.check_account_info_return(account, partition, nodes)
 
 class TestProxyServer(unittest.TestCase):
 
