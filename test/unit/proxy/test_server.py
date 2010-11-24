@@ -304,21 +304,20 @@ class TestObjectController(unittest.TestCase):
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
     def test_custom_mime_types_files(self):
-        conf = {'swift_dir': mkdtemp()}
+        swift_dir = mkdtemp()
         try:
-            with open(os.path.join(conf['swift_dir'], 'mime.types'), 'w') \
-                    as fp:
+            with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
                 fp.write('foo/bar foo\n')
-            open(os.path.join(conf['swift_dir'], 'resellers.conf'),
-                 'w').close()
-            ba = proxy_server.BaseApplication(conf, FakeMemcache(),
-                NullLoggingHandler(), FakeRing(), FakeRing(), FakeRing())
+            open(os.path.join(swift_dir, 'resellers.conf'), 'w').close()
+            ba = proxy_server.BaseApplication({'swift_dir': swift_dir},
+                FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
+                FakeRing())
             self.assertEquals(proxy_server.mimetypes.guess_type('blah.foo')[0],
                               'foo/bar')
             self.assertEquals(proxy_server.mimetypes.guess_type('blah.jpg')[0],
                               'image/jpeg')
         finally:
-            rmtree(conf['swift_dir'], ignore_errors=True)
+            rmtree(swift_dir, ignore_errors=True)
 
     def test_PUT(self):
         with save_globals():
