@@ -224,7 +224,8 @@ class AccountReaper(Daemon):
             marker = ''
             while True:
                 containers = \
-                    list(broker.list_containers_iter(1000, marker, None, None))
+                    list(broker.list_containers_iter(1000, marker, None, None,
+                                                     None))
                 if not containers:
                     break
                 try:

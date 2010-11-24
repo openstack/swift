@@ -62,7 +62,8 @@ class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.daemonize = lambda *args: None
+        utils.drop_privileges = lambda *args: None
+        utils.capture_stdio = lambda *args: None
 
     def tearDown(self):
         reload(utils)

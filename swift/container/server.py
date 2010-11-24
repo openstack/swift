@@ -267,6 +267,7 @@ class ContainerController(object):
                 # delimiters can be made more flexible later
                 return HTTPPreconditionFailed(body='Bad delimiter')
             marker = get_param(req, 'marker', '')
+            end_marker = get_param(req, 'end_marker')
             limit = CONTAINER_LISTING_LIMIT
             given_limit = get_param(req, 'limit')
             if given_limit and given_limit.isdigit():
@@ -284,8 +285,8 @@ class ContainerController(object):
                                 ['text/plain', 'application/json',
                                  'application/xml', 'text/xml'],
                                 default_match='text/plain')
-        container_list = broker.list_objects_iter(limit, marker, prefix,
-                                                  delimiter, path)
+        container_list = broker.list_objects_iter(limit, marker, end_marker,
+                                                  prefix, delimiter, path)
         if out_content_type == 'application/json':
             json_pattern = ['"name":%s', '"hash":"%s"', '"bytes":%s',
                             '"content_type":%s, "last_modified":"%s"']

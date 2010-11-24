@@ -421,18 +421,6 @@ def capture_stdio(logger, **kwargs):
         sys.stderr = LoggerFileObject(logger)
 
 
-def daemonize(conf, logger, **kwargs):
-    """
-    Perform standard python/linux daemonization operations.
-
-    :param conf: Configuration dict to read settings from (i.e. user)
-    :param logger: Logger object to handle stdio redirect and uncaught exc
-    """
-
-    capture_stdio(logger, **kwargs)
-    drop_privileges(conf.get('user', 'swift'))
-
-
 def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
     """
     Parse standard swift server/daemon options with optparse.OptionParser.

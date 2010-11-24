@@ -113,60 +113,46 @@ class LogProcessor(object):
                               listing_filter=None):
         '''
         Get a container listing, filtered by start_date, end_date, and
-        listing_filter. Dates, if given, should be in YYYYMMDDHH format
+        listing_filter. Dates, if given, must be in YYYYMMDDHH format
         '''
         search_key = None
         if start_date is not None:
-            date_parts = []
             try:
-                year, start_date = start_date[:4], start_date[4:]
-                if year:
-                    date_parts.append(year)
-                    month, start_date = start_date[:2], start_date[2:]
-                    if month:
-                        date_parts.append(month)
-                        day, start_date = start_date[:2], start_date[2:]
-                        if day:
-                            date_parts.append(day)
-                            hour, start_date = start_date[:2], start_date[2:]
-                            if hour:
-                                date_parts.append(hour)
-            except IndexError:
+                parsed_date = time.strptime(start_date, '%Y%m%d%H')
+            except ValueError:
                 pass
             else:
-                search_key = '/'.join(date_parts)
+                year = '%04d' % parsed_date.tm_year
+                month = '%02d' % parsed_date.tm_mon
+                day = '%02d' % parsed_date.tm_mday
+                hour = '%02d' % parsed_date.tm_hour
+                search_key = '/'.join([year, month, day, hour])
         end_key = None
         if end_date is not None:
-            date_parts = []
             try:
-                year, end_date = end_date[:4], end_date[4:]
-                if year:
-                    date_parts.append(year)
-                    month, end_date = end_date[:2], end_date[2:]
-                    if month:
-                        date_parts.append(month)
-                        day, end_date = end_date[:2], end_date[2:]
-                        if day:
-                            date_parts.append(day)
-                            hour, end_date = end_date[:2], end_date[2:]
-                            if hour:
-                                date_parts.append(hour)
-            except IndexError:
+                parsed_date = time.strptime(end_date, '%Y%m%d%H')
+            except ValueError:
                 pass
             else:
-                end_key = '/'.join(date_parts)
+                year = '%04d' % parsed_date.tm_year
+                month = '%02d' % parsed_date.tm_mon
+                day = '%02d' % parsed_date.tm_mday
+                hour = '%02d' % parsed_date.tm_hour
+                # Since the end_marker filters by <=, we need to add something
+                # to then end_key to make sure we get all the data under the
+                # last hour. Adding '/\x7f' should be all inclusive.
+                end_key = '/'.join([year, month, day, hour]) + '/\x7f'
         container_listing = self.internal_proxy.get_container_list(
                                     swift_account,
                                     container_name,
-                                    marker=search_key)
+                                    marker=search_key,
+                                    end_marker=end_key)
         results = []
         if container_listing is not None:
             if listing_filter is None:
                 listing_filter = set()
             for item in container_listing:
                 name = item['name']
-                if end_key and name > end_key:
-                    break
                 if name not in listing_filter:
                     results.append(name)
         return results
