@@ -302,6 +302,27 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
+    def test_custom_mime_types_files(self):
+        conf = {'swift-dir': mkdtemp()}
+        fd = open(os.path.join([conf['swift-dir'], 'mime.types'], 'w'))
+        fd.write('foo/bar foo')
+        fd.close()
+        fd = open(os.path.join([conf['swift-dir'], 'resellers.conf'], 'w'))
+        fd.write('')
+        fd.close()
+        log = NullLoggingHandler()
+        fake_mc = FakeMemcache()
+        fake_acct_r = FakeRing()
+        fake_obj_r = FakeRing()
+        fake_cont_r = FakeRing()
+        ba = proxy_server.BaseApplication(conf, fake_mc, log,
+                                          fake_acct_r, fake_cont_r,
+                                          fake_obj_r)
+        self.assertTrue(proxy_server.mimetypes.guess_type('blah.foo')[0]
+                        == 'foo/bar')
+        self.assertTrue(proxy_server.mimetypes.guess_type('blah.jpg')[0]
+                        == 'image/jpeg')
+        rmtree(conf['swift-dir'])
 
     def test_PUT(self):
         with save_globals():
