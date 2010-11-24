@@ -28,6 +28,7 @@ from test.bin import swift_init  # for testing...
 
 DUMMY_SIG = 1
 
+
 @contextmanager
 def temptree(files, contents=''):
     # generate enough contents to fill the files
@@ -79,8 +80,9 @@ def pop_stream(f):
     output = f.read()
     f.seek(0)
     f.truncate()
-    print >> sys.stderr, output
+    #print >> sys.stderr, output
     return output
+
 
 class TestSwiftInitModule(unittest.TestCase):
 
@@ -246,7 +248,8 @@ class TestSwiftServerClass(unittest.TestCase):
             ini_files = server.ini_files()
             self.assertEquals(len(ini_files), 1)
             ini_file = ini_files[0]
-            self.assertEquals(ini_file, self.join_swift_dir('proxy-server.conf'))
+            proxy_conf = self.join_swift_dir('proxy-server.conf')
+            self.assertEquals(ini_file, proxy_conf)
 
         # test multi server conf files & grouping of server-type config
         ini_files = (
@@ -271,7 +274,6 @@ class TestSwiftServerClass(unittest.TestCase):
             # test configs returned sorted
             sorted_confs = sorted([c1, c2, c3, c4])
             self.assertEquals(ini_files, sorted_confs)
-
 
         # test get single numbered conf
         ini_files = (
@@ -301,7 +303,7 @@ class TestSwiftServerClass(unittest.TestCase):
             swift_init.SWIFT_DIR = t
             old_stdout = sys.stdout
             try:
-                with open('std.out', 'w+') as f:
+                with open(os.path.join(t, 'output'), 'w+') as f:
                     sys.stdout = f
                     server = swift_init.SwiftServer('auth')
                     # check warn "unable to locate"
@@ -399,7 +401,8 @@ class TestSwiftServerClass(unittest.TestCase):
                 self.assertEquals(len(pids), 1)
                 pid_file, pid = pids[0]
                 self.assertEquals(pid, 2)
-                self.assertEquals(pid_file, self.join_run_dir('object-server/2.pid'))
+                pid_two = self.join_run_dir('object-server/2.pid')
+                self.assertEquals(pid_file, pid_two)
                 # try to iter on a pid number with a matching conf but no pid
                 pids = list(server.iter_pid_files(number=3))
                 self.assertFalse(pids)
@@ -428,7 +431,7 @@ class TestSwiftServerClass(unittest.TestCase):
             # capture stdio
             old_stdout = sys.stdout
             try:
-                with open('std.out', 'w+') as f:
+                with open(os.path.join(t, 'output'), 'w+') as f:
                     sys.stdout = f
                     #test print details
                     pids = server.signal_pids(DUMMY_SIG)
@@ -454,7 +457,8 @@ class TestSwiftServerClass(unittest.TestCase):
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
                     self.assert_('stale pid' in output.lower())
-                    self.assert_(self.join_run_dir('auth-server.pid') in output)
+                    auth_pid = self.join_run_dir('auth-server.pid')
+                    self.assert_(auth_pid in output)
             finally:
                 sys.stdout = old_stdout
 
@@ -476,13 +480,15 @@ class TestSwiftServerClass(unittest.TestCase):
             # test persistant running pid files
             self.assert_(os.path.exists(os.path.join(t, 'test-server1.pid')))
             # test clean up stale pids
-            self.assertFalse(os.path.exists(os.path.join(t, 'test-server2.pid')))
+            pid_two = self.join_swift_dir('test-server2.pid')
+            self.assertFalse(os.path.exists(pid_two))
             # reset mock os, no pids running
             swift_init.os = MockOs([])
             running_pids = server.get_running_pids()
             self.assertFalse(running_pids)
             # and now all pid files are cleaned out
-            self.assertFalse(os.path.exists(os.path.join(t, 'test-server1.pid')))
+            pid_one = self.join_run_dir('test-server1.pid')
+            self.assertFalse(os.path.exists(pid_one))
             all_pids = os.listdir(t)
             self.assertEquals(len(all_pids), 0)
 
@@ -500,7 +506,7 @@ class TestSwiftServerClass(unittest.TestCase):
             swift_init.os = MockOs(pids)
             server = swift_init.SwiftServer('thing-doer')
             running_pids = server.get_running_pids()
-            # only thing-doer.pid, 1 
+            # only thing-doer.pid, 1
             self.assertEquals(len(running_pids), 1)
             self.assert_(1 in running_pids)
             # no other pids returned
@@ -521,7 +527,6 @@ class TestSwiftServerClass(unittest.TestCase):
             all_pids = os.listdir(t)
             self.assertEquals(len(all_pids), 1)
             self.assert_(os.path.exists(os.path.join(t, 'thing-doer.pid')))
-
 
     def test_kill_running_pids(self):
         pid_files = (
@@ -546,7 +551,8 @@ class TestSwiftServerClass(unittest.TestCase):
             # reset os mock
             swift_init.os = MockOs([1])
             # test shutdown
-            self.assert_('object-server' in swift_init.GRACEFUL_SHUTDOWN_SERVERS)
+            self.assert_('object-server' in
+                         swift_init.GRACEFUL_SHUTDOWN_SERVERS)
             pids = server.kill_running_pids(graceful=True)
             self.assertEquals(len(pids), 1)
             self.assert_(1 in pids)
@@ -566,11 +572,83 @@ class TestSwiftServerClass(unittest.TestCase):
             # and the other pid is of course not signaled
             self.assert_(1 not in swift_init.os.pid_sigs)
 
+    def test_status(self):
+        ini_files = (
+            'test-server/1.conf',
+            'test-server/2.conf',
+            'test-server/3.conf',
+            'test-server/4.conf',
+        )
+
+        pid_files = (
+            ('test-server/1.pid', 1),
+            ('test-server/2.pid', 2),
+            ('test-server/3.pid', 3),
+            ('test-server/4.pid', 4),
+        )
+
+        with temptree(ini_files) as swift_dir:
+            swift_init.SWIFT_DIR = swift_dir
+            files, pids = zip(*pid_files)
+            with temptree(files, pids) as t:
+                swift_init.RUN_DIR = t
+                # setup running servers
+                server = swift_init.SwiftServer('test')
+                # capture stdio
+                old_stdout = sys.stdout
+                try:
+                    with open(os.path.join(t, 'output'), 'w+') as f:
+                        sys.stdout = f
+                        # test status for all running
+                        swift_init.os = MockOs(pids)
+                        self.assertEquals(server.status(), 0)
+                        output = pop_stream(f).strip().splitlines()
+                        self.assertEquals(len(output), 4)
+                        for line in output:
+                            self.assert_('test-server running' in line)
+                        # test get single server by number
+                        self.assertEquals(server.status(number=4), 0)
+                        output = pop_stream(f).strip().splitlines()
+                        self.assertEquals(len(output), 1)
+                        line = output[0]
+                        self.assert_('test-server running' in line)
+                        conf_four = self.join_swift_dir(ini_files[3])
+                        self.assert_('4 - %s' % conf_four in line)
+                        # test some servers not running
+                        swift_init.os = MockOs([1, 2, 3])
+                        self.assertEquals(server.status(), 0)
+                        output = pop_stream(f).strip().splitlines()
+                        self.assertEquals(len(output), 3)
+                        for line in output:
+                            self.assert_('test-server running' in line)
+                        # test single server not running
+                        swift_init.os = MockOs([1, 2])
+                        self.assertEquals(server.status(number=3), 1)
+                        output = pop_stream(f).strip().splitlines()
+                        self.assertEquals(len(output), 1)
+                        line = output[0]
+                        self.assert_('not running' in line)
+                        conf_three = self.join_swift_dir(ini_files[2])
+                        self.assert_(conf_three in line)
+                        # test no running pids
+                        swift_init.os = MockOs([])
+                        self.assertEquals(server.status(), 1)
+                        output = pop_stream(f).lower()
+                        self.assert_('no test-server running' in output)
+                        # test use provided pids
+                        pids = {
+                            1: '1.pid',
+                            2: '2.pid',
+                        }
+                        self.assertEquals(server.status(pids=pids), 0)
+                        output = pop_stream(f).strip().splitlines()
+                        self.assertEquals(len(output), 2)
+                        for line in output:
+                            self.assert_('test-server running' in line)
+                finally:
+                    sys.stdout = old_stdout
 
     #TODO: more tests
-    def test_status(self):
-        pass
-    
     def test_spawn(self):
         pass
 
