@@ -1269,7 +1269,7 @@ class BaseApplication(object):
             Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles + 
-                       [os.path.join(self.swift_dir, 'mime.types')])
+                       [os.path.join(swift_dir, 'mime.types')])
 
     def get_controller(self, path):
         """
