@@ -48,6 +48,8 @@ that is as isolated as possible from other nodes (separate servers, network,
 power, even geography). The ring guarantees that every replica is stored
 in a separate zone.  For more information about the ring and zones, see: :doc:`The Rings <overview_ring>`.
 
+To increase reliability, you may want to add additional Proxy servers for performance which is described in :ref:`add-proxy-server`.
+
 Network Setup Notes
 -------------------
 
@@ -81,6 +83,7 @@ General OS configuration and partitioning for each node
     used as a salt when hashing to determine mappings in the ring.  This
     file should be the same on every node in the cluster!
 
+.. _config-proxy:
 
 Configure the Proxy node
 ------------------------
@@ -349,10 +352,12 @@ Configure the Storage nodes
     swift-init account-replicator start
     swift-init account-auditor start
 
-Create Swift admin account and test (run commands from Auth node)
------------------------------------------------------------------
+Create Swift admin account and test
+-----------------------------------
 
-#. Create a user with administrative priviledges (account = system,
+You run these commands from the Auth node.
+
+#. Create a user with administrative privileges (account = system,
    username = root, password = testpass).  Make sure to replace 
    ``devauth`` with whatever super_admin key you assigned in the 
    auth-server.conf file above.  *Note: None of the values of 
@@ -380,6 +385,37 @@ Create Swift admin account and test (run commands from Auth node)
 #. Use ``st`` to download all files from the 'myfiles' container::
 
         st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass download myfiles
+
+.. _add-proxy-server:
+
+Adding a Proxy Server
+---------------------
+
+For reliability's sake you may want to have more than one proxy server. You can set up the additional proxy node in the same manner that you set up the first proxy node but with additional configuration steps. 
+
+Once you have more than two proxies, you also want to load balance between the two, which means your storage endpoint also changes. You can select from different strategies for load balancing. For example, you could use round robin dns, or an actual load balancer (like pound) in front of the two proxies, and point your storage url to the load balancer.
+
+See :ref:`config-proxy` for the initial setup, and then follow these additional steps. 
+
+#. Update the list of memcache servers in /etc/swift/proxy-server.conf for all the added proxy servers. If you run multiple memcache servers, use this pattern for the multiple IP:port listings: `10.1.2.3:11211,10.1.2.4:11211` in each proxy server's conf file.::
+
+        [filter:cache]
+        use = egg:swift#memcache
+        memcache_servers = <PROXY_LOCAL_NET_IP>:11211
+
+#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/auth-server.conf::
+
+        [app:auth-server]
+        use = egg:swift#auth
+        default_cluster_url = https://<LOAD_BALANCER_HOSTNAME>/v1
+        # Highly recommended to change this key to something else!
+        super_admin_key = devauth
+
+#. After you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account. 
+
+#. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 
+
+#. After you sync all the nodes, make sure the admin has the keys in /etc/swift and the ownership for the ring file is correct. 
 
 Troubleshooting Notes
 ---------------------
