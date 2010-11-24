@@ -3,3 +3,8 @@
 # Please enter Mime-Types in standard mime.types format #
 # Mime-Type Extension ex. image/jpeg jpg                #
 #########################################################
+
+#EX. Mime-Type Extension
+#    foo/bar   foo
+
+
