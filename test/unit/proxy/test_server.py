@@ -308,7 +308,6 @@ class TestObjectController(unittest.TestCase):
         try:
             with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
                 fp.write('foo/bar foo\n')
-            open(os.path.join(swift_dir, 'resellers.conf'), 'w').close()
             ba = proxy_server.BaseApplication({'swift_dir': swift_dir},
                 FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
                 FakeRing())
