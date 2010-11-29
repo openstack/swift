@@ -979,7 +979,7 @@ class ContainerBroker(DatabaseBroker):
                            FROM object WHERE'''
                 query_args = []
                 if end_marker:
-                    query += ' name <= ? AND'
+                    query += ' name < ? AND'
                     query_args.append(end_marker)
                 if marker and marker >= prefix:
                     query += ' name > ? AND'
