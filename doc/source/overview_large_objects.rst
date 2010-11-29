@@ -119,3 +119,20 @@ Additional Notes
   each segment independently. But, it's not feasible to generate such an ETag
   for the manifest itself, so this method was chosen to at least offer change
   detection.
+
+-------
+History
+-------
+
+Large object support has gone through various iterations before settling on
+this implementation. This approach has the drawback that the eventual
+consistency window of the container listings can cause a GET on the manifest
+object to return an invalid whole object for that short term.
+
+We also implemented fully transparent support within the server, but the
+drawbacks there were added complexity within the cluster, no option to do
+parallel uploads, and no basis for a resume feature.
+
+We considered implementing both the "user manifest" option we have now and the
+"transparent server manifest" option, but the second was deemed just to complex
+for the benefit.
