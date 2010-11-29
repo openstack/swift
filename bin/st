@@ -1527,9 +1527,12 @@ def st_upload(options, args, print_queue, error_queue):
                         thread.abort = True
                         while thread.isAlive():
                             thread.join(0.01)
-                    put_headers['x-object-manifest'] = \
-                        '%s_segments/%s/%s/%s/' % (container, obj,
-                        put_headers['x-object-meta-mtime'], full_size)
+                    new_object_manifest = '%s_segments/%s/%s/%s/' % (
+                        container, obj, put_headers['x-object-meta-mtime'],
+                        full_size)
+                    if old_manifest == new_object_manifest:
+                        old_manifest = None
+                    put_headers['x-object-manifest'] = new_object_manifest
                     conn.put_object(container, obj, '', content_length=0,
                                     headers=put_headers)
                 else:
