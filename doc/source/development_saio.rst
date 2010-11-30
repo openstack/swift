@@ -241,6 +241,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         
         [app:proxy-server]
         use = egg:swift#proxy
+        allow_account_management = true
 
         [filter:auth]
         use = egg:swift#auth
