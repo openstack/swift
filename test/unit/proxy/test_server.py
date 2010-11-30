@@ -29,6 +29,7 @@ from shutil import rmtree
 from time import time
 from urllib import unquote, quote
 from hashlib import md5
+from tempfile import mkdtemp
 
 import eventlet
 from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
@@ -368,6 +369,20 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
+    def test_custom_mime_types_files(self):
+        swift_dir = mkdtemp()
+        try:
+            with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
+                fp.write('foo/bar foo\n')
+            ba = proxy_server.BaseApplication({'swift_dir': swift_dir},
+                FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
+                FakeRing())
+            self.assertEquals(proxy_server.mimetypes.guess_type('blah.foo')[0],
+                              'foo/bar')
+            self.assertEquals(proxy_server.mimetypes.guess_type('blah.jpg')[0],
+                              'image/jpeg')
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
 
     def test_PUT(self):
         with save_globals():
