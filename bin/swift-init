@@ -129,6 +129,7 @@ def do_start(server, once=False):
         # maybe there's a config file(s) out there, but I couldn't find it!
         print 'Unable to locate config file for %s. %s does not exist?' % \
                     (server, ini_file)
+        return
 
     # start all servers
     for ini_file, pid_file in launch_args:
