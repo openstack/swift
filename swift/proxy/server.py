@@ -1245,9 +1245,6 @@ class AccountController(Controller):
         """HTTP DELETE request handler."""
         if not self.app.allow_account_management:
             return HTTPMethodNotAllowed(request=req)
-        error_response = check_metadata(req, 'account')
-        if error_response:
-            return error_response
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
