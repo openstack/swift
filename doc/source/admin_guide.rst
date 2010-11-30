@@ -32,10 +32,10 @@ Once you are done with all changes to the ring, the changes need to be
 Once the new rings are built, they should be pushed out to all the servers
 in the cluster.
 
--------------------------
-Scripting Ring Management
--------------------------
-You can create scripts for the account and container ring management. Here's an example for the Account ring.
+-----------------------
+Scripting Ring Creation
+-----------------------
+You can create scripts to create the account and container rings and rebalance. Here's an example script for the Account ring. Use similar commands to create a make-container-ring.sh script on the proxy server node.
 
 1. Create a script file called make-account-ring.sh on the proxy server node with the following content::
 
