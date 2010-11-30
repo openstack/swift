@@ -6,6 +6,8 @@ Administrator's Guide
 Managing the Rings
 ------------------
 
+You need to build the storage rings on the proxy server node, and distribute them to all the servers in the cluster. Storage rings contain information about all the Swift storage partitions and how they are distributed between the different nodes and disks. For more information see :doc:`overview_ring`.
+
 Removing a device from the ring::
 
     swift-ring-builder <builder-file> remove <ip_address>/<device_name>
@@ -29,6 +31,30 @@ Once you are done with all changes to the ring, the changes need to be
     
 Once the new rings are built, they should be pushed out to all the servers
 in the cluster.
+
+-------------------------
+Scripting Ring Management
+-------------------------
+You can create scripts for the account and container ring management. Here's an example for the Account ring.
+
+1. Create a script file called make-account-ring.sh on the proxy server node with the following content::
+
+    #!/bin/bash
+    cd /etc/swift
+    rm -f account.builder account.ring.gz backups/account.builder backups/account.ring.gz
+    swift-ring-builder account.builder create 18 3 1
+    swift-ring-builder account.builder add z1-<account-server-1>:6002/sdb1 1
+    swift-ring-builder account.builder add z2-<account-server-2>:6002/sdb1 1
+    swift-ring-builder account.builder rebalance
+
+You need to replace the values of <account-server-1>, <account-server-2>, etc. with the IP addresses of the account servers used in your setup. You can have as many account servers as you need. All account servers are assumed to be listening on port 6002, and have a storage device called "sdb1" (this is a directory name created under /drives when we setup the account server). The "z1", "z2", etc. designate zones, and you can choose whether you put devices in the same or different zones.
+
+2. Make the script file executable and run it to create the account ring file::
+
+    chmod +x make-account-ring.sh
+    sudo ./make-account-ring.sh
+
+3. Copy the resulting ring file /etc/swift/account.ring.gz to all the account server nodes in your Swift environment, and put them in the /etc/swift directory on these nodes. Make sure that every time you change the account ring configuration, you copy the resulting ring file to all the account nodes.
 
 -----------------------
 Handling System Updates
