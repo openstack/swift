@@ -33,7 +33,7 @@ Installing dependencies and the core code
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. Next, choose either see :ref:`partition-section` or :ref:`loopback-section`. 
+  #. Next, choose either :ref:`partition-section` or :ref:`loopback-section`. 
 
 
 .. _partition-section:
@@ -241,6 +241,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         
         [app:proxy-server]
         use = egg:swift#proxy
+        allow_account_management = true
 
         [filter:auth]
         use = egg:swift#auth
