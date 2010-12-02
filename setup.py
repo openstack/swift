@@ -81,7 +81,8 @@ setup(
         'bin/swift-account-stats-logger',
         'bin/swauth-add-account', 'bin/swauth-add-user',
         'bin/swauth-delete-account', 'bin/swauth-delete-user',
-        'bin/swauth-list', 'bin/swauth-prep', 'bin/swift-auth-to-swauth',
+        'bin/swauth-list', 'bin/swauth-prep', 'bin/swauth-set-account-service',
+        'bin/swift-auth-to-swauth',
         ],
     entry_points={
         'paste.app_factory': [

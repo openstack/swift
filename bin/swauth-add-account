@@ -25,8 +25,11 @@ from swift.common.bufferedhttp import http_connect_raw as http_connect
 if __name__ == '__main__':
     parser = OptionParser(usage='Usage: %prog [options] <account>')
     parser.add_option('-s', '--suffix', dest='suffix',
-        default='', help='The suffix to use as the storage account name '
-        '(default: <randomly-generated-uuid4>)')
+        default='', help='The suffix to use with the reseller prefix as the '
+        'storage account name (default: <randomly-generated-uuid4>) Note: If '
+        'the account already exists, this will have no effect on existing '
+        'service URLs. Those will need to be updated with '
+        'swauth-set-account-service')
     parser.add_option('-A', '--admin-url', dest='admin_url',
         default='http://127.0.0.1:8080/auth/', help='The URL to the auth '
         'subsystem (default: http://127.0.0.1:8080/auth/)')

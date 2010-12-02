@@ -441,7 +441,15 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
 
-#. For DevAuth, after you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account. For Swauth, changing the cluster URLs for the accounts is not yet supported (you'd have to hack the .cluster objects manually; not recommended).
+#. For DevAuth, after you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account.
+
+   For Swauth, you can change a service URL with::
+
+        swauth-set-account-service -K swauthkey <account> storage local <new_url_for_the_account>
+
+   You can obtain old service URLs with::
+    
+        swauth-list -K swauthkey <account>
 
 #. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 
 

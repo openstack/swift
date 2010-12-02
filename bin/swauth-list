@@ -27,7 +27,23 @@ from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 
 if __name__ == '__main__':
-    parser = OptionParser(usage='Usage: %prog [options] [account] [user]')
+    parser = OptionParser(usage='''
+Usage: %prog [options] [account] [user]
+
+If [account] and [user] are omitted, a list of accounts will be output.
+
+If [account] is included but not [user], an account's information will be
+output, including a list of users within the account.
+
+If [account] and [user] are included, the user's information will be output,
+including a list of groups the user belongs to.
+
+If the [user] is '.groups', the active groups for the account will be listed.
+'''.strip())
+    parser.add_option('-p', '--plain-text', dest='plain_text',
+        action='store_true', default=False, help='Changes the output from '
+        'JSON to plain text. This will cause an account to list only the '
+        'users and a user to list only the groups.')
     parser.add_option('-A', '--admin-url', dest='admin_url',
         default='http://127.0.0.1:8080/auth/', help='The URL to the auth '
         'subsystem (default: http://127.0.0.1:8080/auth/')
@@ -58,8 +74,10 @@ if __name__ == '__main__':
     resp = conn.getresponse()
     if resp.status // 100 != 2:
         print 'List failed: %s %s' % (resp.status, resp.reason)
-    if len(args) == 2 and args[1] != '.groups':
-        print resp.read()
+    body = resp.read()
+    if options.plain_text:
+        info = json.loads(body)
+        for group in info[['accounts', 'users', 'groups'][len(args)]]:
+            print group['name']
     else:
-        for item in json.loads(resp.read()):
-            print item['name']
+        print body

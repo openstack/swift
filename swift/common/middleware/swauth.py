@@ -181,7 +181,7 @@ class Swauth(object):
             detail = json.loads(resp.body)
             if detail['expires'] < time():
                 return None
-            groups = detail['groups']
+            groups = [g['name'] for g in detail['groups']]
             if '.admin' in groups:
                 groups.remove('.admin')
                 groups.append(detail['account_id'])
@@ -283,7 +283,7 @@ class Swauth(object):
             req.path_info_pop()
             if req.method == 'GET':
                 if not account and not user:
-                    handler = self.handle_get_accounts
+                    handler = self.handle_get_reseller
                 elif account:
                     if not user:
                         handler = self.handle_get_account
@@ -305,6 +305,8 @@ class Swauth(object):
             elif req.method == 'POST':
                 if account == '.prep':
                     handler = self.handle_prep
+                elif user == '.services':
+                    handler = self.handle_set_services
         if not handler:
             req.response = HTTPBadRequest(request=req)
         else:
@@ -337,17 +339,22 @@ class Swauth(object):
                                 (path, resp.status))
         return HTTPNoContent(request=req)
 
-    def handle_get_accounts(self, req):
+    def handle_get_reseller(self, req):
         """
-        Handles the GET v2 call for listing the accounts handled by this auth
-        system. Can only be called by a .reseller_admin.
+        Handles the GET v2 call for getting general reseller information
+        (currently just a list of accounts). Can only be called by a
+        .reseller_admin.
 
-        On success, a JSON list of dicts will be returned. Each dict represents
-        an account and currently only contains the single key `name`.
+        On success, a JSON dictionary will be returned with a single `accounts`
+        key whose value is list of dicts. Each dict represents an account and
+        currently only contains the single key `name`. For example::
+
+            {"accounts": [{"name": "reseller"}, {"name": "test"},
+                          {"name": "test2"}]}
 
         :param req: The webob.Request to process.
-        :returns: webob.Response, 2xx on success with a JSON list of the
-                  accounts as explained above.
+        :returns: webob.Response, 2xx on success with a JSON dictionary as
+                  explained above.
         """
         if not self.is_reseller_admin(req):
             return HTTPForbidden(request=req)
@@ -368,25 +375,43 @@ class Swauth(object):
                 if container['name'][0] != '.':
                     listing.append({'name': container['name']})
             marker = sublisting[-1]['name']
-        return Response(body=json.dumps(listing))
+        return Response(body=json.dumps({'accounts': listing}))
 
     def handle_get_account(self, req):
         """
-        Handles the GET v2/<account> call for listing the users in an account.
+        Handles the GET v2/<account> call for getting account information.
         Can only be called by an account .admin.
 
-        On success, a JSON list of dicts will be returned. Each dict represents
-        a user and currently only contains the single key `name`.
+        On success, a JSON dictionary will be returned containing the keys
+        `account_id`, `services`, and `users`. The `account_id` is the value
+        used when creating service accounts. The `services` value is a dict as
+        described in the :func:`handle_get_token` call. The `users` value is a
+        list of dicts, each dict representing a user and currently only
+        containing the single key `name`. For example::
+
+             {"account_id": "AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162",
+              "services": {"storage": {"default": "local",
+                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}},
+              "users": [{"name": "tester"}, {"name": "tester3"}]}
 
         :param req: The webob.Request to process.
-        :returns: webob.Response, 2xx on success with a JSON list of the users
-                  in the account as explained above.
+        :returns: webob.Response, 2xx on success with a JSON dictionary as
+                  explained above.
         """
         account = req.path_info_pop()
         if req.path_info:
             return HTTPBadRequest(request=req)
         if not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
+        path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
+        resp = self.make_request(req.environ, 'GET',
+                                 path).get_response(self.app)
+        if resp.status_int == 404:
+            return HTTPNotFound(request=req)
+        if resp.status_int // 100 != 2:
+            raise Exception('Could not obtain the .services object: %s %s' %
+                            (path, resp.status))
+        services = json.loads(resp.body)
         listing = []
         marker = ''
         while True:
@@ -394,6 +419,7 @@ class Swauth(object):
                 (self.auth_account, account)), quote(marker))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
+            account_id = resp.headers['X-Container-Meta-Account-Id']
             if resp.status_int == 404:
                 return HTTPNotFound(request=req)
             if resp.status_int // 100 != 2:
@@ -406,7 +432,38 @@ class Swauth(object):
                 if obj['name'][0] != '.':
                     listing.append({'name': obj['name']})
             marker = sublisting[-1]['name']
-        return Response(body=json.dumps(listing))
+        return Response(body=json.dumps({'account_id': account_id,
+                                    'services': services, 'users': listing}))
+
+    def handle_set_services(self, req):
+        if not self.is_reseller_admin(req):
+            return HTTPForbidden(request=req)
+        account = req.path_info_pop()
+        if req.path_info != '/.services' or not account.isalnum():
+            return HTTPBadRequest(request=req)
+        new_services = json.loads(req.body)
+        # Get the current services information
+        path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
+        resp = self.make_request(req.environ, 'GET',
+                                 path).get_response(self.app)
+        if resp.status_int == 404:
+            return HTTPNotFound(request=req)
+        if resp.status_int // 100 != 2:
+            raise Exception('Could not obtain services info: %s %s' %
+                            (path, resp.status))
+        services = json.loads(resp.body)
+        for new_service, value in new_services.iteritems():
+            if new_service in services:
+                services[new_service].update(value)
+            else:
+                services[new_service] = value
+        # Save the new services information
+        resp = self.make_request(req.environ, 'PUT', path,
+                                 json.dumps(services)).get_response(self.app)
+        if resp.status_int // 100 != 2:
+            raise Exception('Could not save .services object: %s %s' %
+                            (path, resp.status))
+        return HTTPNoContent(request=req)
 
     def handle_put_account(self, req):
         """
@@ -467,15 +524,15 @@ class Swauth(object):
             raise Exception('Could not create account id mapping: %s %s' %
                             (path, resp.status))
         # Record the cluster url(s) for the account
-        path = quote('/v1/%s/%s/.clusters' % (self.auth_account, account))
-        clusters = {'storage': {}}
-        clusters['storage'][self.dsc_name] = '%s/%s%s' % (self.dsc_url,
+        path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
+        services = {'storage': {}}
+        services['storage'][self.dsc_name] = '%s/%s%s' % (self.dsc_url,
             self.reseller_prefix, account_suffix)
-        clusters['storage']['default'] = self.dsc_name
+        services['storage']['default'] = self.dsc_name
         resp = self.make_request(req.environ, 'PUT', path,
-                                 json.dumps(clusters)).get_response(self.app)
+                                 json.dumps(services)).get_response(self.app)
         if resp.status_int // 100 != 2:
-            raise Exception('Could not create .clusters object: %s %s' %
+            raise Exception('Could not create .services object: %s %s' %
                             (path, resp.status))
         # Record the mapping from account name to the account id
         path = quote('/v1/%s/%s' % (self.auth_account, account))
@@ -519,16 +576,16 @@ class Swauth(object):
                 if obj['name'][0] != '.':
                     return HTTPConflict(request=req)
             marker = sublisting[-1]['name']
-        # Obtain the listing of clusters the account is on.
-        path = quote('/v1/%s/%s/.clusters' % (self.auth_account, account))
+        # Obtain the listing of services the account is on.
+        path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
         resp = self.make_request(req.environ, 'GET',
                                  path).get_response(self.app)
         if resp.status_int == 404:
             return HTTPNoContent(request=req)
         elif resp.status_int // 100 == 2:
-            clusters = json.loads(resp.body)
+            services = json.loads(resp.body)
             # Delete the account on each cluster it is on.
-            for name, url in clusters['storage'].iteritems():
+            for name, url in services['storage'].iteritems():
                 if name != 'default':
                     parsed = urlparse(url)
                     if parsed.scheme == 'http':
@@ -543,8 +600,8 @@ class Swauth(object):
                         raise Exception('Could not delete account on the '
                             'Swift cluster: %s %s %s' %
                             (url, resp.status, resp.reason))
-                # Delete the .clusters object itself.
-                path = quote('/v1/%s/%s/.clusters' %
+                # Delete the .services object itself.
+                path = quote('/v1/%s/%s/.services' %
                              (self.auth_account, account))
                 resp = self.make_request(req.environ, 'DELETE',
                                          path).get_response(self.app)
@@ -577,31 +634,43 @@ class Swauth(object):
 
     def handle_get_user(self, req):
         """
-        Handles the GET v2/<account>/<user> call for retrieving the user's JSON
-        dict. Can only be called by an account .admin.
+        Handles the GET v2/<account>/<user> call for getting user information.
+        Can only be called by an account .admin.
 
         On success, a JSON dict will be returned as described::
 
-            {"groups": [          # List of groups the user is a member of
-                "<act>:<usr>",    # The first group is a unique user identifier
-                "<account>",      # The second group is the auth account name
-                "<additional-group>"...
-                # There may be additional groups, .admin being a special group
-                # indicating an account admin and .reseller_admin indicating a
-                # reseller admin.
+            {"groups": [  # List of groups the user is a member of
+                {"name": "<act>:<usr>"},
+                    # The first group is a unique user identifier
+                {"name": "<account>"},
+                    # The second group is the auth account name
+                {"name": "<additional-group>"}
+                    # There may be additional groups, .admin being a special
+                    # group indicating an account admin and .reseller_admin
+                    # indicating a reseller admin.
              ],
              "auth": "plaintext:<key>"
              # The auth-type and key for the user; currently only plaintext is
              # implemented.
             }
 
-        If the <user> in the request is the special user `.groups`, a JSON list
-        of dicts will be returned instead, each dict representing a group in
-        the account currently with just the single key `name`.
+        For example::
+
+            {"groups": [{"name": "test:tester"}, {"name": "test"},
+                        {"name": ".admin"}],
+             "auth": "plaintext:testing"}
+
+        If the <user> in the request is the special user `.groups`, the JSON
+        dict will contain a single key of `groups` whose value is a list of
+        dicts representing the active groups within the account. Each dict
+        currently has the single key `name`. For example::
+
+            {"groups": [{"name": ".admin"}, {"name": "test"},
+                        {"name": "test:tester"}, {"name": "test:tester3"}]}
 
         :param req: The webob.Request to process.
-        :returns: webob.Response, 2xx on success with data set as explained
-                  above.
+        :returns: webob.Response, 2xx on success with a JSON dictionary as
+                  explained above.
         """
         account = req.path_info_pop()
         user = req.path_info_pop()
@@ -641,9 +710,11 @@ class Swauth(object):
                         if resp.status_int // 100 != 2:
                             raise Exception('Could not retrieve user object: '
                                             '%s %s' % (path, resp.status))
-                        groups.update(json.loads(resp.body)['groups'])
+                        groups.update(g['name']
+                            for g in json.loads(resp.body)['groups'])
                 marker = sublisting[-1]['name']
-            body = json.dumps(list({'name': g} for g in sorted(groups)))
+            body = json.dumps({'groups':
+                                [{'name': g} for g in sorted(groups)]})
         else:
             path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
             resp = self.make_request(req.environ, 'GET',
@@ -695,7 +766,8 @@ class Swauth(object):
         if reseller_admin:
             groups.append('.reseller_admin')
         resp = self.make_request(req.environ, 'PUT', path, json.dumps({'auth':
-            'plaintext:%s' % key, 'groups': groups})).get_response(self.app)
+            'plaintext:%s' % key,
+            'groups': [{'name': g} for g in groups]})).get_response(self.app)
         if resp.status_int // 100 != 2:
             raise Exception('Could not create user object: %s %s' %
                             (path, resp.status))
@@ -765,7 +837,7 @@ class Swauth(object):
         X-Storage-Token set to the token to use with Swift and X-Storage-URL
         set to the URL to the default Swift cluster to use.
 
-        The response body will be set to the account's clusters JSON object as
+        The response body will be set to the account's services JSON object as
         described here::
 
             {"storage": {     # Represents the Swift storage service end points
@@ -878,12 +950,12 @@ class Swauth(object):
             if resp.status_int // 100 != 2:
                 raise Exception('Could not save new token: %s %s' %
                                 (path, resp.status))
-        # Get the cluster url information
-        path = quote('/v1/%s/%s/.clusters' % (self.auth_account, account))
+        # Get the services information
+        path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
         resp = self.make_request(req.environ, 'GET',
                                  path).get_response(self.app)
         if resp.status_int // 100 != 2:
-            raise Exception('Could not obtain clusters info: %s %s' %
+            raise Exception('Could not obtain services info: %s %s' %
                             (path, resp.status))
         detail = json.loads(resp.body)
         url = detail['storage'][detail['storage']['default']]
@@ -978,7 +1050,7 @@ class Swauth(object):
     def get_itoken(self, env):
         """
         Returns the current internal token to use for the auth system's own
-        actions with other Swift clusters. Each process will create its own
+        actions with other services. Each process will create its own
         itoken and the token will be deleted and recreated based on the
         token_life configuration value. The itoken information is stored in
         memcache because the auth process that is asked by Swift to validate

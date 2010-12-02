@@ -54,7 +54,7 @@ Swauth
 ------
 
 The Swauth system is an optional DevAuth replacement included at
-swift/common/middleware/swauth.py is a scalable authentication and
+swift/common/middleware/swauth.py; a scalable authentication and
 authorization system that uses Swift itself as its backing store. This section
 will describe how it stores its data.
 
@@ -93,8 +93,8 @@ Id string is stored in the `X-Container-Meta-Account-Id` header for the
 the corresponding auth service's account name.
 
 Also, to support a future where the auth service will support multiple Swift
-clusters for the same auth service account, an
-<auth_account>/<account>/.clusters object is created with its contents having a
+clusters or even multiple services for the same auth service account, an
+<auth_account>/<account>/.services object is created with its contents having a
 JSON dictionary of the format::
 
     {"storage": {"default": "local", "local": <url>}}
@@ -105,7 +105,7 @@ various names instead of just "local", and the "default" key's value will
 contain the primary cluster to use for that account. Also, there may be more
 services in addition to the current "storage" service right now.
 
-Here's an example .clusters dictionary at the moment::
+Here's an example .services dictionary at the moment::
 
     {"storage":
         {"default": "local",
@@ -165,12 +165,12 @@ Here is an example full listing of an <auth_account>::
         AUTH_tk7594203449754c22a34ac7d910521c2e
         AUTH_tk8f2ee54605dd42a8913d244de544d19e
     reseller
-        .clusters
+        .services
         reseller
     test
-        .clusters
+        .services
         tester
         tester3
     test2
-        .clusters
+        .services
         tester2

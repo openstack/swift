@@ -177,7 +177,8 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, '')]))
         local_auth = auth.filter_factory({'super_admin_key': 'supertest',
@@ -219,7 +220,8 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, '')]))
         resp = Request.blank('/v1/AUTH_cfa',
@@ -233,13 +235,15 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, ''),
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, '')]))
         resp = Request.blank('/v1/AUTH_cfa',
@@ -254,7 +258,8 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, ''),
             # Don't need a second token object returned if memcache is used
@@ -276,7 +281,8 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() - 1}))]))
         resp = Request.blank('/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
@@ -287,7 +293,8 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
-                         'groups': ['act:usr', 'act', '.admin'],
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
                          'expires': time() + 60})),
             ('204 No Content', {}, '')]))
         resp = Request.blank('/v1/AUTH_cfa',
@@ -421,14 +428,15 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1.0',
@@ -472,7 +480,8 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('503 Service Unavailable', {}, '')]))
         resp = Request.blank('/auth/v1.0',
@@ -485,7 +494,8 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
@@ -500,7 +510,8 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
@@ -512,19 +523,20 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
 
-    def test_get_token_fail_get_clusters(self):
+    def test_get_token_fail_get_services(self):
         self.test_auth.app = FakeApp(iter([
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('503 Service Unavailable', {}, '')]))
         resp = Request.blank('/auth/v1.0',
             headers={'X-Auth-User': 'act:usr',
@@ -536,7 +548,8 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tktest'},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of token
             ('503 Service Unavailable', {}, '')]))
         resp = Request.blank('/auth/v1.0',
@@ -549,14 +562,15 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1.0',
@@ -578,14 +592,15 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1/act/auth',
@@ -607,14 +622,15 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1.0',
@@ -636,14 +652,15 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of account
             ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of new token
             ('201 Created', {}, ''),
             # POST of token to user object
             ('204 No Content', {}, ''),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1/act/auth',
@@ -665,12 +682,14 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tktest'},
              json.dumps({"auth": "plaintext:key",
-                         "groups": ["act:usr", "act", ".admin"]})),
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
             # GET of token
             ('200 Ok', {}, json.dumps({"account": "act", "user": "usr",
-             "account_id": "AUTH_cfa", "groups": ["act:usr", "key", ".admin"],
+             "account_id": "AUTH_cfa", "groups": [{'name': "act:usr"},
+             {'name': "key"}, {'name': ".admin"}],
              "expires": 9999999999.9999999})),
-            # GET of clusters object
+            # GET of services object
             ('200 Ok', {}, json.dumps({"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
         resp = Request.blank('/auth/v1.0',
