@@ -1,3 +1,4 @@
+# Only needed for DevAuth; Swauth is within the proxy-server.conf
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 11000

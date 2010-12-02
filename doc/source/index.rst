@@ -87,6 +87,7 @@ Source Documentation
     db
     object
     auth
+    swauth
     misc
 
 

@@ -164,7 +164,10 @@ swift-stats-populate and swift-stats-report use the same configuration file,
 /etc/swift/stats.conf. Example conf file::
 
     [stats]
+    # For DevAuth:
     auth_url = http://saio:11000/v1.0
+    # For Swauth:
+    # auth_url = http://saio:11000/auth/v1.0
     auth_user = test:tester
     auth_key = testing
 

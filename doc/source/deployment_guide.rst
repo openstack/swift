@@ -484,6 +484,43 @@ ssl           False                                If True, use SSL to
 node_timeout  10                                   Request timeout
 ============  ===================================  ========================
 
+[swauth]
+
+=====================  =============================== =======================
+Option                 Default                         Description
+---------------------  ------------------------------- -----------------------
+use                                                    Entry point for
+                                                       paste.deploy to use for
+                                                       auth. To use the swauth
+                                                       set to:
+                                                       `egg:swift#swauth`
+log_name               auth-server                     Label used when logging
+log_facility           LOG_LOCAL0                      Syslog log facility
+log_level              INFO                            Log level
+log_headers            True                            If True, log headers in
+                                                       each request
+reseller_prefix        AUTH                            The naming scope for the
+                                                       auth service. Swift
+                                                       storage accounts and
+                                                       auth tokens will begin
+                                                       with this prefix.
+auth_prefix            /auth/                          The HTTP request path
+                                                       prefix for the auth
+                                                       service. Swift itself
+                                                       reserves anything
+                                                       beginning with the
+                                                       letter `v`.
+default_swift_cluster  local:http://127.0.0.1:8080/v1  The default Swift
+                                                       cluster to place newly
+                                                       created accounts on.
+token_life             86400                           The number of seconds a
+                                                       token is valid.
+node_timeout           10                              Request timeout
+super_admin_key        None                            The key for the
+                                                       .super_admin account.
+=====================  =============================== =======================
+
+
 ------------------------
 Memcached Considerations
 ------------------------

@@ -8,7 +8,7 @@ Creating Your Own Auth Server and Middleware
 
 The included swift/auth/server.py and swift/common/middleware/auth.py are good
 minimal examples of how to create an external auth server and proxy server auth
-middleware. Also, see the `Swauth <https://launchpad.net/swauth>`_ project for
+middleware. Also, see swift/common/middleware/swauth.py for
 a more complete implementation. The main points are that the auth middleware
 can reject requests up front, before they ever get to the Swift Proxy
 application, and afterwards when the proxy issues callbacks to verify
@@ -356,6 +356,7 @@ repoze.what::
             self.auth_port = int(conf.get('port', 11000))
             self.ssl = \
                 conf.get('ssl', 'false').lower() in ('true', 'on', '1', 'yes')
+            self.auth_prefix = conf.get('prefix', '/')
             self.timeout = int(conf.get('node_timeout', 10))
 
         def authenticate(self, env, identity):
@@ -371,7 +372,7 @@ repoze.what::
                     return user
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                                    '/token/%s' % token, ssl=self.ssl)
+                        '%stoken/%s' % (self.auth_prefix, token), ssl=self.ssl)
                 resp = conn.getresponse()
                 resp.read()
                 conn.close()

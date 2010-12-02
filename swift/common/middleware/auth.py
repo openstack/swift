@@ -35,6 +35,7 @@ class DevAuth(object):
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
         self.ssl = conf.get('ssl', 'false').lower() in TRUE_VALUES
+        self.auth_prefix = conf.get('prefix', '/')
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
@@ -131,7 +132,7 @@ class DevAuth(object):
         if not groups:
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                                    '/token/%s' % token, ssl=self.ssl)
+                        '%stoken/%s' % (self.auth_prefix, token), ssl=self.ssl)
                 resp = conn.getresponse()
                 resp.read()
                 conn.close()

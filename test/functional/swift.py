@@ -82,6 +82,7 @@ class Connection(object):
         self.auth_host = config['auth_host']
         self.auth_port = int(config['auth_port'])
         self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
+        self.auth_prefix = config.get('auth_prefix', '/')
 
         self.account = config['account']
         self.username = config['username']
@@ -105,11 +106,11 @@ class Connection(object):
             return
 
         headers = {
-            'x-storage-user': self.username,
-            'x-storage-pass': self.password,
+            'x-auth-user': '%s:%s' % (self.account, self.username),
+            'x-auth-key': self.password,
         }
 
-        path = '/v1/%s/auth' % (self.account)
+        path = '%sv1.0' % (self.auth_prefix)
         if self.auth_ssl:
             connection = httplib.HTTPSConnection(self.auth_host,
                 port=self.auth_port)

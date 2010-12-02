@@ -13,8 +13,8 @@ Prerequisites
 Basic architecture and terms
 ----------------------------
 - *node* - a host machine running one or more Swift services
-- *Proxy node* - node that runs Proxy services
-- *Auth node* - node that runs the Auth service
+- *Proxy node* - node that runs Proxy services; can also run Swauth
+- *Auth node* - node that runs the Auth service; only required for DevAuth
 - *Storage node* - node that runs Account, Container, and Object services
 - *ring* - a set of mappings of Swift data to physical devices
 
@@ -23,13 +23,14 @@ This document shows a cluster using the following types of nodes:
 - one Proxy node
 
   - Runs the swift-proxy-server processes which proxy requests to the
-    appropriate Storage nodes.
+    appropriate Storage nodes. For Swauth, the proxy server will also contain
+    the Swauth service as WSGI middleware.
 
 - one Auth node
 
   - Runs the swift-auth-server which controls authentication and
     authorization for all requests.  This can be on the same node as a
-    Proxy node.
+    Proxy node. This is only required for DevAuth.
 
 - five Storage nodes
 
@@ -120,15 +121,26 @@ Configure the Proxy node
         user = swift
         
         [pipeline:main]
+        # For DevAuth:
         pipeline = healthcheck cache auth proxy-server
+        # For Swauth:
+        # pipeline = healthcheck cache swauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
         
+        # Only needed for DevAuth
         [filter:auth]
         use = egg:swift#auth
         ssl = true
+        
+        # Only needed for Swauth
+        [filter:swauth]
+        use = egg:swift#swauth
+        default_swift_cluster = https://<PROXY_LOCAL_NET_IP>:8080/v1
+        # Highly recommended to change this key to something else!
+        super_admin_key = swauthkey
         
         [filter:healthcheck]
         use = egg:swift#healthcheck
@@ -193,6 +205,8 @@ Configure the Proxy node
 
 Configure the Auth node
 -----------------------
+
+.. note:: Only required for DevAuth; you can skip this section for Swauth.
 
 #. If this node is not running on the same node as a proxy, create a
    self-signed cert as you did for the Proxy node
@@ -358,13 +372,20 @@ Create Swift admin account and test
 
 You run these commands from the Auth node.
 
+.. note:: For Swauth, replace the https://<AUTH_HOSTNAME>:11000/v1.0 with
+          https://<PROXY_HOSTNAME>:8080/auth/v1.0
+
 #. Create a user with administrative privileges (account = system,
    username = root, password = testpass).  Make sure to replace 
-   ``devauth`` with whatever super_admin key you assigned in the 
-   auth-server.conf file above.  *Note: None of the values of 
+   ``devauth`` (or ``swauthkey``) with whatever super_admin key you assigned in
+   the auth-server.conf file (or proxy-server.conf file in the case of Swauth)
+   above.  *Note: None of the values of 
    account, username, or password are special - they can be anything.*::
 
+        # For DevAuth:
         swift-auth-add-user -K devauth -a system root testpass
+        # For Swauth:
+        swauth-add-user -K swauthkey -a system root testpass
 
 #. Get an X-Storage-Url and X-Auth-Token::
 
@@ -404,15 +425,23 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
         use = egg:swift#memcache
         memcache_servers = <PROXY_LOCAL_NET_IP>:11211
 
-#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/auth-server.conf::
+#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/auth-server.conf (for DevAuth) or in /etc/swift/proxy-server.conf (for Swauth)::
 
+        # For DevAuth, in /etc/swift/auth-server.conf
         [app:auth-server]
         use = egg:swift#auth
         default_cluster_url = https://<LOAD_BALANCER_HOSTNAME>/v1
         # Highly recommended to change this key to something else!
         super_admin_key = devauth
 
-#. After you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account. 
+        # For Swauth, in /etc/swift/proxy-server.conf
+        [filter:swauth]
+        use = egg:swift#swauth
+        default_swift_cluster = local:http://<LOAD_BALANCER_HOSTNAME>/v1
+        # Highly recommended to change this key to something else!
+        super_admin_key = swauthkey
+
+#. For DevAuth, after you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account. For Swauth, changing the cluster URLs for the accounts is not yet supported (you'd have to hack the .cluster objects manually; not recommended).
 
 #. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 
 

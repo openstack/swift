@@ -9,7 +9,10 @@
 # key_file = /etc/swift/proxy.key
 
 [pipeline:main]
+# For DevAuth:
 pipeline = catch_errors healthcheck cache ratelimit auth proxy-server
+# For Swauth:
+# pipeline = catch_errors healthcheck cache ratelimit swauth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -33,6 +36,7 @@ use = egg:swift#proxy
 # 'false' no one, even authorized, can.
 # allow_account_management = false
 
+# Only needed for DevAuth
 [filter:auth]
 use = egg:swift#auth
 # The reseller prefix will verify a token begins with this prefix before even
@@ -44,7 +48,31 @@ use = egg:swift#auth
 # ip = 127.0.0.1
 # port = 11000
 # ssl = false
+# prefix = /
 # node_timeout = 10
+
+# Only needed for Swauth
+[filter:swauth]
+use = egg:swift#swauth
+# log_name = auth-server
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# log_headers = False
+# The reseller prefix will verify a token begins with this prefix before even
+# attempting to validate it. Also, with authorization, only Swift storage
+# accounts with this prefix will be authorized by this middleware. Useful if
+# multiple auth systems are in use for one Swift cluster.
+# reseller_prefix = AUTH
+# The auth prefix will cause requests beginning with this prefix to be routed
+# to the auth subsystem, for granting tokens, creating accounts, users, etc.
+# auth_prefix = /auth/
+# Cluster strings are of the format name:url where name is a short name for the
+# Swift cluster and url is the url to the proxy server(s) for the cluster.
+# default_swift_cluster = local:http://127.0.0.1:8080/v1
+# token_life = 86400
+# node_timeout = 10
+# Highly recommended to change this.
+super_admin_key = swauthkey
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
