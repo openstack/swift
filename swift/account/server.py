@@ -297,6 +297,7 @@ class AccountController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:

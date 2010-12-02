@@ -284,23 +284,24 @@ class LoggerFileObject(object):
         return self
 
 
-class NamedLogger(object):
+class LogAdapter(object):
     """Cheesy version of the LoggerAdapter available in Python 3"""
 
-    def __init__(self, logger, server):
+    def __init__(self, logger):
         self.logger = logger
-        self.server = server
-        for proxied_method in ('debug', 'info', 'log', 'warn', 'warning',
-                               'error', 'critical'):
-            setattr(self, proxied_method,
-                    self._proxy(getattr(logger, proxied_method)))
+        self._txn_id = threading.local()
+        for proxied_method in ('debug', 'log', 'warn', 'warning', 'error',
+                               'critical', 'info'):
+            setattr(self, proxied_method, getattr(logger, proxied_method))
 
-    def _proxy(self, logger_meth):
+    @property
+    def txn_id(self):
+        if hasattr(self._txn_id, 'value'):
+            return self._txn_id.value
 
-        def _inner_proxy(msg, *args, **kwargs):
-            msg = '%s %s' % (self.server, msg)
-            logger_meth(msg, *args, **kwargs)
-        return _inner_proxy
+    @txn_id.setter
+    def txn_id(self, value):
+        self._txn_id.value = value
 
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
@@ -330,7 +331,21 @@ class NamedLogger(object):
                     emsg += ' %s' % exc.msg
         else:
             call = self.logger.exception
-        call('%s %s: %s' % (self.server, msg, emsg), *args)
+        call('%s: %s' % (msg, emsg), *args)
+
+
+class NamedFormatter(logging.Formatter):
+    def __init__(self, server, logger):
+        logging.Formatter.__init__(self)
+        self.server = server
+        self.logger = logger
+
+    def format(self, record):
+        msg = logging.Formatter.format(self, record)
+        if record.levelno != logging.INFO and self.logger.txn_id:
+            return '%s %s (txn: %s)' % (self.server, msg, self.logger.txn_id)
+        else:
+            return '%s %s' % (self.server, msg)
 
 
 def get_logger(conf, name=None, log_to_console=False):
@@ -359,7 +374,8 @@ def get_logger(conf, name=None, log_to_console=False):
         root_logger.addHandler(get_logger.console)
     if conf is None:
         root_logger.setLevel(logging.INFO)
-        return NamedLogger(root_logger, name)
+        adapted_logger = LogAdapter(root_logger)
+        return adapted_logger
     if name is None:
         name = conf.get('log_name', 'swift')
     get_logger.handler = SysLogHandler(address='/dev/log',
@@ -369,7 +385,9 @@ def get_logger(conf, name=None, log_to_console=False):
     root_logger.addHandler(get_logger.handler)
     root_logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
-    return NamedLogger(root_logger, name)
+    adapted_logger = LogAdapter(root_logger)
+    get_logger.handler.setFormatter(NamedFormatter(name, adapted_logger))
+    return adapted_logger
 
 
 def drop_privileges(user):

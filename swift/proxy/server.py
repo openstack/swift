@@ -1410,6 +1410,7 @@ class BaseApplication(object):
 
             controller = controller(self, **path_parts)
             controller.trans_id = req.headers.get('x-cf-trans-id', '-')
+            self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
