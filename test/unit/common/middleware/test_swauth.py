@@ -278,15 +278,19 @@ class TestAuth(unittest.TestCase):
 
     def test_auth_just_expired(self):
         self.test_auth.app = FakeApp(iter([
+            # Request for token (which will have expired)
             ('200 Ok', {},
              json.dumps({'account': 'act', 'user': 'act:usr',
                          'account_id': 'AUTH_cfa',
                          'groups': [{'name': 'act:usr'}, {'name': 'act'},
                                     {'name': '.admin'}],
-                         'expires': time() - 1}))]))
+                         'expires': time() - 1})),
+            # Request to delete token
+            ('204 No Content', {}, '')]))
         resp = Request.blank('/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_middleware_storage_token(self):
         self.test_auth.app = FakeApp(iter([

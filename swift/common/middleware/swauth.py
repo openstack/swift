@@ -180,6 +180,7 @@ class Swauth(object):
                 return None
             detail = json.loads(resp.body)
             if detail['expires'] < time():
+                self.make_request(env, 'DELETE', path).get_response(self.app)
                 return None
             groups = [g['name'] for g in detail['groups']]
             if '.admin' in groups:
@@ -916,6 +917,9 @@ class Swauth(object):
                 token_detail = json.loads(resp.body)
                 if token_detail['expires'] > time():
                     token = candidate_token
+                else:
+                    self.make_request(req.environ, 'DELETE',
+                                      path).get_response(self.app)
             elif resp.status_int != 404:
                 raise Exception('Could not detect whether a token already '
                                 'exists: %s %s' % (path, resp.status))
@@ -1003,6 +1007,8 @@ class Swauth(object):
             detail = json.loads(resp.body)
             expires = detail['expires']
             if expires < time():
+                self.make_request(req.environ, 'DELETE',
+                                  path).get_response(self.app)
                 return HTTPUnauthorized(request=req)
             groups = detail['groups']
             if '.admin' in groups:
