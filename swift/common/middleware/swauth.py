@@ -437,12 +437,51 @@ class Swauth(object):
                                     'services': services, 'users': listing}))
 
     def handle_set_services(self, req):
+        """
+        Handles the POST v2/<account>/.services call for setting services
+        information. Can only be called by a reseller .admin.
+
+        In the :func:`handle_get_account` (GET v2/<account>) call, a section of
+        the returned JSON dict is `services`. This section looks something like
+        this::
+
+              "services": {"storage": {"default": "local",
+                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}}
+
+        Making use of this section is described in :func:`handle_get_token`.
+
+        This function allows setting values within this section for the
+        <account>, allowing the addition of new service end points or updating
+        existing ones.
+
+        The body of the POST request should contain a JSON dict with the
+        following format::
+
+            {"service_name": {"end_point_name": "end_point_value"}}
+
+        There can be multiple services and multiple end points in the same
+        call.
+
+        Any new services or end points will be added to the existing set of
+        services and end points. Any existing services with the same service
+        name will be merged with the new end points. Any existing end points
+        with the same end point name will have their values updated.
+
+        The updated services dictionary will be returned on success.
+
+        :param req: The webob.Request to process.
+        :returns: webob.Response, 2xx on success with the udpated services JSON
+                  dict as described above
+        """
         if not self.is_reseller_admin(req):
             return HTTPForbidden(request=req)
         account = req.path_info_pop()
         if req.path_info != '/.services' or not account.isalnum():
             return HTTPBadRequest(request=req)
-        new_services = json.loads(req.body)
+        try:
+            new_services = json.loads(req.body)
+        except ValueError, err:
+            return HTTPBadRequest(body=str(err))
         # Get the current services information
         path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
         resp = self.make_request(req.environ, 'GET',
@@ -459,12 +498,13 @@ class Swauth(object):
             else:
                 services[new_service] = value
         # Save the new services information
+        services = json.dumps(services)
         resp = self.make_request(req.environ, 'PUT', path,
-                                 json.dumps(services)).get_response(self.app)
+                                 services).get_response(self.app)
         if resp.status_int // 100 != 2:
             raise Exception('Could not save .services object: %s %s' %
                             (path, resp.status))
-        return HTTPNoContent(request=req)
+        return Response(request=req, body=services)
 
     def handle_put_account(self, req):
         """
@@ -558,7 +598,7 @@ class Swauth(object):
         account = req.path_info_pop()
         if req.path_info or not account.isalnum():
             return HTTPBadRequest(request=req)
-        # Make sure the account has no users.
+        # Make sure the account has no users and get the account_id
         marker = ''
         while True:
             path = '/v1/%s?format=json&marker=%s' % (quote('%s/%s' %
@@ -566,10 +606,11 @@ class Swauth(object):
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
             if resp.status_int == 404:
-                break
+                return HTTPNotFound(request=req)
             if resp.status_int // 100 != 2:
                 raise Exception('Could not list in main auth account: %s %s' %
                                 (path, resp.status))
+            account_id = resp.headers['x-container-meta-account-id']
             sublisting = json.loads(resp.body)
             if not sublisting:
                 break
@@ -581,57 +622,57 @@ class Swauth(object):
         path = quote('/v1/%s/%s/.services' % (self.auth_account, account))
         resp = self.make_request(req.environ, 'GET',
                                  path).get_response(self.app)
-        if resp.status_int == 404:
-            return HTTPNoContent(request=req)
-        elif resp.status_int // 100 == 2:
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise Exception('Could not obtain .services object: %s %s' %
+                            (path, resp.status))
+        if resp.status_int // 100 == 2:
             services = json.loads(resp.body)
             # Delete the account on each cluster it is on.
+            deleted_any = False
             for name, url in services['storage'].iteritems():
                 if name != 'default':
                     parsed = urlparse(url)
-                    if parsed.scheme == 'http':
-                        conn = HTTPConnection(parsed.netloc)
-                    else:
-                        conn = HTTPSConnection(parsed.netloc)
+                    conn = self.get_conn(parsed)
                     conn.request('DELETE', parsed.path,
                         headers={'X-Auth-Token': self.get_itoken(req.environ)})
                     resp = conn.getresponse()
                     resp.read()
-                    if resp.status // 100 != 2:
+                    if resp.status == 409:
+                        if deleted_any:
+                            raise Exception('Managed to delete one or more '
+                                'service end points, but failed with: '
+                                '%s %s %s' % (url, resp.status, resp.reason))
+                        else:
+                            return HTTPConflict(request=req)
+                    if resp.status // 100 != 2 and resp.status != 404:
                         raise Exception('Could not delete account on the '
                             'Swift cluster: %s %s %s' %
                             (url, resp.status, resp.reason))
-                # Delete the .services object itself.
-                path = quote('/v1/%s/%s/.services' %
-                             (self.auth_account, account))
-                resp = self.make_request(req.environ, 'DELETE',
-                                         path).get_response(self.app)
-                # Obtain the account id mapping for the account.
-                path = quote('/v1/%s/%s' % (self.auth_account, account))
-                resp = self.make_request(req.environ, 'HEAD',
-                                         path).get_response(self.app)
-                if resp.status_int == 404:
-                    return HTTPNoContent(request=req)
-                elif 'x-container-meta-account-id' in resp.headers:
-                    account_id = resp.headers['x-container-meta-account-id']
-                    # Delete the account id mapping for the account.
-                    path = quote('/v1/%s/.account_id/%s' %
-                                 (self.auth_account, account_id))
-                    resp = self.make_request(req.environ, 'DELETE',
-                                             path).get_response(self.app)
-                    if resp.status_int // 100 != 2:
-                        self.logger.error('Could not delete account id '
-                            'mapping: %s %s' % (path, resp.status))
-                # Delete the account marker itself.
-                path = quote('/v1/%s/%s' % (self.auth_account, account))
-                resp = self.make_request(req.environ, 'DELETE',
-                                         path).get_response(self.app)
-                if resp.status_int // 100 != 2:
-                    self.logger.error('Could not delete account marked: '
-                                      '%s %s' % (path, resp.status))
-        else:
-            raise Exception('Could not verify account within main auth '
-                'account: %s %s' % (path, resp.status))
+                    deleted_any = True
+            # Delete the .services object itself.
+            path = quote('/v1/%s/%s/.services' %
+                         (self.auth_account, account))
+            resp = self.make_request(req.environ, 'DELETE',
+                                     path).get_response(self.app)
+            if resp.status_int // 100 != 2 and resp.status_int != 404:
+                raise Exception('Could not delete .services object: %s %s' %
+                                (path, resp.status))
+        # Delete the account id mapping for the account.
+        path = quote('/v1/%s/.account_id/%s' %
+                     (self.auth_account, account_id))
+        resp = self.make_request(req.environ, 'DELETE',
+                                 path).get_response(self.app)
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise Exception('Could not delete account id mapping: %s %s' %
+                            (path, resp.status))
+        # Delete the account marker itself.
+        path = quote('/v1/%s/%s' % (self.auth_account, account))
+        resp = self.make_request(req.environ, 'DELETE',
+                                 path).get_response(self.app)
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise Exception('Could not delete account marked: %s %s' %
+                            (path, resp.status))
+        return HTTPNoContent(request=req)
 
     def handle_get_user(self, req):
         """
@@ -706,8 +747,6 @@ class Swauth(object):
                                                        account, obj['name']))
                         resp = self.make_request(req.environ, 'GET',
                                                  path).get_response(self.app)
-                        if resp.status_int == 404:
-                            return HTTPNotFound(request=req)
                         if resp.status_int // 100 != 2:
                             raise Exception('Could not retrieve user object: '
                                             '%s %s' % (path, resp.status))
@@ -720,6 +759,8 @@ class Swauth(object):
             path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
+            if resp.status_int == 404:
+                return HTTPNotFound(request=req)
             if resp.status_int // 100 != 2:
                 raise Exception('Could not retrieve user object: %s %s' %
                                 (path, resp.status))
@@ -769,6 +810,8 @@ class Swauth(object):
         resp = self.make_request(req.environ, 'PUT', path, json.dumps({'auth':
             'plaintext:%s' % key,
             'groups': [{'name': g} for g in groups]})).get_response(self.app)
+        if resp.status_int == 404:
+            return HTTPNotFound(request=req)
         if resp.status_int // 100 != 2:
             raise Exception('Could not create user object: %s %s' %
                             (path, resp.status))
@@ -1043,15 +1086,20 @@ class Swauth(object):
         else:
             return Request.blank(path, environ=newenv, headers=headers)
 
-    def get_conn(self, url=None):
+    def get_conn(self, urlparsed=None):
         """
-        Returns an HTTPConnection based on the given `url` or the default Swift
-        cluster URL's scheme.
+        Returns an HTTPConnection based on the urlparse result given or the
+        default Swift cluster urlparse result.
+
+        :param urlparsed: The result from urlparse.urlparse or None to use the
+                          default Swift cluster's value
         """
-        if self.dsc_parsed.scheme == 'http':
-            return HTTPConnection(self.dsc_parsed.netloc)
+        if not urlparsed:
+            urlparsed = self.dsc_parsed
+        if urlparsed.scheme == 'http':
+            return HTTPConnection(urlparsed.netloc)
         else:
-            return HTTPSConnection(self.dsc_parsed.netloc)
+            return HTTPSConnection(urlparsed.netloc)
 
     def get_itoken(self, env):
         """
@@ -1067,7 +1115,11 @@ class Swauth(object):
             self.itoken = '%sitk%s' % (self.reseller_prefix, uuid4().hex)
             memcache_key = '%s/auth/%s' % (self.reseller_prefix, self.itoken)
             self.itoken_expires = time() + self.token_life - 60
-            cache_from_env(env).set(memcache_key, (self.itoken_expires,
+            memcache_client = cache_from_env(env)
+            if not memcache_client:
+                raise Exception(
+                    'No memcache set up; required for Swauth middleware')
+            memcache_client.set(memcache_key, (self.itoken_expires,
                 '.auth,.reseller_admin'), timeout=self.token_life)
         return self.itoken
 
@@ -1081,7 +1133,7 @@ class Swauth(object):
         :returns: The dict for the admin user with the addition of the
                   `account` key.
         """
-        if ':' not in req.headers.get('x-auth-admin-user'):
+        if ':' not in req.headers.get('x-auth-admin-user', ''):
             return None
         admin_account, admin_user = \
             req.headers.get('x-auth-admin-user').split(':', 1)
@@ -1152,7 +1204,8 @@ class Swauth(object):
         if self.is_super_admin(req):
             return True
         admin_detail = self.get_admin_detail(req)
-        if self.is_reseller_admin(req, admin_detail=admin_detail):
+        if admin_detail and \
+                self.is_reseller_admin(req, admin_detail=admin_detail):
             return True
         return admin_detail and admin_detail['account'] == account and \
                '.admin' in (g['name'] for g in admin_detail['groups'])

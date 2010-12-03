@@ -64,14 +64,38 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.calls += 1
-        req = Request.blank('', environ=env)
+        self.request = Request.blank('', environ=env)
         if 'swift.authorize' in env:
-            resp = env['swift.authorize'](req)
+            resp = env['swift.authorize'](self.request)
             if resp:
                 return resp(env, start_response)
         status, headers, body = self.status_headers_body_iter.next()
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
+
+class FakeConn(object):
+
+    def __init__(self, status_headers_body_iter=None):
+        self.calls = 0
+        self.status_headers_body_iter = status_headers_body_iter
+        if not self.status_headers_body_iter:
+            self.status_headers_body_iter = iter([('404 Not Found', {}, '')])
+
+    def request(self, method, path, headers):
+        self.calls += 1
+        self.request_path = path
+        self.status, self.headers, self.body = \
+            self.status_headers_body_iter.next()
+        self.status, self.reason = self.status.split(' ', 1)
+        self.status = int(self.status)
+
+    def getresponse(self):
+        return self
+
+    def read(self):
+        body = self.body
+        self.body = ''
+        return body
 
 
 class TestAuth(unittest.TestCase):
@@ -237,6 +261,7 @@ class TestAuth(unittest.TestCase):
         resp = Request.blank('/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 2)
         
     def test_auth_memcache(self):
         # First run our test without memcache, showing we need to return the
@@ -262,6 +287,7 @@ class TestAuth(unittest.TestCase):
         resp = Request.blank('/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 4)
         # Now run our test with memcache, showing we no longer need to return
         # the token contents twice.
         self.test_auth.app = FakeApp(iter([
@@ -285,6 +311,7 @@ class TestAuth(unittest.TestCase):
             environ={'swift.cache': fake_memcache}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_auth_just_expired(self):
         self.test_auth.app = FakeApp(iter([
@@ -314,6 +341,7 @@ class TestAuth(unittest.TestCase):
         resp = Request.blank('/v1/AUTH_cfa',
             headers={'X-Storage-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_authorize_bad_path(self):
         req = Request.blank('/badpath')
@@ -443,20 +471,12 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {},
              json.dumps({"auth": "plaintext:key",
                          "groups": [{'name': "act:usr"}, {'name': "act"},
-                                    {'name': ".admin"}]})),
-            # GET of account
-            ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
-            # PUT of new token
-            ('201 Created', {}, ''),
-            # POST of token to user object
-            ('204 No Content', {}, ''),
-            # GET of services object
-            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
-             "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
+                                    {'name': ".admin"}]}))]))
         resp = Request.blank('/auth/v1.0',
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'invalid'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_token_fail_invalid_x_auth_user_format(self):
         resp = Request.blank('/auth/v1/act/auth',
@@ -488,6 +508,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_token_fail_get_account(self):
         self.test_auth.app = FakeApp(iter([
@@ -502,6 +523,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_get_token_fail_put_new_token(self):
         self.test_auth.app = FakeApp(iter([
@@ -518,6 +540,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_get_token_fail_post_to_user(self):
         self.test_auth.app = FakeApp(iter([
@@ -536,6 +559,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 4)
 
     def test_get_token_fail_get_services(self):
         self.test_auth.app = FakeApp(iter([
@@ -556,6 +580,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 5)
 
     def test_get_token_fail_get_existing_token(self):
         self.test_auth.app = FakeApp(iter([
@@ -570,6 +595,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_get_token_success_v1_0(self):
         self.test_auth.app = FakeApp(iter([
@@ -600,6 +626,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(json.loads(resp.body),
             {"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 5)
 
     def test_get_token_success_v1_act_auth(self):
         self.test_auth.app = FakeApp(iter([
@@ -630,6 +657,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(json.loads(resp.body),
             {"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 5)
 
     def test_get_token_success_storage_instead_of_auth(self):
         self.test_auth.app = FakeApp(iter([
@@ -660,6 +688,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(json.loads(resp.body),
             {"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 5)
 
     def test_get_token_success_v1_act_auth_auth_instead_of_storage(self):
         self.test_auth.app = FakeApp(iter([
@@ -690,6 +719,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(json.loads(resp.body),
             {"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 5)
 
     def test_get_token_success_existing_token(self):
         self.test_auth.app = FakeApp(iter([
@@ -718,6 +748,81 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(json.loads(resp.body),
             {"storage": {"default": "local",
              "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_get_token_success_existing_token_expired(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tktest'},
+             json.dumps({"auth": "plaintext:key",
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
+            # GET of token
+            ('200 Ok', {}, json.dumps({"account": "act", "user": "usr",
+             "account_id": "AUTH_cfa", "groups": [{'name': "act:usr"},
+             {'name': "key"}, {'name': ".admin"}],
+             "expires": 0.0})),
+            # DELETE of expired token
+            ('204 No Content', {}, ''),
+            # GET of account
+            ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
+            # PUT of new token
+            ('201 Created', {}, ''),
+            # POST of token to user object
+            ('204 No Content', {}, ''),
+            # GET of services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+             "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
+        resp = Request.blank('/auth/v1.0',
+            headers={'X-Auth-User': 'act:usr',
+                     'X-Auth-Key': 'key'}).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertNotEquals(resp.headers.get('x-auth-token'), 'AUTH_tktest')
+        self.assertEquals(resp.headers.get('x-auth-token'),
+                          resp.headers.get('x-storage-token'))
+        self.assertEquals(resp.headers.get('x-storage-url'),
+                          'http://127.0.0.1:8080/v1/AUTH_cfa')
+        self.assertEquals(json.loads(resp.body),
+            {"storage": {"default": "local",
+             "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 7)
+
+    def test_get_token_success_existing_token_expired_fail_deleting_old(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tktest'},
+             json.dumps({"auth": "plaintext:key",
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]})),
+            # GET of token
+            ('200 Ok', {}, json.dumps({"account": "act", "user": "usr",
+             "account_id": "AUTH_cfa", "groups": [{'name': "act:usr"},
+             {'name': "key"}, {'name': ".admin"}],
+             "expires": 0.0})),
+            # DELETE of expired token
+            ('503 Service Unavailable', {}, ''),
+            # GET of account
+            ('204 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
+            # PUT of new token
+            ('201 Created', {}, ''),
+            # POST of token to user object
+            ('204 No Content', {}, ''),
+            # GET of services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+             "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
+        resp = Request.blank('/auth/v1.0',
+            headers={'X-Auth-User': 'act:usr',
+                     'X-Auth-Key': 'key'}).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertNotEquals(resp.headers.get('x-auth-token'), 'AUTH_tktest')
+        self.assertEquals(resp.headers.get('x-auth-token'),
+                          resp.headers.get('x-storage-token'))
+        self.assertEquals(resp.headers.get('x-storage-url'),
+                          'http://127.0.0.1:8080/v1/AUTH_cfa')
+        self.assertEquals(json.loads(resp.body),
+            {"storage": {"default": "local",
+             "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})
+        self.assertEquals(self.test_auth.app.calls, 7)
 
     def test_prep_success(self):
         self.test_auth.app = FakeApp(iter([
@@ -733,6 +838,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_prep_bad_method(self):
         resp = Request.blank('/auth/v2/.prep',
@@ -790,6 +896,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_prep_fail_token_container_create(self):
         self.test_auth.app = FakeApp(iter([
@@ -803,6 +910,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_prep_fail_account_id_container_create(self):
         self.test_auth.app = FakeApp(iter([
@@ -818,6 +926,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_get_reseller_success(self):
         self.test_auth.app = FakeApp(iter([
@@ -835,6 +944,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(json.loads(resp.body),
                           {"accounts": [{"name": "act"}]})
+        self.assertEquals(self.test_auth.app.calls, 2)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object
@@ -855,16 +965,18 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(json.loads(resp.body),
                           {"accounts": [{"name": "act"}]})
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_get_reseller_fail_bad_creds(self):
         self.test_auth.app = FakeApp(iter([
             # GET of user object
             ('404 Not Found', {}, '')]))
         resp = Request.blank('/auth/v2',
-            headers={'X-Auth-Admin-User': 'super_admin',
+            headers={'X-Auth-Admin-User': 'super:admin',
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object (account admin, but not reseller admin)
@@ -876,6 +988,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object (regular user)
@@ -886,6 +999,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_reseller_fail_listing(self):
         self.test_auth.app = FakeApp(iter([
@@ -896,6 +1010,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of .auth account (list containers)
@@ -910,6 +1025,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_get_account_success(self):
         self.test_auth.app = FakeApp(iter([
@@ -941,6 +1057,7 @@ class TestAuth(unittest.TestCase):
                             {'default': 'local',
                              'local': 'http://127.0.0.1:8080/v1/AUTH_cfa'}},
              'users': [{'name': 'tester'}, {'name': 'tester3'}]})
+        self.assertEquals(self.test_auth.app.calls, 3)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object
@@ -975,6 +1092,7 @@ class TestAuth(unittest.TestCase):
                             {'default': 'local',
                              'local': 'http://127.0.0.1:8080/v1/AUTH_cfa'}},
              'users': [{'name': 'tester'}, {'name': 'tester3'}]})
+        self.assertEquals(self.test_auth.app.calls, 4)
 
     def test_get_account_fail_bad_account_name(self):
         resp = Request.blank('/auth/v2/.token',
@@ -993,10 +1111,11 @@ class TestAuth(unittest.TestCase):
             # GET of user object
             ('404 Not Found', {}, '')]))
         resp = Request.blank('/auth/v2/act',
-            headers={'X-Auth-Admin-User': 'super_admin',
+            headers={'X-Auth-Admin-User': 'super:admin',
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object (account admin, but wrong account)
@@ -1008,6 +1127,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of user object (regular user)
@@ -1018,6 +1138,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_account_fail_get_services(self):
         self.test_auth.app = FakeApp(iter([
@@ -1028,6 +1149,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
         self.test_auth.app = FakeApp(iter([
             # GET of .services object
@@ -1037,6 +1159,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_account_fail_listing(self):
         self.test_auth.app = FakeApp(iter([
@@ -1050,6 +1173,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
         self.test_auth.app = FakeApp(iter([
             # GET of .services object
@@ -1062,6 +1186,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
         self.test_auth.app = FakeApp(iter([
             # GET of .services object
@@ -1086,6 +1211,1547 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_set_services_new_service(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # PUT of new .services object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'new_service': {'new_endpoint': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(json.loads(resp.body),
+            {'storage': {'default': 'local',
+                         'local': 'http://127.0.0.1:8080/v1/AUTH_cfa'},
+             'new_service': {'new_endpoint': 'new_value'}})
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_set_services_new_endpoint(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # PUT of new .services object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'storage': {'new_endpoint': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(json.loads(resp.body),
+            {'storage': {'default': 'local',
+                         'local': 'http://127.0.0.1:8080/v1/AUTH_cfa',
+                         'new_endpoint': 'new_value'}})
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_set_services_update_endpoint(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # PUT of new .services object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'storage': {'local': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(json.loads(resp.body),
+            {'storage': {'default': 'local',
+                         'local': 'new_value'}})
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_set_services_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': 'super:admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'storage': {'local': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but not reseller admin)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'},
+            body=json.dumps({'storage': {'local': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'},
+            body=json.dumps({'storage': {'local': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_set_services_fail_bad_account_name(self):
+        resp = Request.blank('/auth/v2/.act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'storage': {'local': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_set_services_fail_bad_json(self):
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body='garbage'
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=''
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_set_services_fail_get_services(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('503 Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'new_service': {'new_endpoint': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'new_service': {'new_endpoint': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_set_services_fail_put_services(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # PUT of new .services object
+            ('503 Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.services',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            body=json.dumps({'new_service': {'new_endpoint': 'new_value'}})
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_put_account_success(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, ''),
+            # PUT of .account_id mapping object
+            ('204 No Content', {}, ''),
+            # PUT of .services object
+            ('204 No Content', {}, ''),
+            # POST to account container updating X-Container-Meta-Account-Id
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 5)
+        self.assertEquals(conn.calls, 1)
+
+    def test_put_account_success_preexist_but_not_completed(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            # We're going to show it as existing this time, but with no
+            # X-Container-Meta-Account-Id, indicating a failed previous attempt
+            ('200 Ok', {}, ''),
+            # PUT of .account_id mapping object
+            ('204 No Content', {}, ''),
+            # PUT of .services object
+            ('204 No Content', {}, ''),
+            # POST to account container updating X-Container-Meta-Account-Id
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 4)
+        self.assertEquals(conn.calls, 1)
+
+    def test_put_account_success_preexist_and_completed(self):
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            # We're going to show it as existing this time, and with an
+            # X-Container-Meta-Account-Id, indicating it already exists
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_account_success_with_given_suffix(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, ''),
+            # PUT of .account_id mapping object
+            ('204 No Content', {}, ''),
+            # PUT of .services object
+            ('204 No Content', {}, ''),
+            # POST to account container updating X-Container-Meta-Account-Id
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Account-Suffix': 'test-suffix'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(conn.request_path, '/v1/AUTH_test-suffix')
+        self.assertEquals(self.test_auth.app.calls, 5)
+        self.assertEquals(conn.calls, 1)
+
+    def test_put_account_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'super:admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but not reseller admin)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_account_fail_invalid_account_name(self):
+        resp = Request.blank('/auth/v2/.act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_put_account_fail_on_initial_account_head(self):
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_account_fail_on_account_marker_put(self):
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_put_account_fail_on_storage_account_put(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('503 Service Unavailable', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(conn.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_put_account_fail_on_account_id_mapping(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, ''),
+            # PUT of .account_id mapping object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(conn.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_put_account_fail_on_services_object(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, ''),
+            # PUT of .account_id mapping object
+            ('204 No Content', {}, ''),
+            # PUT of .services object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(conn.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 4)
+
+    def test_put_account_fail_on_post_mapping(self):
+        conn = FakeConn(iter([
+            # PUT of storage account itself
+            ('201 Created', {}, '')]))
+        self.test_auth.get_conn = lambda: conn
+        self.test_auth.app = FakeApp(iter([
+            # Initial HEAD of account container to check for pre-existence
+            ('404 Not Found', {}, ''),
+            # PUT of account container
+            ('204 No Content', {}, ''),
+            # PUT of .account_id mapping object
+            ('204 No Content', {}, ''),
+            # PUT of .services object
+            ('204 No Content', {}, ''),
+            # POST to account container updating X-Container-Meta-Account-Id
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(conn.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 5)
+
+    def test_delete_account_success(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('204 No Content', {}, ''),
+            # DELETE the account container
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 6)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_success_missing_services(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('404 Not Found', {}, ''),
+            # DELETE the .account_id mapping object
+            ('204 No Content', {}, ''),
+            # DELETE the account container
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 5)
+
+    def test_delete_account_success_missing_storage_account(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('404 Not Found', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('204 No Content', {}, ''),
+            # DELETE the account container
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 6)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_success_missing_account_id_mapping(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('404 Not Found', {}, ''),
+            # DELETE the account container
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 6)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_success_missing_account_container_at_end(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('204 No Content', {}, ''),
+            # DELETE the account container
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 6)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'super:admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but not reseller admin)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_account_fail_invalid_account_name(self):
+        resp = Request.blank('/auth/v2/.act',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_delete_account_fail_not_found(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_account_fail_not_found_concurrency(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_delete_account_fail_list_account(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_account_fail_list_account_concurrency(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_delete_account_fail_has_users(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"},
+                {"name": "tester", "hash": "etag", "bytes": 104,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.736680"}]))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 409)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_account_fail_has_users2(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": "tester", "hash": "etag", "bytes": 104,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.736680"}]))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 409)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_delete_account_fail_get_services(self):
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_delete_account_fail_delete_storage_account(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('409 Conflict', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 409)
+        self.assertEquals(self.test_auth.app.calls, 3)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_fail_delete_storage_account2(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, ''),
+            # DELETE of storage account itself
+            ('409 Conflict', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa",
+                "other": "http://127.0.0.1:8080/v1/AUTH_cfa2"}}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+        self.assertEquals(conn.calls, 2)
+
+    def test_delete_account_fail_delete_storage_account3(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('503 Service Unavailable', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_fail_delete_storage_account4(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, ''),
+            # DELETE of storage account itself
+            ('503 Service Unavailable', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa",
+                "other": "http://127.0.0.1:8080/v1/AUTH_cfa2"}}))]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+        self.assertEquals(conn.calls, 2)
+
+    def test_delete_account_fail_delete_services(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 4)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_fail_delete_account_id_mapping(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 5)
+        self.assertEquals(conn.calls, 1)
+
+    def test_delete_account_fail_delete_account_container(self):
+        conn = FakeConn(iter([
+            # DELETE of storage account itself
+            ('204 No Content', {}, '')]))
+        self.test_auth.get_conn = lambda x: conn
+        self.test_auth.app = FakeApp(iter([
+            # Account's container listing, checking for users
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"}])),
+            # Account's container listing, checking for users (continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]'),
+            # GET the .services object
+            ('200 Ok', {}, json.dumps({"storage": {"default": "local",
+                "local": "http://127.0.0.1:8080/v1/AUTH_cfa"}})),
+            # DELETE the .services object
+            ('204 No Content', {}, ''),
+            # DELETE the .account_id mapping object
+            ('204 No Content', {}, ''),
+            # DELETE the account container
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act',
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'swift.cache': FakeMemcache()},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 6)
+        self.assertEquals(conn.calls, 1)
+
+    def test_get_user_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".admin"}],
+                 "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".admin"}],
+             "auth": "plaintext:key"}))
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_user_groups_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of account container (list objects)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"},
+                {"name": "tester", "hash": "etag", "bytes": 104,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.736680"},
+                {"name": "tester3", "hash": "etag", "bytes": 86,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:28.135530"}])),
+            # GET of user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:tester"}, {"name": "act"},
+                            {"name": ".admin"}],
+                 "auth": "plaintext:key"})),
+            # GET of user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:tester3"}, {"name": "act"}],
+                 "auth": "plaintext:key3"})),
+            # GET of account container (list objects continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]')]))
+        resp = Request.blank('/auth/v2/act/.groups',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": ".admin"}, {"name": "act"},
+                        {"name": "act:tester"}, {"name": "act:tester3"}]}))
+        self.assertEquals(self.test_auth.app.calls, 4)
+
+    def test_get_user_groups_success2(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of account container (list objects)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"},
+                {"name": "tester", "hash": "etag", "bytes": 104,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.736680"}])),
+            # GET of user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:tester"}, {"name": "act"},
+                            {"name": ".admin"}],
+                 "auth": "plaintext:key"})),
+            # GET of account container (list objects continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": "tester3", "hash": "etag", "bytes": 86,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:28.135530"}])),
+            # GET of user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:tester3"}, {"name": "act"}],
+                 "auth": "plaintext:key3"})),
+            # GET of account container (list objects continuation)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, '[]')]))
+        resp = Request.blank('/auth/v2/act/.groups',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": ".admin"}, {"name": "act"},
+                        {"name": "act:tester"}, {"name": "act:tester3"}]}))
+        self.assertEquals(self.test_auth.app.calls, 5)
+
+    def test_get_user_fail_invalid_account(self):
+        resp = Request.blank('/auth/v2/.invalid/usr',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_get_user_fail_invalid_user(self):
+        resp = Request.blank('/auth/v2/act/.invalid',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_get_user_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'super:admin',
+                     'X-Auth-Admin-Key': 'supertest'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'},
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_user_account_admin_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but not reseller admin)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"})),
+            # GET of requested user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".admin"}],
+                 "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".admin"}],
+             "auth": "plaintext:key"}))
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_get_user_groups_not_found(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of account container (list objects)
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.groups',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_user_groups_fail_listing(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of account container (list objects)
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.groups',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_user_groups_fail_get_user(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of account container (list objects)
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'},
+             json.dumps([
+                {"name": ".services", "hash": "etag", "bytes": 112,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.618110"},
+                {"name": "tester", "hash": "etag", "bytes": 104,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:27.736680"},
+                {"name": "tester3", "hash": "etag", "bytes": 86,
+                 "content_type": "application/octet-stream",
+                 "last_modified": "2010-12-03T17:16:28.135530"}])),
+            # GET of user object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/.groups',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_get_user_not_found(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_user_fail(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_user_fail_invalid_account(self):
+        resp = Request.blank('/auth/v2/.invalid/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_put_user_fail_invalid_user(self):
+        resp = Request.blank('/auth/v2/act/.usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_put_user_fail_no_user_key(self):
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_put_user_reseller_admin_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (reseller admin)
+            # This shouldn't actually get called, checked below
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:rdm"},
+             {"name": "test"}, {"name": ".admin"},
+             {"name": ".reseller_admin"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act:rdm',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Reseller-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 0)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but not reseller admin)
+            # This shouldn't actually get called, checked below
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Reseller-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 0)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            # This shouldn't actually get called, checked below
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Reseller-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 0)
+
+    def test_put_user_account_admin_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but wrong account)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act2:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act2:adm',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_user_regular_fail_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but wrong account)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act2:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act2:adm',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_user_regular_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # PUT of user object
+            ('201 Created', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(json.loads(self.test_auth.app.request.body),
+            {"groups": [{"name": "act:usr"}, {"name": "act"}],
+             "auth": "plaintext:key"})
+
+    def test_put_user_account_admin_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # PUT of user object
+            ('201 Created', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(json.loads(self.test_auth.app.request.body),
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".admin"}],
+             "auth": "plaintext:key"})
+
+    def test_put_user_reseller_admin_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # PUT of user object
+            ('201 Created', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key',
+                     'X-Auth-User-Reseller-Admin': 'true'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(json.loads(self.test_auth.app.request.body),
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".admin"}, {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"})
+
+    def test_put_user_fail_not_found(self):
+        self.test_auth.app = FakeApp(iter([
+            # PUT of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_put_user_fail(self):
+        self.test_auth.app = FakeApp(iter([
+            # PUT of user object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_user_bad_creds(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin, but wrong account)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act2:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': 'act2:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (regular user)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:usr"},
+             {"name": "test"}], "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_user_invalid_account(self):
+        resp = Request.blank('/auth/v2/.invalid/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_delete_user_invalid_user(self):
+        resp = Request.blank('/auth/v2/act/.invalid',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_delete_user_not_found(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_user_fail_head_user(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_delete_user_fail_delete_token(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tk'}, ''),
+            # DELETE of token
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_delete_user_fail_delete_user(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tk'}, ''),
+            # DELETE of token
+            ('204 No Content', {}, ''),
+            # DELETE of user object
+            ('503 Service Unavailable', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_delete_user_success(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tk'}, ''),
+            # DELETE of token
+            ('204 No Content', {}, ''),
+            # DELETE of user object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_delete_user_success_missing_user_at_end(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tk'}, ''),
+            # DELETE of token
+            ('204 No Content', {}, ''),
+            # DELETE of user object
+            ('404 Not Found', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_delete_user_success_missing_token(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {'X-Object-Meta-Auth-Token': 'AUTH_tk'}, ''),
+            # DELETE of token
+            ('404 Not Found', {}, ''),
+            # DELETE of user object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_delete_user_success_no_token(self):
+        self.test_auth.app = FakeApp(iter([
+            # HEAD of user object
+            ('200 Ok', {}, ''),
+            # DELETE of user object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/act/usr',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
 
 if __name__ == '__main__':
