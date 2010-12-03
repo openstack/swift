@@ -72,7 +72,7 @@ class Swauth(object):
             msg = 'No super_admin_key set in conf file! Exiting.'
             try:
                 self.logger.critical(msg)
-            except:
+            except Exception:
                 pass
             raise ValueError(msg)
         self.token_life = int(conf.get('token_life', 86400))
@@ -400,7 +400,7 @@ class Swauth(object):
                   explained above.
         """
         account = req.path_info_pop()
-        if req.path_info:
+        if req.path_info or not account.isalnum():
             return HTTPBadRequest(request=req)
         if not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
@@ -420,12 +420,12 @@ class Swauth(object):
                 (self.auth_account, account)), quote(marker))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
-            account_id = resp.headers['X-Container-Meta-Account-Id']
             if resp.status_int == 404:
                 return HTTPNotFound(request=req)
             if resp.status_int // 100 != 2:
                 raise Exception('Could not list in main auth account: %s %s' %
                                 (path, resp.status))
+            account_id = resp.headers['X-Container-Meta-Account-Id']
             sublisting = json.loads(resp.body)
             if not sublisting:
                 break
@@ -1087,7 +1087,10 @@ class Swauth(object):
             req.headers.get('x-auth-admin-user').split(':', 1)
         path = quote('/v1/%s/%s/%s' % (self.auth_account, admin_account,
                                        admin_user))
-        resp = self.make_request(req.env, 'GET', path).get_response(self.app)
+        resp = self.make_request(req.environ, 'GET',
+                                 path).get_response(self.app)
+        if resp.status_int == 404:
+            return None
         if resp.status_int // 100 != 2:
             raise Exception('Could not get admin user object: %s %s' %
                             (path, resp.status))
@@ -1104,7 +1107,7 @@ class Swauth(object):
         :param key: The key to validate for the user.
         :returns: True if the key is valid for the user, False if not.
         """
-        return user_detail.get('auth') == 'plaintext:%s' % key
+        return user_detail and user_detail.get('auth') == 'plaintext:%s' % key
 
     def is_super_admin(self, req):
         """
@@ -1135,7 +1138,7 @@ class Swauth(object):
         if not self.credentials_match(admin_detail,
                                       req.headers.get('x-auth-admin-key')):
             return False
-        return '.reseller_admin' in admin_detail['groups']
+        return '.reseller_admin' in (g['name'] for g in admin_detail['groups'])
 
     def is_account_admin(self, req, account):
         """
@@ -1151,8 +1154,8 @@ class Swauth(object):
         admin_detail = self.get_admin_detail(req)
         if self.is_reseller_admin(req, admin_detail=admin_detail):
             return True
-        return admin_detail['account'] == account and \
-               '.admin' in admin_detail['groups']
+        return admin_detail and admin_detail['account'] == account and \
+               '.admin' in (g['name'] for g in admin_detail['groups'])
 
     def posthooklogger(self, env, req):
         response = getattr(req, 'response', None)
