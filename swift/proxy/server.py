@@ -103,17 +103,21 @@ class SegmentedIterable(object):
     """
     Iterable that returns the object contents for a segmented object in Swift.
 
-    In addition to these params, you can also set the `response` attr just
-    after creating the SegmentedIterable and it will update the response's
-    `bytes_transferred` value (used to log the size of the request).
+    If set, the response's `bytes_transferred` value will be updated (used to
+    log the size of the request). Also, if there's a failure that cuts the
+    transfer short, the response's `status_int` will be updated (again, just
+    for logging since the original status would have already been sent to the
+    client).
 
     :param controller: The ObjectController instance to work with.
     :param container: The container the object segments are within.
     :param listing: The listing of object segments to iterate over; this is a
                     standard JSON decoded container listing.
+    :param response: The webob.Response this iterable is associated with, if
+                     any (default: None)
     """
 
-    def __init__(self, controller, container, listing):
+    def __init__(self, controller, container, listing, response=None):
         self.controller = controller
         self.container = container
         self.listing = listing
@@ -121,7 +125,9 @@ class SegmentedIterable(object):
         self.seek = 0
         self.segment_iter = None
         self.position = 0
-        self.response = None
+        self.response = response
+        if not self.response:
+            self.response = Response()
 
     def _load_next_segment(self):
         """
@@ -150,12 +156,16 @@ class SegmentedIterable(object):
                 raise Exception('Could not load object segment %s: %s' % (path,
                     resp.status_int))
             self.segment_iter = resp.app_iter
+        except StopIteration:
+            raise
         except Exception, err:
-            if not isinstance(err, StopIteration):
+            if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception('ERROR: While processing '
                     'manifest /%s/%s/%s %s' % (self.controller.account_name,
                     self.controller.container_name,
                     self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
             raise
 
     def __iter__(self):
@@ -172,16 +182,19 @@ class SegmentedIterable(object):
                         except StopIteration:
                             self._load_next_segment()
                 self.position += len(chunk)
-                if self.response:
-                    self.response.bytes_transferred = getattr(self.response,
-                        'bytes_transferred', 0) + len(chunk)
+                self.response.bytes_transferred = getattr(self.response,
+                    'bytes_transferred', 0) + len(chunk)
                 yield chunk
+        except StopIteration:
+            raise
         except Exception, err:
-            if not isinstance(err, StopIteration):
+            if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception('ERROR: While processing '
                     'manifest /%s/%s/%s %s' % (self.controller.account_name,
                     self.controller.container_name,
                     self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
             raise
 
     def app_iter_range(self, start, stop):
@@ -215,19 +228,22 @@ class SegmentedIterable(object):
                     length -= len(chunk)
                     if length < 0:
                         # Chop off the extra:
-                        if self.response:
-                            self.response.bytes_transferred = \
-                               getattr(self.response, 'bytes_transferred', 0) \
-                               + length
+                        self.response.bytes_transferred = \
+                           getattr(self.response, 'bytes_transferred', 0) \
+                           + length
                         yield chunk[:length]
                         break
                 yield chunk
+        except StopIteration:
+            raise
         except Exception, err:
-            if not isinstance(err, StopIteration):
+            if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception('ERROR: While processing '
                     'manifest /%s/%s/%s %s' % (self.controller.account_name,
                     self.controller.container_name,
                     self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
             raise
 
 
@@ -713,10 +729,10 @@ class ObjectController(Controller):
             for key, value in resp.headers.iteritems():
                 if key.lower().startswith('x-object-meta-'):
                     headers[key] = value
-            resp = Response(app_iter=SegmentedIterable(self, lcontainer,
-                listing), headers=headers, request=req,
+            resp = Response(headers=headers, request=req,
                 conditional_response=True)
-            resp.app_iter.response = resp
+            resp.app_iter = SegmentedIterable(self, lcontainer, listing, resp)
+            resp.content_length = content_length
         return resp
 
     @public
