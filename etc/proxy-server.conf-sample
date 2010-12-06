@@ -29,6 +29,9 @@ use = egg:swift#proxy
 # error_suppression_interval = 60
 # How many errors can accumulate before a node is temporarily ignored.
 # error_suppression_limit = 10
+# If set to 'true' any authorized user may create and delete accounts; if
+# 'false' no one, even authorized, can.
+# allow_account_management = false
 
 [filter:auth]
 use = egg:swift#auth

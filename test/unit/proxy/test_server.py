@@ -29,6 +29,7 @@ from shutil import rmtree
 from time import time
 from urllib import unquote, quote
 from hashlib import md5
+from tempfile import mkdtemp
 
 import eventlet
 from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
@@ -362,6 +363,20 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
+    def test_custom_mime_types_files(self):
+        swift_dir = mkdtemp()
+        try:
+            with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
+                fp.write('foo/bar foo\n')
+            ba = proxy_server.BaseApplication({'swift_dir': swift_dir},
+                FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
+                FakeRing())
+            self.assertEquals(proxy_server.mimetypes.guess_type('blah.foo')[0],
+                              'foo/bar')
+            self.assertEquals(proxy_server.mimetypes.guess_type('blah.jpg')[0],
+                              'image/jpeg')
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
 
     def test_PUT(self):
         with save_globals():
@@ -2586,6 +2601,8 @@ class TestAccountController(unittest.TestCase):
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
+            test_status_map((201, 201, 201), 405)
+            self.app.allow_account_management = True
             test_status_map((201, 201, 201), 201)
             test_status_map((201, 201, 500), 201)
             test_status_map((201, 500, 500), 503)
@@ -2593,6 +2610,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT_max_account_name_length(self):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, '1' * 256)
             self.assert_status_map(controller.PUT, (201, 201, 201), 201)
             controller = proxy_server.AccountController(self.app, '2' * 257)
@@ -2600,6 +2618,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT_connect_exceptions(self):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, 'account')
             self.assert_status_map(controller.PUT, (201, 201, -1), 201)
             self.assert_status_map(controller.PUT, (201, -1, -1), 503)
@@ -2628,6 +2647,7 @@ class TestAccountController(unittest.TestCase):
                         test_errors.append('%s: %s not in %s' %
                                            (test_header, test_value, headers))
             with save_globals():
+                self.app.allow_account_management = True
                 controller = \
                     proxy_server.AccountController(self.app, 'a')
                 proxy_server.http_connect = fake_http_connect(201, 201, 201,
@@ -2646,6 +2666,7 @@ class TestAccountController(unittest.TestCase):
 
     def bad_metadata_helper(self, method):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, 'a')
             proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': method})
@@ -2727,6 +2748,27 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
+
+    def test_DELETE(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+
+            def test_status_map(statuses, expected, **kwargs):
+                proxy_server.http_connect = \
+                    fake_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/a', {'REQUEST_METHOD': 'DELETE'})
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.DELETE(req)
+                expected = str(expected)
+                self.assertEquals(res.status[:len(expected)], expected)
+            test_status_map((201, 201, 201), 405)
+            self.app.allow_account_management = True
+            test_status_map((201, 201, 201), 201)
+            test_status_map((201, 201, 500), 201)
+            test_status_map((201, 500, 500), 503)
+            test_status_map((204, 500, 404), 503)
 
 
 if __name__ == '__main__':

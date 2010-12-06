@@ -462,6 +462,8 @@ error_suppression_interval    60               Time in seconds that must
                                                no longer error limited
 error_suppression_limit       10               Error count to consider a
                                                node error limited
+allow_account_management      false            Whether account PUTs and DELETEs
+                                               are even callable
 ============================  ===============  =============================
 
 [auth]

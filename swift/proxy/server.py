@@ -1139,6 +1139,8 @@ class AccountController(Controller):
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
+        if not self.app.allow_account_management:
+            return HTTPMethodNotAllowed(request=req)
         error_response = check_metadata(req, 'account')
         if error_response:
             return error_response
@@ -1238,6 +1240,51 @@ class AccountController(Controller):
         return self.best_response(req, statuses, reasons, bodies,
                                   'Account POST')
 
+    @public
+    def DELETE(self, req):
+        """HTTP DELETE request handler."""
+        if not self.app.allow_account_management:
+            return HTTPMethodNotAllowed(request=req)
+        account_partition, accounts = \
+            self.app.account_ring.get_nodes(self.account_name)
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'X-CF-Trans-Id': self.trans_id}
+        statuses = []
+        reasons = []
+        bodies = []
+        for node in self.iter_nodes(account_partition, accounts,
+                                    self.app.account_ring):
+            if self.error_limited(node):
+                continue
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], account_partition, 'DELETE',
+                            req.path_info, headers)
+                with Timeout(self.app.node_timeout):
+                    source = conn.getresponse()
+                    body = source.read()
+                    if 200 <= source.status < 300 \
+                            or 400 <= source.status < 500:
+                        statuses.append(source.status)
+                        reasons.append(source.reason)
+                        bodies.append(body)
+                    elif source.status == 507:
+                        self.error_limit(node)
+            except:
+                self.exception_occurred(node, 'Account',
+                    'Trying to DELETE %s' % req.path)
+            if len(statuses) >= len(accounts):
+                break
+        while len(statuses) < len(accounts):
+            statuses.append(503)
+            reasons.append('')
+            bodies.append('')
+        if self.app.memcache:
+            self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        return self.best_response(req, statuses, reasons, bodies,
+                                  'Account DELETE')
+
 
 class BaseApplication(object):
     """Base WSGI application for the proxy server"""
@@ -1265,6 +1312,8 @@ class BaseApplication(object):
             int(conf.get('recheck_container_existence', 60))
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence', 60))
+        self.allow_account_management = \
+            conf.get('allow_account_management', 'false').lower() == 'true'
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \
@@ -1274,6 +1323,8 @@ class BaseApplication(object):
         self.account_ring = account_ring or \
             Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
+        mimetypes.init(mimetypes.knownfiles + 
+                       [os.path.join(swift_dir, 'mime.types')])
 
     def get_controller(self, path):
         """
