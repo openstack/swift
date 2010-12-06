@@ -125,14 +125,53 @@ History
 -------
 
 Large object support has gone through various iterations before settling on
-this implementation. This approach has the drawback that the eventual
-consistency window of the container listings can cause a GET on the manifest
-object to return an invalid whole object for that short term.
+this implementation.
 
-We also implemented fully transparent support within the server, but the
-drawbacks there were added complexity within the cluster, no option to do
-parallel uploads, and no basis for a resume feature.
+The primary factor driving the limitation of object size in swift is
+maintaining balance among the partitions of the ring.  To maintain an even
+dispersion of disk usage throughout the cluster the obvious storage pattern
+was to simply split larger objects into smaller segments, which could then be
+glued together during a read.
 
-We considered implementing both the "user manifest" option we have now and the
-"transparent server manifest" option, but the second was deemed just to complex
-for the benefit.
+Before the introduction of large object support some applications were already
+splitting their uploads into segments and re-assembling them on the client
+side after retrieving the individual pieces.  This design allowed the client
+to support backup and archiving of large data sets, but was also frequently
+employed to improve performance or reduce errors due to network interruption.
+The major disadvantage of this method is that knowledge of the original
+partitioning scheme is required to properly reassemble the object, which is
+not practical for some use cases, such as CDN origination.
+
+In order to eliminate any barrier to entry for clients wanting to store
+objects larger than 5GB, initially we also prototyped fully transparent
+support for large object uploads.  A fully transparent implementation would
+support a larger max size by automatically splitting objects into segments
+during upload within the proxy without any changes to the client API.  All
+segments were completely hidden from the client API.
+
+This solution introduced a number of challenging failure conditions into the
+cluster, wouldn't provide the client with any option to do parallel uploads,
+and had no basis for a resume feature.  The transparent implementation was
+deemed just too complex for the benefit.
+
+The current "user manifest" design was chosen in order to provide a
+transparent download of large objects to the client and still provide the
+uploading client a clean API to support segmented uploads.
+
+Alternative "explicit" user manifest options were discussed which would have
+required a pre-defined format for listing the segments to "finalize" the
+segmented upload.  While this may offer some potential advantages, it was
+decided that pushing an added burden onto the client which could potentially
+limit adoption should be avoided in favor of a simpler "API" (essentially just
+the format of the 'X-Object-Manifest' header).
+
+During development it was noted that this "implicit" user manifest approach
+which is based on the path prefix can be potentially affected by the eventual
+consistency window of the container listings, which could theoretically cause
+a GET on the manifest object to return an invalid whole object for that short
+term.  In reality you're unlikely to encounter this scenario unless you're
+running very high concurrency uploads against a small testing environment
+which isn't running the object-updaters or container-replicators.
+
+Like all of swift, Large Object Support is living feature which will continue
+to improve and may change over time.
