@@ -90,6 +90,8 @@ def fake_http_connect(*code_iter, **kwargs):
                 pass
             if 'slow' in kwargs:
                 headers['content-length'] = '4'
+            if 'headers' in kwargs:
+                headers.update(kwargs['headers'])
             return headers.items()
 
         def read(self, amt=None):
@@ -167,6 +169,9 @@ class FakeMemcache(object):
     def get(self, key):
         return self.store.get(key)
 
+    def keys(self):
+        return self.store.keys()
+
     def set(self, key, value, timeout=0):
         self.store[key] = value
         return True
@@ -204,10 +209,12 @@ class NullLoggingHandler(logging.Handler):
 @contextmanager
 def save_globals():
     orig_http_connect = getattr(proxy_server, 'http_connect', None)
+    orig_account_info = getattr(proxy_server.Controller, 'account_info', None)
     try:
         yield True
     finally:
         proxy_server.http_connect = orig_http_connect
+        proxy_server.Controller.account_info = orig_account_info
 
 # tests
 
@@ -215,63 +222,155 @@ class TestController(unittest.TestCase):
 
     def setUp(self):
         self.account_ring = FakeRing()
+        self.container_ring = FakeRing()
+        self.memcache = FakeMemcache()
 
-        app = proxy_server.Application(None, FakeMemcache(),
-            account_ring=self.account_ring, container_ring=FakeRing(),
+        app = proxy_server.Application(None, self.memcache,
+            account_ring=self.account_ring,
+            container_ring=self.container_ring,
             object_ring=FakeRing())
         self.controller = proxy_server.Controller(app)
 
-    def check_account_info_return(self, account, partition, nodes):
-        p, n = self.account_ring.get_nodes(account)
+        self.account = 'some_account'
+        self.container = 'some_container'
+        self.read_acl = 'read_acl'
+        self.write_acl = 'write_acl'
+
+    def check_account_info_return(self, partition, nodes, is_none=False):
+        if is_none:
+            p, n = None, None
+        else:
+            p, n = self.account_ring.get_nodes(self.account)
         self.assertEqual(p, partition)
         self.assertEqual(n, nodes)
 
-    def test_account_info_404_200(self):
-        account = 'test_account_info_404_200'
-
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
-
-    def test_account_info_404(self):
-        account = 'test_account_info_404'
-
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
+    # tests if 200 is cached and used
     def test_account_info_200(self):
-        account = 'test_account_info_200'
-
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes)
 
-    def test_account_info_200_200(self):
-        account = 'test_account_info_200_200'
+            cache_key = proxy_server.get_account_memcache_key(self.account)
+            self.assertEquals(200, self.memcache.get(cache_key))
+
+            proxy_server.http_connect = fake_http_connect()
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes)
+
+    # tests if 404 is cached and used
+    def test_account_info_404(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, True)
+
+            cache_key = proxy_server.get_account_memcache_key(self.account)
+            self.assertEquals(404, self.memcache.get(cache_key))
+
+            proxy_server.http_connect = fake_http_connect()
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, True)
+
+    # tests if some http status codes are not cached
+    def test_account_info_no_cache(self):
+        def test(*status_list):
+            proxy_server.http_connect = fake_http_connect(*status_list)
+            partition, nodes = self.controller.account_info(self.account)
+            self.assertEqual(len(self.memcache.keys()), 0)
+            self.check_account_info_return(partition, nodes, True)
 
         with save_globals():
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+            test(503, 404, 404)
+            test(404, 404, 503)
+            test(404, 507, 503)
+            test(503, 503, 503)
 
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+    def check_container_info_return(self, ret, is_none=False):
+        if is_none:
+            partition, nodes, read_acl, write_acl = None, None, None, None
+        else:
+            partition, nodes = self.container_ring.get_nodes(self.account,
+                self.container)
+            read_acl, write_acl = self.read_acl, self.write_acl
+        self.assertEqual(partition, ret[0])
+        self.assertEqual(nodes, ret[1])
+        self.assertEqual(read_acl, ret[2])
+        self.assertEqual(write_acl, ret[3])
+
+    def test_container_info_invalid_account(self):
+        def account_info(self, account):
+            return None, None
+
+        with save_globals():
+            proxy_server.Controller.account_info = account_info
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret, True)
+
+    # tests if 200 is cached and used
+    def test_container_info_200(self):
+        def account_info(self, account):
+            return True, True
+
+        with save_globals():
+            headers = {'x-container-read': self.read_acl,
+                'x-container-write': self.write_acl}
+            proxy_server.Controller.account_info = account_info
+            proxy_server.http_connect = fake_http_connect(200,
+                headers=headers)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret)
+
+            cache_key = proxy_server.get_container_memcache_key(self.account,
+                self.container)
+            cache_value = self.memcache.get(cache_key)
+            self.assertEquals(dict, type(cache_value))
+            self.assertEquals(200, cache_value.get('status'))
+
+            proxy_server.http_connect = fake_http_connect()
+            ret = self.controller.container_info(self.account,
+                 self.container)
+            self.check_container_info_return(ret)
+
+    # tests if 404 is cached and used
+    def test_container_info_404(self):
+        def account_info(self, account):
+            return True, True
+
+        with save_globals():
+            proxy_server.Controller.account_info = account_info
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret, True)
+
+            cache_key = proxy_server.get_container_memcache_key(self.account,
+                self.container)
+            cache_value = self.memcache.get(cache_key)
+            self.assertEquals(dict, type(cache_value))
+            self.assertEquals(404, cache_value.get('status'))
+
+            proxy_server.http_connect = fake_http_connect()
+            ret = self.controller.container_info(self.account,
+                 self.container)
+            self.check_container_info_return(ret, True)
+
+    # tests if some http status codes are not cached
+    def test_container_info_no_cache(self):
+        def test(*status_list):
+            proxy_server.http_connect = fake_http_connect(*status_list)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.assertEqual(len(self.memcache.keys()), 0)
+            self.check_container_info_return(ret, True)
+
+        with save_globals():
+            test(503, 404, 404)
+            test(404, 404, 503)
+            test(404, 507, 503)
+            test(503, 503, 503)
 
 class TestProxyServer(unittest.TestCase):
 
@@ -2681,6 +2780,8 @@ class TestAccountController(unittest.TestCase):
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
+            test_status_map((201, 201, 201), 405)
+            self.app.allow_account_management = True
             test_status_map((201, 201, 201), 201)
             test_status_map((201, 201, 500), 201)
             test_status_map((201, 500, 500), 503)
@@ -2688,6 +2789,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT_max_account_name_length(self):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, '1' * 256)
             self.assert_status_map(controller.PUT, (201, 201, 201), 201)
             controller = proxy_server.AccountController(self.app, '2' * 257)
@@ -2695,6 +2797,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT_connect_exceptions(self):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, 'account')
             self.assert_status_map(controller.PUT, (201, 201, -1), 201)
             self.assert_status_map(controller.PUT, (201, -1, -1), 503)
@@ -2723,6 +2826,7 @@ class TestAccountController(unittest.TestCase):
                         test_errors.append('%s: %s not in %s' %
                                            (test_header, test_value, headers))
             with save_globals():
+                self.app.allow_account_management = True
                 controller = \
                     proxy_server.AccountController(self.app, 'a')
                 proxy_server.http_connect = fake_http_connect(201, 201, 201,
@@ -2741,6 +2845,7 @@ class TestAccountController(unittest.TestCase):
 
     def bad_metadata_helper(self, method):
         with save_globals():
+            self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, 'a')
             proxy_server.http_connect = fake_http_connect(200, 201, 201, 201)
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': method})
@@ -2822,6 +2927,27 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
+
+    def test_DELETE(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+
+            def test_status_map(statuses, expected, **kwargs):
+                proxy_server.http_connect = \
+                    fake_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/a', {'REQUEST_METHOD': 'DELETE'})
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.DELETE(req)
+                expected = str(expected)
+                self.assertEquals(res.status[:len(expected)], expected)
+            test_status_map((201, 201, 201), 405)
+            self.app.allow_account_management = True
+            test_status_map((201, 201, 201), 201)
+            test_status_map((201, 201, 500), 201)
+            test_status_map((201, 500, 500), 503)
+            test_status_map((204, 500, 404), 503)
 
 
 class FakeObjectController(object):

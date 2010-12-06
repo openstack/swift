@@ -120,13 +120,16 @@ def do_start(server, once=False):
     elif os.path.exists('/etc/swift/%s-server/' % server_type):
         # found config directory, searching for config file(s)
         launch_args = []
-        for num, ini_file in enumerate(glob.glob('/etc/swift/%s-server/*.conf' % server_type)):
+        for num, ini_file in enumerate(glob.glob('/etc/swift/%s-server/*.conf' \
+                        % server_type)):
             pid_file = '/var/run/swift/%s/%d.pid' % (server, num)
             # start a server for each ini_file found
             launch_args.append((ini_file, pid_file))
     else:
         # maybe there's a config file(s) out there, but I couldn't find it!
-        sys.exit('Unable to locate config file for %s. %s does not exist?' % (server, ini_file))
+        print 'Unable to locate config file for %s. %s does not exist?' % \
+                    (server, ini_file)
+        return
 
     # start all servers
     for ini_file, pid_file in launch_args:

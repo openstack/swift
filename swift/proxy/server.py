@@ -93,10 +93,11 @@ def delay_denial(func):
         return func(*a, **kw)
     return wrapped
 
+def get_account_memcache_key(account):
+    return 'account/%s' % account
 
 def get_container_memcache_key(account, container):
-    path = '/%s/%s' % (account, container)
-    return 'container%s' % path
+    return 'container/%s/%s' % (account, container)
 
 
 class SegmentedIterable(object):
@@ -329,13 +330,17 @@ class Controller(object):
                   if it does not exist
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
-        path = '/%s' % account
-        cache_key = 'account%s' % path
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache and self.app.memcache.get(cache_key) == 200:
-            return partition, nodes
+        if self.app.memcache:
+            cache_key = get_account_memcache_key(account)
+            result_code = self.app.memcache.get(cache_key)
+            if result_code == 200:
+                return partition, nodes
+            elif result_code == 404:
+                 return None, None
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
+        path = '/%s' % account
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
             if self.error_limited(node):
@@ -366,16 +371,16 @@ class Controller(object):
             except:
                 self.exception_occurred(node, 'Account',
                     'Trying to get account info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_account_existence
-        else:
-            cache_timeout = self.app.recheck_account_existence * 0.1
-        if self.app.memcache:
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_account_existence
+            else:
+                cache_timeout = self.app.recheck_account_existence * 0.1
             self.app.memcache.set(cache_key, result_code,
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes
-        return (None, None)
+        return None, None
 
     def container_info(self, account, container):
         """
@@ -392,7 +397,6 @@ class Controller(object):
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
         path = '/%s/%s' % (account, container)
-        cache_key = None
         if self.app.memcache:
             cache_key = get_container_memcache_key(account, container)
             cache_value = self.app.memcache.get(cache_key)
@@ -402,8 +406,10 @@ class Controller(object):
                 write_acl = cache_value['write_acl']
                 if status == 200:
                     return partition, nodes, read_acl, write_acl
+                elif status == 404:
+                    return None, None, None, None
         if not self.account_info(account)[1]:
-            return (None, None, None, None)
+            return None, None, None, None
         result_code = 0
         read_acl = None
         write_acl = None
@@ -443,11 +449,11 @@ class Controller(object):
             except:
                 self.exception_occurred(node, 'Container',
                     'Trying to get container info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_container_existence
-        else:
-            cache_timeout = self.app.recheck_container_existence * 0.1
-        if cache_key and self.app.memcache:
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_container_existence
+            else:
+                cache_timeout = self.app.recheck_container_existence * 0.1
             self.app.memcache.set(cache_key,
                                   {'status': result_code,
                                    'read_acl': read_acl,
@@ -456,7 +462,7 @@ class Controller(object):
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes, read_acl, write_acl
-        return (None, None, None, None)
+        return None, None, None, None
 
     def iter_nodes(self, partition, nodes, ring):
         """
@@ -1338,6 +1344,8 @@ class AccountController(Controller):
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
+        if not self.app.allow_account_management:
+            return HTTPMethodNotAllowed(request=req)
         error_response = check_metadata(req, 'account')
         if error_response:
             return error_response
@@ -1437,6 +1445,51 @@ class AccountController(Controller):
         return self.best_response(req, statuses, reasons, bodies,
                                   'Account POST')
 
+    @public
+    def DELETE(self, req):
+        """HTTP DELETE request handler."""
+        if not self.app.allow_account_management:
+            return HTTPMethodNotAllowed(request=req)
+        account_partition, accounts = \
+            self.app.account_ring.get_nodes(self.account_name)
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'X-CF-Trans-Id': self.trans_id}
+        statuses = []
+        reasons = []
+        bodies = []
+        for node in self.iter_nodes(account_partition, accounts,
+                                    self.app.account_ring):
+            if self.error_limited(node):
+                continue
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], account_partition, 'DELETE',
+                            req.path_info, headers)
+                with Timeout(self.app.node_timeout):
+                    source = conn.getresponse()
+                    body = source.read()
+                    if 200 <= source.status < 300 \
+                            or 400 <= source.status < 500:
+                        statuses.append(source.status)
+                        reasons.append(source.reason)
+                        bodies.append(body)
+                    elif source.status == 507:
+                        self.error_limit(node)
+            except:
+                self.exception_occurred(node, 'Account',
+                    'Trying to DELETE %s' % req.path)
+            if len(statuses) >= len(accounts):
+                break
+        while len(statuses) < len(accounts):
+            statuses.append(503)
+            reasons.append('')
+            bodies.append('')
+        if self.app.memcache:
+            self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
+        return self.best_response(req, statuses, reasons, bodies,
+                                  'Account DELETE')
+
 
 class BaseApplication(object):
     """Base WSGI application for the proxy server"""
@@ -1464,6 +1517,8 @@ class BaseApplication(object):
             int(conf.get('recheck_container_existence', 60))
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence', 60))
+        self.allow_account_management = \
+            conf.get('allow_account_management', 'false').lower() == 'true'
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \

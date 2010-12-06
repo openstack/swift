@@ -124,6 +124,7 @@ Configure the Proxy node
         
         [app:proxy-server]
         use = egg:swift#proxy
+        allow_account_management = true
         
         [filter:auth]
         use = egg:swift#auth

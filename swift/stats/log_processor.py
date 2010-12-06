@@ -137,11 +137,11 @@ class LogProcessor(object):
                 year = '%04d' % parsed_date.tm_year
                 month = '%02d' % parsed_date.tm_mon
                 day = '%02d' % parsed_date.tm_mday
-                hour = '%02d' % parsed_date.tm_hour
-                # Since the end_marker filters by <=, we need to add something
-                # to then end_key to make sure we get all the data under the
-                # last hour. Adding '/\x7f' should be all inclusive.
-                end_key = '/'.join([year, month, day, hour]) + '/\x7f'
+                # Since the end_marker filters by <, we need to add something
+                # to make sure we get all the data under the last hour. Adding
+                # one to the hour should be all-inclusive.
+                hour = '%02d' % (parsed_date.tm_hour + 1)
+                end_key = '/'.join([year, month, day, hour])
         container_listing = self.internal_proxy.get_container_list(
                                     swift_account,
                                     container_name,
