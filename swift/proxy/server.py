@@ -88,10 +88,11 @@ def delay_denial(func):
         return func(*a, **kw)
     return wrapped
 
+def get_account_memcache_key(account):
+    return 'account/%s' % account
 
 def get_container_memcache_key(account, container):
-    path = '/%s/%s' % (account, container)
-    return 'container%s' % path
+    return 'container/%s/%s' % (account, container)
 
 
 class Controller(object):
@@ -176,13 +177,17 @@ class Controller(object):
                   if it does not exist
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
-        path = '/%s' % account
-        cache_key = 'account%s' % path
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache and self.app.memcache.get(cache_key) == 200:
-            return partition, nodes
+        if self.app.memcache:
+            cache_key = get_account_memcache_key(account)
+            result_code = self.app.memcache.get(cache_key)
+            if result_code == 200:
+                return partition, nodes
+            elif result_code == 404:
+                 return None, None
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
+        path = '/%s' % account
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
             if self.error_limited(node):
@@ -213,16 +218,16 @@ class Controller(object):
             except:
                 self.exception_occurred(node, 'Account',
                     'Trying to get account info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_account_existence
-        else:
-            cache_timeout = self.app.recheck_account_existence * 0.1
-        if self.app.memcache:
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_account_existence
+            else:
+                cache_timeout = self.app.recheck_account_existence * 0.1
             self.app.memcache.set(cache_key, result_code,
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes
-        return (None, None)
+        return None, None
 
     def container_info(self, account, container):
         """
@@ -239,7 +244,6 @@ class Controller(object):
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
         path = '/%s/%s' % (account, container)
-        cache_key = None
         if self.app.memcache:
             cache_key = get_container_memcache_key(account, container)
             cache_value = self.app.memcache.get(cache_key)
@@ -249,8 +253,10 @@ class Controller(object):
                 write_acl = cache_value['write_acl']
                 if status == 200:
                     return partition, nodes, read_acl, write_acl
+                elif status == 404:
+                    return None, None, None, None
         if not self.account_info(account)[1]:
-            return (None, None, None, None)
+            return None, None, None, None
         result_code = 0
         read_acl = None
         write_acl = None
@@ -290,11 +296,11 @@ class Controller(object):
             except:
                 self.exception_occurred(node, 'Container',
                     'Trying to get container info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_container_existence
-        else:
-            cache_timeout = self.app.recheck_container_existence * 0.1
-        if cache_key and self.app.memcache:
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_container_existence
+            else:
+                cache_timeout = self.app.recheck_container_existence * 0.1
             self.app.memcache.set(cache_key,
                                   {'status': result_code,
                                    'read_acl': read_acl,
@@ -303,7 +309,7 @@ class Controller(object):
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes, read_acl, write_acl
-        return (None, None, None, None)
+        return None, None, None, None
 
     def iter_nodes(self, partition, nodes, ring):
         """
