@@ -22,6 +22,8 @@ from shutil import rmtree
 from contextlib import contextmanager
 from tempfile import mkdtemp
 from collections import defaultdict
+from threading import Thread
+from time import sleep
 
 from test import bin  # for reloading...
 from test.bin import swift_init  # for testing...
@@ -93,6 +95,10 @@ class TestSwiftInitModule(unittest.TestCase):
         self.assertEquals(len(main_plus_rest), len(swift_init.MAIN_SERVERS) +
                           len(swift_init.REST_SERVERS))
 
+    def test_setup_env(self):
+        # TODO: tests
+        pass
+
     def test_search_tree(self):
         # file match & ext miss
         with temptree(['asdf.conf', 'blarg.conf', 'asdf.cfg']) as t:
@@ -150,6 +156,16 @@ class TestSwiftInitModule(unittest.TestCase):
             with open(file_name, 'r') as f:
                 contents = f.read()
             self.assertEquals(contents, 'test')
+            # and also subdirs
+            file_name = os.path.join(t, 'subdir/test2')
+            swift_init.write_file(file_name, 'test2')
+            with open(file_name, 'r') as f:
+                contents = f.read()
+            self.assertEquals(contents, 'test2')
+            # but can't over-write files
+            file_name = os.path.join(t, 'subdir/test2/test3')
+            self.assertRaises(IOError, swift_init.write_file, file_name,
+                              'test3')
 
     def test_remove_file(self):
         with temptree([]) as t:
@@ -656,12 +672,182 @@ class TestSwiftServerClass(unittest.TestCase):
                 finally:
                     sys.stdout = old_stdout
 
-    #TODO: more tests
     def test_spawn(self):
-        pass
 
+        # mocks
+        class MockProcess():
+
+            NOTHING = 'default besides None'
+            STDOUT = 'stdout'
+            PIPE = 'pipe'
+
+            def __init__(self, pids=None):
+                if pids is None:
+                    pids = []
+                self.pids = (p for p in pids)
+
+            def Popen(self, args, **kwargs):
+                return MockProc(self.pids.next(), args, **kwargs)
+
+        class MockProc():
+
+            def __init__(self, pid, args, stdout=MockProcess.NOTHING,
+                         stderr=MockProcess.NOTHING):
+                self.pid = pid
+                self.args = args
+                self.stdout = stdout
+                if stderr == MockProcess.STDOUT:
+                    self.stderr = self.stdout
+                else:
+                    self.stderr = stderr
+
+        # setup running servers
+        server = swift_init.SwiftServer('test')
+
+        with temptree(['test-server.conf']) as swift_dir:
+            swift_init.SWIFT_DIR = swift_dir
+            with temptree([]) as t:
+                swift_init.RUN_DIR = t
+                old_subprocess = swift_init.subprocess
+                try:
+                    # test single server process calls spawn once
+                    swift_init.subprocess = MockProcess([1])
+                    conf_file = self.join_swift_dir('test-server.conf')
+                    # spawn server no kwargs
+                    server.spawn(conf_file)
+                    # test pid file
+                    pid_file = self.join_run_dir('test-server.pid')
+                    self.assert_(os.path.exists(pid_file))
+                    pid_on_disk = int(open(pid_file).read().strip())
+                    self.assertEquals(pid_on_disk, 1)
+                    # assert procs args
+                    self.assert_(server.procs)
+                    self.assertEquals(len(server.procs), 1)
+                    proc = server.procs[0]
+                    expected_args = [
+                        'swift-test-server',
+                        conf_file,
+                    ]
+                    self.assertEquals(proc.args, expected_args)
+                    # assert stdout is /dev/null
+                    self.assert_(isinstance(proc.stdout, file))
+                    self.assertEquals(proc.stdout.name, os.devnull)
+                    self.assertEquals(proc.stdout.mode, 'w+b')
+                    self.assertEquals(proc.stderr, proc.stdout)
+                    # test multi server process calls spawn multiple times
+                    swift_init.subprocess = MockProcess([11, 12, 13, 14])
+                    conf1 = self.join_swift_dir('test-server/1.conf')
+                    conf2 = self.join_swift_dir('test-server/2.conf')
+                    conf3 = self.join_swift_dir('test-server/3.conf')
+                    conf4 = self.join_swift_dir('test-server/4.conf')
+                    server = swift_init.SwiftServer('test')
+                    # test server run once
+                    server.spawn(conf1, once=True)
+                    self.assert_(server.procs)
+                    self.assertEquals(len(server.procs), 1)
+                    proc = server.procs[0]
+                    expected_args = ['swift-test-server', conf1, 'once']
+                    self.assertEquals(proc.args, expected_args)
+                    # assert stdout is /dev/null
+                    self.assert_(isinstance(proc.stdout, file))
+                    self.assertEquals(proc.stdout.name, os.devnull)
+                    self.assertEquals(proc.stdout.mode, 'w+b')
+                    self.assertEquals(proc.stderr, proc.stdout)
+                    # test server not daemon
+                    server.spawn(conf2, daemon=False)
+                    self.assert_(server.procs)
+                    self.assertEquals(len(server.procs), 2)
+                    proc = server.procs[1]
+                    expected_args = ['swift-test-server', conf2, 'verbose']
+                    self.assertEquals(proc.args, expected_args)
+                    # assert stdout is not changed
+                    self.assertEquals(proc.stdout, None)
+                    self.assertEquals(proc.stderr, None)
+                    # test server wait
+                    server.spawn(conf3, wait=True)
+                    self.assert_(server.procs)
+                    self.assertEquals(len(server.procs), 3)
+                    proc = server.procs[2]
+                    # assert stdout is piped
+                    self.assertEquals(proc.stdout, MockProcess.PIPE)
+                    self.assertEquals(proc.stderr, proc.stdout)
+                    # test not daemon over-rides wait
+                    server.spawn(conf4, wait=True, daemon=False, once=True)
+                    self.assert_(server.procs)
+                    self.assertEquals(len(server.procs), 4)
+                    proc = server.procs[3]
+                    expected_args = ['swift-test-server', conf4, 'once',
+                                     'verbose']
+                    self.assertEquals(proc.args, expected_args)
+                    # daemon behavior should trump wait, once shouldn't matter
+                    self.assertEquals(proc.stdout, None)
+                    self.assertEquals(proc.stderr, None)
+                    # assert pids
+                    for i, proc in enumerate(server.procs):
+                        pid_file = self.join_run_dir('test-server/%d.pid' %
+                                                     (i + 1))
+                        pid_on_disk = int(open(pid_file).read().strip())
+                        self.assertEquals(pid_on_disk, proc.pid)
+                finally:
+                    swift_init.subprocess = old_subprocess
+
+    #TODO: more tests
     def test_wait(self):
-        pass
+        server = swift_init.SwiftServer('test')
+        self.assertEquals(server.wait(), 0)
+
+        class MockProcess(Thread):
+            def __init__(self, stdout, delay=0.1, fail_to_start=False):
+                Thread.__init__(self)
+                self.stdout = stdout
+                self.delay = delay
+                self.finished = False
+                self.returncode = None
+                if fail_to_start:
+                    self.run = self.fail
+
+            def close_stdout(self):
+                with open(os.devnull, 'r+b') as nullfile:
+                    try:
+                        os.dup2(nullfile.fileno(), self.stdout.fileno())
+                    except OSError:
+                        pass
+
+            def fail(self):
+                print >>self.stdout, 'mock process started'
+                sleep(self.delay)  # perform setup processing
+                print >>self.stdout, 'mock process failed to start'
+                self.returncode = 1
+                self.close_stdout()
+                self.finished = True
+
+            def run(self):
+                print >>self.stdout, 'mock process started'
+                sleep(self.delay)  # perform setup processing
+                print >>self.stdout, 'setup complete!'
+                self.close_stdout()
+                sleep(self.delay)  # do some more processing
+                print >>self.stdout, 'mock process finished'
+                self.returncode = 0
+                self.finished = True
+
+        with temptree([]) as t:
+            old_stdout = sys.stdout
+            try:
+                with open(os.path.join(t, 'output'), 'w+') as f:
+                    # acctually capture the read stdout (for prints)
+                    sys.stdout = f
+                    stdout = open(os.path.join(t, 'subout'), 'w+')
+                    # the proc will have it's stdout redirected to
+                    # subprocess.PIPE
+                    proc = MockProcess(stdout)
+                    proc.start()
+                    server.procs = [proc]
+                    server.wait(output=True)
+                    proc.join()
+                    print >>sys.stderr, pop_stream(f)
+            finally:
+                sys.stdout = old_stdout
 
     def test_interact(self):
         pass

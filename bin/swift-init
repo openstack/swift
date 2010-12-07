@@ -100,8 +100,7 @@ def write_file(path, contents):
             os.makedirs(dir)
         except OSError, err:
             if err.errno == errno.EACCES:
-                sys.exit('Unable to create %s.  Running as non-root?' %
-                         dir)
+                sys.exit('Unable to create %s.  Running as non-root?' % dir)
     with open(path, 'w') as f:
         f.write('%s' % contents)
 
