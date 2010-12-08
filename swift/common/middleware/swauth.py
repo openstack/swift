@@ -174,7 +174,8 @@ class Swauth(object):
                 if expires < time():
                     groups = None
         if not groups:
-            path = quote('/v1/%s/.token/%s' % (self.auth_account, token))
+            path = quote('/v1/%s/.token%s/%s' %
+                         (self.auth_account, token[-1], token))
             resp = self.make_request(env, 'GET', path).get_response(self.app)
             if resp.status_int // 100 != 2:
                 return None
@@ -331,8 +332,14 @@ class Swauth(object):
         if resp.status_int // 100 != 2:
             raise Exception('Could not create the main auth account: %s %s' %
                             (path, resp.status))
-        for container in ('.token', '.account_id'):
-            path = quote('/v1/%s/%s' % (self.auth_account, container))
+        path = quote('/v1/%s/.account_id' % self.auth_account)
+        resp = self.make_request(req.environ, 'PUT',
+                                 path).get_response(self.app)
+        if resp.status_int // 100 != 2:
+            raise Exception('Could not create container: %s %s' %
+                            (path, resp.status))
+        for container in xrange(16):
+            path = quote('/v1/%s/.token%x' % (self.auth_account, container))
             resp = self.make_request(req.environ, 'PUT',
                                      path).get_response(self.app)
             if resp.status_int // 100 != 2:
@@ -845,8 +852,8 @@ class Swauth(object):
                             (path, resp.status))
         candidate_token = resp.headers.get('x-object-meta-auth-token')
         if candidate_token:
-            path = quote('/v1/%s/.token/%s' % (self.auth_account,
-                                               candidate_token))
+            path = quote('/v1/%s/.token%s/%s' %
+                (self.auth_account, candidate_token[-1], candidate_token))
             resp = self.make_request(req.environ, 'DELETE',
                                      path).get_response(self.app)
             if resp.status_int // 100 != 2 and resp.status_int != 404:
@@ -952,8 +959,8 @@ class Swauth(object):
         token = None
         candidate_token = resp.headers.get('x-object-meta-auth-token')
         if candidate_token:
-            path = quote('/v1/%s/.token/%s' % (self.auth_account,
-                                               candidate_token))
+            path = quote('/v1/%s/.token%s/%s' %
+                (self.auth_account, candidate_token[-1], candidate_token))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
             if resp.status_int // 100 == 2:
@@ -980,7 +987,8 @@ class Swauth(object):
             # Generate new token
             token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
             # Save token info
-            path = quote('/v1/%s/.token/%s' % (self.auth_account, token))
+            path = quote('/v1/%s/.token%s/%s' %
+                         (self.auth_account, token[-1], token))
             resp = self.make_request(req.environ, 'PUT', path,
                 json.dumps({'account': account, 'user': user,
                 'account_id': account_id,
@@ -1042,7 +1050,8 @@ class Swauth(object):
                 if expires < time():
                     groups = None
         if not groups:
-            path = quote('/v1/%s/.token/%s' % (self.auth_account, token))
+            path = quote('/v1/%s/.token%s/%s' %
+                         (self.auth_account, token[-1], token))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
             if resp.status_int // 100 != 2:

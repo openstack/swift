@@ -826,20 +826,22 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(self.test_auth.app.calls, 7)
 
     def test_prep_success(self):
-        self.test_auth.app = FakeApp(iter([
+        list_to_iter = [
             # PUT of .auth account
             ('201 Created', {}, ''),
-            # PUT of .token container
-            ('201 Created', {}, ''),
             # PUT of .account_id container
-            ('201 Created', {}, '')]))
+            ('201 Created', {}, '')]
+        # PUT of .token* containers
+        for x in xrange(16):
+            list_to_iter.append(('201 Created', {}, ''))
+        self.test_auth.app = FakeApp(iter(list_to_iter))
         resp = Request.blank('/auth/v2/.prep',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Auth-Admin-User': '.super_admin',
                      'X-Auth-Admin-Key': 'supertest'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(self.test_auth.app.calls, 3)
+        self.assertEquals(self.test_auth.app.calls, 18)
 
     def test_prep_bad_method(self):
         resp = Request.blank('/auth/v2/.prep',
