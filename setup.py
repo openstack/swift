@@ -21,6 +21,7 @@ import subprocess
 
 from swift import __version__ as version
 
+
 class local_sdist(sdist):
     """Customized sdist hook - builds the ChangeLog file from VC first"""
 

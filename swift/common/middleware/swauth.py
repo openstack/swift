@@ -1021,7 +1021,7 @@ class Swauth(object):
 
         The first group listed will be a unique identifier for the user the
         token represents.
-        
+
         .reseller_admin is a special group that indicates the user should be
         allowed to do anything on any account.
 
@@ -1046,14 +1046,14 @@ class Swauth(object):
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
             if resp.status_int // 100 != 2:
-                return HTTPUnauthorized(request=req)
+                return HTTPNotFound(request=req)
             detail = json.loads(resp.body)
             expires = detail['expires']
             if expires < time():
                 self.make_request(req.environ, 'DELETE',
                                   path).get_response(self.app)
-                return HTTPUnauthorized(request=req)
-            groups = detail['groups']
+                return HTTPNotFound(request=req)
+            groups = [g['name'] for g in detail['groups']]
             if '.admin' in groups:
                 groups.remove('.admin')
                 groups.append(detail['account_id'])
@@ -1159,6 +1159,7 @@ class Swauth(object):
         :param key: The key to validate for the user.
         :returns: True if the key is valid for the user, False if not.
         """
+        print repr(user_detail)
         return user_detail and user_detail.get('auth') == 'plaintext:%s' % key
 
     def is_super_admin(self, req):
@@ -1204,11 +1205,15 @@ class Swauth(object):
         if self.is_super_admin(req):
             return True
         admin_detail = self.get_admin_detail(req)
-        if admin_detail and \
-                self.is_reseller_admin(req, admin_detail=admin_detail):
-            return True
-        return admin_detail and admin_detail['account'] == account and \
-               '.admin' in (g['name'] for g in admin_detail['groups'])
+        if admin_detail:
+            if self.is_reseller_admin(req, admin_detail=admin_detail):
+                return True
+            if not self.credentials_match(admin_detail,
+                                          req.headers.get('x-auth-admin-key')):
+                return False
+            return admin_detail and admin_detail['account'] == account and \
+                   '.admin' in (g['name'] for g in admin_detail['groups'])
+        return False
 
     def posthooklogger(self, env, req):
         response = getattr(req, 'response', None)

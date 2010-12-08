@@ -73,6 +73,7 @@ class FakeApp(object):
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
 
+
 class FakeConn(object):
 
     def __init__(self, status_headers_body_iter=None):
@@ -262,7 +263,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(self.test_auth.app.calls, 2)
-        
+
     def test_auth_memcache(self):
         # First run our test without memcache, showing we need to return the
         # token contents twice.
@@ -2752,6 +2753,310 @@ class TestAuth(unittest.TestCase):
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_validate_token_bad_prefix(self):
+        resp = Request.blank('/auth/v2/.token/BAD_token'
+                            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_validate_token_tmi(self):
+        resp = Request.blank('/auth/v2/.token/AUTH_token/tmi'
+                            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_validate_token_bad_memcache(self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.set('AUTH_/auth/AUTH_token', 'bogus')
+        resp = Request.blank('/auth/v2/.token/AUTH_token',
+            environ={'swift.cache':
+            fake_memcache}).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 500)
+
+    def test_validate_token_from_memcache(self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.set('AUTH_/auth/AUTH_token', (time() + 1, 'act:usr,act'))
+        resp = Request.blank('/auth/v2/.token/AUTH_token',
+            environ={'swift.cache':
+            fake_memcache}).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get('x-auth-groups'), 'act:usr,act')
+        self.assert_(float(resp.headers['x-auth-ttl']) < 1,
+                     resp.headers['x-auth-ttl'])
+
+    def test_validate_token_from_memcache_expired(self):
+        fake_memcache = FakeMemcache()
+        fake_memcache.set('AUTH_/auth/AUTH_token', (time() - 1, 'act:usr,act'))
+        resp = Request.blank('/auth/v2/.token/AUTH_token',
+            environ={'swift.cache':
+            fake_memcache}).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assert_('x-auth-groups' not in resp.headers)
+        self.assert_('x-auth-ttl' not in resp.headers)
+
+    def test_validate_token_from_object(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of token object
+            ('200 Ok', {}, json.dumps({'groups': [{'name': 'act:usr'},
+             {'name': 'act'}], 'expires': time() + 1}))]))
+        resp = Request.blank('/auth/v2/.token/AUTH_token'
+                             ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(resp.headers.get('x-auth-groups'), 'act:usr,act')
+        self.assert_(float(resp.headers['x-auth-ttl']) < 1,
+                     resp.headers['x-auth-ttl'])
+
+    def test_validate_token_from_object_expired(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of token object
+            ('200 Ok', {}, json.dumps({'groups': 'act:usr,act',
+             'expires': time() - 1})),
+            # DELETE of expired token object
+            ('204 No Content', {}, '')]))
+        resp = Request.blank('/auth/v2/.token/AUTH_token'
+                             ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_validate_token_from_object_with_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of token object
+            ('200 Ok', {}, json.dumps({'account_id': 'AUTH_cfa', 'groups':
+             [{'name': 'act:usr'}, {'name': 'act'}, {'name': '.admin'}],
+             'expires': time() + 1}))]))
+        resp = Request.blank('/auth/v2/.token/AUTH_token'
+                             ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(resp.headers.get('x-auth-groups'),
+                          'act:usr,act,AUTH_cfa')
+        self.assert_(float(resp.headers['x-auth-ttl']) < 1,
+                     resp.headers['x-auth-ttl'])
+
+    def test_get_conn_default(self):
+        conn = self.test_auth.get_conn()
+        self.assertEquals(conn.__class__, auth.HTTPConnection)
+        self.assertEquals(conn.host, '127.0.0.1')
+        self.assertEquals(conn.port, 8080)
+
+    def test_get_conn_default_https(self):
+        local_auth = auth.filter_factory({'super_admin_key': 'supertest',
+            'default_swift_cluster': 'local:https://1.2.3.4/v1'})(FakeApp())
+        conn = local_auth.get_conn()
+        self.assertEquals(conn.__class__, auth.HTTPSConnection)
+        self.assertEquals(conn.host, '1.2.3.4')
+        self.assertEquals(conn.port, 443)
+
+    def test_get_conn_overridden(self):
+        local_auth = auth.filter_factory({'super_admin_key': 'supertest',
+            'default_swift_cluster': 'local:https://1.2.3.4/v1'})(FakeApp())
+        conn = \
+            local_auth.get_conn(urlparsed=auth.urlparse('http://5.6.7.8/v1'))
+        self.assertEquals(conn.__class__, auth.HTTPConnection)
+        self.assertEquals(conn.host, '5.6.7.8')
+        self.assertEquals(conn.port, 80)
+
+    def test_get_conn_overridden_https(self):
+        local_auth = auth.filter_factory({'super_admin_key': 'supertest',
+            'default_swift_cluster': 'local:http://1.2.3.4/v1'})(FakeApp())
+        conn = \
+            local_auth.get_conn(urlparsed=auth.urlparse('https://5.6.7.8/v1'))
+        self.assertEquals(conn.__class__, auth.HTTPSConnection)
+        self.assertEquals(conn.host, '5.6.7.8')
+        self.assertEquals(conn.port, 443)
+
+    def test_get_itoken_fail_no_memcache(self):
+        exc = None
+        try:
+            self.test_auth.get_itoken({})
+        except Exception, err:
+            exc = err
+        self.assertEquals(str(exc),
+                          'No memcache set up; required for Swauth middleware')
+
+    def test_get_itoken_success(self):
+        fmc = FakeMemcache()
+        itk = self.test_auth.get_itoken({'swift.cache': fmc})
+        self.assert_(itk.startswith('AUTH_itk'), itk)
+        expires, groups = fmc.get('AUTH_/auth/%s' % itk)
+        self.assert_(expires > time(), expires)
+        self.assertEquals(groups, '.auth,.reseller_admin')
+
+    def test_get_admin_detail_fail_no_colon(self):
+        self.test_auth.app = FakeApp(iter([]))
+        self.assertEquals(self.test_auth.get_admin_detail(Request.blank('/')),
+                          None)
+        self.assertEquals(self.test_auth.get_admin_detail(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'usr'})), None)
+        self.assertRaises(StopIteration, self.test_auth.get_admin_detail,
+            Request.blank('/', headers={'X-Auth-Admin-User': 'act:usr'}))
+
+    def test_get_admin_detail_fail_user_not_found(self):
+        self.test_auth.app = FakeApp(iter([('404 Not Found', {}, '')]))
+        self.assertEquals(self.test_auth.get_admin_detail(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:usr'})), None)
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_admin_detail_fail_get_user_error(self):
+        self.test_auth.app = FakeApp(iter([
+            ('503 Service Unavailable', {}, '')]))
+        exc = None
+        try:
+            self.test_auth.get_admin_detail(Request.blank('/',
+                headers={'X-Auth-Admin-User': 'act:usr'}))
+        except Exception, err:
+            exc = err
+        self.assertEquals(str(exc), 'Could not get admin user object: '
+            '/v1/AUTH_.auth/act/usr 503 Service Unavailable')
+        self.assertEquals(self.test_auth.app.calls, 1)
+
+    def test_get_admin_detail_success(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({"auth": "plaintext:key",
+                         "groups": [{'name': "act:usr"}, {'name': "act"},
+                                    {'name': ".admin"}]}))]))
+        detail = self.test_auth.get_admin_detail(Request.blank('/',
+                    headers={'X-Auth-Admin-User': 'act:usr'}))
+        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(detail, {'account': 'act',
+            'auth': 'plaintext:key',
+            'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                       {'name': '.admin'}]})
+
+    def test_credentials_match_success(self):
+        self.assert_(self.test_auth.credentials_match(
+            {'auth': 'plaintext:key'}, 'key'))
+
+    def test_credentials_match_fail_no_details(self):
+        self.assert_(not self.test_auth.credentials_match(None, 'notkey'))
+
+    def test_credentials_match_fail_plaintext(self):
+        self.assert_(not self.test_auth.credentials_match(
+            {'auth': 'plaintext:key'}, 'notkey'))
+
+    def test_is_super_admin_success(self):
+        self.assert_(self.test_auth.is_super_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'})))
+
+    def test_is_super_admin_fail_bad_key(self):
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'bad'})))
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': '.super_admin'})))
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/')))
+
+    def test_is_super_admin_fail_bad_user(self):
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'bad',
+                     'X-Auth-Admin-Key': 'supertest'})))
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/',
+            headers={'X-Auth-Admin-Key': 'supertest'})))
+        self.assert_(not self.test_auth.is_super_admin(Request.blank('/')))
+
+    def test_is_reseller_admin_success_is_super_admin(self):
+        self.assert_(self.test_auth.is_reseller_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'})))
+
+    def test_is_reseller_admin_success_called_get_admin_detail(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:rdm'}, {'name': 'act'},
+                                    {'name': '.admin'},
+                                    {'name': '.reseller_admin'}]}))]))
+        self.assert_(self.test_auth.is_reseller_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:rdm',
+                     'X-Auth-Admin-Key': 'key'})))
+
+    def test_is_reseller_admin_fail_only_account_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:adm'}, {'name': 'act'},
+                                    {'name': '.admin'}]}))]))
+        self.assert_(not self.test_auth.is_reseller_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'})))
+
+    def test_is_reseller_admin_fail_regular_user(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'}]}))]))
+        self.assert_(not self.test_auth.is_reseller_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'})))
+
+    def test_is_reseller_admin_fail_bad_key(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:rdm'}, {'name': 'act'},
+                                    {'name': '.admin'},
+                                    {'name': '.reseller_admin'}]}))]))
+        self.assert_(not self.test_auth.is_reseller_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:rdm',
+                     'X-Auth-Admin-Key': 'bad'})))
+
+    def test_is_account_admin_success_is_super_admin(self):
+        self.assert_(self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}), 'act'))
+
+    def test_is_account_admin_success_is_reseller_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:rdm'}, {'name': 'act'},
+                                    {'name': '.admin'},
+                                    {'name': '.reseller_admin'}]}))]))
+        self.assert_(self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:rdm',
+                     'X-Auth-Admin-Key': 'key'}), 'act'))
+
+    def test_is_account_admin_success(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:adm'}, {'name': 'act'},
+                                    {'name': '.admin'}]}))]))
+        self.assert_(self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}), 'act'))
+
+    def test_is_account_admin_fail_account_admin_different_account(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act2:adm'}, {'name': 'act2'},
+                                    {'name': '.admin'}]}))]))
+        self.assert_(not self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act2:adm',
+                     'X-Auth-Admin-Key': 'key'}), 'act'))
+
+    def test_is_account_admin_fail_regular_user(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'}]}))]))
+        self.assert_(not self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:usr',
+                     'X-Auth-Admin-Key': 'key'}), 'act'))
+
+    def test_is_account_admin_fail_bad_key(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'auth': 'plaintext:key',
+                         'groups': [{'name': 'act:rdm'}, {'name': 'act'},
+                                    {'name': '.admin'},
+                                    {'name': '.reseller_admin'}]}))]))
+        self.assert_(not self.test_auth.is_account_admin(Request.blank('/',
+            headers={'X-Auth-Admin-User': 'act:rdm',
+                     'X-Auth-Admin-Key': 'bad'}), 'act'))
 
 
 if __name__ == '__main__':
