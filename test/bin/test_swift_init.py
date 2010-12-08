@@ -791,44 +791,55 @@ class TestSwiftServerClass(unittest.TestCase):
                 finally:
                     swift_init.subprocess = old_subprocess
 
-    #TODO: more tests
     def test_wait(self):
         server = swift_init.SwiftServer('test')
         self.assertEquals(server.wait(), 0)
 
         class MockProcess(Thread):
-            def __init__(self, stdout, delay=0.1, fail_to_start=False):
+            def __init__(self, delay=0.1, fail_to_start=False):
                 Thread.__init__(self)
-                self.stdout = stdout
+                # setup pipe
+                rfd, wfd = os.pipe()
+                # subprocess connection to read stdout
+                self.stdout = os.fdopen(rfd)
+                # real process connection to write stdout
+                self._stdout = os.fdopen(wfd, 'w')
                 self.delay = delay
                 self.finished = False
                 self.returncode = None
                 if fail_to_start:
                     self.run = self.fail
 
+            def __enter__(self):
+                self.start()
+                return self
+
+            def __exit__(self, *args):
+                if self.isAlive():
+                    self.join()
+
             def close_stdout(self):
-                with open(os.devnull, 'r+b') as nullfile:
+                self._stdout.flush()
+                with open(os.devnull, 'wb') as nullfile:
                     try:
-                        os.dup2(nullfile.fileno(), self.stdout.fileno())
+                        os.dup2(nullfile.fileno(), self._stdout.fileno())
                     except OSError:
                         pass
 
             def fail(self):
-                print >>self.stdout, 'mock process started'
+                print >>self._stdout, 'mock process started'
                 sleep(self.delay)  # perform setup processing
-                print >>self.stdout, 'mock process failed to start'
+                print >>self._stdout, 'mock process failed to start'
                 self.returncode = 1
                 self.close_stdout()
-                self.finished = True
 
             def run(self):
-                print >>self.stdout, 'mock process started'
+                print >>self._stdout, 'mock process started'
                 sleep(self.delay)  # perform setup processing
-                print >>self.stdout, 'setup complete!'
+                print >>self._stdout, 'setup complete!'
                 self.close_stdout()
                 sleep(self.delay)  # do some more processing
-                print >>self.stdout, 'mock process finished'
-                self.returncode = 0
+                print >>self._stdout, 'mock process finished'
                 self.finished = True
 
         with temptree([]) as t:
@@ -837,18 +848,45 @@ class TestSwiftServerClass(unittest.TestCase):
                 with open(os.path.join(t, 'output'), 'w+') as f:
                     # acctually capture the read stdout (for prints)
                     sys.stdout = f
-                    stdout = open(os.path.join(t, 'subout'), 'w+')
-                    # the proc will have it's stdout redirected to
-                    # subprocess.PIPE
-                    proc = MockProcess(stdout)
-                    proc.start()
-                    server.procs = [proc]
-                    server.wait(output=True)
-                    proc.join()
-                    print >>sys.stderr, pop_stream(f)
+                    # test closing pipe in subprocess unblocks read
+                    with MockProcess() as proc:
+                        server.procs = [proc]
+                        status = server.wait()
+                        self.assertEquals(status, 0)
+                        # wait should return as soon as stdout is closed
+                        self.assert_(proc.isAlive())
+                        self.assertFalse(proc.finished)
+                    self.assert_(proc.finished)  # make sure it did finish...
+                    # test output kwarg prints subprocess output
+                    with MockProcess() as proc:
+                        server.procs = [proc]
+                        status = server.wait(output=True)
+                    output = pop_stream(f)
+                    self.assert_('mock process started' in output)
+                    self.assert_('setup complete' in output)
+                    # make sure we don't get prints after stdout was closed
+                    self.assertFalse('mock process finished' in output)
+                    # test process which fails to start
+                    with MockProcess(fail_to_start=True) as proc:
+                        server.procs = [proc]
+                        status = server.wait()
+                        self.assertEquals(status, 1)
+                    self.assert_('failed' in pop_stream(f))
+                    # test multiple procs
+                    procs = [MockProcess() for i in range(3)]
+                    for proc in procs:
+                        proc.start()
+                    server.procs = procs
+                    status = server.wait()
+                    self.assertEquals(status, 0)
+                    for proc in procs:
+                        self.assert_(proc.isAlive())
+                    for proc in procs:
+                        proc.join()
             finally:
                 sys.stdout = old_stdout
 
+    #TODO: more tests
     def test_interact(self):
         pass
 
