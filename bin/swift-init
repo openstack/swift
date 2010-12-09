@@ -535,6 +535,8 @@ class SwiftServer():
         :param once: boolean, add once argument to command
         :param wait: boolean, if true capture stdout with a pipe
         :param daemon: boolean, if true ask server to log to console
+
+        :returns : the pid of the spawned process
         """
         args = [self.cmd, ini_file]
         if once:
@@ -559,6 +561,7 @@ class SwiftServer():
         pid_file = self.get_pid_file_name(ini_file)
         write_file(pid_file, proc.pid)
         self.procs.append(proc)
+        return proc.pid
 
     def wait(self, **kwargs):
         """
@@ -603,9 +606,12 @@ class SwiftServer():
             # already running (unless -n specifies which one you want), this
             # restriction could potentially be lifted, and launch could start
             # any unstarted instances
-            if ini_file in ini_files or not number:
+            if ini_file in ini_files:
                 already_started = True
                 print "%s running (%s - %s)" % (self.server, pid, ini_file)
+            elif not kwargs.get('number', 0):
+                already_started = True
+                print "%s running (%s - %s)" % (self.server, pid, pid_file)
 
         if already_started:
             print "%s already started..." % self.server

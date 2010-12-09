@@ -865,7 +865,7 @@ class TestSwiftServerClass(unittest.TestCase):
                     self.assert_('mock process started' in output)
                     self.assert_('setup complete' in output)
                     # make sure we don't get prints after stdout was closed
-                    self.assertFalse('mock process finished' in output)
+                    self.assert_('mock process finished' not in output)
                     # test process which fails to start
                     with MockProcess(fail_to_start=True) as proc:
                         server.procs = [proc]
@@ -886,16 +886,201 @@ class TestSwiftServerClass(unittest.TestCase):
             finally:
                 sys.stdout = old_stdout
 
-    #TODO: more tests
     def test_interact(self):
-        pass
+        class MockProcess():
 
+            def __init__(self, fail=False):
+                self.returncode = None
+                if fail:
+                    self._returncode = 1
+                else:
+                    self._returncode = 0
+
+            def communicate(self):
+                self.returncode = self._returncode
+                return '', ''
+
+        server = swift_init.SwiftServer('test')
+        server.procs = [MockProcess()]
+        self.assertEquals(server.interact(), 0)
+        server.procs = [MockProcess(fail=True)]
+        self.assertEquals(server.interact(), 1)
+        procs = []
+        for fail in (False, True, True):
+            procs.append(MockProcess(fail=fail))
+        server.procs = procs
+        self.assert_(server.interact() > 0)
+        
     def test_launch(self):
-        pass
+        # stubs
+        ini_files = (
+            'proxy-server.conf',
+            'object-server/1.conf',
+            'object-server/2.conf',
+            'object-server/3.conf',
+            'object-server/4.conf',
+        )
+        pid_files = (
+            ('proxy-server.pid', 1),
+            ('proxy-server/2.pid', 2),
+        )
 
+        #mocks
+        class MockSpawn():
+
+            def __init__(self, pids=None):
+                self.ini_files = []
+                self.kwargs = []
+                if not pids:
+                    def one_forever():
+                        while True:
+                            yield 1
+                    self.pids = one_forever()
+                else:
+                    self.pids = (x for x in pids)
+
+            def __call__(self, ini_file, **kwargs):
+                self.ini_files.append(ini_file)
+                self.kwargs.append(kwargs)
+                return self.pids.next()
+
+        with temptree(ini_files) as swift_dir:
+            swift_init.SWIFT_DIR = swift_dir
+            files, pids = zip(*pid_files)
+            with temptree(files, pids) as t:
+                swift_init.RUN_DIR = t
+                old_stdout = sys.stdout
+                try:
+                    with open(os.path.join(t, 'output'), 'w+') as f:
+                        sys.stdout = f
+                        # can't start server w/o an conf
+                        server = swift_init.SwiftServer('test')
+                        self.assertFalse(server.launch())
+                        # start mock os running all pids
+                        swift_init.os = MockOs(pids)
+                        server = swift_init.SwiftServer('proxy')
+                        # can't start server if it's already running
+                        self.assertFalse(server.launch())
+                        output = pop_stream(f)
+                        self.assert_('running' in output)
+                        ini_file = self.join_swift_dir('proxy-server.conf')
+                        self.assert_(ini_file in output)
+                        pid_file = self.join_run_dir('proxy-server/2.pid')
+                        self.assert_(pid_file in output)
+                        self.assert_('already started' in output)
+                        # no running pids
+                        swift_init.os = MockOs([])
+                        # test ignore once for non-start-once server
+                        mock_spawn = MockSpawn([1])
+                        server.spawn = mock_spawn
+                        ini_file = self.join_swift_dir('proxy-server.conf')
+                        expected = {
+                            1: ini_file,
+                        }
+                        self.assertEquals(server.launch(once=True), expected)
+                        self.assertEquals(mock_spawn.ini_files, [ini_file])
+                        expected = {
+                            'once': False,
+                        }
+                        self.assertEquals(mock_spawn.kwargs, [expected])
+                        output = pop_stream(f)
+                        self.assert_('Starting' in output)
+                        self.assert_('once' not in output)
+                        # test multi-server kwarg once
+                        server = swift_init.SwiftServer('object-replicator')
+                        mock_spawn = MockSpawn([1, 2, 3, 4])
+                        server.spawn = mock_spawn
+                        conf1 = self.join_swift_dir('object-server/1.conf')
+                        conf2 = self.join_swift_dir('object-server/2.conf')
+                        conf3 = self.join_swift_dir('object-server/3.conf')
+                        conf4 = self.join_swift_dir('object-server/4.conf')
+                        expected = {
+                            1: conf1,
+                            2: conf2,
+                            3: conf3,
+                            4: conf4,
+                        }
+                        self.assertEquals(server.launch(once=True), expected)
+                        self.assertEquals(mock_spawn.ini_files, [conf1, conf2,
+                                                                 conf3, conf4])
+                        expected = {
+                            'once': True,
+                        }
+                        self.assertEquals(len(mock_spawn.kwargs), 4)
+                        for kwargs in mock_spawn.kwargs:
+                            self.assertEquals(kwargs, expected)
+                        # test number kwarg
+                        mock_spawn = MockSpawn([4])
+                        server.spawn = mock_spawn
+                        expected = {
+                            4: conf4,
+                        }
+                        self.assertEquals(server.launch(number=4), expected)
+                        self.assertEquals(mock_spawn.ini_files, [conf4])
+                        expected = {
+                            'number': 4
+                        }
+                        self.assertEquals(mock_spawn.kwargs, [expected])
+
+
+                finally:
+                    sys.stdout = old_stdout
+
+    #TODO: more tests
     def test_stop(self):
-        pass
+        ini_files = (
+            'account-server/1.conf',
+            'account-server/2.conf',
+            'account-server/3.conf',
+            'account-server/4.conf',
+        )
+        pid_files = (
+            ('account-reaper/1.pid', 1),
+            ('account-reaper/2.pid', 2),
+            ('account-reaper/3.pid', 3),
+            ('account-reaper/4.pid', 4),
+        )
 
+        with temptree(ini_files) as swift_dir:
+            swift_init.SWIFT_DIR = swift_dir
+            files, pids = zip(*pid_files)
+            with temptree(files, pids) as t:
+                swift_init.RUN_DIR = t
+                # start all pids in mock os
+                swift_init.os = MockOs(pids)
+                server = swift_init.SwiftServer('account-reaper')
+                # test kill all running pids
+                pids = server.stop()
+                self.assertEquals(len(pids), 4)
+                for pid in (1, 2, 3, 4):
+                    self.assert_(pid in pids)
+                    self.assertEquals(swift_init.os.pid_sigs[pid],
+                                      [signal.SIGTERM])
+                conf1 = self.join_swift_dir('account-reaper/1.conf')
+                conf2 = self.join_swift_dir('account-reaper/2.conf')
+                conf3 = self.join_swift_dir('account-reaper/3.conf')
+                conf4 = self.join_swift_dir('account-reaper/4.conf')
+                # reset mock os with only 2 running pids
+                swift_init.os = MockOs([3, 4])
+                pids = server.stop()
+                self.assertEquals(len(pids), 2)
+                for pid in (3, 4):
+                    self.assert_(pid in pids)
+                    self.assertEquals(swift_init.os.pid_sigs[pid],
+                                      [signal.SIGTERM])
+                self.assertFalse(os.path.exists(conf1))
+                self.assertFalse(os.path.exists(conf2))
+                # test number kwarg
+                swift_init.os = MockOs([3, 4])
+                pids = server.stop(number=3)
+                self.assertEquals(len(pids), 1)
+                expected = {
+                    3: conf3,
+                }
+                self.assert_(pids, expected)
+                self.assertEquals(swift_init.os.pid_sigs[3], [signal.SIGTERM])
+                self.assertFalse(os.path.exists(conf4))
+                self.assertFalse(os.path.exists(conf3))
 
 #TODO: test SwiftInit class
 class TestSwiftInitClass(unittest.TestCase):
