@@ -2882,7 +2882,7 @@ class TestAuth(unittest.TestCase):
         self.assert_(itk.startswith('AUTH_itk'), itk)
         expires, groups = fmc.get('AUTH_/auth/%s' % itk)
         self.assert_(expires > time(), expires)
-        self.assertEquals(groups, '.auth,.reseller_admin')
+        self.assertEquals(groups, '.auth,.reseller_admin,AUTH_.auth')
 
     def test_get_admin_detail_fail_no_colon(self):
         self.test_auth.app = FakeApp(iter([]))

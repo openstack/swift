@@ -455,6 +455,20 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
 
 #. After you sync all the nodes, make sure the admin has the keys in /etc/swift and the ownership for the ring file is correct. 
 
+Additional Cleanup Script for Swauth
+------------------------------------
+
+If you decide to use Swauth, you'll want to install a cronjob to clean up any
+orphaned expired tokens. These orphaned tokens can occur when a "stampede"
+occurs where a single user authenticates several times concurrently. Generally,
+these orphaned tokens don't pose much of an issue, but it's good to clean them
+up once a "token life" period (default: 1 day or 86400 seconds).
+
+This should be as simple as adding `swauth-cleanup-tokens -K swauthkey >
+/dev/null` to a crontab entry on one of the proxies that is running Swauth; but
+run `swauth-cleanup-tokens` with no arguments for detailed help on the options
+available.
+
 Troubleshooting Notes
 ---------------------
 If you see problems, look in var/log/syslog (or messages on some distros). 

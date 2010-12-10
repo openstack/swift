@@ -174,7 +174,7 @@ class Swauth(object):
                 if expires < time():
                     groups = None
         if not groups:
-            path = quote('/v1/%s/.token%s/%s' %
+            path = quote('/v1/%s/.token_%s/%s' %
                          (self.auth_account, token[-1], token))
             resp = self.make_request(env, 'GET', path).get_response(self.app)
             if resp.status_int // 100 != 2:
@@ -205,7 +205,8 @@ class Swauth(object):
         if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
         user_groups = (req.remote_user or '').split(',')
-        if '.reseller_admin' in user_groups:
+        if '.reseller_admin' in user_groups and \
+                account[len(self.reseller_prefix)].isalnum():
             return None
         if account in user_groups and (req.method != 'PUT' or container):
             # If the user is admin for the account and is not trying to do an
@@ -339,7 +340,7 @@ class Swauth(object):
             raise Exception('Could not create container: %s %s' %
                             (path, resp.status))
         for container in xrange(16):
-            path = quote('/v1/%s/.token%x' % (self.auth_account, container))
+            path = quote('/v1/%s/.token_%x' % (self.auth_account, container))
             resp = self.make_request(req.environ, 'PUT',
                                      path).get_response(self.app)
             if resp.status_int // 100 != 2:
@@ -852,7 +853,7 @@ class Swauth(object):
                             (path, resp.status))
         candidate_token = resp.headers.get('x-object-meta-auth-token')
         if candidate_token:
-            path = quote('/v1/%s/.token%s/%s' %
+            path = quote('/v1/%s/.token_%s/%s' %
                 (self.auth_account, candidate_token[-1], candidate_token))
             resp = self.make_request(req.environ, 'DELETE',
                                      path).get_response(self.app)
@@ -943,6 +944,13 @@ class Swauth(object):
             return HTTPBadRequest(request=req)
         if not all((account, user, key)):
             return HTTPUnauthorized(request=req)
+        if user == '.super_admin' and key == self.super_admin_key:
+            token = self.get_itoken(req.environ)
+            url = '%s/%s.auth' % (self.dsc_url, self.reseller_prefix)
+            return Response(request=req,
+              body=json.dumps({'storage': {'default': 'local', 'local': url}}),
+              headers={'x-auth-token': token, 'x-storage-token': token,
+                       'x-storage-url': url})
         # Authenticate user
         path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
         resp = self.make_request(req.environ, 'GET',
@@ -959,7 +967,7 @@ class Swauth(object):
         token = None
         candidate_token = resp.headers.get('x-object-meta-auth-token')
         if candidate_token:
-            path = quote('/v1/%s/.token%s/%s' %
+            path = quote('/v1/%s/.token_%s/%s' %
                 (self.auth_account, candidate_token[-1], candidate_token))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
@@ -987,7 +995,7 @@ class Swauth(object):
             # Generate new token
             token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
             # Save token info
-            path = quote('/v1/%s/.token%s/%s' %
+            path = quote('/v1/%s/.token_%s/%s' %
                          (self.auth_account, token[-1], token))
             resp = self.make_request(req.environ, 'PUT', path,
                 json.dumps({'account': account, 'user': user,
@@ -1050,7 +1058,7 @@ class Swauth(object):
                 if expires < time():
                     groups = None
         if not groups:
-            path = quote('/v1/%s/.token%s/%s' %
+            path = quote('/v1/%s/.token_%s/%s' %
                          (self.auth_account, token[-1], token))
             resp = self.make_request(req.environ, 'GET',
                                      path).get_response(self.app)
@@ -1129,7 +1137,8 @@ class Swauth(object):
                 raise Exception(
                     'No memcache set up; required for Swauth middleware')
             memcache_client.set(memcache_key, (self.itoken_expires,
-                '.auth,.reseller_admin'), timeout=self.token_life)
+                '.auth,.reseller_admin,%s.auth' % self.reseller_prefix),
+                timeout=self.token_life)
         return self.itoken
 
     def get_admin_detail(self, req):

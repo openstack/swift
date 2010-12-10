@@ -78,13 +78,14 @@ objects contain a JSON dictionary of the format::
 The `<auth_type>` can only be `plaintext` at this time, and the `<auth_value>`
 is the plain text password itself.
 
-The `<groups_array>` contains at least two group names. The first is a unique
-group name identifying that user and is of the format `<user>:<account>`. The
+The `<groups_array>` contains at least two groups. The first is a unique group
+identifying that user and it's name is of the format `<user>:<account>`. The
 second group is the `<account>` itself. Additional groups of `.admin` for
 account administrators and `.reseller_admin` for reseller administrators may
 exist. Here's an example user JSON dictionary::
 
-    {"auth": "plaintext:testing", "groups": ["test:tester", "test", ".admin"]}
+    {"auth": "plaintext:testing",
+     "groups": ["name": "test:tester", "name": "test", "name": ".admin"]}
 
 To map an auth service account to a Swift storage account, the Service Account
 Id string is stored in the `X-Container-Meta-Account-Id` header for the
@@ -147,7 +148,7 @@ Here's an example token object's JSON dictionary::
     {"account": "test",
      "user": "tester",
      "account_id": "AUTH_8980f74b1cda41e483cbe0a925f448a9",
-     "groups": ["test:tester", "test", ".admin"],
+     "groups": ["name": "test:tester", "name": "test", "name": ".admin"],
      "expires": 1291273147.1624689}
 
 To easily map a user to an already issued token, the token name is stored in
@@ -156,14 +157,29 @@ the user object's `X-Object-Meta-Auth-Token` header.
 Here is an example full listing of an <auth_account>::
 
     .account_id
-        AUTH_4a4e6655-4c8e-4bcb-b73e-0ff1104c4fef
-        AUTH_5162ec51-f792-4db3-8a35-b3439a1bf6fd
-        AUTH_8efbea51-9339-42f8-8ac5-f26e1da67eed
-    .token
-        AUTH_tk03d8571f735a4ec9abccc704df941c6e
-        AUTH_tk27cf3f2029b64ec8b56c5d638807b3de
-        AUTH_tk7594203449754c22a34ac7d910521c2e
-        AUTH_tk8f2ee54605dd42a8913d244de544d19e
+        AUTH_2282f516-559f-4966-b239-b5c88829e927
+        AUTH_f6f57a3c-33b5-4e85-95a5-a801e67505c8
+        AUTH_fea96a36-c177-4ca4-8c7e-b8c715d9d37b
+    .token_0
+    .token_1
+    .token_2
+    .token_3
+    .token_4
+    .token_5
+    .token_6
+        AUTH_tk9d2941b13d524b268367116ef956dee6
+    .token_7
+    .token_8
+        AUTH_tk93627c6324c64f78be746f1e6a4e3f98
+    .token_9
+    .token_a
+    .token_b
+    .token_c
+    .token_d
+    .token_e
+        AUTH_tk0d37d286af2c43ffad06e99112b3ec4e
+    .token_f
+        AUTH_tk766bbde93771489982d8dc76979d11cf
     reseller
         .services
         reseller
