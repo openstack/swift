@@ -494,7 +494,8 @@ class ObjectReplicator(Daemon):
                         self.object_ring.get_part_nodes(int(partition))
                              if node['id'] != local_dev['id']]
                     jobs.append(dict(path=join(obj_path, partition),
-                        nodes=nodes, delete=len(nodes) > 2,
+                        nodes=nodes,
+                        delete=len(nodes) > self.object_ring.replica_count - 1,
                         partition=partition))
                 except ValueError:
                     continue
