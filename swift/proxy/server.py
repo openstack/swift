@@ -616,10 +616,6 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        # this is a temporary hook for migrations to set PUT timestamps
-        if '!Migration-Timestamp!' in req.headers:
-            req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['!Migration-Timestamp!'])
         # Sometimes the 'content-type' header exists, but is set to None.
         if not req.headers.get('content-type'):
             guessed_type, _ = mimetypes.guess_type(req.path_info)
