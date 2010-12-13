@@ -1600,6 +1600,7 @@ class TestObjectController(unittest.TestCase):
         mkdirs(os.path.join(testdir, 'sdb1'))
         mkdirs(os.path.join(testdir, 'sdb1', 'tmp'))
         try:
+            orig_container_listing_limit = proxy_server.CONTAINER_LISTING_LIMIT
             conf = {'devices': testdir, 'swift_dir': testdir,
                     'mount_check': 'false'}
             prolis = listen(('localhost', 0))
@@ -1976,6 +1977,24 @@ class TestObjectController(unittest.TestCase):
                 self.assert_('Content-Type: text/jibberish' in headers)
                 body = fd.read()
                 self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+                # Do it again but exceeding the container listing limit
+                proxy_server.CONTAINER_LISTING_LIMIT = 2
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('X-Object-Manifest: segmented/name/' in headers)
+                self.assert_('Content-Type: text/jibberish' in headers)
+                body = fd.read()
+                # A bit fragile of a test; as it makes the assumption that all
+                # will be sent in a single chunk.
+                self.assertEquals(body,
+                    '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
             finally:
                 prospa.kill()
                 acc1spa.kill()
@@ -1985,6 +2004,7 @@ class TestObjectController(unittest.TestCase):
                 obj1spa.kill()
                 obj2spa.kill()
         finally:
+            proxy_server.CONTAINER_LISTING_LIMIT = orig_container_listing_limit
             rmtree(testdir)
 
     def test_mismatched_etags(self):
@@ -2995,9 +3015,10 @@ class TestSegmentedIterable(unittest.TestCase):
         self.controller = FakeObjectController()
 
     def test_load_next_segment_unexpected_error(self):
+        # Iterator value isn't a dict
         self.assertRaises(Exception,
             proxy_server.SegmentedIterable(self.controller, None,
-            None)._load_next_segment)
+            [None])._load_next_segment)
         self.assertEquals(self.controller.exception_args[0],
             'ERROR: While processing manifest /a/c/o tx1')
 
@@ -3030,6 +3051,7 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
             'o1'}, {'name': 'o2'}])
         segit.segment = 0
+        segit.listing.next()
         segit._load_next_segment()
         self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
         data = ''.join(segit.segment_iter)
@@ -3039,6 +3061,7 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
             'o1'}, {'name': 'o2'}])
         segit.segment = 0
+        segit.listing.next()
         segit.seek = 1
         segit._load_next_segment()
         self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
@@ -3062,8 +3085,9 @@ class TestSegmentedIterable(unittest.TestCase):
             'Could not load object segment /a/lc/o1: 404')
 
     def test_iter_unexpected_error(self):
+        # Iterator value isn't a dict
         self.assertRaises(Exception, ''.join,
-            proxy_server.SegmentedIterable(self.controller, None, None))
+            proxy_server.SegmentedIterable(self.controller, None, [None]))
         self.assertEquals(self.controller.exception_args[0],
             'ERROR: While processing manifest /a/c/o tx1')
 
@@ -3100,9 +3124,10 @@ class TestSegmentedIterable(unittest.TestCase):
             'Could not load object segment /a/lc/o1: 404')
 
     def test_app_iter_range_unexpected_error(self):
+        # Iterator value isn't a dict
         self.assertRaises(Exception,
             proxy_server.SegmentedIterable(self.controller, None,
-            None).app_iter_range(None, None).next)
+            [None]).app_iter_range(None, None).next)
         self.assertEquals(self.controller.exception_args[0],
             'ERROR: While processing manifest /a/c/o tx1')
 
