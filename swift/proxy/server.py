@@ -154,8 +154,9 @@ class SegmentedIterable(object):
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
                 self.seek = 0
-            sleep(max(self.next_get_time - time.time(), 0))
-            self.next_get_time = time.time() + 1
+            if self.segment > 10:
+                sleep(max(self.next_get_time - time.time(), 0))
+                self.next_get_time = time.time() + 1
             resp = self.controller.GETorHEAD_base(req, 'Object', partition,
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
