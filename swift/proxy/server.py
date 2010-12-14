@@ -172,6 +172,9 @@ class SegmentedIterable(object):
                 self.response.status_int = 503
             raise
 
+    def next(self):
+        return iter(self).next()
+
     def __iter__(self):
         """ Standard iterator function that returns the object's contents. """
         try:
@@ -790,7 +793,7 @@ class ObjectController(Controller):
 
                     def head_response(environ, start_response):
                         resp(environ, start_response)
-                        return ('' for x in '')
+                        return iter([])
 
                     head_response.status_int = resp.status_int
                     return head_response
@@ -935,11 +938,17 @@ class ObjectController(Controller):
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
-            data_source = source_resp.app_iter
             new_req = Request.blank(req.path_info,
                         environ=req.environ, headers=req.headers)
-            new_req.content_length = source_resp.content_length
-            new_req.etag = source_resp.etag
+            if 'x-object-manifest' in source_resp.headers:
+                data_source = iter([''])
+                new_req.content_length = 0
+                new_req.headers['X-Object-Manifest'] = \
+                    source_resp.headers['x-object-manifest']
+            else:
+                data_source = source_resp.app_iter
+                new_req.content_length = source_resp.content_length
+                new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
             for k, v in source_resp.headers.items():
