@@ -28,6 +28,7 @@ import uuid
 import functools
 from hashlib import md5
 
+from eventlet import sleep
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -132,6 +133,7 @@ class SegmentedIterable(object):
         self.response = response
         if not self.response:
             self.response = Response()
+        self.next_get_time = 0
 
     def _load_next_segment(self):
         """
@@ -152,6 +154,8 @@ class SegmentedIterable(object):
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
                 self.seek = 0
+            sleep(max(self.next_get_time - time.time(), 0))
+            self.next_get_time = time.time() + 1
             resp = self.controller.GETorHEAD_base(req, 'Object', partition,
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
