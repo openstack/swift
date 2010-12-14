@@ -780,8 +780,23 @@ class ObjectController(Controller):
                         headers[key] = value
                 resp = Response(headers=headers, request=req,
                                 conditional_response=True)
-                resp.app_iter = SegmentedIterable(self, lcontainer,
-                                                  listing_iter(), resp)
+                if req.method == 'HEAD':
+                    # These shenanigans are because webob translates the HEAD
+                    # request into a webob EmptyResponse for the body, which
+                    # has a len, which eventlet translates as needing a
+                    # content-length header added. So we call the original
+                    # webob resp for the headers but return an empty generator
+                    # for the body.
+
+                    def head_response(environ, start_response):
+                        resp(environ, start_response)
+                        return ('' for x in '')
+
+                    head_response.status_int = resp.status_int
+                    return head_response
+                else:
+                    resp.app_iter = SegmentedIterable(self, lcontainer,
+                                                      listing_iter(), resp)
 
             else:
                 # For objects with a reasonable number of segments, we'll serve
