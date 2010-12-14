@@ -1000,6 +1000,10 @@ def st_delete(parser, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         conn = create_connection()
         _delete_container(args[0], conn)
     else:
@@ -1159,6 +1163,10 @@ def st_download(options, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         _download_container(args[0], create_connection())
     else:
         if len(args) == 2:
@@ -1272,6 +1280,10 @@ Containers: %d
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         try:
             headers = conn.head_container(args[0])
             object_count = int(headers.get('x-container-object-count', 0))
@@ -1378,6 +1390,10 @@ def st_post(options, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         headers = {}
         for item in options.meta:
             split_item = item.split(':')
