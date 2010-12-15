@@ -1020,8 +1020,9 @@ def st_download(options, args, print_queue, error_queue):
             path = options.yes_all and join(container, obj) or obj
             if path[:1] in ('/', '\\'):
                 path = path[1:]
+            make_dir = out_file != "-"
             if content_type.split(';', 1)[0] == 'text/directory':
-                if not isdir(path):
+                if make_dir and not isdir(path):
                     mkdirs(path)
                 read_length = 0
                 md5sum = md5()
@@ -1030,7 +1031,7 @@ def st_download(options, args, print_queue, error_queue):
                     md5sum.update(chunk)
             else:
                 dirpath = dirname(path)
-                if dirpath and not isdir(dirpath):
+                if make_dir and dirpath and not isdir(dirpath):
                     mkdirs(dirpath)
                 if out_file == "-":
                     fp = stdout
