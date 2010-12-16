@@ -1063,7 +1063,10 @@ def st_download(options, args, print_queue, error_queue):
             headers, body = \
                 conn.get_object(container, obj, resp_chunk_size=65536)
             content_type = headers.get('content-type')
-            content_length = int(headers.get('content-length'))
+            if 'content-length' in headers:
+                content_length = int(headers.get('content-length'))
+            else:
+                content_length = None
             etag = headers.get('etag')
             path = options.yes_all and join(container, obj) or obj
             if path[:1] in ('/', '\\'):
@@ -1102,7 +1105,7 @@ def st_download(options, args, print_queue, error_queue):
             if md5sum and md5sum.hexdigest() != etag:
                 error_queue.put('%s: md5sum != etag, %s != %s' %
                                 (path, md5sum.hexdigest(), etag))
-            if read_length != content_length:
+            if content_length is not None and read_length != content_length:
                 error_queue.put('%s: read_length != content_length, %d != %d' %
                                 (path, read_length, content_length))
             if 'x-object-meta-mtime' in headers and not options.out_file:
