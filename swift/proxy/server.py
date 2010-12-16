@@ -20,9 +20,11 @@ except ImportError:
     import json
 import mimetypes
 import os
+import re
 import time
 import traceback
 from ConfigParser import ConfigParser
+from datetime import datetime
 from urllib import unquote, quote
 import uuid
 import functools
@@ -793,7 +795,7 @@ class ObjectController(Controller):
                     # request into a webob EmptyResponse for the body, which
                     # has a len, which eventlet translates as needing a
                     # content-length header added. So we call the original
-                    # webob resp for the headers but return an empty generator
+                    # webob resp for the headers but return an empty iterator
                     # for the body.
 
                     def head_response(environ, start_response):
@@ -810,6 +812,9 @@ class ObjectController(Controller):
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
                 content_length = sum(o['bytes'] for o in listing)
+                last_modified = max(o['last_modified'] for o in listing)
+                last_modified = \
+                    datetime(*map(int, re.split('[^\d]', last_modified)[:-1]))
                 etag = md5('"'.join(o['hash'] for o in listing)).hexdigest()
                 headers = {
                     'X-Object-Manifest': resp.headers['x-object-manifest'],
@@ -824,6 +829,7 @@ class ObjectController(Controller):
                 resp.app_iter = SegmentedIterable(self, lcontainer, listing,
                                                   resp)
                 resp.content_length = content_length
+                resp.last_modified = last_modified
 
         return resp
 
