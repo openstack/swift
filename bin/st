@@ -1323,14 +1323,16 @@ Write ACL: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
        Account: %s
      Container: %s
         Object: %s
-  Content Type: %s
-Content Length: %s
- Last Modified: %s
-          ETag: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
-                                     args[1], headers.get('content-type'),
-                                     headers.get('content-length'),
-                                     headers.get('last-modified'),
-                                     headers.get('etag')))
+  Content Type: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
+                                     args[1], headers.get('content-type')))
+            if 'content-length' in headers:
+                print_queue.put('Content Length: %s' %
+                                headers['content-length'])
+            if 'last-modified' in headers:
+                print_queue.put(' Last Modified: %s' %
+                                headers['last-modified'])
+            if 'etag' in headers:
+                print_queue.put('          ETag: %s' % headers['etag'])
             if 'x-object-manifest' in headers:
                 print_queue.put('      Manifest: %s' %
                                 headers['x-object-manifest'])
