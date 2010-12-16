@@ -65,7 +65,7 @@ class DumbInternalProxy(object):
 
 class TestLogProcessor(unittest.TestCase):
     
-    access_test_line = 'Jul  9 04:14:30 saio proxy 1.2.3.4 4.5.6.7 '\
+    access_test_line = 'Jul  9 04:14:30 saio proxy-server 1.2.3.4 4.5.6.7 '\
                     '09/Jul/2010/04/14/30 GET '\
                     '/v1/acct/foo/bar?format=json&foo HTTP/1.0 200 - '\
                     'curl tk4e350daf-9338-4cc6-aabb-090e49babfbd '\
