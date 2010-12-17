@@ -733,12 +733,12 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                 logger.debug(
                     'Skipping %s as it is not mounted' % device)
             continue
-        datadir = os.path.join(devices, device, datadir)
-        if not os.path.exists(datadir):
+        datadir_path = os.path.join(devices, device, datadir)
+        if not os.path.exists(datadir_path):
             continue
-        partitions = os.listdir(datadir)
+        partitions = os.listdir(datadir_path)
         for partition in partitions:
-            part_path = os.path.join(datadir, partition)
+            part_path = os.path.join(datadir_path, partition)
             if not os.path.isdir(part_path):
                 continue
             suffixes = os.listdir(part_path)

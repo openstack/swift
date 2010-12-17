@@ -72,6 +72,21 @@ def read_metadata(fd):
     return pickle.loads(metadata)
 
 
+def write_metadata(fd, metadata):
+    """
+    Helper function to write pickled metadata for an object file.
+
+    :param fd: file descriptor to write the metadata
+    :param metadata: metadata to write
+    """
+    metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
+    key = 0
+    while metastr:
+        setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
+        metastr = metastr[254:]
+        key += 1
+
+
 class DiskFile(object):
     """
     Manage object files on disk.
@@ -209,12 +224,7 @@ class DiskFile(object):
         """
         metadata['name'] = self.name
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
-        metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
-        key = 0
-        while metastr:
-            setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
-            metastr = metastr[254:]
-            key += 1
+        write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
             drop_buffer_cache(fd, 0, int(metadata['Content-Length']))
         os.fsync(fd)

@@ -35,7 +35,6 @@ class ObjectAuditor(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.interval = int(conf.get('interval', 1800))
         self.max_files_per_second = float(conf.get('files_per_second', 0))
         self.max_bytes_per_second = float(conf.get('bytes_per_second', 0))
         self.files_running_time = 0
@@ -45,41 +44,15 @@ class ObjectAuditor(Daemon):
         self.quarantines = 0
         self.errors = 0
 
-    def run_forever(self, init_sleep=True):
+    def run_forever(self):
         """Run the object audit until stopped."""
-        reported = time.time()
-        if init_sleep:
-            time.sleep(random() * self.interval)
         while True:
-            begin = time.time()
-            all_locs = audit_location_generator(self.devices,
-                                                object_server.DATADIR,
-                                                mount_check=self.mount_check,
-                                                logger=self.logger)
-            for path, device, partition in all_locs:
-                self.object_audit(path, device, partition)
-                self.files_running_time = ratelimit_sleep(
-                    self.files_running_time, self.max_files_per_second)
-                if time.time() - reported >= 3600:  # once an hour
-                    self.logger.info(
-                        'Since %s: Locally: %d passed audit, %d quarantined, '
-                        '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
-                            time.ctime(reported), self.passes,
-                            self.quarantines, self.errors,
-                            self.passes / (time.time() - reported),
-                            self.bytes_processed / (time.time() - reported)))
-                    reported = time.time()
-                    self.passes = 0
-                    self.quarantines = 0
-                    self.errors = 0
-                    self.bytes_processed = 0
-            elapsed = time.time() - begin
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
+            self.run_once('forever')
+            time.sleep(30)
 
-    def run_once(self):
+    def run_once(self, mode='once'):
         """Run the object audit once."""
-        self.logger.info('Begin object audit "once" mode')
+        self.logger.info('Begin object audit "%s" mode' % mode)
         begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
@@ -104,7 +77,7 @@ class ObjectAuditor(Daemon):
                 self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Object audit "once" mode completed: %.02fs' % elapsed)
+            'Object audit "%s" mode completed: %.02fs' % (mode, elapsed))
 
     def object_audit(self, path, device, partition):
         """
