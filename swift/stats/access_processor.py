@@ -26,7 +26,7 @@ class AccessLogProcessor(object):
     """Transform proxy server access logs"""
 
     def __init__(self, conf):
-        self.server_name = conf.get('server_name', 'proxy')
+        self.server_name = conf.get('server_name', 'proxy-server')
         self.lb_private_ips = [x.strip() for x in \
                                conf.get('lb_private_ips', '').split(',')\
                                if x.strip()]
