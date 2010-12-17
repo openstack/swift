@@ -20,7 +20,8 @@ from random import random
 
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
-from swift.common.utils import get_logger, renamer, audit_location_generator
+from swift.common.utils import get_logger, renamer, audit_location_generator, \
+    ratelimit_sleep
 from swift.common.exceptions import AuditException
 from swift.common.daemon import Daemon
 
@@ -35,14 +36,20 @@ class ObjectAuditor(Daemon):
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.interval = int(conf.get('interval', 1800))
+        self.max_files_per_second = float(conf.get('files_per_second', 0))
+        self.max_bytes_per_second = float(conf.get('bytes_per_second', 0))
+        self.files_running_time = 0
+        self.bytes_running_time = 0
+        self.bytes_processed = 0
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
 
-    def run_forever(self):    # pragma: no cover
+    def run_forever(self, init_sleep=True):
         """Run the object audit until stopped."""
         reported = time.time()
-        time.sleep(random() * self.interval)
+        if init_sleep:
+            time.sleep(random() * self.interval)
         while True:
             begin = time.time()
             all_locs = audit_location_generator(self.devices,
@@ -51,15 +58,21 @@ class ObjectAuditor(Daemon):
                                                 logger=self.logger)
             for path, device, partition in all_locs:
                 self.object_audit(path, device, partition)
+                self.files_running_time = ratelimit_sleep(
+                    self.files_running_time, self.max_files_per_second)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
                         'Since %s: Locally: %d passed audit, %d quarantined, '
-                        '%d errors' % (time.ctime(reported), self.passes,
-                                    self.quarantines, self.errors))
+                        '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
+                            time.ctime(reported), self.passes,
+                            self.quarantines, self.errors,
+                            self.passes / (time.time() - reported),
+                            self.bytes_processed / (time.time() - reported)))
                     reported = time.time()
                     self.passes = 0
                     self.quarantines = 0
                     self.errors = 0
+                    self.bytes_processed = 0
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
@@ -74,15 +87,21 @@ class ObjectAuditor(Daemon):
                                             logger=self.logger)
         for path, device, partition in all_locs:
             self.object_audit(path, device, partition)
+            self.files_running_time = ratelimit_sleep(
+                self.files_running_time, self.max_files_per_second)
             if time.time() - reported >= 3600:  # once an hour
                 self.logger.info(
                     'Since %s: Locally: %d passed audit, %d quarantined, '
-                    '%d errors' % (time.ctime(reported), self.passes,
-                                self.quarantines, self.errors))
+                    '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
+                        time.ctime(reported), self.passes,
+                        self.quarantines, self.errors,
+                        self.passes / (time.time() - reported),
+                        self.bytes_processed / (time.time() - reported)))
                 reported = time.time()
                 self.passes = 0
                 self.quarantines = 0
                 self.errors = 0
+                self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(
             'Object audit "once" mode completed: %.02fs' % elapsed)
@@ -117,7 +136,11 @@ class ObjectAuditor(Daemon):
                                          os.path.getsize(df.data_file)))
             etag = md5()
             for chunk in df:
+                self.bytes_running_time = ratelimit_sleep(
+                    self.bytes_running_time, self.max_bytes_per_second,
+                    incr_by=len(chunk))
                 etag.update(chunk)
+                self.bytes_processed += len(chunk)
             etag = etag.hexdigest()
             if etag != df.metadata['ETag']:
                 raise AuditException("ETag of %s does not match file's md5 of "

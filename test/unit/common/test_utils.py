@@ -21,6 +21,7 @@ import mimetools
 import os
 import socket
 import sys
+import time
 import unittest
 from getpass import getuser
 from shutil import rmtree
@@ -445,6 +446,41 @@ log_name = yarr'''
         logger = utils.get_logger(None, log_to_console=True)
         self.assertNotEquals(utils.get_logger.console, old_handler)
         logger.logger.removeHandler(utils.get_logger.console)
+
+    def test_ratelimit_sleep(self):
+        running_time = 0
+        start = time.time()
+        for i in range(100):
+            running_time = utils.ratelimit_sleep(running_time, 0)
+        self.assertTrue(abs((time.time() - start)* 1000) < 1)
+
+        running_time = 0
+        start = time.time()
+        for i in range(50):
+            running_time = utils.ratelimit_sleep(running_time, 200)
+        # make sure its accurate to 2/100 of a second
+        self.assertTrue(abs(25 - (time.time() - start)* 100) < 2)
+
+    def test_ratelimit_sleep_with_sleep(self):
+        running_time = 0
+        start = time.time()
+        for i in range(25):
+            running_time = utils.ratelimit_sleep(running_time, 50)
+            time.sleep(1.0/75)
+        # make sure its accurate to 2/100 of a second
+        self.assertTrue(abs(50 - (time.time() - start)* 100) < 2)
+
+    def test_ratelimit_sleep_with_incr(self):
+        running_time = 0
+        start = time.time()
+        vals = [5,17,0,3,11,30,40,4,13,2,-1] * 2 # adds up to 250 (with no -1)
+        total = 0
+        for i in vals:
+            running_time = utils.ratelimit_sleep(running_time,
+                                                 500, incr_by=i)
+            total += i
+        self.assertTrue(abs(50 - (time.time() - start)* 100) < 2)
+
 
 if __name__ == '__main__':
     unittest.main()

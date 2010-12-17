@@ -755,3 +755,30 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                                         reverse=True):
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
+
+
+def ratelimit_sleep(running_time, max_rate, incr_by=1):
+    '''
+    Will time.sleep() for the appropriate time so that the max_rate
+    is never exceeded.  If max_rate is 0, will not ratelimit.  The
+    maximum recommended rate should not exceed (1000 * incr_by) a second
+    as time.sleep() does involve at least a millisecond of overhead.
+    Returns running_time that should be used for subsequent calls.
+
+    :param running_time: the running time of the next allowable request. Best
+                         to start at zero.
+    :param max_rate: The maximum rate per second allowed for the process.
+    :param incr_by: How much to increment the counter.  Useful if you want
+                    to ratelimit 1024 bytes/sec and have differing sizes
+                    of requests. Must be >= 0.
+    '''
+    if not max_rate or incr_by < 0:
+        return 0
+    clock_accuracy = 1000.0
+    now = time.time() * clock_accuracy
+    time_per_request = clock_accuracy * (float(incr_by) / max_rate)
+    if running_time < now:
+        running_time = now
+    elif running_time - now > time_per_request:
+        time.sleep((running_time - now) / clock_accuracy)
+    return running_time + time_per_request

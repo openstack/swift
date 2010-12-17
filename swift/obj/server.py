@@ -97,6 +97,7 @@ class DiskFile(object):
         self.metadata = {}
         self.meta_file = None
         self.data_file = None
+        self.fp = None
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
