@@ -300,10 +300,10 @@ Error: unable to locate %s
         logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server')
         logger.warn('test4')
         self.assertEquals(sio.getvalue(),
-                          'test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
         logger.debug('test5')
         self.assertEquals(sio.getvalue(),
-                          'test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
