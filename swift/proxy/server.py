@@ -14,16 +14,24 @@
 # limitations under the License.
 
 from __future__ import with_statement
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import mimetypes
 import os
+import re
 import time
 import traceback
 from ConfigParser import ConfigParser
+from datetime import datetime
 from urllib import unquote, quote
 import uuid
 import functools
 from gettext import gettext as _
+from hashlib import md5
 
+from eventlet import sleep
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -37,8 +45,8 @@ from swift.common.utils import get_logger, normalize_timestamp, split_path, \
     cache_from_env
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    check_utf8, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
-    MAX_FILE_SIZE
+    check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
+    MAX_CONTAINER_NAME_LENGTH, MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout
 
@@ -94,6 +102,161 @@ def get_account_memcache_key(account):
 
 def get_container_memcache_key(account, container):
     return 'container/%s/%s' % (account, container)
+
+
+class SegmentedIterable(object):
+    """
+    Iterable that returns the object contents for a segmented object in Swift.
+
+    If set, the response's `bytes_transferred` value will be updated (used to
+    log the size of the request). Also, if there's a failure that cuts the
+    transfer short, the response's `status_int` will be updated (again, just
+    for logging since the original status would have already been sent to the
+    client).
+
+    :param controller: The ObjectController instance to work with.
+    :param container: The container the object segments are within.
+    :param listing: The listing of object segments to iterate over; this may
+                    be an iterator or list that returns dicts with 'name' and
+                    'bytes' keys.
+    :param response: The webob.Response this iterable is associated with, if
+                     any (default: None)
+    """
+
+    def __init__(self, controller, container, listing, response=None):
+        self.controller = controller
+        self.container = container
+        self.listing = iter(listing)
+        self.segment = -1
+        self.segment_dict = None
+        self.segment_peek = None
+        self.seek = 0
+        self.segment_iter = None
+        self.position = 0
+        self.response = response
+        if not self.response:
+            self.response = Response()
+        self.next_get_time = 0
+
+    def _load_next_segment(self):
+        """
+        Loads the self.segment_iter with the next object segment's contents.
+
+        :raises: StopIteration when there are no more object segments.
+        """
+        try:
+            self.segment += 1
+            self.segment_dict = self.segment_peek or self.listing.next()
+            self.segment_peek = None
+            partition, nodes = self.controller.app.object_ring.get_nodes(
+                self.controller.account_name, self.container,
+                self.segment_dict['name'])
+            path = '/%s/%s/%s' % (self.controller.account_name, self.container,
+                self.segment_dict['name'])
+            req = Request.blank(path)
+            if self.seek:
+                req.range = 'bytes=%s-' % self.seek
+                self.seek = 0
+            if self.segment > 10:
+                sleep(max(self.next_get_time - time.time(), 0))
+                self.next_get_time = time.time() + 1
+            resp = self.controller.GETorHEAD_base(req, 'Object', partition,
+                self.controller.iter_nodes(partition, nodes,
+                self.controller.app.object_ring), path,
+                self.controller.app.object_ring.replica_count)
+            if resp.status_int // 100 != 2:
+                raise Exception('Could not load object segment %s: %s' % (path,
+                    resp.status_int))
+            self.segment_iter = resp.app_iter
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
+
+    def next(self):
+        return iter(self).next()
+
+    def __iter__(self):
+        """ Standard iterator function that returns the object's contents. """
+        try:
+            while True:
+                if not self.segment_iter:
+                    self._load_next_segment()
+                while True:
+                    with ChunkReadTimeout(self.controller.app.node_timeout):
+                        try:
+                            chunk = self.segment_iter.next()
+                            break
+                        except StopIteration:
+                            self._load_next_segment()
+                self.position += len(chunk)
+                self.response.bytes_transferred = getattr(self.response,
+                    'bytes_transferred', 0) + len(chunk)
+                yield chunk
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
+
+    def app_iter_range(self, start, stop):
+        """
+        Non-standard iterator function for use with Webob in serving Range
+        requests more quickly. This will skip over segments and do a range
+        request on the first segment to return data from, if needed.
+
+        :param start: The first byte (zero-based) to return. None for 0.
+        :param stop: The last byte (zero-based) to return. None for end.
+        """
+        try:
+            if start:
+                self.segment_peek = self.listing.next()
+                while start >= self.position + self.segment_peek['bytes']:
+                    self.segment += 1
+                    self.position += self.segment_peek['bytes']
+                    self.segment_peek = self.listing.next()
+                self.seek = start - self.position
+            else:
+                start = 0
+            if stop is not None:
+                length = stop - start
+            else:
+                length = None
+            for chunk in self:
+                if length is not None:
+                    length -= len(chunk)
+                    if length < 0:
+                        # Chop off the extra:
+                        self.response.bytes_transferred = \
+                           getattr(self.response, 'bytes_transferred', 0) \
+                           + length
+                        yield chunk[:length]
+                        break
+                yield chunk
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception('ERROR: While processing '
+                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
+                    self.controller.container_name,
+                    self.controller.object_name, self.controller.trans_id))
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
 
 
 class Controller(object):
@@ -536,9 +699,137 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        return self.GETorHEAD_base(req, 'Object', partition,
+        resp = self.GETorHEAD_base(req, 'Object', partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
+        # If we get a 416 Requested Range Not Satisfiable we have to check if
+        # we were actually requesting a manifest object and then redo the range
+        # request on the whole object.
+        if resp.status_int == 416:
+            req_range = req.range
+            req.range = None
+            resp2 = self.GETorHEAD_base(req, 'Object', partition,
+                    self.iter_nodes(partition, nodes, self.app.object_ring),
+                    req.path_info, self.app.object_ring.replica_count)
+            if 'x-object-manifest' not in resp2.headers:
+                return resp
+            resp = resp2
+            req.range = req_range
+
+        if 'x-object-manifest' in resp.headers:
+            lcontainer, lprefix = \
+                resp.headers['x-object-manifest'].split('/', 1)
+            lpartition, lnodes = self.app.container_ring.get_nodes(
+                self.account_name, lcontainer)
+            marker = ''
+            listing = []
+            while True:
+                lreq = Request.blank('/%s/%s?prefix=%s&format=json&marker=%s' %
+                    (quote(self.account_name), quote(lcontainer),
+                     quote(lprefix), quote(marker)))
+                lresp = self.GETorHEAD_base(lreq, 'Container', lpartition,
+                    lnodes, lreq.path_info,
+                    self.app.container_ring.replica_count)
+                if lresp.status_int // 100 != 2:
+                    lresp = HTTPNotFound(request=req)
+                    lresp.headers['X-Object-Manifest'] = \
+                        resp.headers['x-object-manifest']
+                    return lresp
+                if 'swift.authorize' in req.environ:
+                    req.acl = lresp.headers.get('x-container-read')
+                    aresp = req.environ['swift.authorize'](req)
+                    if aresp:
+                        return aresp
+                sublisting = json.loads(lresp.body)
+                if not sublisting:
+                    break
+                listing.extend(sublisting)
+                if len(listing) > CONTAINER_LISTING_LIMIT:
+                    break
+                marker = sublisting[-1]['name']
+
+            if len(listing) > CONTAINER_LISTING_LIMIT:
+                # We will serve large objects with a ton of segments with
+                # chunked transfer encoding.
+
+                def listing_iter():
+                    marker = ''
+                    while True:
+                        lreq = Request.blank(
+                            '/%s/%s?prefix=%s&format=json&marker=%s' %
+                            (quote(self.account_name), quote(lcontainer),
+                             quote(lprefix), quote(marker)))
+                        lresp = self.GETorHEAD_base(lreq, 'Container',
+                            lpartition, lnodes, lreq.path_info,
+                            self.app.container_ring.replica_count)
+                        if lresp.status_int // 100 != 2:
+                            raise Exception('Object manifest GET could not '
+                                'continue listing: %s %s' %
+                                (req.path, lreq.path))
+                        if 'swift.authorize' in req.environ:
+                            req.acl = lresp.headers.get('x-container-read')
+                            aresp = req.environ['swift.authorize'](req)
+                            if aresp:
+                                raise Exception('Object manifest GET could '
+                                    'not continue listing: %s %s' %
+                                    (req.path, aresp))
+                        sublisting = json.loads(lresp.body)
+                        if not sublisting:
+                            break
+                        for obj in sublisting:
+                            yield obj
+                        marker = sublisting[-1]['name']
+
+                headers = {
+                    'X-Object-Manifest': resp.headers['x-object-manifest'],
+                    'Content-Type': resp.content_type}
+                for key, value in resp.headers.iteritems():
+                    if key.lower().startswith('x-object-meta-'):
+                        headers[key] = value
+                resp = Response(headers=headers, request=req,
+                                conditional_response=True)
+                if req.method == 'HEAD':
+                    # These shenanigans are because webob translates the HEAD
+                    # request into a webob EmptyResponse for the body, which
+                    # has a len, which eventlet translates as needing a
+                    # content-length header added. So we call the original
+                    # webob resp for the headers but return an empty iterator
+                    # for the body.
+
+                    def head_response(environ, start_response):
+                        resp(environ, start_response)
+                        return iter([])
+
+                    head_response.status_int = resp.status_int
+                    return head_response
+                else:
+                    resp.app_iter = SegmentedIterable(self, lcontainer,
+                                                      listing_iter(), resp)
+
+            else:
+                # For objects with a reasonable number of segments, we'll serve
+                # them with a set content-length and computed etag.
+                content_length = sum(o['bytes'] for o in listing)
+                last_modified = max(o['last_modified'] for o in listing)
+                last_modified = \
+                    datetime(*map(int, re.split('[^\d]', last_modified)[:-1]))
+                etag = md5('"'.join(o['hash'] for o in listing)).hexdigest()
+                headers = {
+                    'X-Object-Manifest': resp.headers['x-object-manifest'],
+                    'Content-Type': resp.content_type,
+                    'Content-Length': content_length,
+                    'ETag': etag}
+                for key, value in resp.headers.iteritems():
+                    if key.lower().startswith('x-object-meta-'):
+                        headers[key] = value
+                resp = Response(headers=headers, request=req,
+                                conditional_response=True)
+                resp.app_iter = SegmentedIterable(self, lcontainer, listing,
+                                                  resp)
+                resp.content_length = content_length
+                resp.last_modified = last_modified
+
+        return resp
 
     @public
     @delay_denial
@@ -652,11 +943,17 @@ class ObjectController(Controller):
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
-            data_source = source_resp.app_iter
             new_req = Request.blank(req.path_info,
                         environ=req.environ, headers=req.headers)
-            new_req.content_length = source_resp.content_length
-            new_req.etag = source_resp.etag
+            if 'x-object-manifest' in source_resp.headers:
+                data_source = iter([''])
+                new_req.content_length = 0
+                new_req.headers['X-Object-Manifest'] = \
+                    source_resp.headers['x-object-manifest']
+            else:
+                data_source = source_resp.app_iter
+                new_req.content_length = source_resp.content_length
+                new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
             for k, v in source_resp.headers.items():
