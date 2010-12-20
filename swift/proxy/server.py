@@ -172,10 +172,11 @@ class SegmentedIterable(object):
             raise
         except Exception, err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception('ERROR: While processing '
-                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
-                    self.controller.container_name,
-                    self.controller.object_name, self.controller.trans_id))
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
                 err.swift_logged = True
                 self.response.status_int = 503
             raise
@@ -204,10 +205,11 @@ class SegmentedIterable(object):
             raise
         except Exception, err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception('ERROR: While processing '
-                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
-                    self.controller.container_name,
-                    self.controller.object_name, self.controller.trans_id))
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
                 err.swift_logged = True
                 self.response.status_int = 503
             raise
@@ -250,10 +252,11 @@ class SegmentedIterable(object):
             raise
         except Exception, err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception('ERROR: While processing '
-                    'manifest /%s/%s/%s %s' % (self.controller.account_name,
-                    self.controller.container_name,
-                    self.controller.object_name, self.controller.trans_id))
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
                 err.swift_logged = True
                 self.response.status_int = 503
             raise
