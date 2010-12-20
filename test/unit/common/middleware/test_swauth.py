@@ -346,12 +346,12 @@ class TestAuth(unittest.TestCase):
 
     def test_authorize_bad_path(self):
         req = Request.blank('/badpath')
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('401'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 401)
         req = Request.blank('/badpath')
         req.remote_user = 'act:usr,act,AUTH_cfa'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
     def test_authorize_account_access(self):
         req = Request.blank('/v1/AUTH_cfa')
@@ -359,14 +359,14 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
     def test_authorize_acl_group_access(self):
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act'
@@ -378,27 +378,27 @@ class TestAuth(unittest.TestCase):
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act2'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr2'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
     def test_deny_cross_reseller(self):
         # Tests that cross-reseller is denied, even if ACLs/group names match
         req = Request.blank('/v1/OTHER_cfa')
         req.remote_user = 'act:usr,act,AUTH_cfa'
         req.acl = 'act'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
     def test_authorize_acl_referrer_access(self):
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*'
@@ -406,23 +406,23 @@ class TestAuth(unittest.TestCase):
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:.example.com'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
         req = Request.blank('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com'
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/AUTH_cfa')
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('401'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 401)
         req = Request.blank('/v1/AUTH_cfa')
         req.acl = '.r:*'
         self.assertEquals(self.test_auth.authorize(req), None)
         req = Request.blank('/v1/AUTH_cfa')
         req.acl = '.r:.example.com'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('401'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 401)
         req = Request.blank('/v1/AUTH_cfa')
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com'
@@ -431,19 +431,19 @@ class TestAuth(unittest.TestCase):
     def test_account_put_permissions(self):
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_other'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
         # Even PUTs to your own account as account admin should fail
         req = Request.blank('/v1/AUTH_old', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_old'
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.reseller_admin'
@@ -455,8 +455,8 @@ class TestAuth(unittest.TestCase):
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
-        resp = str(self.test_auth.authorize(req))
-        self.assert_(resp.startswith('403'), resp)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
 
     def test_get_token_fail(self):
         resp = Request.blank('/auth/v1.0').get_response(self.test_auth)
