@@ -391,6 +391,9 @@ class ObjectController(object):
                 'ETag': etag,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
+            if 'x-object-manifest' in request.headers:
+                metadata['X-Object-Manifest'] = \
+                    request.headers['x-object-manifest']
             metadata.update(val for val in request.headers.iteritems()
                     if val[0].lower().startswith('x-object-meta-') and
                     len(val[0]) > 14)
@@ -460,7 +463,8 @@ class ObjectController(object):
                         'application/octet-stream'), app_iter=file,
                         request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -488,7 +492,8 @@ class ObjectController(object):
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])

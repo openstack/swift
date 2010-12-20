@@ -581,7 +581,8 @@ def put_object(url, token, container, name, contents, content_length=None,
     :param container: container name that the object is in
     :param name: object name to put
     :param contents: a string or a file like object to read object data from
-    :param content_length: value to send as content-length header
+    :param content_length: value to send as content-length header; also limits
+                           the amount read from contents
     :param etag: etag of contents
     :param chunk_size: chunk size of data to write
     :param content_type: value to send as content-type header
@@ -611,18 +612,24 @@ def put_object(url, token, container, name, contents, content_length=None,
         conn.putrequest('PUT', path)
         for header, value in headers.iteritems():
             conn.putheader(header, value)
-        if not content_length:
+        if content_length is None:
             conn.putheader('Transfer-Encoding', 'chunked')
-        conn.endheaders()
-        chunk = contents.read(chunk_size)
-        while chunk:
-            if not content_length:
-                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
-            else:
-                conn.send(chunk)
+            conn.endheaders()
             chunk = contents.read(chunk_size)
-        if not content_length:
+            while chunk:
+                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+                chunk = contents.read(chunk_size)
             conn.send('0\r\n\r\n')
+        else:
+            conn.endheaders()
+            left = content_length
+            while left > 0:
+                size = chunk_size
+                if size > left:
+                    size = left
+                chunk = contents.read(size)
+                conn.send(chunk)
+                left -= len(chunk)
     else:
         conn.request('PUT', path, contents, headers)
     resp = conn.getresponse()
@@ -860,15 +867,20 @@ class QueueFunctionThread(Thread):
 
 
 st_delete_help = '''
-delete --all OR delete container [object] [object] ...
+delete --all OR delete container [--leave-segments] [object] [object] ...
     Deletes everything in the account (with --all), or everything in a
-    container, or a list of objects depending on the args given.'''.strip('\n')
+    container, or a list of objects depending on the args given. Segments of
+    manifest objects will be deleted as well, unless you specify the
+    --leave-segments option.'''.strip('\n')
 
 
 def st_delete(parser, args, print_queue, error_queue):
     parser.add_option('-a', '--all', action='store_true', dest='yes_all',
         default=False, help='Indicates that you really want to delete '
         'everything in the account')
+    parser.add_option('', '--leave-segments', action='store_true',
+        dest='leave_segments', default=False, help='Indicates that you want '
+        'the segments of manifest objects left alone')
     (options, args) = parse_args(parser, args)
     args = args[1:]
     if (not args and not options.yes_all) or (args and options.yes_all):
@@ -876,11 +888,42 @@ def st_delete(parser, args, print_queue, error_queue):
                         (basename(argv[0]), st_delete_help))
         return
 
+    def _delete_segment((container, obj), conn):
+        conn.delete_object(container, obj)
+        if options.verbose:
+            print_queue.put('%s/%s' % (container, obj))
+
     object_queue = Queue(10000)
 
     def _delete_object((container, obj), conn):
         try:
+            old_manifest = None
+            if not options.leave_segments:
+                try:
+                    old_manifest = conn.head_object(container, obj).get(
+                        'x-object-manifest')
+                except ClientException, err:
+                    if err.http_status != 404:
+                        raise
             conn.delete_object(container, obj)
+            if old_manifest:
+                segment_queue = Queue(10000)
+                scontainer, sprefix = old_manifest.split('/', 1)
+                for delobj in conn.get_container(scontainer,
+                                                 prefix=sprefix)[1]:
+                    segment_queue.put((scontainer, delobj['name']))
+                if not segment_queue.empty():
+                    segment_threads = [QueueFunctionThread(segment_queue,
+                        _delete_segment, create_connection()) for _ in
+                        xrange(10)]
+                    for thread in segment_threads:
+                        thread.start()
+                    while not segment_queue.empty():
+                        sleep(0.01)
+                    for thread in segment_threads:
+                        thread.abort = True
+                        while thread.isAlive():
+                            thread.join(0.01)
             if options.verbose:
                 path = options.yes_all and join(container, obj) or obj
                 if path[:1] in ('/', '\\'):
@@ -891,6 +934,7 @@ def st_delete(parser, args, print_queue, error_queue):
                 raise
             error_queue.put('Object %s not found' %
                             repr('%s/%s' % (container, obj)))
+
     container_queue = Queue(10000)
 
     def _delete_container(container, conn):
@@ -956,6 +1000,10 @@ def st_delete(parser, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         conn = create_connection()
         _delete_container(args[0], conn)
     else:
@@ -976,7 +1024,7 @@ def st_delete(parser, args, print_queue, error_queue):
 
 
 st_download_help = '''
-download --all OR download container [object] [object] ...
+download --all OR download container [options] [object] [object] ...
     Downloads everything in the account (with --all), or everything in a
     container, or a list of objects depending on the args given. For a single
     object download, you may use the -o [--output] <filename> option to
@@ -1015,20 +1063,26 @@ def st_download(options, args, print_queue, error_queue):
             headers, body = \
                 conn.get_object(container, obj, resp_chunk_size=65536)
             content_type = headers.get('content-type')
-            content_length = int(headers.get('content-length'))
+            if 'content-length' in headers:
+                content_length = int(headers.get('content-length'))
+            else:
+                content_length = None
             etag = headers.get('etag')
             path = options.yes_all and join(container, obj) or obj
             if path[:1] in ('/', '\\'):
                 path = path[1:]
+            md5sum = None
             make_dir = out_file != "-"
             if content_type.split(';', 1)[0] == 'text/directory':
                 if make_dir and not isdir(path):
                     mkdirs(path)
                 read_length = 0
-                md5sum = md5()
+                if 'x-object-manifest' not in headers:
+                    md5sum = md5()
                 for chunk in body:
                     read_length += len(chunk)
-                    md5sum.update(chunk)
+                    if md5sum:
+                        md5sum.update(chunk)
             else:
                 dirpath = dirname(path)
                 if make_dir and dirpath and not isdir(dirpath):
@@ -1040,16 +1094,18 @@ def st_download(options, args, print_queue, error_queue):
                 else:
                     fp = open(path, 'wb')
                 read_length = 0
-                md5sum = md5()
+                if 'x-object-manifest' not in headers:
+                    md5sum = md5()
                 for chunk in body:
                     fp.write(chunk)
                     read_length += len(chunk)
-                    md5sum.update(chunk)
+                    if md5sum:
+                        md5sum.update(chunk)
                 fp.close()
-            if md5sum.hexdigest() != etag:
+            if md5sum and md5sum.hexdigest() != etag:
                 error_queue.put('%s: md5sum != etag, %s != %s' %
                                 (path, md5sum.hexdigest(), etag))
-            if read_length != content_length:
+            if content_length is not None and read_length != content_length:
                 error_queue.put('%s: read_length != content_length, %d != %d' %
                                 (path, read_length, content_length))
             if 'x-object-meta-mtime' in headers and not options.out_file:
@@ -1110,6 +1166,10 @@ def st_download(options, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         _download_container(args[0], create_connection())
     else:
         if len(args) == 2:
@@ -1223,6 +1283,10 @@ Containers: %d
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         try:
             headers = conn.head_container(args[0])
             object_count = int(headers.get('x-container-object-count', 0))
@@ -1259,14 +1323,19 @@ Write ACL: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
        Account: %s
      Container: %s
         Object: %s
-  Content Type: %s
-Content Length: %s
- Last Modified: %s
-          ETag: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
-                                     args[1], headers.get('content-type'),
-                                     headers.get('content-length'),
-                                     headers.get('last-modified'),
-                                     headers.get('etag')))
+  Content Type: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
+                                     args[1], headers.get('content-type')))
+            if 'content-length' in headers:
+                print_queue.put('Content Length: %s' %
+                                headers['content-length'])
+            if 'last-modified' in headers:
+                print_queue.put(' Last Modified: %s' %
+                                headers['last-modified'])
+            if 'etag' in headers:
+                print_queue.put('          ETag: %s' % headers['etag'])
+            if 'x-object-manifest' in headers:
+                print_queue.put('      Manifest: %s' %
+                                headers['x-object-manifest'])
             for key, value in headers.items():
                 if key.startswith('x-object-meta-'):
                     print_queue.put('%14s: %s' % ('Meta %s' %
@@ -1274,7 +1343,7 @@ Content Length: %s
             for key, value in headers.items():
                 if not key.startswith('x-object-meta-') and key not in (
                         'content-type', 'content-length', 'last-modified',
-                        'etag', 'date'):
+                        'etag', 'date', 'x-object-manifest'):
                     print_queue.put(
                         '%14s: %s' % (key.title(), value))
         except ClientException, err:
@@ -1326,6 +1395,10 @@ def st_post(options, args, print_queue, error_queue):
                 raise
             error_queue.put('Account not found')
     elif len(args) == 1:
+        if '/' in args[0]:
+            print >> stderr, 'WARNING: / in container name; you might have ' \
+                             'meant %r instead of %r.' % \
+                             (args[0].replace('/', ' ', 1), args[0])
         headers = {}
         for item in options.meta:
             split_item = item.split(':')
@@ -1363,23 +1436,48 @@ st_upload_help = '''
 upload [options] container file_or_directory [file_or_directory] [...]
     Uploads to the given container the files and directories specified by the
     remaining args. -c or --changed is an option that will only upload files
-    that have changed since the last upload.'''.strip('\n')
+    that have changed since the last upload. -S <size> or --segment-size <size>
+    and --leave-segments are options as well (see --help for more).
+'''.strip('\n')
 
 
 def st_upload(options, args, print_queue, error_queue):
     parser.add_option('-c', '--changed', action='store_true', dest='changed',
         default=False, help='Will only upload files that have changed since '
         'the last upload')
+    parser.add_option('-S', '--segment-size', dest='segment_size', help='Will '
+        'upload files in segments no larger than <size> and then create a '
+        '"manifest" file that will download all the segments as if it were '
+        'the original file. The segments will be uploaded to a '
+        '<container>_segments container so as to not pollute the main '
+        '<container> listings.')
+    parser.add_option('', '--leave-segments', action='store_true',
+        dest='leave_segments', default=False, help='Indicates that you want '
+        'the older segments of manifest objects left alone (in the case of '
+        'overwrites)')
     (options, args) = parse_args(parser, args)
     args = args[1:]
     if len(args) < 2:
         error_queue.put('Usage: %s [options] %s' %
                         (basename(argv[0]), st_upload_help))
         return
+    object_queue = Queue(10000)
 
-    file_queue = Queue(10000)
+    def _segment_job(job, conn):
+        if job.get('delete', False):
+            conn.delete_object(job['container'], job['obj'])
+        else:
+            fp = open(job['path'], 'rb')
+            fp.seek(job['segment_start'])
+            conn.put_object(job.get('container', args[0] + '_segments'),
+                job['obj'], fp, content_length=job['segment_size'])
+        if options.verbose and 'log_line' in job:
+            print_queue.put(job['log_line'])
 
-    def _upload_file((path, dir_marker), conn):
+    def _object_job(job, conn):
+        path = job['path']
+        container = job.get('container', args[0])
+        dir_marker = job.get('dir_marker', False)
         try:
             obj = path
             if obj.startswith('./') or obj.startswith('.\\'):
@@ -1388,7 +1486,7 @@ def st_upload(options, args, print_queue, error_queue):
             if dir_marker:
                 if options.changed:
                     try:
-                        headers = conn.head_object(args[0], obj)
+                        headers = conn.head_object(container, obj)
                         ct = headers.get('content-type')
                         cl = int(headers.get('content-length'))
                         et = headers.get('etag')
@@ -1401,24 +1499,86 @@ def st_upload(options, args, print_queue, error_queue):
                     except ClientException, err:
                         if err.http_status != 404:
                             raise
-                conn.put_object(args[0], obj, '', content_length=0,
+                conn.put_object(container, obj, '', content_length=0,
                                 content_type='text/directory',
                                 headers=put_headers)
             else:
-                if options.changed:
+                # We need to HEAD all objects now in case we're overwriting a
+                # manifest object and need to delete the old segments
+                # ourselves.
+                old_manifest = None
+                if options.changed or not options.leave_segments:
                     try:
-                        headers = conn.head_object(args[0], obj)
+                        headers = conn.head_object(container, obj)
                         cl = int(headers.get('content-length'))
                         mt = headers.get('x-object-meta-mtime')
-                        if cl == getsize(path) and \
+                        if options.changed and cl == getsize(path) and \
                                 mt == put_headers['x-object-meta-mtime']:
                             return
+                        if not options.leave_segments:
+                            old_manifest = headers.get('x-object-manifest')
                     except ClientException, err:
                         if err.http_status != 404:
                             raise
-                conn.put_object(args[0], obj, open(path, 'rb'),
-                                content_length=getsize(path),
-                                headers=put_headers)
+                if options.segment_size and \
+                        getsize(path) < options.segment_size:
+                    full_size = getsize(path)
+                    segment_queue = Queue(10000)
+                    segment_threads = [QueueFunctionThread(segment_queue,
+                        _segment_job, create_connection()) for _ in xrange(10)]
+                    for thread in segment_threads:
+                        thread.start()
+                    segment = 0
+                    segment_start = 0
+                    while segment_start < full_size:
+                        segment_size = int(options.segment_size)
+                        if segment_start + segment_size > full_size:
+                            segment_size = full_size - segment_start
+                        segment_queue.put({'path': path,
+                            'obj': '%s/%s/%s/%08d' % (obj,
+                                put_headers['x-object-meta-mtime'], full_size,
+                                segment),
+                            'segment_start': segment_start,
+                            'segment_size': segment_size,
+                            'log_line': '%s segment %s' % (obj, segment)})
+                        segment += 1
+                        segment_start += segment_size
+                    while not segment_queue.empty():
+                        sleep(0.01)
+                    for thread in segment_threads:
+                        thread.abort = True
+                        while thread.isAlive():
+                            thread.join(0.01)
+                    new_object_manifest = '%s_segments/%s/%s/%s/' % (
+                        container, obj, put_headers['x-object-meta-mtime'],
+                        full_size)
+                    if old_manifest == new_object_manifest:
+                        old_manifest = None
+                    put_headers['x-object-manifest'] = new_object_manifest
+                    conn.put_object(container, obj, '', content_length=0,
+                                    headers=put_headers)
+                else:
+                    conn.put_object(container, obj, open(path, 'rb'),
+                        content_length=getsize(path), headers=put_headers)
+                if old_manifest:
+                    segment_queue = Queue(10000)
+                    scontainer, sprefix = old_manifest.split('/', 1)
+                    for delobj in conn.get_container(scontainer,
+                                                     prefix=sprefix)[1]:
+                        segment_queue.put({'delete': True,
+                            'container': scontainer, 'obj': delobj['name']})
+                    if not segment_queue.empty():
+                        segment_threads = [QueueFunctionThread(segment_queue,
+                            _segment_job, create_connection()) for _ in
+                            xrange(10)]
+                        for thread in segment_threads:
+                            thread.start()
+                        while not segment_queue.empty():
+                            sleep(0.01)
+                        for thread in segment_threads:
+                            thread.abort = True
+                            while thread.isAlive():
+                                thread.join(0.01)
             if options.verbose:
                 print_queue.put(obj)
         except OSError, err:
@@ -1429,22 +1589,22 @@ def st_upload(options, args, print_queue, error_queue):
     def _upload_dir(path):
         names = listdir(path)
         if not names:
-            file_queue.put((path, True)) # dir_marker = True
+            object_queue.put({'path': path, 'dir_marker': True})
         else:
             for name in listdir(path):
                 subpath = join(path, name)
                 if isdir(subpath):
                     _upload_dir(subpath)
                 else:
-                    file_queue.put((subpath, False)) # dir_marker = False
+                    object_queue.put({'path': subpath})
 
     url, token = get_auth(options.auth, options.user, options.key,
         snet=options.snet)
     create_connection = lambda: Connection(options.auth, options.user,
         options.key, preauthurl=url, preauthtoken=token, snet=options.snet)
-    file_threads = [QueueFunctionThread(file_queue, _upload_file,
+    object_threads = [QueueFunctionThread(object_queue, _object_job,
         create_connection()) for _ in xrange(10)]
-    for thread in file_threads:
+    for thread in object_threads:
         thread.start()
     conn = create_connection()
     # Try to create the container, just in case it doesn't exist. If this
@@ -1453,6 +1613,8 @@ def st_upload(options, args, print_queue, error_queue):
     # it'll surface on the first object PUT.
     try:
         conn.put_container(args[0])
+        if options.segment_size is not None:
+            conn.put_container(args[0] + '_segments')
     except:
         pass
     try:
@@ -1460,10 +1622,10 @@ def st_upload(options, args, print_queue, error_queue):
             if isdir(arg):
                 _upload_dir(arg)
             else:
-                file_queue.put((arg, False)) # dir_marker = False
-        while not file_queue.empty():
+                object_queue.put({'path': arg})
+        while not object_queue.empty():
             sleep(0.01)
-        for thread in file_threads:
+        for thread in object_threads:
             thread.abort = True
             while thread.isAlive():
                 thread.join(0.01)
