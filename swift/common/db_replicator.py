@@ -20,6 +20,7 @@ import random
 import math
 import time
 import shutil
+from gettext import gettext as _
 
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
@@ -81,7 +82,7 @@ class ReplConnection(BufferedHTTPConnection):
             return response
         except:
             self.logger.exception(
-                'ERROR reading HTTP response from %s' % self.node)
+                _('ERROR reading HTTP response from %s'), self.node)
             return None
 
 
@@ -120,12 +121,14 @@ class Replicator(Daemon):
     def _report_stats(self):
         """Report the current stats to the logs."""
         self.logger.info(
-            'Attempted to replicate %d dbs in %.5f seconds (%.5f/s)'
-            % (self.stats['attempted'], time.time() - self.stats['start'],
-               self.stats['attempted'] /
-                        (time.time() - self.stats['start'] + 0.0000001)))
-        self.logger.info('Removed %(remove)d dbs' % self.stats)
-        self.logger.info('%(success)s successes, %(failure)s failures'
+            _('Attempted to replicate %(count)d dbs in %(time).5f seconds '
+              '(%(rate).5f/s)'),
+            {'count': self.stats['attempted'],
+             'time': time.time() - self.stats['start'],
+             'rate': self.stats['attempted'] /
+                        (time.time() - self.stats['start'] + 0.0000001)})
+        self.logger.info(_('Removed %(remove)d dbs') % self.stats)
+        self.logger.info(_('%(success)s successes, %(failure)s failures')
             % self.stats)
         self.logger.info(' '.join(['%s:%s' % item for item in
              self.stats.items() if item[0] in
@@ -150,8 +153,8 @@ class Replicator(Daemon):
         proc = subprocess.Popen(popen_args)
         proc.communicate()
         if proc.returncode != 0:
-            self.logger.error('ERROR rsync failed with %s: %s' %
-                              (proc.returncode, popen_args))
+            self.logger.error(_('ERROR rsync failed with %(code)s: %(args)s'),
+                              {'code': proc.returncode, 'args': popen_args})
         return proc.returncode == 0
 
     def _rsync_db(self, broker, device, http, local_id,
@@ -200,7 +203,7 @@ class Replicator(Daemon):
         :returns: boolean indicating completion and success
         """
         self.stats['diff'] += 1
-        self.logger.debug('Syncing chunks with %s', http.host)
+        self.logger.debug(_('Syncing chunks with %s'), http.host)
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
         while len(objects):
@@ -208,8 +211,9 @@ class Replicator(Daemon):
                 response = http.replicate('merge_items', objects, local_id)
             if not response or response.status >= 300 or response.status < 200:
                 if response:
-                    self.logger.error('ERROR Bad response %s from %s' %
-                        (response.status, http.host))
+                    self.logger.error(_('ERROR Bad response %(status)s from '
+                        '%(host)s'),
+                        {'status': response.status, 'host': http.host})
                 return False
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
@@ -272,7 +276,7 @@ class Replicator(Daemon):
             http = self._http_connect(node, partition, broker.db_file)
         if not http:
             self.logger.error(
-                'ERROR Unable to connect to remote server: %s' % node)
+                _('ERROR Unable to connect to remote server: %s'), node)
             return False
         with Timeout(self.node_timeout):
             response = http.replicate('sync', info['max_row'], info['hash'],
@@ -310,7 +314,7 @@ class Replicator(Daemon):
         :param object_file: DB file name to be replicated
         :param node_id: node id of the node to be replicated to
         """
-        self.logger.debug('Replicating db %s' % object_file)
+        self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
@@ -319,10 +323,10 @@ class Replicator(Daemon):
             info = broker.get_replication_info()
         except Exception, e:
             if 'no such table' in str(e):
-                self.logger.error('Quarantining DB %s' % object_file)
+                self.logger.error(_('Quarantining DB %s'), object_file)
                 quarantine_db(broker.db_file, broker.db_type)
             else:
-                self.logger.exception('ERROR reading db %s' % object_file)
+                self.logger.exception(_('ERROR reading db %s'), object_file)
             self.stats['failure'] += 1
             return
         # The db is considered deleted if the delete_timestamp value is greater
@@ -355,10 +359,10 @@ class Replicator(Daemon):
                 success = self._repl_to_node(node, broker, partition, info)
             except DriveNotMounted:
                 repl_nodes.append(more_nodes.next())
-                self.logger.error('ERROR Remote drive not mounted %s' % node)
+                self.logger.error(_('ERROR Remote drive not mounted %s'), node)
             except:
-                self.logger.exception('ERROR syncing %s with node %s' %
-                        (object_file, node))
+                self.logger.exception(_('ERROR syncing %(file)s with node'
+                        ' %(node)s'), {'file': object_file, 'node': node})
             self.stats['success' if success else 'failure'] += 1
             responses.append(success)
         if not shouldbehere and all(responses):
@@ -399,14 +403,14 @@ class Replicator(Daemon):
         dirs = []
         ips = whataremyips()
         if not ips:
-            self.logger.error('ERROR Failed to get my own IPs?')
+            self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
         for node in self.ring.devs:
             if node and node['ip'] in ips and node['port'] == self.port:
                 if self.mount_check and not os.path.ismount(
                         os.path.join(self.root, node['device'])):
                     self.logger.warn(
-                        'Skipping %(device)s as it is not mounted' % node)
+                        _('Skipping %(device)s as it is not mounted') % node)
                     continue
                 unlink_older_than(
                     os.path.join(self.root, node['device'], 'tmp'),
@@ -414,12 +418,12 @@ class Replicator(Daemon):
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
                     dirs.append((datadir, node['id']))
-        self.logger.info('Beginning replication run')
+        self.logger.info(_('Beginning replication run'))
         for part, object_file, node_id in self.roundrobin_datadirs(dirs):
             self.cpool.spawn_n(
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
-        self.logger.info('Replication run OVER')
+        self.logger.info(_('Replication run OVER'))
         self._report_stats()
 
     def run_forever(self):
@@ -430,7 +434,7 @@ class Replicator(Daemon):
             try:
                 self.run_once()
             except:
-                self.logger.exception('ERROR trying to replicate')
+                self.logger.exception(_('ERROR trying to replicate'))
             sleep(self.run_pause)
 
 
@@ -473,7 +477,7 @@ class ReplicatorRpc(object):
         except Exception, e:
             if 'no such table' in str(e):
                 # TODO(unknown): find a real logger
-                print "Quarantining DB %s" % broker.db_file
+                print _("Quarantining DB %s") % broker.db_file
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()
             raise

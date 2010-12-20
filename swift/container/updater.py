@@ -19,6 +19,7 @@ import signal
 import sys
 import time
 from random import random, shuffle
+from gettext import gettext as _
 
 from eventlet import spawn, patcher, Timeout
 
@@ -56,7 +57,7 @@ class ContainerUpdater(Daemon):
         """Get the account ring.  Load it if it hasn't been yet."""
         if not self.account_ring:
             self.logger.debug(
-                'Loading account ring from %s' % self.account_ring_path)
+                _('Loading account ring from %s'), self.account_ring_path)
             self.account_ring = Ring(self.account_ring_path)
         return self.account_ring
 
@@ -70,7 +71,7 @@ class ContainerUpdater(Daemon):
         for device in os.listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not os.path.ismount(dev_path):
-                self.logger.warn('%s is not mounted' % device)
+                self.logger.warn(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):
@@ -86,7 +87,7 @@ class ContainerUpdater(Daemon):
         """
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info('Begin container update sweep')
+            self.logger.info(_('Begin container update sweep'))
             begin = time.time()
             pids = []
             # read from account ring to ensure it's fresh
@@ -107,15 +108,17 @@ class ContainerUpdater(Daemon):
                     self.container_sweep(path)
                     elapsed = time.time() - forkbegin
                     self.logger.debug(
-                        'Container update sweep of %s completed: '
-                        '%.02fs, %s successes, %s failures, %s with no changes'
-                        % (path, elapsed, self.successes, self.failures,
-                           self.no_changes))
+                        _('Container update sweep of %(path)s completed: '
+                          '%(elapsed).02fs, %(success)s successes, %(fail)s '
+                          'failures, %(no_change)s with no changes'),
+                        {'path': path, 'elapsed': elapsed,
+                         'success': self.successes, 'fail': self.failures,
+                         'no_change': self.no_changes})
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
             elapsed = time.time() - begin
-            self.logger.info('Container update sweep completed: %.02fs' %
+            self.logger.info(_('Container update sweep completed: %.02fs'),
                              elapsed)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
@@ -133,9 +136,11 @@ class ContainerUpdater(Daemon):
         for path in self.get_paths():
             self.container_sweep(path)
         elapsed = time.time() - begin
-        self.logger.info('Container update single threaded sweep completed: '
-            '%.02fs, %s successes, %s failures, %s with no changes' %
-            (elapsed, self.successes, self.failures, self.no_changes))
+        self.logger.info(_('Container update single threaded sweep completed: '
+            '%(elapsed).02fs, %(success)s successes, %(fail)s failures, '
+            '%(no_change)s with no changes'),
+            {'elapsed': elapsed, 'success': self.successes,
+             'fail': self.failures, 'no_change': self.no_changes})
 
     def container_sweep(self, path):
         """
@@ -181,14 +186,16 @@ class ContainerUpdater(Daemon):
             if successes > failures:
                 self.successes += 1
                 self.logger.debug(
-                    'Update report sent for %s %s' % (container, dbfile))
+                    _('Update report sent for %(container)s %(dbfile)s'),
+                    {'container': container, 'dbfile': dbfile})
                 broker.reported(info['put_timestamp'],
                                 info['delete_timestamp'], info['object_count'],
                                 info['bytes_used'])
             else:
                 self.failures += 1
                 self.logger.debug(
-                    'Update report failed for %s %s' % (container, dbfile))
+                    _('Update report failed for %(container)s %(dbfile)s'),
+                    {'container': container, 'dbfile': dbfile})
         else:
             self.no_changes += 1
 
@@ -216,8 +223,8 @@ class ContainerUpdater(Daemon):
                              'X-Bytes-Used': bytes,
                              'X-Account-Override-Deleted': 'yes'})
             except:
-                self.logger.exception('ERROR account update failed with '
-                    '%(ip)s:%(port)s/%(device)s (will retry later): ' % node)
+                self.logger.exception(_('ERROR account update failed with '
+                    '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
                 return 500
         with Timeout(self.node_timeout):
             try:
@@ -227,5 +234,5 @@ class ContainerUpdater(Daemon):
             except:
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s' % node)
+                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 return 500

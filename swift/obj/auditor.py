@@ -17,6 +17,7 @@ import os
 import time
 from hashlib import md5
 from random import random
+from gettext import gettext as _
 
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
@@ -52,10 +53,10 @@ class ObjectAuditor(Daemon):
             for path, device, partition in all_locs:
                 self.object_audit(path, device, partition)
                 if time.time() - reported >= 3600:  # once an hour
-                    self.logger.info(
-                        'Since %s: Locally: %d passed audit, %d quarantined, '
-                        '%d errors' % (time.ctime(reported), self.passes,
-                                    self.quarantines, self.errors))
+                    self.logger.info(_('Since %(time)s: Locally: %(pass)d '
+                        'passed audit, %(quar)d quarantined, %(error)d errors'),
+                        {'time': time.ctime(reported), 'pass': self.passes,
+                         'quar': self.quarantines, 'error': self.errors})
                     reported = time.time()
                     self.passes = 0
                     self.quarantines = 0
@@ -66,7 +67,7 @@ class ObjectAuditor(Daemon):
 
     def run_once(self):
         """Run the object audit once."""
-        self.logger.info('Begin object audit "once" mode')
+        self.logger.info(_('Begin object audit "once" mode'))
         begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
@@ -75,17 +76,17 @@ class ObjectAuditor(Daemon):
         for path, device, partition in all_locs:
             self.object_audit(path, device, partition)
             if time.time() - reported >= 3600:  # once an hour
-                self.logger.info(
-                    'Since %s: Locally: %d passed audit, %d quarantined, '
-                    '%d errors' % (time.ctime(reported), self.passes,
-                                self.quarantines, self.errors))
+                self.logger.info(_('Since %(time)s: Locally: %(pass)d '
+                    'passed audit, %(quar)d quarantined, %(error)d errors'),
+                    {'time': time.ctime(reported), 'pass': self.passes,
+                     'quar': self.quarantines, 'error': self.errors})
                 reported = time.time()
                 self.passes = 0
                 self.quarantines = 0
                 self.errors = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Object audit "once" mode completed: %.02fs' % elapsed)
+            _('Object audit "once" mode completed: %.02fs'), elapsed)
 
     def object_audit(self, path, device, partition):
         """
@@ -124,8 +125,8 @@ class ObjectAuditor(Daemon):
                     "%s" % (df.metadata['ETag'], etag))
         except AuditException, err:
             self.quarantines += 1
-            self.logger.error('ERROR Object %s failed audit and will be '
-                'quarantined: %s' % (path, err))
+            self.logger.error(_('ERROR Object %(obj)s failed audit and will be '
+                'quarantined: %(err)s'), {'obj': path, 'err': err})
             invalidate_hash(os.path.dirname(path))
             renamer_path = os.path.dirname(path)
             renamer(renamer_path, os.path.join(self.devices, device,
@@ -133,6 +134,6 @@ class ObjectAuditor(Daemon):
             return
         except Exception:
             self.errors += 1
-            self.logger.exception('ERROR Trying to audit %s' % path)
+            self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1

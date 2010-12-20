@@ -18,15 +18,15 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-
 from urllib import unquote
+from xml.sax import saxutils
+from gettext import gettext as _
 
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, HTTPPreconditionFailed
 import simplejson
-from xml.sax import saxutils
 
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
@@ -307,10 +307,8 @@ class AccountController(object):
                 else:
                     res = HTTPMethodNotAllowed()
             except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = '%.4f' % (time.time() - start_time)
         additional_info = ''

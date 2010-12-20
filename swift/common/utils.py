@@ -34,7 +34,7 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
-
+from gettext import gettext as _
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
@@ -85,8 +85,8 @@ def load_libc_function(func_name):
         libc = ctypes.CDLL(ctypes.util.find_library('c'))
         return getattr(libc, func_name)
     except AttributeError:
-        logging.warn("Unable to locate %s in libc.  Leaving as a no-op."
-                     % func_name)
+        logging.warn(_("Unable to locate %s in libc.  Leaving as a no-op."),
+                     func_name)
 
         def noop_libc_function(*args):
             return 0
@@ -252,12 +252,12 @@ class LoggerFileObject(object):
         value = value.strip()
         if value:
             if 'Connection reset by peer' in value:
-                self.logger.error('STDOUT: Connection reset by peer')
+                self.logger.error(_('STDOUT: Connection reset by peer'))
             else:
-                self.logger.error('STDOUT: %s' % value)
+                self.logger.error(_('STDOUT: %s'), value)
 
     def writelines(self, values):
-        self.logger.error('STDOUT: %s' % '#012'.join(values))
+        self.logger.error(_('STDOUT: %s'), '#012'.join(values))
 
     def close(self):
         pass
@@ -462,12 +462,12 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print "Error: missing config file argument"
+        print _("Error: missing config file argument")
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
         parser.print_usage()
-        print "Error: unable to locate %s" % config
+        print _("Error: unable to locate %s") % config
         sys.exit(1)
 
     extra_args = []
@@ -690,14 +690,14 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
         defaults = {}
     c = ConfigParser(defaults)
     if not c.read(conf):
-        print "Unable to read config file %s" % conf
+        print _("Unable to read config file %s") % conf
         sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print "Unable to find %s config section in %s" % (section_name,
-                                                              conf)
+            print _("Unable to find %s config section in %s") % \
+                 (section_name, conf)
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
@@ -749,7 +749,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                 os.path.ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
-                    'Skipping %s as it is not mounted' % device)
+                    _('Skipping %s as it is not mounted'), device)
             continue
         datadir = os.path.join(devices, device, datadir)
         if not os.path.exists(datadir):

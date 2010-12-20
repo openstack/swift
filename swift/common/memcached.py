@@ -26,7 +26,7 @@ import socket
 import time
 from bisect import bisect
 from hashlib import md5
-
+from gettext import gettext as _
 
 CONN_TIMEOUT = 0.3
 IO_TIMEOUT = 2.0
@@ -67,9 +67,11 @@ class MemcacheRing(object):
 
     def _exception_occurred(self, server, e, action='talking'):
         if isinstance(e, socket.timeout):
-            logging.error("Timeout %s to memcached: %s" % (action, server))
+            logging.error(_("Timeout %(action)s to memcached: %(server)s"),
+                {'action': action, 'server': server})
         else:
-            logging.exception("Error %s to memcached: %s" % (action, server))
+            logging.exception(_("Error %(action)s to memcached: %(server)s"),
+                {'action': action, 'server': server})
         now = time.time()
         self._errors[server].append(time.time())
         if len(self._errors[server]) > ERROR_LIMIT_COUNT:
@@ -77,7 +79,7 @@ class MemcacheRing(object):
                                           if err > now - ERROR_LIMIT_TIME]
             if len(self._errors[server]) > ERROR_LIMIT_COUNT:
                 self._error_limited[server] = now + ERROR_LIMIT_DURATION
-                logging.error('Error limiting server %s' % server)
+                logging.error(_('Error limiting server %s'), server)
 
     def _get_conns(self, key):
         """

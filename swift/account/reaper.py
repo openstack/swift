@@ -18,6 +18,7 @@ import random
 from logging import DEBUG
 from math import sqrt
 from time import time
+from gettext import gettext as _
 
 from eventlet import GreenPool, sleep
 
@@ -77,7 +78,7 @@ class AccountReaper(Daemon):
         """ The account :class:`swift.common.ring.Ring` for the cluster. """
         if not self.account_ring:
             self.logger.debug(
-                'Loading account ring from %s' % self.account_ring_path)
+                _('Loading account ring from %s'), self.account_ring_path)
             self.account_ring = Ring(self.account_ring_path)
         return self.account_ring
 
@@ -85,7 +86,7 @@ class AccountReaper(Daemon):
         """ The container :class:`swift.common.ring.Ring` for the cluster. """
         if not self.container_ring:
             self.logger.debug(
-                'Loading container ring from %s' % self.container_ring_path)
+                _('Loading container ring from %s'), self.container_ring_path)
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
@@ -93,7 +94,7 @@ class AccountReaper(Daemon):
         """ The object :class:`swift.common.ring.Ring` for the cluster. """
         if not self.object_ring:
             self.logger.debug(
-                'Loading object ring from %s' % self.object_ring_path)
+                _('Loading object ring from %s'), self.object_ring_path)
             self.object_ring = Ring(self.object_ring_path)
         return self.object_ring
 
@@ -103,7 +104,7 @@ class AccountReaper(Daemon):
         This repeatedly calls :func:`reap_once` no quicker than the
         configuration interval.
         """
-        self.logger.debug('Daemon started.')
+        self.logger.debug(_('Daemon started.'))
         sleep(random.random() * self.interval)
         while True:
             begin = time()
@@ -119,17 +120,17 @@ class AccountReaper(Daemon):
         repeatedly by :func:`run_forever`. This will call :func:`reap_device`
         once for each device on the server.
         """
-        self.logger.debug('Begin devices pass: %s' % self.devices)
+        self.logger.debug(_('Begin devices pass: %s'), self.devices)
         begin = time()
         for device in os.listdir(self.devices):
             if self.mount_check and \
                     not os.path.ismount(os.path.join(self.devices, device)):
                 self.logger.debug(
-                    'Skipping %s as it is not mounted' % device)
+                    _('Skipping %s as it is not mounted'), device)
                 continue
             self.reap_device(device)
         elapsed = time() - begin
-        self.logger.info('Devices pass completed: %.02fs' % elapsed)
+        self.logger.info(_('Devices pass completed: %.02fs'), elapsed)
 
     def reap_device(self, device):
         """
@@ -212,7 +213,7 @@ class AccountReaper(Daemon):
         """
         begin = time()
         account = broker.get_info()['account']
-        self.logger.info('Beginning pass on account %s' % account)
+        self.logger.info(_('Beginning pass on account %s'), account)
         self.stats_return_codes = {}
         self.stats_containers_deleted = 0
         self.stats_objects_deleted = 0
@@ -235,12 +236,12 @@ class AccountReaper(Daemon):
                     self.container_pool.waitall()
                 except Exception:
                     self.logger.exception(
-                        'Exception with containers for account %s' % account)
+                        _('Exception with containers for account %s'), account)
                 marker = containers[-1][0]
             log = 'Completed pass on account %s' % account
         except Exception:
             self.logger.exception(
-                'Exception with account %s' % account)
+                _('Exception with account %s'), account)
             log = 'Incomplete pass on account %s' % account
         if self.stats_containers_deleted:
             log += ', %s containers deleted' % self.stats_containers_deleted
@@ -317,7 +318,7 @@ class AccountReaper(Daemon):
             except ClientException, err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s' % node)
+                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 self.stats_return_codes[err.http_status / 100] = \
                     self.stats_return_codes.get(err.http_status / 100, 0) + 1
             if not objects:
@@ -330,8 +331,9 @@ class AccountReaper(Daemon):
                                nodes, obj['name'])
                 pool.waitall()
             except Exception:
-                self.logger.exception('Exception with objects for container '
-                    '%s for account %s' % (container, account))
+                self.logger.exception(_('Exception with objects for container '
+                    '%(container)s for account %(account)s'),
+                    {'container': container, 'account': account})
             marker = objects[-1]['name']
         successes = 0
         failures = 0
@@ -351,7 +353,7 @@ class AccountReaper(Daemon):
             except ClientException, err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s' % node)
+                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 failures += 1
                 self.stats_return_codes[err.http_status / 100] = \
                     self.stats_return_codes.get(err.http_status / 100, 0) + 1
@@ -402,7 +404,7 @@ class AccountReaper(Daemon):
             except ClientException, err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s' % node)
+                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 failures += 1
                 self.stats_return_codes[err.http_status / 100] = \
                     self.stats_return_codes.get(err.http_status / 100, 0) + 1

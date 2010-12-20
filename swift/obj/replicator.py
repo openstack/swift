@@ -22,6 +22,7 @@ import logging
 import hashlib
 import itertools
 import cPickle as pickle
+from gettext import gettext as _
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
@@ -243,26 +244,27 @@ class ObjectReplicator(Daemon):
                 results = proc.stdout.read()
                 ret_val = proc.wait()
         except Timeout:
-            self.logger.error("Killing long-running rsync: %s" % str(args))
+            self.logger.error(_("Killing long-running rsync: %s"), str(args))
             proc.kill()
             return 1 # failure response code
         total_time = time.time() - start_time
-        if results:
-            for result in results.split('\n'):
-                if result == '':
-                    continue
-                if result.startswith('cd+'):
-                    continue
-                self.logger.info(result)
+        for result in results.split('\n'):
+            if result == '':
+                continue
+            if result.startswith('cd+'):
+                continue
+            self.logger.info(result)
+        if ret_val:
+            self.logger.error(_('Bad rsync return code: %s -> %d'),
+                    (str(args), ret_val))
+        elif results:
             self.logger.info(
-                "Sync of %s at %s complete (%.03f) [%d]" % (
-                args[-2], args[-1], total_time, ret_val))
+                _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
+                {'src': args[-2], 'dst': args[-1], 'time': total_time})
         else:
             self.logger.debug(
-                "Sync of %s at %s complete (%.03f) [%d]" % (
-                args[-2], args[-1], total_time, ret_val))
-        if ret_val:
-            self.logger.error('Bad rsync return code: %d' % ret_val)
+                _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
+                {'src': args[-2], 'dst': args[-1], 'time': total_time})
         return ret_val
 
     def rsync(self, node, job, suffixes):
@@ -346,10 +348,10 @@ class ObjectReplicator(Daemon):
                     responses.append(success)
             if not suffixes or (len(responses) == \
                         self.object_ring.replica_count and all(responses)):
-                self.logger.info("Removing partition: %s" % job['path'])
+                self.logger.info(_("Removing partition: %s"), job['path'])
                 tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
         except (Exception, Timeout):
-            self.logger.exception("Error syncing handoff partition")
+            self.logger.exception(_("Error syncing handoff partition"))
         finally:
             self.partition_times.append(time.time() - begin)
 
@@ -379,13 +381,14 @@ class ObjectReplicator(Daemon):
                                 node['device'], job['partition'], 'REPLICATE',
                             '', headers={'Content-Length': '0'}).getresponse()
                         if resp.status == 507:
-                            self.logger.error('%s/%s responded as unmounted' %
-                                              (node['ip'], node['device']))
+                            self.logger.error(_('%(ip)s/%(device)s responded'
+                                    ' as unmounted'), node)
                             attempts_left += 1
                             continue
                         if resp.status != 200:
-                            self.logger.error("Invalid response %s from %s" %
-                                    (resp.status, node['ip']))
+                            self.logger.error(_("Invalid response %(resp)s "
+                                "from %(ip)s"),
+                                {'resp': resp.status, 'ip': node['ip']})
                             continue
                         remote_hash = pickle.loads(resp.read())
                         del resp
@@ -408,7 +411,7 @@ class ObjectReplicator(Daemon):
                     logging.exception("Error syncing with node: %s" % node)
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
-            self.logger.exception("Error syncing partition")
+            self.logger.exception(_("Error syncing partition"))
         finally:
             self.partition_times.append(time.time() - begin)
 
@@ -418,27 +421,30 @@ class ObjectReplicator(Daemon):
         """
         if self.replication_count:
             rate = self.replication_count / (time.time() - self.start)
-            self.logger.info("%d/%d (%.2f%%) partitions replicated in %.2f "
-                             "seconds (%.2f/sec, %s remaining)"
-                    % (self.replication_count, self.job_count,
-                       self.replication_count * 100.0 / self.job_count,
-                       time.time() - self.start, rate,
-                       '%d%s' % compute_eta(self.start,
-                           self.replication_count, self.job_count)))
+            self.logger.info(_("%(replicated)d/%(total)d (%(percentage).2f%%)"
+                " partitions replicated in %(time).2fs (%(rate).2f/sec, "
+                "%(remaining)s remaining)"),
+                {'replicated': self.replication_count, 'total': self.job_count,
+                 'percentage': self.replication_count * 100.0 / self.job_count,
+                 'time': time.time() - self.start, 'rate': rate,
+                 'remaining': '%d%s' % compute_eta(self.start,
+                           self.replication_count, self.job_count)})
             if self.suffix_count:
-                self.logger.info("%d suffixes checked - %.2f%% hashed, "
-                                 "%.2f%% synced" %
-                    (self.suffix_count,
-                     (self.suffix_hash * 100.0) / self.suffix_count,
-                     (self.suffix_sync * 100.0) / self.suffix_count))
+                self.logger.info(_("%(checked)d suffixes checked - "
+                    "%(hashed).2f%% hashed, %(synced).2f%% synced"),
+                    {'checked': self.suffix_count,
+                     'hashed': (self.suffix_hash * 100.0) / self.suffix_count,
+                     'synced': (self.suffix_sync * 100.0) / self.suffix_count})
                 self.partition_times.sort()
-                self.logger.info("Partition times: max %.4fs, min %.4fs, "
-                                 "med %.4fs"
-                    % (self.partition_times[-1], self.partition_times[0],
-                       self.partition_times[len(self.partition_times) // 2]))
+                self.logger.info(_("Partition times: max %(max).4fs, "
+                    "min %(min).4fs, med %(med).4fs"),
+                    {'max': self.partition_times[-1],
+                     'min': self.partition_times[0],
+                     'med': self.partition_times[
+                                len(self.partition_times) // 2]})
         else:
-            self.logger.info("Nothing replicated for %s seconds."
-                % (time.time() - self.start))
+            self.logger.info(_("Nothing replicated for %s seconds."),
+                (time.time() - self.start))
 
     def kill_coros(self):
         """Utility function that kills all coroutines currently running."""
@@ -466,7 +472,7 @@ class ObjectReplicator(Daemon):
         while True:
             eventlet.sleep(self.lockup_timeout)
             if self.replication_count == self.last_replication_count:
-                self.logger.error("Lockup detected.. killing live coros.")
+                self.logger.error(_("Lockup detected.. killing live coros."))
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
@@ -483,7 +489,7 @@ class ObjectReplicator(Daemon):
             obj_path = join(dev_path, 'objects')
             tmp_path = join(dev_path, 'tmp')
             if self.mount_check and not os.path.ismount(dev_path):
-                self.logger.warn('%s is not mounted' % local_dev['device'])
+                self.logger.warn(_('%s is not mounted'), local_dev['device'])
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
             if not os.path.exists(obj_path):
@@ -521,8 +527,8 @@ class ObjectReplicator(Daemon):
             jobs = self.collect_jobs()
             for job in jobs:
                 if not self.check_ring():
-                    self.logger.info(
-                    "Ring change detected. Aborting current replication pass.")
+                    self.logger.info(_("Ring change detected. Aborting "
+                            "current replication pass."))
                     return
                 if job['delete']:
                     self.run_pool.spawn(self.update_deleted, job)
@@ -531,7 +537,7 @@ class ObjectReplicator(Daemon):
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
-            self.logger.exception("Exception in top-level replication loop")
+            self.logger.exception(_("Exception in top-level replication loop"))
             self.kill_coros()
         finally:
             stats.kill()
@@ -540,23 +546,23 @@ class ObjectReplicator(Daemon):
 
     def run_once(self):
         start = time.time()
-        self.logger.info("Running object replicator in script mode.")
+        self.logger.info(_("Running object replicator in script mode."))
         self.replicate()
         total = (time.time() - start) / 60
         self.logger.info(
-            "Object replication complete. (%.02f minutes)" % total)
+            _("Object replication complete. (%.02f minutes)"), total)
 
     def run_forever(self):
         self.logger.info("Starting object replicator in daemon mode.")
         # Run the replicator continually
         while True:
             start = time.time()
-            self.logger.info("Starting object replication pass.")
+            self.logger.info(_("Starting object replication pass."))
             # Run the replicator
             self.replicate()
             total = (time.time() - start) / 60
             self.logger.info(
-                "Object replication complete. (%.02f minutes)" % total)
-            self.logger.debug('Replication sleeping for %s seconds.' %
+                _("Object replication complete. (%.02f minutes)"), total)
+            self.logger.debug(_('Replication sleeping for %s seconds.'),
                 self.run_pause)
             sleep(self.run_pause)

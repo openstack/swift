@@ -22,6 +22,7 @@ from ConfigParser import ConfigParser
 from urllib import unquote, quote
 import uuid
 import functools
+from gettext import gettext as _
 
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
@@ -120,8 +121,8 @@ class Controller(object):
         :param msg: error message
         """
         self.error_increment(node)
-        self.app.logger.error(
-            '%s %s:%s' % (msg, node['ip'], node['port']))
+        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s'),
+            {'msg': msg, 'ip': node['ip'], 'port': node['port']})
 
     def exception_occurred(self, node, typ, additional_info):
         """
@@ -132,9 +133,9 @@ class Controller(object):
         :param additional_info: additional information to log
         """
         self.app.logger.exception(
-            'ERROR with %s server %s:%s/%s transaction %s re: %s' % (typ,
-            node['ip'], node['port'], node['device'], self.trans_id,
-            additional_info))
+            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s'),
+            {'type': typ, 'ip': node['ip'], 'port': node['port'],
+             'device': node['device'], 'info': additional_info})
 
     def error_limited(self, node):
         """
@@ -155,8 +156,7 @@ class Controller(object):
         limited = node['errors'] > self.app.error_suppression_limit
         if limited:
             self.app.logger.debug(
-                'Node error limited %s:%s (%s)' % (
-                    node['ip'], node['port'], node['device']))
+                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
         return limited
 
     def error_limit(self, node):
@@ -380,8 +380,8 @@ class Controller(object):
                     if etag:
                         resp.headers['etag'] = etag.strip('"')
                     return resp
-        self.app.logger.error('%s returning 503 for %s, transaction %s' %
-                              (server_type, statuses, self.trans_id))
+        self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
+                              {'type': server_type, 'statuses': statuses})
         resp.status = '503 Internal Server Error'
         return resp
 
@@ -454,9 +454,7 @@ class Controller(object):
                             res.bytes_transferred += len(chunk)
                     except GeneratorExit:
                         res.client_disconnect = True
-                        self.app.logger.info(
-                            'Client disconnected on read transaction %s' %
-                            self.trans_id)
+                        self.app.logger.info(_('Client disconnected on read'))
                     except:
                         self.exception_occurred(node, 'Object',
                             'Trying to read during GET of %s' % req.path)
@@ -561,7 +559,7 @@ class ObjectController(Controller):
         error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -603,7 +601,7 @@ class ObjectController(Controller):
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -618,7 +616,7 @@ class ObjectController(Controller):
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         # Sometimes the 'content-type' header exists, but is set to None.
         if not req.headers.get('content-type'):
-            guessed_type, _ = mimetypes.guess_type(req.path_info)
+            guessed_type, _junk = mimetypes.guess_type(req.path_info)
             if not guessed_type:
                 req.headers['Content-Type'] = 'application/octet-stream'
             else:
@@ -698,9 +696,9 @@ class ObjectController(Controller):
             containers.insert(0, container)
         if len(conns) <= len(nodes) / 2:
             self.app.logger.error(
-                'Object PUT returning 503, %s/%s required connections, '
-                'transaction %s' %
-                (len(conns), len(nodes) / 2 + 1, self.trans_id))
+                _('Object PUT returning 503, %(conns)s/%(nodes)s '
+                'required connections'),
+                {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
             return HTTPServiceUnavailable(request=req)
         try:
             req.bytes_transferred = 0
@@ -730,27 +728,26 @@ class ObjectController(Controller):
                         conns.remove(conn)
                         if len(conns) <= len(nodes) / 2:
                             self.app.logger.error(
-                                'Object PUT exceptions during send, %s/%s '
-                                'required connections, transaction %s' %
-                                (len(conns), len(nodes) // 2 + 1,
-                                 self.trans_id))
+                                _('Object PUT exceptions during send, '
+                                  '%(conns)s/%(nodes)s required connections'),
+                                {'conns': len(conns),
+                                 'nodes': len(nodes) // 2 + 1})
                             return HTTPServiceUnavailable(request=req)
                 if req.headers.get('transfer-encoding') and chunk == '':
                     break
         except ChunkReadTimeout, err:
             self.app.logger.info(
-                'ERROR Client read timeout (%ss)' % err.seconds)
+                _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
         except:
             req.client_disconnect = True
             self.app.logger.exception(
-                'ERROR Exception causing client disconnect')
+                _('ERROR Exception causing client disconnect'))
             return Response(status='499 Client Disconnect')
         if req.content_length and req.bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.info(
-                'Client disconnected without sending enough data %s' %
-                self.trans_id)
+                _('Client disconnected without sending enough data'))
             return Response(status='499 Client Disconnect')
         statuses = []
         reasons = []
@@ -774,7 +771,7 @@ class ObjectController(Controller):
                     'Trying to get final status of PUT to %s' % req.path)
         if len(etags) > 1:
             self.app.logger.error(
-                'Object servers returned %s mismatched etags' % len(etags))
+                _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = len(etags) and etags.pop() or None
         while len(statuses) < len(nodes):
@@ -798,7 +795,7 @@ class ObjectController(Controller):
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -848,7 +845,7 @@ class ObjectController(Controller):
         if not dest.startswith('/'):
             dest = '/' + dest
         try:
-            _, dest_container, dest_object = dest.split('/', 2)
+            _junk, dest_container, dest_object = dest.split('/', 2)
         except ValueError:
             return HTTPPreconditionFailed(request=req,
                     body='Destination header must be of the form '
@@ -1116,9 +1113,8 @@ class ContainerController(Controller):
                     # If even one node doesn't do the delete, we can't be sure
                     # what the outcome will be once everything is in sync; so
                     # we 503.
-                    self.app.logger.error('Returning 503 because not all '
-                        'container nodes confirmed DELETE, transaction %s' %
-                        self.trans_id)
+                    self.app.logger.error(_('Returning 503 because not all '
+                        'container nodes confirmed DELETE'))
                     return HTTPServiceUnavailable(request=req)
         if resp.status_int == 202:  # Indicates no server had the container
             return HTTPNotFound(request=req)
@@ -1440,7 +1436,7 @@ class BaseApplication(object):
                         return resp
             return handler(req)
         except Exception:
-            self.logger.exception('ERROR Unhandled exception in request')
+            self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)
 
 

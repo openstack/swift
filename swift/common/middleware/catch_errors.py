@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from gettext import gettext as _
+
 from webob import Request
 from webob.exc import HTTPServerError
 
@@ -32,7 +34,7 @@ class CatchErrorMiddleware(object):
         try:
             return self.app(env, start_response)
         except Exception, err:
-            self.logger.exception('Error: %s' % err)
+            self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')

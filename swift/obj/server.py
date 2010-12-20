@@ -26,6 +26,7 @@ from hashlib import md5
 from tempfile import mkstemp
 from urllib import unquote
 from contextlib import contextmanager
+from gettext import gettext as _
 
 from webob import Request, Response, UTC
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
@@ -292,13 +293,15 @@ class ObjectController(object):
                 if 200 <= response.status < 300:
                     return
                 else:
-                    self.logger.error('ERROR Container update failed (saving '
-                        'for async update later): %d response from %s:%s/%s' %
-                        (response.status, ip, port, contdevice))
+                    self.logger.error(_('ERROR Container update failed '
+                        '(saving for async update later): %(status)d '
+                        'response from %(ip)s:%(port)s/%(dev)s'),
+                        {'status': response.status, 'ip': ip, 'port': port,
+                         'dev': contdevice})
         except:
-            self.logger.exception('ERROR container update failed with '
-                '%s:%s/%s transaction %s (saving for async update later)' %
-                (ip, port, contdevice, headers_in.get('x-cf-trans-id', '-')))
+            self.logger.exception(_('ERROR container update failed with '
+                '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                {'ip': ip, 'port': port, 'dev': contdevice})
         async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
         ohash = hash_path(account, container, obj)
         write_pickle(
@@ -565,10 +568,8 @@ class ObjectController(object):
                 else:
                     res = HTTPMethodNotAllowed()
             except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         if self.log_requests:
