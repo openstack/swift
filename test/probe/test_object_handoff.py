@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from swift.common import client, direct_client
 
-from common import kill_pids, reset_environment
+from test.probe.common import kill_pids, reset_environment
 
 
 class TestObjectHandoff(unittest.TestCase):
