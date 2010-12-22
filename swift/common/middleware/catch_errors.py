@@ -32,7 +32,7 @@ class CatchErrorMiddleware(object):
         try:
             return self.app(env, start_response)
         except Exception, err:
-            self.logger.exception('Error: %s' % err)
+            self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')

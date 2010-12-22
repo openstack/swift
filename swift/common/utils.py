@@ -35,7 +35,6 @@ from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
 
-
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
 from eventlet.green import socket, subprocess, ssl, thread, threading
@@ -85,8 +84,8 @@ def load_libc_function(func_name):
         libc = ctypes.CDLL(ctypes.util.find_library('c'))
         return getattr(libc, func_name)
     except AttributeError:
-        logging.warn("Unable to locate %s in libc.  Leaving as a no-op."
-                     % func_name)
+        logging.warn(_("Unable to locate %s in libc.  Leaving as a no-op."),
+                     func_name)
 
         def noop_libc_function(*args):
             return 0
@@ -252,12 +251,12 @@ class LoggerFileObject(object):
         value = value.strip()
         if value:
             if 'Connection reset by peer' in value:
-                self.logger.error('STDOUT: Connection reset by peer')
+                self.logger.error(_('STDOUT: Connection reset by peer'))
             else:
-                self.logger.error('STDOUT: %s' % value)
+                self.logger.error(_('STDOUT: %s'), value)
 
     def writelines(self, values):
-        self.logger.error('STDOUT: %s' % '#012'.join(values))
+        self.logger.error(_('STDOUT: %s'), '#012'.join(values))
 
     def close(self):
         pass
@@ -284,23 +283,24 @@ class LoggerFileObject(object):
         return self
 
 
-class NamedLogger(object):
+class LogAdapter(object):
     """Cheesy version of the LoggerAdapter available in Python 3"""
 
-    def __init__(self, logger, server):
+    def __init__(self, logger):
         self.logger = logger
-        self.server = server
-        for proxied_method in ('debug', 'info', 'log', 'warn', 'warning',
-                               'error', 'critical'):
-            setattr(self, proxied_method,
-                    self._proxy(getattr(logger, proxied_method)))
+        self._txn_id = threading.local()
+        for proxied_method in ('debug', 'log', 'warn', 'warning', 'error',
+                               'critical', 'info'):
+            setattr(self, proxied_method, getattr(logger, proxied_method))
 
-    def _proxy(self, logger_meth):
+    @property
+    def txn_id(self):
+        if hasattr(self._txn_id, 'value'):
+            return self._txn_id.value
 
-        def _inner_proxy(msg, *args, **kwargs):
-            msg = '%s %s' % (self.server, msg)
-            logger_meth(msg, *args, **kwargs)
-        return _inner_proxy
+    @txn_id.setter
+    def txn_id(self, value):
+        self._txn_id.value = value
 
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
@@ -330,7 +330,22 @@ class NamedLogger(object):
                     emsg += ' %s' % exc.msg
         else:
             call = self.logger.exception
-        call('%s %s: %s' % (self.server, msg, emsg), *args)
+        call('%s: %s' % (msg, emsg), *args)
+
+
+class NamedFormatter(logging.Formatter):
+    def __init__(self, server, logger):
+        logging.Formatter.__init__(self)
+        self.server = server
+        self.logger = logger
+
+    def format(self, record):
+        msg = logging.Formatter.format(self, record)
+        if self.logger.txn_id and (record.levelno != logging.INFO or
+                                   self.logger.txn_id not in msg):
+            return '%s %s (txn: %s)' % (self.server, msg, self.logger.txn_id)
+        else:
+            return '%s %s' % (self.server, msg)
 
 
 def get_logger(conf, name=None, log_to_console=False):
@@ -359,7 +374,8 @@ def get_logger(conf, name=None, log_to_console=False):
         root_logger.addHandler(get_logger.console)
     if conf is None:
         root_logger.setLevel(logging.INFO)
-        return NamedLogger(root_logger, name)
+        adapted_logger = LogAdapter(root_logger)
+        return adapted_logger
     if name is None:
         name = conf.get('log_name', 'swift')
     get_logger.handler = SysLogHandler(address='/dev/log',
@@ -369,7 +385,9 @@ def get_logger(conf, name=None, log_to_console=False):
     root_logger.addHandler(get_logger.handler)
     root_logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
-    return NamedLogger(root_logger, name)
+    adapted_logger = LogAdapter(root_logger)
+    get_logger.handler.setFormatter(NamedFormatter(name, adapted_logger))
+    return adapted_logger
 
 
 def drop_privileges(user):
@@ -444,12 +462,12 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print "Error: missing config file argument"
+        print _("Error: missing config file argument")
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
         parser.print_usage()
-        print "Error: unable to locate %s" % config
+        print _("Error: unable to locate %s") % config
         sys.exit(1)
 
     extra_args = []
@@ -672,14 +690,14 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
         defaults = {}
     c = ConfigParser(defaults)
     if not c.read(conf):
-        print "Unable to read config file %s" % conf
+        print _("Unable to read config file %s") % conf
         sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print "Unable to find %s config section in %s" % (section_name,
-                                                              conf)
+            print _("Unable to find %s config section in %s") % \
+                 (section_name, conf)
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
@@ -731,7 +749,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                 os.path.ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
-                    'Skipping %s as it is not mounted' % device)
+                    _('Skipping %s as it is not mounted'), device)
             continue
         datadir = os.path.join(devices, device, datadir)
         if not os.path.exists(datadir):

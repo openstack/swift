@@ -50,7 +50,7 @@ class TestDaemon(unittest.TestCase):
     def test_create(self):
         d = daemon.Daemon({})
         self.assertEquals(d.conf, {})
-        self.assert_(isinstance(d.logger, utils.NamedLogger))
+        self.assert_(isinstance(d.logger, utils.LogAdapter))
 
     def test_stubs(self):
         d = daemon.Daemon({})

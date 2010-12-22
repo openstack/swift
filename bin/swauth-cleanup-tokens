@@ -18,6 +18,7 @@ try:
     import simplejson as json
 except ImportError:
     import json
+import gettext
 import re
 from datetime import datetime, timedelta
 from optparse import OptionParser
@@ -28,6 +29,7 @@ from swift.common.client import Connection
 
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     parser = OptionParser(usage='Usage: %prog [options]')
     parser.add_option('-t', '--token-life', dest='token_life',
         default='86400', help='The expected life of tokens; token objects '

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gettext
 from optparse import OptionParser
 from os.path import basename
 from sys import argv, exit
@@ -23,6 +24,7 @@ from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     parser = OptionParser(usage='Usage: %prog [options]')
     parser.add_option('-A', '--admin-url', dest='admin_url',
         default='http://127.0.0.1:8080/auth/', help='The URL to the auth '

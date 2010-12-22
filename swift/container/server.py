@@ -111,18 +111,18 @@ class ContainerController(object):
                         return HTTPNotFound(request=req)
                     elif account_response.status < 200 or \
                             account_response.status > 299:
-                        self.logger.error('ERROR Account update failed '
-                            'with %s:%s/%s transaction %s (will retry '
-                            'later): Response %s %s' % (account_ip,
-                            account_port, account_device,
-                            req.headers.get('x-cf-trans-id'),
-                            account_response.status,
-                            account_response.reason))
+                        self.logger.error(_('ERROR Account update failed '
+                            'with %(ip)s:%(port)s/%(device)s (will retry '
+                            'later): Response %(status)s %(reason)s'),
+                            {'ip': account_ip, 'port': account_port,
+                             'device': account_device,
+                             'status': account_response.status,
+                             'reason': account_response.reason})
             except:
-                self.logger.exception('ERROR account update failed with '
-                    '%s:%s/%s transaction %s (will retry later)' %
-                    (account_ip, account_port, account_device,
-                     req.headers.get('x-cf-trans-id', '-')))
+                self.logger.exception(_('ERROR account update failed with '
+                    '%(ip)s:%(port)s/%(device)s (will retry later)'),
+                    {'ip': account_ip, 'port': account_port,
+                     'device': account_device})
         return None
 
     def DELETE(self, req):
@@ -384,6 +384,7 @@ class ContainerController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -393,10 +394,8 @@ class ContainerController(object):
                 else:
                     res = HTTPMethodNotAllowed()
             except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = '%.4f' % (time.time() - start_time)
         log_message = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s' % (

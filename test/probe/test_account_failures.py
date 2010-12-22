@@ -21,7 +21,7 @@ from subprocess import Popen
 from time import sleep
 
 from swift.common import client
-from common import get_to_final_state, kill_pids, reset_environment
+from test.probe.common import get_to_final_state, kill_pids, reset_environment
 
 
 class TestAccountFailures(unittest.TestCase):

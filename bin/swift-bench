@@ -20,6 +20,7 @@ import sys
 import signal
 import uuid
 from optparse import OptionParser
+import gettext
 
 from swift.common.bench import BenchController
 from swift.common.utils import readconf, NamedLogger
@@ -55,6 +56,7 @@ SAIO_DEFAULTS = {
     }
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     usage = "usage: %prog [OPTIONS] [CONF_FILE]"
     usage += """\n\nConf file with SAIO defaults:
 

@@ -16,7 +16,9 @@
 import os
 import sys
 import signal
+import gettext
 from re import sub
+
 from swift.common import utils
 
 
@@ -40,6 +42,7 @@ class Daemon(object):
         utils.validate_configuration()
         utils.capture_stdio(self.logger, **kwargs)
         utils.drop_privileges(self.conf.get('user', 'swift'))
+        gettext.install('swift', unicode=1)
 
         def kill_children(*args):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
