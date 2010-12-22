@@ -18,12 +18,14 @@ import sys
 import cPickle as pickle
 from datetime import datetime
 from hashlib import md5
+import gettext
 
 from swift.common.ring import Ring
 from swift.obj.server import read_metadata
 from swift.common.utils import hash_path
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     if len(sys.argv) <= 1:
         print "Usage: %s OBJECT_FILE" % sys.argv[0]
         sys.exit(1)
