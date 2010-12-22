@@ -69,7 +69,7 @@ class Swauth(object):
                             (self.dsc_parsed.scheme, repr(self.dsc_url)))
         self.super_admin_key = conf.get('super_admin_key')
         if not self.super_admin_key:
-            msg = 'No super_admin_key set in conf file! Exiting.'
+            msg = _('No super_admin_key set in conf file! Exiting.')
             try:
                 self.logger.critical(msg)
             except Exception:
