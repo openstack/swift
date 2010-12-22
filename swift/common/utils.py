@@ -341,7 +341,8 @@ class NamedFormatter(logging.Formatter):
 
     def format(self, record):
         msg = logging.Formatter.format(self, record)
-        if record.levelno != logging.INFO and self.logger.txn_id:
+        if self.logger.txn_id and (record.levelno != logging.INFO or
+                                   self.logger.txn_id not in msg):
             return '%s %s (txn: %s)' % (self.server, msg, self.logger.txn_id)
         else:
             return '%s %s' % (self.server, msg)

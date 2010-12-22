@@ -44,6 +44,8 @@ except:
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
+    import __builtin__ # bufferedhttp uses automagic gettext
+    setattr(__builtin__, '_', lambda x: x)
 except:
     from httplib import HTTPConnection
 
