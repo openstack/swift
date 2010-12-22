@@ -295,7 +295,7 @@ class DatabaseBroker(object):
             self.conn = conn
         except:     # pragma: no cover
             logging.exception(
-                'Broker error trying to rollback locked connection')
+                _('Broker error trying to rollback locked connection'))
             conn.close()
 
     def newid(self, remote_id):
@@ -750,8 +750,8 @@ class ContainerBroker(DatabaseBroker):
                                 'deleted': deleted})
                         except:
                             self.logger.exception(
-                                'Invalid pending entry %s: %s'
-                                % (self.pending_file, entry))
+                                _('Invalid pending entry %(file)s: %(entry)s'),
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
@@ -1217,8 +1217,8 @@ class AccountBroker(DatabaseBroker):
                                       'deleted': deleted})
                         except:
                             self.logger.exception(
-                                'Invalid pending entry %s: %s'
-                                 % (self.pending_file, entry))
+                                _('Invalid pending entry %(file)s: %(entry)s'),
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:

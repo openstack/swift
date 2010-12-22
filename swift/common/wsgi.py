@@ -21,6 +21,7 @@ import signal
 import sys
 import time
 import mimetools
+import gettext
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
@@ -120,6 +121,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
+    gettext.install('swift', unicode=1)
 
     # finally after binding to ports and privilege drop, run app __init__ code
     app = loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})

@@ -21,6 +21,7 @@ from os import mkdir
 from os.path import basename, dirname, exists, join as pathjoin
 from sys import argv, exit
 from time import time
+import gettext
 
 from swift.common.ring import RingBuilder
 
@@ -174,6 +175,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
 
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     if len(argv) < 2:
         print '''
 swift-ring-builder %(MAJOR_VERSION)s.%(MINOR_VERSION)s
