@@ -29,7 +29,6 @@ BufferedHTTPResponse.
 from urllib import quote
 import logging
 import time
-from gettext import gettext as _
 
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN

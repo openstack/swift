@@ -20,7 +20,6 @@ import random
 import math
 import time
 import shutil
-from gettext import gettext as _
 
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess

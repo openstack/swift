@@ -18,7 +18,6 @@ import time
 import random
 from urlparse import urlparse
 from contextlib import contextmanager
-from gettext import gettext as _
 
 import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest

@@ -16,7 +16,6 @@
 import os
 import time
 from random import random
-from gettext import gettext as _
 
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker

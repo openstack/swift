@@ -20,7 +20,6 @@ import time
 import traceback
 from urllib import unquote
 from xml.sax import saxutils
-from gettext import gettext as _
 
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \

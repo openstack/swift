@@ -21,7 +21,6 @@ import traceback
 from urllib import unquote
 from xml.sax import saxutils
 from datetime import datetime
-from gettext import gettext as _
 
 import simplejson
 from eventlet.timeout import Timeout

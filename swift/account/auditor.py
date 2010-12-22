@@ -16,7 +16,6 @@
 import os
 import time
 from random import random
-from gettext import gettext as _
 
 from swift.account import server as account_server
 from swift.common.db import AccountBroker

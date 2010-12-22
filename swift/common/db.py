@@ -27,7 +27,6 @@ import cPickle as pickle
 import errno
 from random import randint
 from tempfile import mkstemp
-from gettext import gettext as _
 
 from eventlet import sleep
 import simplejson as json

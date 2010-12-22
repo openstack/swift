@@ -19,7 +19,6 @@ import signal
 import sys
 import time
 from random import random, shuffle
-from gettext import gettext as _
 
 from eventlet import spawn, patcher, Timeout
 

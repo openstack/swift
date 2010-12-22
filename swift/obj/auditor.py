@@ -17,7 +17,6 @@ import os
 import time
 from hashlib import md5
 from random import random
-from gettext import gettext as _
 
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash

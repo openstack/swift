@@ -15,7 +15,6 @@ import time
 import eventlet
 from webob import Request, Response
 from webob.exc import HTTPNotFound
-from gettext import gettext as _
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key

@@ -26,7 +26,6 @@ import socket
 import time
 from bisect import bisect
 from hashlib import md5
-from gettext import gettext as _
 
 CONN_TIMEOUT = 0.3
 IO_TIMEOUT = 2.0

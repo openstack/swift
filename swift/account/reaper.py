@@ -18,7 +18,6 @@ import random
 from logging import DEBUG
 from math import sqrt
 from time import time
-from gettext import gettext as _
 
 from eventlet import GreenPool, sleep
 

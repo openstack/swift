@@ -28,7 +28,6 @@ from datetime import datetime
 from urllib import unquote, quote
 import uuid
 import functools
-from gettext import gettext as _
 from hashlib import md5
 
 from eventlet import sleep

@@ -26,7 +26,6 @@ from hashlib import md5
 from tempfile import mkstemp
 from urllib import unquote
 from contextlib import contextmanager
-from gettext import gettext as _
 
 from webob import Request, Response, UTC
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \

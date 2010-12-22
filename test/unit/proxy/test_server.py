@@ -3019,8 +3019,8 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertRaises(Exception,
             proxy_server.SegmentedIterable(self.controller, None,
             [None])._load_next_segment)
-        self.assertEquals(self.controller.exception_args[0],
-            'ERROR: While processing manifest /a/c/o tx1')
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
 
     def test_load_next_segment_with_no_segments(self):
         self.assertRaises(StopIteration,
@@ -3079,8 +3079,8 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertRaises(Exception,
             proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
             'o1'}])._load_next_segment)
-        self.assertEquals(self.controller.exception_args[0],
-            'ERROR: While processing manifest /a/c/o tx1')
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
         self.assertEquals(str(self.controller.exception_info[1]),
             'Could not load object segment /a/lc/o1: 404')
 
@@ -3088,8 +3088,8 @@ class TestSegmentedIterable(unittest.TestCase):
         # Iterator value isn't a dict
         self.assertRaises(Exception, ''.join,
             proxy_server.SegmentedIterable(self.controller, None, [None]))
-        self.assertEquals(self.controller.exception_args[0],
-            'ERROR: While processing manifest /a/c/o tx1')
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
 
     def test_iter_with_no_segments(self):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', [])
@@ -3118,8 +3118,8 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertRaises(Exception, ''.join,
             proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
             'o1'}]))
-        self.assertEquals(self.controller.exception_args[0],
-            'ERROR: While processing manifest /a/c/o tx1')
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
         self.assertEquals(str(self.controller.exception_info[1]),
             'Could not load object segment /a/lc/o1: 404')
 
@@ -3128,8 +3128,8 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertRaises(Exception,
             proxy_server.SegmentedIterable(self.controller, None,
             [None]).app_iter_range(None, None).next)
-        self.assertEquals(self.controller.exception_args[0],
-            'ERROR: While processing manifest /a/c/o tx1')
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
 
     def test_app_iter_range_with_no_segments(self):
         self.assertEquals(''.join(proxy_server.SegmentedIterable(

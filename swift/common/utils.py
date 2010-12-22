@@ -34,7 +34,6 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
-from gettext import gettext as _
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
