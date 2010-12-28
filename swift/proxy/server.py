@@ -950,7 +950,11 @@ class ObjectController(Controller):
             data_source = source_resp.app_iter
             new_req.content_length = source_resp.content_length
             if new_req.content_length is None:
-                new_req.headers['Transfer-Encoding'] = 'chunked'
+                # This indicates a transfer-encoding: chunked source object,
+                # which currently only happens because there are more than
+                # CONTAINER_LISTING_LIMIT segments in a segmented object. In
+                # this case, we're going to refuse to do the server-side copy.
+                return HTTPRequestEntityTooLarge(request=req)
             new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
