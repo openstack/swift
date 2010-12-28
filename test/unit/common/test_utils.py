@@ -35,6 +35,7 @@ from swift.common import utils
 
 
 class MockOs():
+
     def __init__(self, pass_funcs=[], called_funcs=[], raise_funcs=[]):
         self.closed_fds = []
         for func in pass_funcs:
@@ -184,12 +185,12 @@ class TestUtils(unittest.TestCase):
         print 'test2'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
         sys.stderr = lfo
-        print >>sys.stderr, 'test4'
+        print >> sys.stderr, 'test4'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
         sys.stdout = orig_stdout
         print 'test5'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
-        print >>sys.stderr, 'test6'
+        print >> sys.stderr, 'test6'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
             'STDOUT: test6\n')
         sys.stderr = orig_stderr
@@ -325,7 +326,7 @@ Error: unable to locate %s
 
     def test_hash_path(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
-        # that if someones changes the results hash_path produces, they know it.
+        # that if someones changes the results hash_path produces, they know it
         self.assertEquals(utils.hash_path('a'),
                           '1c84525acb02107ea475dcd3d09c2c58')
         self.assertEquals(utils.hash_path('a', 'c'),
@@ -364,10 +365,12 @@ log_name = yarr'''
         result = utils.readconf('/tmp/test', 'section2').get('log_name')
         expected = 'yarr'
         self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1', log_name='foo').get('log_name')
+        result = utils.readconf('/tmp/test', 'section1',
+                                log_name='foo').get('log_name')
         expected = 'foo'
         self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1', defaults={'bar': 'baz'})
+        result = utils.readconf('/tmp/test', 'section1',
+                                defaults={'bar': 'baz'})
         expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
         self.assertEquals(result, expected)
         os.unlink('/tmp/test')
@@ -452,34 +455,35 @@ log_name = yarr'''
         start = time.time()
         for i in range(100):
             running_time = utils.ratelimit_sleep(running_time, 0)
-        self.assertTrue(abs((time.time() - start)* 1000) < 1)
+        self.assertTrue(abs((time.time() - start) * 100) < 1)
 
         running_time = 0
         start = time.time()
         for i in range(50):
             running_time = utils.ratelimit_sleep(running_time, 200)
-        # make sure its accurate to 2/100 of a second
-        self.assertTrue(abs(25 - (time.time() - start)* 100) < 2)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(25 - (time.time() - start) * 100) < 10)
 
     def test_ratelimit_sleep_with_sleep(self):
         running_time = 0
         start = time.time()
         for i in range(25):
             running_time = utils.ratelimit_sleep(running_time, 50)
-            time.sleep(1.0/75)
-        # make sure its accurate to 2/100 of a second
-        self.assertTrue(abs(50 - (time.time() - start)* 100) < 2)
+            time.sleep(1.0 / 75)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
 
     def test_ratelimit_sleep_with_incr(self):
         running_time = 0
         start = time.time()
-        vals = [5,17,0,3,11,30,40,4,13,2,-1] * 2 # adds up to 250 (with no -1)
+        vals = [5, 17, 0, 3, 11, 30,
+                40, 4, 13, 2, -1] * 2 # adds up to 250 (with no -1)
         total = 0
         for i in vals:
             running_time = utils.ratelimit_sleep(running_time,
                                                  500, incr_by=i)
             total += i
-        self.assertTrue(abs(50 - (time.time() - start)* 100) < 2)
+        self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
 
 
 if __name__ == '__main__':

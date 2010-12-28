@@ -35,14 +35,18 @@ class ObjectAuditor(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.max_files_per_second = float(conf.get('files_per_second', 0))
-        self.max_bytes_per_second = float(conf.get('bytes_per_second', 0))
+        self.max_files_per_second = float(conf.get('files_per_second', 20))
+        self.max_bytes_per_second = float(conf.get('bytes_per_second',
+                                                   10000000))
         self.files_running_time = 0
         self.bytes_running_time = 0
         self.bytes_processed = 0
+        self.total_bytes_processed = 0
+        self.total_files_processed = 0
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
+        self.log_time = 3600 # once an hour
 
     def run_forever(self):
         """Run the object audit until stopped."""
@@ -62,7 +66,8 @@ class ObjectAuditor(Daemon):
             self.object_audit(path, device, partition)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
-            if time.time() - reported >= 3600:  # once an hour
+            self.total_files_processed += 1
+            if time.time() - reported >= self.log_time:
                 self.logger.info(
                     'Since %s: Locally: %d passed audit, %d quarantined, '
                     '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
@@ -77,7 +82,11 @@ class ObjectAuditor(Daemon):
                 self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Object audit "%s" mode completed: %.02fs' % (mode, elapsed))
+            'Object audit "%s" mode completed: %.02fs. '
+            'Total bytes/sec: %.2f , Total files/sec: %.2f ' % (
+                mode, elapsed,
+                self.total_bytes_processed / elapsed,
+                self.total_files_processed / elapsed))
 
     def object_audit(self, path, device, partition):
         """
@@ -114,6 +123,7 @@ class ObjectAuditor(Daemon):
                     incr_by=len(chunk))
                 etag.update(chunk)
                 self.bytes_processed += len(chunk)
+                self.total_bytes_processed += len(chunk)
             etag = etag.hexdigest()
             if etag != df.metadata['ETag']:
                 raise AuditException("ETag of %s does not match file's md5 of "

@@ -219,7 +219,7 @@ class DiskFile(object):
 
         :params fd: file descriptor of the temp file
         :param tmppath: path to the temporary file being used
-        :param metadata: dictionary of metada to be written
+        :param metadata: dictionary of metadata to be written
         :param extention: extension to be used when making the file
         """
         metadata['name'] = self.name

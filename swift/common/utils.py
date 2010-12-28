@@ -726,8 +726,11 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                     on devices
     :param logger: a logger object
     '''
-    for device in os.listdir(devices):
-        if mount_check and not\
+    device_dir = os.listdir(devices)
+    # randomize devices in case of process restart before sweep completed
+    shuffle(device_dir)
+    for device in device_dir:
+        if mount_check and not \
                 os.path.ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
