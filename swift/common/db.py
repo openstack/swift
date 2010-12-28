@@ -139,6 +139,7 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
         conn.execute('PRAGMA synchronous = NORMAL')
         conn.execute('PRAGMA count_changes = OFF')
         conn.execute('PRAGMA temp_store = MEMORY')
+        conn.execute('PRAGMA journal_mode = DELETE')
         conn.create_function('chexor', 3, chexor)
     except sqlite3.DatabaseError:
         import traceback
@@ -295,7 +296,7 @@ class DatabaseBroker(object):
             self.conn = conn
         except:     # pragma: no cover
             logging.exception(
-                'Broker error trying to rollback locked connection')
+                _('Broker error trying to rollback locked connection'))
             conn.close()
 
     def newid(self, remote_id):
@@ -750,8 +751,8 @@ class ContainerBroker(DatabaseBroker):
                                 'deleted': deleted})
                         except:
                             self.logger.exception(
-                                'Invalid pending entry %s: %s'
-                                % (self.pending_file, entry))
+                                _('Invalid pending entry %(file)s: %(entry)s'),
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
@@ -1217,8 +1218,8 @@ class AccountBroker(DatabaseBroker):
                                       'deleted': deleted})
                         except:
                             self.logger.exception(
-                                'Invalid pending entry %s: %s'
-                                 % (self.pending_file, entry))
+                                _('Invalid pending entry %(file)s: %(entry)s'),
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:

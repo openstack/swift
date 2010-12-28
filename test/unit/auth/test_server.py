@@ -462,7 +462,7 @@ class TestAuthServer(unittest.TestCase):
             auth_server.http_connect = fake_http_connect(201)
             url = self.controller.create_user('test', 'tester', 'testing')
             self.assertEquals(log.getvalue().rsplit(' ', 1)[0],
-                "auth SUCCESS create_user('test', 'tester', _, False, False) "
+                "SUCCESS create_user('test', 'tester', _, False, False) "
                 "= %s" % repr(url))
             log.truncate(0)
             def start_response(*args):
@@ -491,7 +491,7 @@ class TestAuthServer(unittest.TestCase):
             logsegs[1] = '[01/Jan/2001:01:02:03 +0000]'
             logsegs[2:] = logsegs[2].split(' ')
             logsegs[-1] = '0.1234'
-            self.assertEquals(' '.join(logsegs), 'auth testhost - - '
+            self.assertEquals(' '.join(logsegs), 'testhost - - '
                 '[01/Jan/2001:01:02:03 +0000] "GET /v1/test/auth?test=True '
                 'HTTP/1.0" 204 - "-" "-" - - - - - - - - - "-" "None" "-" '
                 '0.1234')
@@ -519,7 +519,7 @@ class TestAuthServer(unittest.TestCase):
             logsegs[1] = '[01/Jan/2001:01:02:03 +0000]'
             logsegs[2:] = logsegs[2].split(' ')
             logsegs[-1] = '0.1234'
-            self.assertEquals(' '.join(logsegs), 'auth None - - [01/Jan/2001:'
+            self.assertEquals(' '.join(logsegs), 'None - - [01/Jan/2001:'
                 '01:02:03 +0000] "GET /v1/test/auth HTTP/1.0" 204 - "-" "-" - '
                 '- - - - - - - - "-" "None" "Content-Length: 0\n'
                 'X-Storage-User: tester\nX-Storage-Pass: testing" 0.1234')
@@ -556,7 +556,7 @@ class TestAuthServer(unittest.TestCase):
                                      'HTTP_X_STORAGE_PASS': 'testing'},
                                     start_response)
             self.assert_(log.getvalue().startswith(
-                'auth ERROR Unhandled exception in ReST request'),
+                'ERROR Unhandled exception in ReST request'),
                 log.getvalue())
             log.truncate(0)
         finally:

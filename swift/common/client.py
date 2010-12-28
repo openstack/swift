@@ -569,7 +569,8 @@ def put_object(url, token, container, name, contents, content_length=None,
     :param container: container name that the object is in
     :param name: object name to put
     :param contents: a string or a file like object to read object data from
-    :param content_length: value to send as content-length header
+    :param content_length: value to send as content-length header; also limits
+                           the amount read from contents
     :param etag: etag of contents
     :param chunk_size: chunk size of data to write
     :param content_type: value to send as content-type header
@@ -599,18 +600,24 @@ def put_object(url, token, container, name, contents, content_length=None,
         conn.putrequest('PUT', path)
         for header, value in headers.iteritems():
             conn.putheader(header, value)
-        if not content_length:
+        if content_length is None:
             conn.putheader('Transfer-Encoding', 'chunked')
-        conn.endheaders()
-        chunk = contents.read(chunk_size)
-        while chunk:
-            if not content_length:
-                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
-            else:
-                conn.send(chunk)
+            conn.endheaders()
             chunk = contents.read(chunk_size)
-        if not content_length:
+            while chunk:
+                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+                chunk = contents.read(chunk_size)
             conn.send('0\r\n\r\n')
+        else:
+            conn.endheaders()
+            left = content_length
+            while left > 0:
+                size = chunk_size
+                if size > left:
+                    size = left
+                chunk = contents.read(size)
+                conn.send(chunk)
+                left -= len(chunk)
     else:
         conn.request('PUT', path, contents, headers)
     resp = conn.getresponse()

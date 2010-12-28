@@ -56,7 +56,7 @@ class ObjectAuditor(Daemon):
 
     def run_once(self, mode='once'):
         """Run the object audit once."""
-        self.logger.info('Begin object audit "%s" mode' % mode)
+        self.logger.info(_('Begin object audit "%s" mode' % mode))
         begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
@@ -68,25 +68,25 @@ class ObjectAuditor(Daemon):
                 self.files_running_time, self.max_files_per_second)
             self.total_files_processed += 1
             if time.time() - reported >= self.log_time:
-                self.logger.info(
+                self.logger.info(_(
                     'Since %s: Locally: %d passed audit, %d quarantined, '
                     '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
                         time.ctime(reported), self.passes,
                         self.quarantines, self.errors,
                         self.passes / (time.time() - reported),
-                        self.bytes_processed / (time.time() - reported)))
+                        self.bytes_processed / (time.time() - reported))))
                 reported = time.time()
                 self.passes = 0
                 self.quarantines = 0
                 self.errors = 0
                 self.bytes_processed = 0
         elapsed = time.time() - begin
-        self.logger.info(
+        self.logger.info(_(
             'Object audit "%s" mode completed: %.02fs. '
             'Total bytes/sec: %.2f , Total files/sec: %.2f ' % (
                 mode, elapsed,
                 self.total_bytes_processed / elapsed,
-                self.total_files_processed / elapsed))
+                self.total_files_processed / elapsed)))
 
     def object_audit(self, path, device, partition):
         """
@@ -130,8 +130,8 @@ class ObjectAuditor(Daemon):
                     "%s" % (df.metadata['ETag'], etag))
         except AuditException, err:
             self.quarantines += 1
-            self.logger.error('ERROR Object %s failed audit and will be '
-                'quarantined: %s' % (path, err))
+            self.logger.error(_('ERROR Object %(obj)s failed audit and will be '
+                'quarantined: %(err)s'), {'obj': path, 'err': err})
             invalidate_hash(os.path.dirname(path))
             renamer_path = os.path.dirname(path)
             renamer(renamer_path, os.path.join(self.devices, device,
@@ -139,6 +139,6 @@ class ObjectAuditor(Daemon):
             return
         except Exception:
             self.errors += 1
-            self.logger.exception('ERROR Trying to audit %s' % path)
+            self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1

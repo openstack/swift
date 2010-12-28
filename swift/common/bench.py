@@ -82,10 +82,10 @@ class Bench(object):
 
     def _log_status(self, title):
         total = time.time() - self.beginbeat
-        self.logger.info('%s %s [%s failures], %.01f/s' % (
-                self.complete, title, self.failures,
-                (float(self.complete) / total),
-            ))
+        self.logger.info(_('%(complete)s %(title)s [%(fail)s failures], '
+                           '%(rate).01f/s'),
+            {'title': title, 'complete': self.complete, 'fail': self.failures,
+             'rate': (float(self.complete) / total)})
 
     @contextmanager
     def connection(self):
@@ -94,7 +94,7 @@ class Bench(object):
             try:
                 yield hc
             except CannotSendRequest:
-                self.logger.info("CannotSendRequest.  Skipping...")
+                self.logger.info(_("CannotSendRequest.  Skipping..."))
                 try:
                     hc.close()
                 except:

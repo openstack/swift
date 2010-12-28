@@ -285,35 +285,27 @@ Error: unable to locate %s
         utils.sys.stdout = orig_stdout
         utils.sys.stderr = orig_stderr
 
-    def test_NamedLogger(self):
-        sio = StringIO()
-        logger = logging.getLogger()
-        logger.addHandler(logging.StreamHandler(sio))
-        nl = utils.NamedLogger(logger, 'server')
-        nl.warn('test')
-        self.assertEquals(sio.getvalue(), 'server test\n')
-
     def test_get_logger(self):
         sio = StringIO()
         logger = logging.getLogger()
         logger.addHandler(logging.StreamHandler(sio))
         logger = utils.get_logger(None, 'server')
         logger.warn('test1')
-        self.assertEquals(sio.getvalue(), 'server test1\n')
+        self.assertEquals(sio.getvalue(), 'test1\n')
         logger.debug('test2')
-        self.assertEquals(sio.getvalue(), 'server test1\n')
+        self.assertEquals(sio.getvalue(), 'test1\n')
         logger = utils.get_logger({'log_level': 'DEBUG'}, 'server')
         logger.debug('test3')
-        self.assertEquals(sio.getvalue(), 'server test1\nserver test3\n')
+        self.assertEquals(sio.getvalue(), 'test1\ntest3\n')
         # Doesn't really test that the log facility is truly being used all the
         # way to syslog; but exercises the code.
         logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server')
         logger.warn('test4')
         self.assertEquals(sio.getvalue(),
-                          'server test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
         logger.debug('test5')
         self.assertEquals(sio.getvalue(),
-                          'server test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),

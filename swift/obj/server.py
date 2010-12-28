@@ -303,13 +303,15 @@ class ObjectController(object):
                 if 200 <= response.status < 300:
                     return
                 else:
-                    self.logger.error('ERROR Container update failed (saving '
-                        'for async update later): %d response from %s:%s/%s' %
-                        (response.status, ip, port, contdevice))
+                    self.logger.error(_('ERROR Container update failed '
+                        '(saving for async update later): %(status)d '
+                        'response from %(ip)s:%(port)s/%(dev)s'),
+                        {'status': response.status, 'ip': ip, 'port': port,
+                         'dev': contdevice})
         except:
-            self.logger.exception('ERROR container update failed with '
-                '%s:%s/%s transaction %s (saving for async update later)' %
-                (ip, port, contdevice, headers_in.get('x-cf-trans-id', '-')))
+            self.logger.exception(_('ERROR container update failed with '
+                '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                {'ip': ip, 'port': port, 'dev': contdevice})
         async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
         ohash = hash_path(account, container, obj)
         write_pickle(
@@ -402,6 +404,9 @@ class ObjectController(object):
                 'ETag': etag,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
+            if 'x-object-manifest' in request.headers:
+                metadata['X-Object-Manifest'] = \
+                    request.headers['x-object-manifest']
             metadata.update(val for val in request.headers.iteritems()
                     if val[0].lower().startswith('x-object-meta-') and
                     len(val[0]) > 14)
@@ -471,7 +476,8 @@ class ObjectController(object):
                         'application/octet-stream'), app_iter=file,
                         request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -499,7 +505,8 @@ class ObjectController(object):
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -566,6 +573,7 @@ class ObjectController(object):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
         req = Request(env)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -575,10 +583,8 @@ class ObjectController(object):
                 else:
                     res = HTTPMethodNotAllowed()
             except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         if self.log_requests:
