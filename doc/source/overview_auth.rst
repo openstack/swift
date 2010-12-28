@@ -126,9 +126,12 @@ But, here's an example of what the dictionary may look like in the future::
          "sat": "http://ord.servers.com:8080/v1/AUTH_8980f74b1cda41e483cbe0a925f448a9"}}
 
 Lastly, the tokens themselves are stored as objects in the
-<auth_account>/.token container. The names of the objects are the token strings
-themselves, such as `AUTH_tked86bbd01864458aa2bd746879438d5a`. The contents of
-the token objects are JSON dictionaries of the format::
+`<auth_account>/.token_[0-f]` containers. The names of the objects are the
+token strings themselves, such as `AUTH_tked86bbd01864458aa2bd746879438d5a`.
+The exact `.token_[0-f]` container chosen is based on the final digit of the
+token name, such as `.token_a` for the token
+`AUTH_tked86bbd01864458aa2bd746879438d5a`. The contents of the token objects
+are JSON dictionaries of the format::
 
     {"account": <account>,
      "user": <user>,
