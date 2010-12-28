@@ -52,6 +52,8 @@ class ObjectAuditor(Daemon):
         """Run the object audit until stopped."""
         while True:
             self.run_once('forever')
+            self.total_bytes_processed = 0
+            self.total_files_processed = 0
             time.sleep(30)
 
     def run_once(self, mode='once'):
