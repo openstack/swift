@@ -1149,19 +1149,17 @@ class ObjectController(Controller):
             return HTTPPreconditionFailed(request=req,
                     body='Destination header must be of the form '
                          '<container name>/<object name>')
-        new_source = '/' + self.container_name + '/' + self.object_name
+        source = '/' + self.container_name + '/' + self.object_name
         self.container_name = dest_container
         self.object_name = dest_object
-        new_headers = {}
-        for k, v in req.headers.items():
-            new_headers[k] = v
-        new_headers['X-Copy-From'] = new_source
-        new_headers['Content-Length'] = 0
-        del new_headers['Destination']
-        new_path = '/' + self.account_name + dest
-        new_req = Request.blank(new_path, environ=req.environ,
-                                headers=new_headers)
-        return self.PUT(new_req)
+        # re-write the existing request as a PUT instead of creating a new one
+        # since this one is already attached to the posthooklogger
+        req.method = 'PUT'
+        req.path_info = '/' + self.account_name + dest
+        req.headers['Content-Length'] = 0
+        req.headers['X-Copy-From'] = source
+        del req.headers['Destination']
+        return self.PUT(req)
 
 
 class ContainerController(Controller):

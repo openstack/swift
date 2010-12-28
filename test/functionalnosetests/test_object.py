@@ -38,18 +38,107 @@ class TestObject(unittest.TestCase):
         if skip:
             raise SkipTest
 
+        def delete(url, token, parsed, conn, obj):
+            conn.request('DELETE',
+                         '%s/%s/%s' % (parsed.path, self.container, obj),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # get list of objects in container
+        def list(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, self.container),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(list)
+        object_listing = resp.read()
+        self.assertEquals(resp.status, 200)
+
+        # iterate over object listing and delete all objects
+        for obj in object_listing.splitlines():
+            resp = retry(delete, obj)
+            resp.read()
+            self.assertEquals(resp.status, 204)
+
+        # delete the container
         def delete(url, token, parsed, conn):
-            conn.request('DELETE', '%s/%s/%s' % (parsed.path, self.container,
-                self.obj), '', {'X-Auth-Token': token})
+            conn.request('DELETE', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(delete)
         resp.read()
         self.assertEquals(resp.status, 204)
 
+    def test_copy_object(self):
+        if skip:
+            raise SkipTest
+
+        source = '%s/%s' % (self.container, self.obj)
+        dest = '%s/%s' % (self.container, 'test_copy')
+
+        # get contents of source
+        def get_source(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, source),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_source)
+        source_contents = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(source_contents, 'test')
+
+        # copy source to dest with X-Copy-From
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s' % (parsed.path, dest), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0',
+                          'X-Copy-From': source})
+            return check_response(conn)
+        resp = retry(put)
+        contents = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # contents of dest should be the same as source
+        def get_dest(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, dest),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(dest_contents, source_contents)
+
+        # delete the copy
         def delete(url, token, parsed, conn):
-            conn.request('DELETE', parsed.path + '/' + self.container, '',
+            conn.request('DELETE', '%s/%s' % (parsed.path, dest), '',
                          {'X-Auth-Token': token})
             return check_response(conn)
+        resp = retry(delete)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        # verify dest does not exist
+        resp = retry(get_dest)
+        resp.read()
+        self.assertEquals(resp.status, 404)
+
+        # copy source to dest with COPY
+        def copy(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s' % (parsed.path, source), '',
+                         {'X-Auth-Token': token,
+                          'Destination': dest})
+            return check_response(conn)
+        resp = retry(copy)
+        contents = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # contents of dest should be the same as source
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(dest_contents, source_contents)
+
+        # delete the copy
         resp = retry(delete)
         resp.read()
         self.assertEquals(resp.status, 204)
