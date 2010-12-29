@@ -61,7 +61,7 @@ class CNAMELookupMiddleware(object):
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
-        if given_domain == self.storage_domain[1:]: # strip initial '.'
+        if given_domain == self.storage_domain[1:]:  # strip initial '.'
             return self.app(env, start_response)
         a_domain = given_domain
         if not a_domain.endswith(self.storage_domain):

@@ -35,6 +35,8 @@ class MemcacheMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
     def cache_filter(app):
         return MemcacheMiddleware(app, conf)
+
     return cache_filter
