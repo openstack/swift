@@ -144,8 +144,6 @@ class SwiftInit():
     """
 
     def __init__(self, servers):
-        self.servers = []
-
         server_names = set()
         for server in servers:
             if server == 'all':
@@ -157,8 +155,9 @@ class SwiftInit():
             else:
                 server_names.add(server)
 
+        self.servers = set()
         for name in server_names:
-            self.servers.append(SwiftServer(name))
+            self.servers.add(SwiftServer(name))
 
     def watch_server_pids(self, server_pids, interval=0, **kwargs):
         """Monitor a collection of server pids yeilding back those pids that
@@ -331,20 +330,17 @@ class SwiftInit():
             raise UnknownCommand(cmd)
         return f
 
-    def list_commands(self):
+    @classmethod
+    def list_commands(cls):
         """Get all publicly accessible commands
 
         :returns: a list of strings, the method names who are decorated
                   as commands
         """
-        cmds = sorted([x.replace('_', '-') for x in dir(self) if \
-                hasattr(getattr(self, x), 'publicly_accessible')])
-        try:
-            helps = [self.get_command(x).__doc__.strip() for x in cmds]
-        except AttributeError:
-            raise AttributeError(
-                'command %s has no __doc__, please add one' % x)
-        return zip(cmds, helps)
+        get_method = lambda cmd: getattr(cls, cmd)
+        return sorted([(x.replace('_', '-'), get_method(x).__doc__.strip())
+                       for x in dir(cls) if
+                       getattr(get_method(x), 'publicly_accessible', False)])
 
     def run_command(self, cmd, **kwargs):
         """Find the named command and run it
@@ -365,13 +361,25 @@ class SwiftServer():
     def __init__(self, server):
         if '-' not in server:
             server = '%s-server' % server
-        self.server = server
+        self.server = server.lower()
         self.type = '-'.join(server.split('-')[:-1])
         self.cmd = 'swift-%s' % server
         self.procs = []
 
     def __str__(self):
         return self.server
+
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__, repr(str(self)))
+
+    def __hash__(self):
+        return hash(str(self))
+
+    def __eq__(self, other):
+        try:
+            return self.server == other.server
+        except AttributeError:
+            return False
 
     def get_pid_file_name(self, ini_file):
         """Translate ini_file to a corresponding pid_file
@@ -645,7 +653,7 @@ class SwiftServer():
 USAGE = """%prog <server> [<server ...] <command>
 
 Commands:
-""" + '\n'.join(["%16s: %s" % x for x in SwiftInit([]).list_commands()])
+""" + '\n'.join(["%16s: %s" % x for x in SwiftInit.list_commands()])
 
 
 def main():
@@ -676,13 +684,13 @@ def main():
 
     if len(servers) == 1:
         # this is just a stupid swap for me cause I always try to "start main"
-        commands, docs = zip(*SwiftInit([]).list_commands())
+        commands, docs = zip(*SwiftInit.list_commands())
         if servers[0] in commands:
             command, servers = servers[0], [command]
 
-    init = SwiftInit(servers)
+    controller = SwiftInit(servers)
     try:
-        status = init.run_command(command, **options.__dict__)
+        status = controller.run_command(command, **options.__dict__)
     except UnknownCommand:
         parser.print_help()
         print 'ERROR: unknown command, %s' % command

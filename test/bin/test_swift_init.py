@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unittest
+from nose import SkipTest
 
 import os
 import sys
@@ -97,7 +98,7 @@ class TestSwiftInitModule(unittest.TestCase):
 
     def test_setup_env(self):
         # TODO: tests
-        pass
+        raise SkipTest
 
     def test_search_tree(self):
         # file match & ext miss
@@ -209,7 +210,7 @@ class TestSwiftServerClass(unittest.TestCase):
     def join_run_dir(self, path):
         return os.path.join(swift_init.RUN_DIR, path)
 
-    def test_server_init(self):
+    def test_create_server(self):
         server = swift_init.SwiftServer('proxy')
         self.assertEquals(server.server, 'proxy-server')
         self.assertEquals(server.type, 'proxy')
@@ -218,6 +219,24 @@ class TestSwiftServerClass(unittest.TestCase):
         self.assertEquals(server.server, 'object-replicator')
         self.assertEquals(server.type, 'object')
         self.assertEquals(server.cmd, 'swift-object-replicator')
+
+    def test_server_to_string(self):
+        server = swift_init.SwiftServer('Proxy')
+        self.assertEquals(str(server), 'proxy-server')
+        server = swift_init.SwiftServer('object-replicator')
+        self.assertEquals(str(server), 'object-replicator')
+
+    def test_server_repr(self):
+        server = swift_init.SwiftServer('proxy')
+        self.assert_(server.__class__.__name__ in repr(server))
+        self.assert_(str(server) in repr(server))
+
+    def test_server_equality(self):
+        server1 = swift_init.SwiftServer('Proxy')
+        server2 = swift_init.SwiftServer('proxy-server')
+        self.assertEquals(server1, server2)
+        # it is NOT a string
+        self.assertNotEquals(server1, 'proxy-server')
 
     def test_get_pid_file_name(self):
         server = swift_init.SwiftServer('proxy')
@@ -1026,7 +1045,6 @@ class TestSwiftServerClass(unittest.TestCase):
                 finally:
                     sys.stdout = old_stdout
 
-    #TODO: more tests
     def test_stop(self):
         ini_files = (
             'account-server/1.conf',
@@ -1082,18 +1100,193 @@ class TestSwiftServerClass(unittest.TestCase):
                 self.assertFalse(os.path.exists(conf4))
                 self.assertFalse(os.path.exists(conf3))
 
-#TODO: test SwiftInit class
 class TestSwiftInitClass(unittest.TestCase):
 
-    def test_placeholder(self):
-        pass
+    def test_create(self):
+        controller = swift_init.SwiftInit(['test'])
+        self.assertEquals(len(controller.servers), 1)
+        server = controller.servers.pop()
+        self.assert_(isinstance(server, swift_init.SwiftServer))
+        self.assertEquals(server.server, 'test-server')
+        # test multi-server and simple dedupe
+        servers = ['object-replicator', 'object-auditor', 'object-replicator']
+        controller = swift_init.SwiftInit(servers)
+        self.assertEquals(len(controller.servers), 2)
+        for server in controller.servers:
+            self.assert_(server.server in servers)
+        # test all
+        controller = swift_init.SwiftInit(['all'])
+        self.assertEquals(len(controller.servers), len(swift_init.ALL_SERVERS))
+        for server in controller.servers:
+            self.assert_(server.server in swift_init.ALL_SERVERS)
+        # test main
+        controller = swift_init.SwiftInit(['main'])
+        self.assertEquals(len(controller.servers), len(swift_init.MAIN_SERVERS))
+        for server in controller.servers:
+            self.assert_(server.server in swift_init.MAIN_SERVERS)
+        # test rest
+        controller = swift_init.SwiftInit(['rest'])
+        self.assertEquals(len(controller.servers), len(swift_init.REST_SERVERS))
+        for server in controller.servers:
+            self.assert_(server.server in swift_init.REST_SERVERS)
+        # test main + rest == all
+        controller = swift_init.SwiftInit(['main', 'rest'])
+        self.assertEquals(len(controller.servers), len(swift_init.ALL_SERVERS))
+        for server in controller.servers:
+            self.assert_(server.server in swift_init.ALL_SERVERS)
+        # test dedupe
+        controller = swift_init.SwiftInit(['main', 'rest', 'proxy', 'object',
+                                           'container', 'account'])
+        self.assertEquals(len(controller.servers), len(swift_init.ALL_SERVERS))
+        for server in controller.servers:
+            self.assert_(server.server in swift_init.ALL_SERVERS)
+
+    #TODO: more tests
+    def test_watch_server_pids(self):
+        raise SkipTest
+
+    def test_get_command(self):
+        raise SkipTest
+
+    def test_list_commands(self):
+        for cmd, help in swift_init.SwiftInit.list_commands():
+            method = getattr(swift_init.SwiftInit, cmd.replace('-', '_'), None)
+            self.assert_(method, '%s is not a command' % cmd)
+            self.assert_(getattr(method, 'publicly_accessible', False))
+            self.assertEquals(method.__doc__.strip(), help)
+
+    def test_run_command(self):
+        raise SkipTest
+
+    def test_status(self):
+        class MockSwiftServer():
+            def __init__(self, server):
+                self.server = server
+                self.called_kwargs = []
+            def status(self, **kwargs):
+                self.called_kwargs.append(kwargs)
+                if 'error' in self.server:
+                    return 1
+                else:
+                    return 0
+
+        old_server_class = swift_init.SwiftServer
+        try:
+            swift_init.SwiftServer = MockSwiftServer
+            controller = swift_init.SwiftInit(['test'])
+            status = controller.status()
+            self.assertEquals(status, 0)
+            controller = swift_init.SwiftInit(['error'])
+            status = controller.status()
+            self.assertEquals(status, 1)
+            # test multi-server
+            controller = swift_init.SwiftInit(['test', 'error'])
+            kwargs = {'key': 'value'}
+            status = controller.status(**kwargs)
+            self.assertEquals(status, 1)
+            for server in controller.servers:
+                self.assertEquals(server.called_kwargs, [kwargs])
+        finally:
+            swift_init.SwiftServer = old_server_class
+
+    def test_start(self):
+        def mock_setup_env():
+            getattr(mock_setup_env, 'called', []).append(True)
+        class MockSwiftServer():
+
+            def __init__(self, server):
+                self.server = server
+                self.called = defaultdict(list)
+
+            def launch(self, **kwargs):
+                self.called['launch'].append(kwargs)
+
+            def wait(self, **kwargs):
+                self.called['wait'].append(kwargs)
+                if 'error' in self.server:
+                    return 1
+                else:
+                    return 0
+                
+            def interact(self, **kwargs):
+                self.called['interact'].append(kwargs)
+                # TODO: test user quit
+                """
+                if 'raise' in self.server:
+                    raise KeyboardInterrupt
+                el
+                """
+                if 'error' in self.server:
+                    return 1
+                else:
+                    return 0
+
+        old_setup_env = swift_init.setup_env
+        old_swift_server = swift_init.SwiftServer
+        try:
+            swift_init.setup_env = mock_setup_env
+            swift_init.SwiftServer = MockSwiftServer
+
+            # test no errors on launch
+            controller = swift_init.SwiftInit(['proxy', 'error'])
+            status = controller.start()
+            self.assertEquals(status, 0)
+            for server in controller.servers:
+                self.assertEquals(server.called['launch'], [{}])
+
+            # test wait
+            controller = swift_init.SwiftInit(['proxy', 'error'])
+            kwargs = {'wait': True}
+            status = controller.start(**kwargs)
+            self.assertEquals(status, 1)
+            for server in controller.servers:
+                self.assertEquals(server.called['launch'], [kwargs])
+                self.assertEquals(server.called['wait'], [kwargs])
+             
+            # test interact
+            controller = swift_init.SwiftInit(['proxy', 'error'])
+            kwargs = {'daemon': False}
+            status = controller.start(**kwargs)
+            self.assertEquals(status, 1)
+            for server in controller.servers:
+                self.assertEquals(server.called['launch'], [kwargs])
+                self.assertEquals(server.called['interact'], [kwargs])
+        finally:
+            swift_init.setup_env = old_setup_env
+            swift_init.SwiftServer = old_swift_server
+
+
+    def test_wait(self):
+        raise SkipTest
+
+    def test_no_daemon(self):
+        raise SkipTest
+
+    def test_once(self):
+        raise SkipTest
+
+    def test_stop(self):
+        raise SkipTest
+
+    def test_shutdown(self):
+        raise SkipTest
+
+    def test_restart(self):
+        raise SkipTest
+
+    def test_reload(self):
+        raise SkipTest
+
+    def test_force_reload(self):
+        raise SkipTest
+
 
 
 #TODO: test main
 class TestMain(unittest.TestCase):
 
     def test_placeholder(self):
-        pass
+        raise SkipTest
 
 
 if __name__ == '__main__':
