@@ -139,6 +139,7 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
         conn.execute('PRAGMA synchronous = NORMAL')
         conn.execute('PRAGMA count_changes = OFF')
         conn.execute('PRAGMA temp_store = MEMORY')
+        conn.execute('PRAGMA journal_mode = DELETE')
         conn.create_function('chexor', 3, chexor)
     except sqlite3.DatabaseError:
         import traceback
