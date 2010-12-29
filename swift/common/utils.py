@@ -794,8 +794,8 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1):
                     to ratelimit 1024 bytes/sec and have differing sizes
                     of requests. Must be >= 0.
     '''
-    if not max_rate or incr_by < 0:
-        return 0
+    if not max_rate or incr_by <= 0:
+        return running_time
     clock_accuracy = 1000.0
     now = time.time() * clock_accuracy
     time_per_request = clock_accuracy * (float(incr_by) / max_rate)
