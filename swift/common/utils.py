@@ -334,6 +334,7 @@ class LogAdapter(object):
 
 
 class NamedFormatter(logging.Formatter):
+
     def __init__(self, server, logger):
         logging.Formatter.__init__(self)
         self.server = server

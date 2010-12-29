@@ -105,7 +105,7 @@ class ObjectAuditor(Daemon):
                 name = object_server.read_metadata(path)['name']
             except Exception, exc:
                 raise AuditException('Error when reading metadata: %s' % exc)
-            _, account, container, obj = name.split('/', 3)
+            _junk, account, container, obj = name.split('/', 3)
             df = object_server.DiskFile(self.devices, device,
                                         partition, account,
                                         container, obj,
@@ -132,8 +132,8 @@ class ObjectAuditor(Daemon):
                     "%s" % (df.metadata['ETag'], etag))
         except AuditException, err:
             self.quarantines += 1
-            self.logger.error(_('ERROR Object %(obj)s failed audit and will be '
-                'quarantined: %(err)s'), {'obj': path, 'err': err})
+            self.logger.error(_('ERROR Object %(obj)s failed audit and will '
+                'be quarantined: %(err)s'), {'obj': path, 'err': err})
             invalidate_hash(os.path.dirname(path))
             renamer_path = os.path.dirname(path)
             renamer(renamer_path, os.path.join(self.devices, device,

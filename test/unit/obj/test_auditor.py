@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # TODO: Tests
-
+import gettext
 import unittest
 import tempfile
 import os
@@ -254,4 +254,5 @@ class TestAuditor(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
     unittest.main()
