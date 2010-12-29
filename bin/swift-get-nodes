@@ -16,13 +16,10 @@
 
 import sys
 import urllib
-import gettext
 
 from swift.common.ring import Ring
 from swift.common.utils import hash_path
 
-
-gettext.install('swift', unicode=1)
 
 if len(sys.argv) < 3 or len(sys.argv) > 5:
     print 'Usage: %s <ring.gz> <account> [<container>] [<object>]' \

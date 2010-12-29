@@ -16,13 +16,11 @@
 
 from os.path import basename
 from sys import argv, exit
-import gettext
 
 from swift.common.db import get_db_connection
 
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     app = basename(argv[0])
     if len(argv) != 3:
         exit('''
