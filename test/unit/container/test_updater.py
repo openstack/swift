@@ -23,6 +23,7 @@ from shutil import rmtree
 from eventlet import spawn, TimeoutError, listen
 from eventlet.timeout import Timeout
 
+from swift.common import utils
 from swift.container import updater as container_updater
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
@@ -33,6 +34,7 @@ from swift.common.utils import normalize_timestamp
 class TestContainerUpdater(unittest.TestCase):
 
     def setUp(self):
+        utils.HASH_PATH_SUFFIX = 'endcap'
         self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
         if not self.path_to_test_xfs or \
                 not os.path.exists(self.path_to_test_xfs):

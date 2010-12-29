@@ -15,14 +15,12 @@
 # limitations under the License.
 
 import sys
-import gettext
 
 from swift.stats.log_uploader import LogUploader
 from swift.common.utils import parse_options
 from swift.common import utils
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     conf_file, options = parse_options(usage="Usage: %prog CONFIG_FILE PLUGIN")
     try:
         plugin = options['extra_args'][0]

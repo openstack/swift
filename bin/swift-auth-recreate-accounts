@@ -17,12 +17,10 @@
 from ConfigParser import ConfigParser
 from optparse import OptionParser
 from sys import argv, exit
-import gettext
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     default_conf = '/etc/swift/auth-server.conf'
     parser = OptionParser(usage='Usage: %prog [options]')
     parser.add_option('-c', '--conf', dest='conf', default=default_conf,

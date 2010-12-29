@@ -20,7 +20,6 @@ import re
 import subprocess
 import sys
 from ConfigParser import ConfigParser
-import gettext
 
 from swift.common.utils import get_logger
 
@@ -87,7 +86,6 @@ def comment_fstab(mount_point):
     os.rename('/etc/fstab.new', '/etc/fstab')
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     c = ConfigParser()
     try:
         conf_path = sys.argv[1]
