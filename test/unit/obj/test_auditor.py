@@ -14,7 +14,6 @@
 # limitations under the License.
 
 # TODO: Tests
-import gettext
 import unittest
 import tempfile
 import os
@@ -31,7 +30,6 @@ from swift.common.exceptions import AuditException
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
-        # Setup a test ring (stolen from common/test_ring.py)
         self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
         if not self.path_to_test_xfs or \
                 not os.path.exists(self.path_to_test_xfs):
@@ -68,8 +66,7 @@ class TestAuditor(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def test_object_audit_extra_data(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         disk_file = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
         data = '0' * 1024
@@ -99,8 +96,7 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_diff_data(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         disk_file = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
         data = '0' * 1024
@@ -134,8 +130,7 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         disk_file = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
         data = '0' * 1024
@@ -156,18 +151,16 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_bad_args(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         pre_errors = self.auditor.errors
         self.auditor.object_audit(5, 'sda', '0')
         self.assertEquals(self.auditor.errors, pre_errors + 1)
         pre_errors = self.auditor.errors
         self.auditor.object_audit('badpath', 'sda', '0')
-        self.assertEquals(self.auditor.errors, pre_errors) # just returns
+        self.assertEquals(self.auditor.errors, pre_errors)  # just returns
 
     def test_object_run_once_pass(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
         cur_part = '0'
         timestamp = str(normalize_timestamp(time.time()))
@@ -190,8 +183,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines)
 
     def test_object_run_once_no_sda(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = self.auditor.quarantines
@@ -214,8 +206,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_run_once_multi_devices(self):
-        self.auditor = auditor.ObjectAuditor(
-            self.conf)
+        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = self.auditor.quarantines
@@ -254,5 +245,4 @@ class TestAuditor(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     unittest.main()

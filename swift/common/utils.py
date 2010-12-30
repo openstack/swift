@@ -781,11 +781,11 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
 
 def ratelimit_sleep(running_time, max_rate, incr_by=1):
     '''
-    Will time.sleep() for the appropriate time so that the max_rate
+    Will eventlet.sleep() for the appropriate time so that the max_rate
     is never exceeded.  If max_rate is 0, will not ratelimit.  The
     maximum recommended rate should not exceed (1000 * incr_by) a second
-    as time.sleep() does involve at least a millisecond of overhead.
-    Returns running_time that should be used for subsequent calls.
+    as eventlet.sleep() does involve some overhead.  Returns running_time
+    that should be used for subsequent calls.
 
     :param running_time: the running time of the next allowable request. Best
                          to start at zero.
@@ -802,5 +802,5 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1):
     if running_time < now:
         running_time = now
     elif running_time - now > time_per_request:
-        time.sleep((running_time - now) / clock_accuracy)
+        eventlet.sleep((running_time - now) / clock_accuracy)
     return running_time + time_per_request

@@ -231,10 +231,10 @@ log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
 files_per_second    20              Maximum files audited per second. Should
                                     be tuned according to individual system
-				    specs. 0 is unlimited.
+                                    specs. 0 is unlimited.
 bytes_per_second    10000000        Maximum bytes audited per second. Should
                                     be tuned according to individual system
-				    specs. 0 is unlimited.
+                                    specs. 0 is unlimited.
 ==================  ==============  ==========================================
 
 ------------------------------

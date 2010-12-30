@@ -469,7 +469,7 @@ log_name = yarr'''
         running_time = 0
         start = time.time()
         vals = [5, 17, 0, 3, 11, 30,
-                40, 4, 13, 2, -1] * 2 # adds up to 250 (with no -1)
+                40, 4, 13, 2, -1] * 2  # adds up to 250 (with no -1)
         total = 0
         for i in vals:
             running_time = utils.ratelimit_sleep(running_time,

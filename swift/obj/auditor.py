@@ -46,7 +46,7 @@ class ObjectAuditor(Daemon):
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
-        self.log_time = 3600 # once an hour
+        self.log_time = 3600  # once an hour
 
     def run_forever(self):
         """Run the object audit until stopped."""
@@ -71,12 +71,16 @@ class ObjectAuditor(Daemon):
             self.total_files_processed += 1
             if time.time() - reported >= self.log_time:
                 self.logger.info(_(
-                    'Since %s: Locally: %d passed audit, %d quarantined, '
-                    '%d errors files/sec: %.2f , bytes/sec: %.2f' % (
-                        time.ctime(reported), self.passes,
-                        self.quarantines, self.errors,
-                        self.passes / (time.time() - reported),
-                        self.bytes_processed / (time.time() - reported))))
+                    'Since %(start_time)s: Locally: %(passes)d passed audit, '
+                    '%(quars)d quarantined, %(errors)d errors '
+                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f' % {
+                            'start_time': time.ctime(reported),
+                            'passes': self.passes,
+                            'quars': self.quarantines,
+                            'errors': self.errors,
+                            'frate': self.passes / (time.time() - reported),
+                            'brate': self.bytes_processed /
+                                     (time.time() - reported)}))
                 reported = time.time()
                 self.passes = 0
                 self.quarantines = 0
@@ -84,11 +88,13 @@ class ObjectAuditor(Daemon):
                 self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(_(
-            'Object audit "%s" mode completed: %.02fs. '
-            'Total bytes/sec: %.2f , Total files/sec: %.2f ' % (
-                mode, elapsed,
-                self.total_bytes_processed / elapsed,
-                self.total_files_processed / elapsed)))
+                'Object audit "%(mode)s" mode completed: %(elapsed).02fs. '
+                'Total files/sec: %(frate).2f , '
+                'Total bytes/sec: %(brate).2f ' % {
+                    'mode': mode,
+                    'elapsed': elapsed,
+                    'frate': self.total_files_processed / elapsed,
+                    'brate': self.total_bytes_processed / elapsed}))
 
     def object_audit(self, path, device, partition):
         """
