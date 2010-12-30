@@ -44,8 +44,6 @@ except:
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
-    import gettext
-    gettext.install('swift', unicode=1)
 except:
     from httplib import HTTPConnection
 
