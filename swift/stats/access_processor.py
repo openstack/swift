@@ -127,7 +127,8 @@ class AccessLogProcessor(object):
         d['code'] = int(d['code'])
         return d
 
-    def process(self, obj_stream, account, container, object_name):
+    def process(self, obj_stream, data_object_account, data_object_container,
+                data_object_name):
         '''generate hourly groupings of data from one access log file'''
         hourly_aggr_info = {}
         total_lines = 0
@@ -191,7 +192,8 @@ class AccessLogProcessor(object):
 
             hourly_aggr_info[aggr_key] = d
         if bad_lines > (total_lines * self.warn_percent):
-            name = '/'.join([account, container, object_name])
+            name = '/'.join([data_object_account, data_object_container,
+                             data_object_name])
             self.logger.warning('I found a bunch of bad lines in %s '\
                         '(%d bad, %d total)' % (name, bad_lines, total_lines))
         return hourly_aggr_info

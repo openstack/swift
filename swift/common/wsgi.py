@@ -21,7 +21,6 @@ import signal
 import sys
 import time
 import mimetools
-import gettext
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
@@ -57,14 +56,15 @@ def monkey_patch_mimetools():
 
     mimetools.Message.parsetype = parsetype
 
+
 def get_socket(conf, default_port=8080):
     """Bind socket to bind ip:port in conf
 
     :param conf: Configuration dict to read settings from
     :param default_port: port to use if not specified in conf
 
-    :returns : a socket object as returned from socket.listen or ssl.wrap_socket
-               if conf specifies cert_file
+    :returns : a socket object as returned from socket.listen or
+               ssl.wrap_socket if conf specifies cert_file
     """
     bind_addr = (conf.get('bind_ip', '0.0.0.0'),
                  int(conf.get('bind_port', default_port)))
@@ -121,7 +121,6 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
-    gettext.install('swift', unicode=1)
 
     # finally after binding to ports and privilege drop, run app __init__ code
     app = loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})
