@@ -73,14 +73,14 @@ class ObjectAuditor(Daemon):
                 self.logger.info(_(
                     'Since %(start_time)s: Locally: %(passes)d passed audit, '
                     '%(quars)d quarantined, %(errors)d errors '
-                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f' % {
+                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f') % {
                             'start_time': time.ctime(reported),
                             'passes': self.passes,
                             'quars': self.quarantines,
                             'errors': self.errors,
                             'frate': self.passes / (time.time() - reported),
                             'brate': self.bytes_processed /
-                                     (time.time() - reported)}))
+                                     (time.time() - reported)})
                 reported = time.time()
                 self.passes = 0
                 self.quarantines = 0
@@ -90,11 +90,11 @@ class ObjectAuditor(Daemon):
         self.logger.info(_(
                 'Object audit "%(mode)s" mode completed: %(elapsed).02fs. '
                 'Total files/sec: %(frate).2f , '
-                'Total bytes/sec: %(brate).2f ' % {
+                'Total bytes/sec: %(brate).2f ') % {
                     'mode': mode,
                     'elapsed': elapsed,
                     'frate': self.total_files_processed / elapsed,
-                    'brate': self.total_bytes_processed / elapsed}))
+                    'brate': self.total_bytes_processed / elapsed})
 
     def object_audit(self, path, device, partition):
         """
