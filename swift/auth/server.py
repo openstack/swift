@@ -21,6 +21,9 @@ from time import gmtime, strftime, time
 from urllib import unquote, quote
 from uuid import uuid4
 from urlparse import urlparse
+from hashlib import md5, sha1
+import hmac
+import base64
 
 import sqlite3
 from webob import Request, Response
@@ -238,6 +241,24 @@ YOU HAVE A FEW OPTIONS:
             self.conn = get_db_connection(self.db_file)
             raise err
 
+    def validate_s3_sign(self, request, token):
+        cfaccount, sign = request.headers['Authorization'].split(' ')[-1].split(':')
+        msg = base64.urlsafe_b64decode(unquote(token))
+        rv = False
+        with self.get_conn() as conn:
+            row = conn.execute('''
+                SELECT account, user, password FROM account
+                WHERE cfaccount = ?''',
+                (cfaccount,)).fetchone()
+            rv = (84000, row[0], row[1], cfaccount)
+       
+        if rv:
+            s = base64.encodestring(hmac.new(row[2], msg, sha1).digest()).strip()
+            self.logger.info("orig %s, calc %s" % (sign, s))
+            if sign != s:
+                rv = False
+        return rv
+
     def purge_old_tokens(self):
         """
         Removes tokens that have expired from the auth server's database. This
@@ -418,7 +439,10 @@ YOU HAVE A FEW OPTIONS:
         except ValueError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
-        validation = self.validate_token(token)
+        if 'Authorization' in request.headers:
+            validation = self.validate_s3_sign(request, token)
+        else:
+            validation = self.validate_token(token)
         if not validation:
             return HTTPNotFound()
         groups = ['%s:%s' % (validation[1], validation[2]), validation[1]]
