@@ -356,7 +356,7 @@ class Controller(object):
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
         path = '/%s' % account
-        headers = {'x-cf-trans-id': self.trans_id}
+        headers = {'x-swift-txn-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
             if self.error_limited(node):
                 continue
@@ -430,7 +430,7 @@ class Controller(object):
         write_acl = None
         container_size = None
         attempts_left = self.app.container_ring.replica_count
-        headers = {'x-cf-trans-id': self.trans_id}
+        headers = {'x-swift-txn-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.container_ring):
             if self.error_limited(node):
                 continue
@@ -1247,7 +1247,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
@@ -1309,7 +1309,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
@@ -1362,7 +1362,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-             'x-cf-trans-id': self.trans_id}
+             'x-swift-txn-id': self.trans_id}
         statuses = []
         reasons = []
         bodies = []
@@ -1450,7 +1450,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
         statuses = []
@@ -1499,7 +1499,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-CF-Trans-Id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
         statuses = []
@@ -1546,7 +1546,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-CF-Trans-Id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         statuses = []
         reasons = []
         bodies = []
@@ -1683,7 +1683,7 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
+        req.headers['x-swift-txn-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
@@ -1707,8 +1707,8 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
 
             controller = controller(self, **path_parts)
-            controller.trans_id = req.headers.get('x-cf-trans-id', '-')
-            self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
+            controller.trans_id = req.headers.get('x-swift-txn-id', '-')
+            self.logger.txn_id = req.headers.get('x-swift-txn-id', None)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
@@ -1786,7 +1786,7 @@ class Application(BaseApplication):
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),
-                req.headers.get('x-cf-trans-id', '-'),
+                req.headers.get('x-swift-txn-id', '-'),
                 logged_headers or '-',
                 trans_time,
             )))

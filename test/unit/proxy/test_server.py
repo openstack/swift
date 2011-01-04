@@ -1715,7 +1715,7 @@ class TestObjectController(unittest.TestCase):
                 for node in nodes:
                     conn = proxy_server.http_connect(node['ip'], node['port'],
                             node['device'], partition, 'PUT', '/a',
-                            {'X-Timestamp': ts, 'X-CF-Trans-Id': 'test'})
+                            {'X-Timestamp': ts, 'x-swift-txn-id': 'test'})
                     resp = conn.getresponse()
                     self.assertEquals(resp.status, 201)
                 # Head account, just a double check and really is here to test

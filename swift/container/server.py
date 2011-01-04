@@ -95,7 +95,7 @@ class ContainerController(object):
                 'x-delete-timestamp': info['delete_timestamp'],
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
-                'x-cf-trans-id': req.headers.get('X-Cf-Trans-Id', '-')}
+                'x-swift-txn-id': req.headers.get('x-swift-txn-id', '-')}
             if req.headers.get('x-account-override-deleted', 'no').lower() == \
                     'yes':
                 account_headers['x-account-override-deleted'] = 'yes'
@@ -384,7 +384,7 @@ class ContainerController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
+        self.logger.txn_id = req.headers.get('x-swift-txn-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -404,7 +404,7 @@ class ContainerController(object):
                           time.gmtime()),
             req.method, req.path,
             res.status.split()[0], res.content_length or '-',
-            req.headers.get('x-cf-trans-id', '-'),
+            req.headers.get('x-swift-txn-id', '-'),
             req.referer or '-', req.user_agent or '-',
             trans_time)
         if req.method.upper() == 'REPLICATE':
