@@ -1177,7 +1177,6 @@ class Swauth(object):
         :param key: The key to validate for the user.
         :returns: True if the key is valid for the user, False if not.
         """
-        print repr(user_detail)
         return user_detail and user_detail.get('auth') == 'plaintext:%s' % key
 
     def is_super_admin(self, req):
