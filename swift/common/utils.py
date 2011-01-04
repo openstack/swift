@@ -378,6 +378,7 @@ class NamedFormatter(logging.Formatter):
             msg = "%s (txn: %s)" % (msg, self.logger.txn_id)
         return msg
 
+
 def get_logger(conf, name=None, log_to_console=False):
     """
     Get the current system logger using config settings.

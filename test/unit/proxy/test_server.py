@@ -218,6 +218,7 @@ def save_globals():
 
 # tests
 
+
 class TestController(unittest.TestCase):
 
     def setUp(self):
@@ -372,6 +373,7 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
+
 class TestProxyServer(unittest.TestCase):
 
     def test_unhandled_exception(self):
@@ -468,6 +470,7 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
+
     def test_custom_mime_types_files(self):
         swift_dir = mkdtemp()
         try:
