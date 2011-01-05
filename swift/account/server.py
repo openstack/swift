@@ -29,7 +29,7 @@ import simplejson
 
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, split_path, storage_directory, get_txn_id
+    normalize_timestamp, split_path, storage_directory
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
@@ -86,7 +86,7 @@ class AccountController(object):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
-            if get_txn_id(req, None) is None:
+            if 'x-cf-trans-id' in req.headers:
                 broker.pending_timeout = 3
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
@@ -296,7 +296,7 @@ class AccountController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        self.logger.txn_id = get_txn_id(req, None)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -319,7 +319,7 @@ class AccountController(object):
             time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
             req.method, req.path,
             res.status.split()[0], res.content_length or '-',
-            get_txn_id(req, '-'),
+            req.headers.get('x-cf-trans-id', '-'),
             req.referer or '-', req.user_agent or '-',
             trans_time,
             additional_info)

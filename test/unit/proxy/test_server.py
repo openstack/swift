@@ -218,7 +218,6 @@ def save_globals():
 
 # tests
 
-
 class TestController(unittest.TestCase):
 
     def setUp(self):
@@ -373,7 +372,6 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
-
 class TestProxyServer(unittest.TestCase):
 
     def test_unhandled_exception(self):
@@ -470,7 +468,6 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
-
     def test_custom_mime_types_files(self):
         swift_dir = mkdtemp()
         try:
@@ -1718,7 +1715,7 @@ class TestObjectController(unittest.TestCase):
                 for node in nodes:
                     conn = proxy_server.http_connect(node['ip'], node['port'],
                             node['device'], partition, 'PUT', '/a',
-                            {'X-Timestamp': ts, 'x-swift-txn-id': 'test'})
+                            {'X-Timestamp': ts, 'X-CF-Trans-Id': 'test'})
                     resp = conn.getresponse()
                     self.assertEquals(resp.status, 201)
                 # Head account, just a double check and really is here to test
