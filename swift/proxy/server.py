@@ -41,7 +41,7 @@ from webob import Request, Response
 
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, normalize_timestamp, split_path, \
-    cache_from_env
+    cache_from_env, get_txn_id
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -1362,7 +1362,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-             'x-swift-txn-id': self.trans_id}
+                   'x-swift-txn-id': self.trans_id}
         statuses = []
         reasons = []
         bodies = []
@@ -1707,8 +1707,9 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
 
             controller = controller(self, **path_parts)
-            controller.trans_id = req.headers.get('x-swift-txn-id', '-')
-            self.logger.txn_id = req.headers.get('x-swift-txn-id', None)
+            txn_id = get_txn_id(req, None)
+            controller.trans_id = txn_id or '-'
+            self.logger.txn_id = txn_id
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
@@ -1786,7 +1787,7 @@ class Application(BaseApplication):
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),
-                req.headers.get('x-swift-txn-id', '-'),
+                get_txn_id(req, '-'),
                 logged_headers or '-',
                 trans_time,
             )))

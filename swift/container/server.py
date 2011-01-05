@@ -31,7 +31,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, storage_directory, split_path
+    normalize_timestamp, storage_directory, split_path, get_txn_id
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -95,7 +95,7 @@ class ContainerController(object):
                 'x-delete-timestamp': info['delete_timestamp'],
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
-                'x-swift-txn-id': req.headers.get('x-swift-txn-id', '-')}
+                'x-swift-txn-id': get_txn_id(req, '-')}
             if req.headers.get('x-account-override-deleted', 'no').lower() == \
                     'yes':
                 account_headers['x-account-override-deleted'] = 'yes'
@@ -384,7 +384,7 @@ class ContainerController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        self.logger.txn_id = req.headers.get('x-swift-txn-id', None)
+        self.logger.txn_id = get_txn_id(req, None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -404,7 +404,7 @@ class ContainerController(object):
                           time.gmtime()),
             req.method, req.path,
             res.status.split()[0], res.content_length or '-',
-            req.headers.get('x-swift-txn-id', '-'),
+            get_txn_id(req, '-'),
             req.referer or '-', req.user_agent or '-',
             trans_time)
         if req.method.upper() == 'REPLICATE':

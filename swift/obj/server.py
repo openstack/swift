@@ -37,7 +37,7 @@ from eventlet import sleep, Timeout
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
-    split_path, drop_buffer_cache, get_logger, write_pickle
+    split_path, drop_buffer_cache, get_logger, write_pickle, get_txn_id
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
@@ -409,7 +409,7 @@ class ObjectController(object):
              'x-content-type': file.metadata['Content-Type'],
              'x-timestamp': file.metadata['X-Timestamp'],
              'x-etag': file.metadata['ETag'],
-             'x-swift-txn-id': request.headers.get('x-swift-txn-id', '-')},
+             'x-swift-txn-id': get_txn_id(request, '-')},
             device)
         resp = HTTPCreated(request=request, etag=etag)
         return resp
@@ -531,7 +531,7 @@ class ObjectController(object):
         file.unlinkold(metadata['X-Timestamp'])
         self.container_update('DELETE', account, container, obj,
             request.headers, {'x-timestamp': metadata['X-Timestamp'],
-            'x-swift-txn-id': request.headers.get('x-swift-txn-id', '-')},
+            'x-swift-txn-id': get_txn_id(request, '-')},
             device)
         resp = response_class(request=request)
         return resp
@@ -562,7 +562,7 @@ class ObjectController(object):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
         req = Request(env)
-        self.logger.txn_id = req.headers.get('x-swift-txn-id', None)
+        self.logger.txn_id = get_txn_id(req, None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -583,7 +583,7 @@ class ObjectController(object):
                               time.gmtime()),
                 req.method, req.path, res.status.split()[0],
                 res.content_length or '-', req.referer or '-',
-                req.headers.get('x-swift-txn-id', '-'),
+                get_txn_id(req, '-'),
                 req.user_agent or '-',
                 trans_time)
             if req.method == 'REPLICATE':

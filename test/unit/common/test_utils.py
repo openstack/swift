@@ -28,6 +28,7 @@ from StringIO import StringIO
 from functools import partial
 from tempfile import NamedTemporaryFile
 
+from webob import Request
 from eventlet import sleep
 
 from swift.common import utils
@@ -79,6 +80,19 @@ class TestUtils(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+
+    def test_get_txn_id(self):
+        req = Request.blank('')
+        req.headers['X-Swift-Txn-Id'] = 'tx12345'
+        self.assertEquals(utils.get_txn_id(req), 'tx12345')
+        environ = {'HTTP_X_CF_TRANS_ID': 'tx67890'}
+        req = Request.blank('', environ=environ)
+        self.assertEquals(utils.get_txn_id(req), 'tx67890')
+        req = Request.blank('')
+        self.assertEquals(utils.get_txn_id(req), None)
+        self.assertEquals(utils.get_txn_id(req, '-'), '-')
+        req.headers['X-Cf-Trans-Id'] = 'tx13579'
+        self.assertEquals(utils.get_txn_id(req, default='test'), 'tx13579')
 
     def test_normalize_timestamp(self):
         """ Test swift.common.utils.normalize_timestamp """

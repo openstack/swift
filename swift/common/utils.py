@@ -107,6 +107,16 @@ def get_param(req, name, default=None):
         value.decode('utf8')    # Ensure UTF8ness
     return value
 
+def get_txn_id(req, default=None):
+    """
+    Get the transaction id from a request
+
+    :param req: Webob request object
+    :param default: value to return if no transaction id is found
+    """
+    return req.headers.get('x-swift-txn-id',
+                           req.headers.get('x-cf-trans-id', default))
+
 
 def fallocate(fd, size):
     """
