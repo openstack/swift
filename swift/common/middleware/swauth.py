@@ -279,8 +279,11 @@ class Swauth(object):
         """
         req.start_time = time()
         handler = None
-        version, account, user, _ = split_path(req.path_info, minsegs=1,
-                                               maxsegs=4, rest_with_last=True)
+        try:
+            version, account, user, _ = split_path(req.path_info, minsegs=1,
+                                                maxsegs=4, rest_with_last=True)
+        except ValueError:
+            return HTTPNotFound(request=req)
         if version in ('v1', 'v1.0', 'auth'):
             if req.method == 'GET':
                 handler = self.handle_get_token
@@ -917,8 +920,11 @@ class Swauth(object):
                   above.
         """
         # Validate the request info
-        pathsegs = split_path(req.path_info, minsegs=1, maxsegs=3,
-                              rest_with_last=True)
+        try:
+            pathsegs = split_path(req.path_info, minsegs=1, maxsegs=3,
+                                  rest_with_last=True)
+        except ValueError:
+            return HTTPNotFound(request=req)
         if pathsegs[0] == 'v1' and pathsegs[2] == 'auth':
             account = pathsegs[1]
             user = req.headers.get('x-storage-user')
