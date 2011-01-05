@@ -159,9 +159,10 @@ class DevAuth(object):
         user_groups = (req.remote_user or '').split(',')
         if '.reseller_admin' in user_groups:
             return None
-        if account in user_groups and (req.method != 'PUT' or container):
+        if account in user_groups and \
+                (req.method not in ('DELETE', 'PUT') or container):
             # If the user is admin for the account and is not trying to do an
-            # account PUT...
+            # account DELETE or PUT...
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):

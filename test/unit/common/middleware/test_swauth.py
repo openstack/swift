@@ -458,6 +458,41 @@ class TestAuth(unittest.TestCase):
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
+    def test_account_delete_permissions(self):
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,AUTH_other'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
+        # Even DELETEs to your own account as account admin should fail
+        req = Request.blank('/v1/AUTH_old',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,AUTH_old'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,.reseller_admin'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp, None)
+
+        # .super_admin is not something the middleware should ever see or care
+        # about
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,.super_admin'
+        resp = self.test_auth.authorize(req)
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
     def test_get_token_fail(self):
         resp = Request.blank('/auth/v1.0').get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
