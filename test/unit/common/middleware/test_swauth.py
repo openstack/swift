@@ -160,9 +160,9 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(ath.default_swift_cluster,
                           'local:http://host/path')
         ath = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:http://host/path/'})(app)
+            'default_swift_cluster': 'local:https://host/path/'})(app)
         self.assertEquals(ath.default_swift_cluster,
-                          'local:http://host/path')
+                          'local:https://host/path')
 
     def test_top_level_ignore(self):
         resp = Request.blank('/').get_response(self.test_auth)
@@ -454,7 +454,6 @@ class TestAuth(unittest.TestCase):
         # about
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.super_admin'
-        resp = self.test_auth.authorize(req)
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
