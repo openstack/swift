@@ -127,7 +127,7 @@ if __name__ == '__main__':
     logger.addHandler(loghandler)
     logger = LogAdapter(logger)
     logformat = NamedFormatter('swift-bench', logger,
-                               fmt='%(server)s %(asctime)s %(levelname)s %(message)s')
+                   fmt='%(server)s %(asctime)s %(levelname)s %(message)s')
     loghandler.setFormatter(logformat)
 
     controller = BenchController(logger, options)
