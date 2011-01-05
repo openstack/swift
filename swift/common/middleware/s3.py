@@ -17,7 +17,6 @@ from webob import Request, Response
 from webob.exc import HTTPNotFound
 from simplejson import loads
 from swift.common.utils import split_path
-from hashlib import md5, sha1
 from urllib import unquote, quote
 import rfc822
 import hmac
@@ -53,6 +52,10 @@ def get_err_response(code):
 class Controller(object):
     def __init__(self, app):
         self.app = app
+        self.response_args = []
+
+    def do_start_response(self, *args):
+        self.response_args.extend(args)
 
 class ServiceController(Controller):
     def __init__(self, env, app, account_name, token, **kwargs):
@@ -61,14 +64,19 @@ class ServiceController(Controller):
         env['PATH_INFO'] = '/v1/%s' % account_name
 
     def GET(self, env, start_response):
-        req = Request(env)
         env['QUERY_STRING'] = 'format=json'
-        resp = self.app(env, start_response)
-        try:
-            containers = loads(''.join(list(resp)))
-        except:
-            return get_err_response('AccessDenied')
-            
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
+
+        if status != 200:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            else:
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
+
+        containers = loads(''.join(list(body_iter)))
         resp = Response(content_type='text/xml')
         resp.status = 200
         # we don't keep the creation time of a backet (s3cmd doesn't
@@ -84,37 +92,39 @@ class BucketController(Controller):
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
                
     def GET(self, env, start_response):
-        req = Request(env)
         env['QUERY_STRING'] = 'format=json'
-        resp = self.app(env, start_response)
-        try:
-            objects = loads(''.join(list(resp)))
-        except:
-            status = int(resp[0].split()[0])
-            resp = Response(content_type='text/xml')
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
+
+        if status != 200:
             if status == 401:
                 return get_err_response('AccessDenied')
             elif status == 404:
                 return get_err_response('InvalidBucketName')
             else:
-                print resp
+                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
+        objects = loads(''.join(list(body_iter)))
         resp = Response(content_type='text/xml')
         resp.status = 200
         resp.body = """<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01"><Name>%s</Name>%s</ListBucketResult>""" % (self.container_name, "".join(['<Contents><Key>%s</Key><LastModified>%s</LastModified><ETag>%s</ETag><Size>%s</Size><StorageClass>STANDARD</StorageClass></Contents>' % (i['name'], i['last_modified'], i['hash'], i['bytes']) for i in objects]))
         return resp
 
     def PUT(self, env, start_response):
-        req = Request(env)
-        resp = self.app(env, start_response)
-        status = int(resp[0].split()[0])
-        if status == 401:
-            return get_err_response('AccessDenied')
-        elif status == 202:
-            return get_err_response('BucketAlreadyExists')
-        else:
-            print resp
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
+
+        if status != 201:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            elif status == 202:
+                return get_err_response('BucketAlreadyExists')
+            else:
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
 
         resp = Response()
         resp.headers.add('Location', self.container_name)
@@ -122,24 +132,24 @@ class BucketController(Controller):
         return resp
 
     def DELETE(self, env, start_response):
-        req = Request(env)
-        resp = self.app(env, start_response)
-        try:
-            status = int(resp[0].split()[0])
-        except:
-            resp = Response()
-            resp.status = 204
-            return resp
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
 
-        if status == 401:
-            return get_err_response('AccessDenied')
-        elif status == 404:
-            return get_err_response('InvalidBucketName')
-        elif status == 409:
-            return get_err_response('BucketNotEmpty')
-        else:
-            print resp
-            return get_err_response('InvalidURI')
+        if status != 204:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            elif status == 404:
+                return get_err_response('InvalidBucketName')
+            elif status == 409:
+                return get_err_response('BucketNotEmpty')
+            else:
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
+
+        resp = Response()
+        resp.status = 204
+        return resp
 
 class ObjectController(Controller):
     def __init__(self, env, app, account_name, token, container_name, object_name, **kwargs):
@@ -147,34 +157,26 @@ class ObjectController(Controller):
         self.container_name = unquote(container_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s/%s' % (account_name, container_name, object_name)
-
     def GETorHEAD(self, env, start_response):
-        # there should be better ways.
-        # TODO:
-        # - we can't handle various errors properly (autorization, etc)
-        # - hide GETorHEAD
-        req = Request(env)
-        method = req.method
-        req.method = 'GET'
-        data = self.app(env, start_response)
-        if type(data) == list:
-            status = int(data[0][data[0].find('<title>') + 7:].split(' ')[0])
-            if status == 404:
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
+
+        if status != 200:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            elif status == 404:
                 return get_err_response('NoSuchKey')
             else:
-                return get_err_response('AccessDenied')
-            
-        if method == 'GET':
-            resp = Response(content_type='text/xml')
-            resp.body = ''.join(list(data))
-            resp.status = 200
-        else:
-            resp = Response()
-            etag = md5()
-            etag.update(''.join(list(data)))
-            etag = etag.hexdigest()
-            resp.etag = etag
-            resp.status = 200
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
+
+        resp = Response(content_type=headers['Content-Type'])
+        resp.etag = headers['etag']
+        resp.status = 200
+        req = Request(env)
+        if req.method == 'GET':
+            resp.body = ''.join(list(body_iter))
         return resp
 
     def HEAD(self, env, start_response):
@@ -184,44 +186,41 @@ class ObjectController(Controller):
         return self.GETorHEAD(env, start_response)
         
     def PUT(self, env, start_response):
-        # TODO: how can we get etag from the response header?
-        req = Request(env)
-        etag = md5()
-        etag.update(req.body)
-        etag = etag.hexdigest()
-        resp = self.app(env, start_response)
-        status = int(resp[0].split()[0])
-        if status == 401:
-            return get_err_response('AccessDenied')
-        elif status == 404:
-            return get_err_response('InvalidBucketName')
-        elif status == 201:
-            resp = Response()
-            resp.etag = etag
-            resp.status = 200
-            return resp
-        else:
-            print resp
-            return get_err_response('InvalidURI')
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
+
+        if status != 201:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            elif status == 404:
+                return get_err_response('InvalidBucketName')
+            else:
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
+
+        resp = Response()
+        resp.etag = headers['etag']
+        resp.status = 200
+        return resp
 
     def DELETE(self, env, start_response):
-        # TODO: how can we get the response result?
-        req = Request(env)
-        resp = self.app(env, start_response)
-        try:
-            status = int(resp[0].split()[0])
-        except:
-            resp = Response()
-            resp.status = 204
-            return resp
+        body_iter = self.app(env, self.do_start_response)
+        status = int(self.response_args[0].split()[0])
+        headers = dict(self.response_args[1])
             
-        print resp
-        if status == 401:
-            return get_err_response('AccessDenied')
-        elif status == 404:
-            return get_err_response('NoSuchKey')
-        else:
-            return get_err_response('AccessDenied')
+        if status != 204:
+            if status == 401:
+                return get_err_response('AccessDenied')
+            elif status == 404:
+                return get_err_response('NoSuchKey')
+            else:
+                print status, headers, body_iter
+                return get_err_response('InvalidURI')
+
+        resp = Response()
+        resp.status = 204
+        return resp
 
 class Swift3Middleware(object):
     def __init__(self, app, conf, *args, **kwargs):
@@ -267,8 +266,6 @@ class Swift3Middleware(object):
 
     def __call__(self, env, start_response):
         req = Request(env)
-#        print req.method
-#        print req.path
         if not'Authorization' in req.headers:
             return self.app(env, start_response)
         try:
