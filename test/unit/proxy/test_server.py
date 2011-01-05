@@ -1264,6 +1264,7 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
+            # initial source object PUT
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0'})
             self.app.update_request(req)
@@ -1273,6 +1274,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
 
+            # basic copy
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o'})
@@ -1285,6 +1287,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o')
 
+            # non-zero content length
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '5',
                                           'X-Copy-From': 'c/o'})
@@ -1296,6 +1299,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
 
+            # extra source path parsing
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o/o2'})
@@ -1308,6 +1312,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o/o2')
 
+            # space in soure path
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o%20o2'})
