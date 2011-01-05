@@ -13,15 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from webob import Request, Response
-from webob.exc import HTTPNotFound
-from simplejson import loads
-from swift.common.utils import split_path
 from urllib import unquote, quote
 import rfc822
 import hmac
 import base64
 import errno
+import binascii
+
+from webob import Request, Response
+from webob.exc import HTTPNotFound
+from simplejson import loads
+
+from swift.common.utils import split_path
+
 
 def get_err_response(code):
     error_table = {'AccessDenied':
@@ -157,27 +161,30 @@ class ObjectController(Controller):
         self.container_name = unquote(container_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s/%s' % (account_name, container_name, object_name)
+
     def GETorHEAD(self, env, start_response):
-        body_iter = self.app(env, self.do_start_response)
+        app_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 200:
-            if status == 401:
-                return get_err_response('AccessDenied')
-            elif status == 404:
-                return get_err_response('NoSuchKey')
-            else:
-                print status, headers, body_iter
-                return get_err_response('InvalidURI')
-
-        resp = Response(content_type=headers['Content-Type'])
-        resp.etag = headers['etag']
-        resp.status = 200
-        req = Request(env)
-        if req.method == 'GET':
-            resp.body = ''.join(list(body_iter))
-        return resp
+        if 200 <= status < 300:
+            new_hdrs = {}
+            for header in ('content-length', 'content-encoding', 'etag'):
+                if header in headers:
+                    new_hdrs[header] = headers[header]
+            if 'etag' in headers:
+                new_hdrs['Content-MD5'] = headers['etag'].decode('hex') \
+                                                         .encode('base64')
+            for key, value in headers.iteritems():
+                if key.startswith('x-object-meta-'):
+                    new_hdrs['x-amz-meta-' + key[14:]] = value
+            return Response(status=status, headers=new_hdrs, app_iter=app_iter)
+        elif status == 401:
+            return get_err_response('AccessDenied')
+        elif status == 404:
+            return get_err_response('NoSuchKey')
+        else:
+            return get_err_response('InvalidURI')
 
     def HEAD(self, env, start_response):
         return self.GETorHEAD(env, start_response)
