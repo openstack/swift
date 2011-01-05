@@ -3095,6 +3095,18 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-Admin-User': 'act:rdm',
                      'X-Auth-Admin-Key': 'bad'}), 'act'))
 
+    def test_reseller_admin_but_account_is_internal_use_only(self):
+        req = Request.blank('/v1/AUTH_.auth', environ={'REQUEST_METHOD': 'GET'})
+        req.remote_user = 'act:usr,act,.reseller_admin'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
+    def test_reseller_admin_but_account_is_exactly_reseller_prefix(self):
+        req = Request.blank('/v1/AUTH_', environ={'REQUEST_METHOD': 'GET'})
+        req.remote_user = 'act:usr,act,.reseller_admin'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+
 
 if __name__ == '__main__':
     unittest.main()

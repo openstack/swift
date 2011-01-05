@@ -206,6 +206,7 @@ class Swauth(object):
             return self.denied_response(req)
         user_groups = (req.remote_user or '').split(',')
         if '.reseller_admin' in user_groups and \
+                account != self.reseller_prefix and \
                 account[len(self.reseller_prefix)].isalnum():
             return None
         if account in user_groups and \
