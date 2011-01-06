@@ -172,10 +172,8 @@ class ObjectController(Controller):
             for key, val in headers.iteritems():
                 if key.startswith('x-object-meta-'):
                     new_hdrs['x-amz-meta-' + key[14:]] = val
-                elif key in ('content-length', 'content-encoding', 'etag'):
+                elif key in ('Content-Length', 'Content-Type', 'Content-Encoding', 'etag', 'last-modified'):
                     new_hdrs[key] = val
-                if key == 'etag':
-                    new_hdrs['Content-MD5'] = val.decode('hex').encode('base64')
             return Response(status=status, headers=new_hdrs, app_iter=app_iter)
         elif status == 401:
             return get_err_response('AccessDenied')
