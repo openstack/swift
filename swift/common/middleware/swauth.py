@@ -558,17 +558,25 @@ class Swauth(object):
         account_suffix = req.headers.get('x-account-suffix')
         if not account_suffix:
             account_suffix = str(uuid4())
-        conn = self.get_conn()
         # Create the new account in the Swift cluster
-        path = quote('%s/%s%s' % (self.dsc_parsed.path, self.reseller_prefix,
-                                  account_suffix))
-        conn.request('PUT', path,
-                     headers={'X-Auth-Token': self.get_itoken(req.environ)})
-        resp = conn.getresponse()
-        resp.read()
-        if resp.status // 100 != 2:
-            raise Exception('Could not create account on the Swift cluster: '
-                '%s %s %s' % (path, resp.status, resp.reason))
+        path = quote('%s/%s%s' % (self.dsc_parsed.path,
+                                  self.reseller_prefix, account_suffix))
+        try:
+            conn = self.get_conn()
+            conn.request('PUT', path,
+                         headers={'X-Auth-Token': self.get_itoken(req.environ)})
+            resp = conn.getresponse()
+            resp.read()
+            if resp.status // 100 != 2:
+                raise Exception('Could not create account on the Swift '
+                    'cluster: %s %s %s' % (path, resp.status, resp.reason))
+        except:
+            self.logger.error(_('ERROR: Exception while trying to communicate '
+                'with %(scheme)s://%(host)s:%(port)s/%(path)s'),
+                {'scheme': self.dsc_parsed.scheme,
+                 'host': self.dsc_parsed.hostname,
+                 'port': self.dsc_parsed.port, 'path': path})
+            raise
         # Record the mapping from account id back to account name
         path = quote('/v1/%s/.account_id/%s%s' %
                      (self.auth_account, self.reseller_prefix, account_suffix))
