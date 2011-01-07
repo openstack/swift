@@ -284,11 +284,15 @@ class LoggerFileObject(object):
 
 
 class LogAdapter(object):
-    """Cheesy version of the LoggerAdapter available in Python 3"""
+    """
+    A Logger like object which performs some reformatting on calls to
+    :meth:`exception`.  Can be used to store a threadlocal transaction id.
+    """
+
+    _txn_id = threading.local()
 
     def __init__(self, logger):
         self.logger = logger
-        self._txn_id = threading.local()
         for proxied_method in ('debug', 'log', 'warn', 'warning', 'error',
                                'critical', 'info'):
             setattr(self, proxied_method, getattr(logger, proxied_method))
@@ -334,18 +338,45 @@ class LogAdapter(object):
 
 
 class NamedFormatter(logging.Formatter):
-    def __init__(self, server, logger):
-        logging.Formatter.__init__(self)
+    """
+    NamedFormatter is used to add additional information to log messages.
+    Normally it will simply add the server name as an attribute on the
+    LogRecord and the default format string will include it at the
+    begining of the log message.  Additionally, if the transaction id is
+    available and not already included in the message, NamedFormatter will
+    add it.
+
+    NamedFormatter may be initialized with a format string which makes use
+    of the standard LogRecord attributes.  In addition the format string
+    may include the following mapping key:
+
+    +----------------+---------------------------------------------+
+    | Format         | Description                                 |
+    +================+=============================================+
+    | %(server)s     | Name of the swift server doing logging      |
+    +----------------+---------------------------------------------+
+
+    :param server: the swift server name, a string.
+    :param logger: a Logger or :class:`LogAdapter` instance, additional
+                   context may be pulled from attributes on this logger if
+                   available.
+    :param fmt: the format string used to construct the message, if none is
+                supplied it defaults to ``"%(server)s %(message)s"``
+    """
+
+    def __init__(self, server, logger,
+                 fmt="%(server)s %(message)s"):
+        logging.Formatter.__init__(self, fmt)
         self.server = server
         self.logger = logger
 
     def format(self, record):
+        record.server = self.server
         msg = logging.Formatter.format(self, record)
         if self.logger.txn_id and (record.levelno != logging.INFO or
                                    self.logger.txn_id not in msg):
-            return '%s %s (txn: %s)' % (self.server, msg, self.logger.txn_id)
-        else:
-            return '%s %s' % (self.server, msg)
+            msg = "%s (txn: %s)" % (msg, self.logger.txn_id)
+        return msg
 
 
 def get_logger(conf, name=None, log_to_console=False):
@@ -386,7 +417,10 @@ def get_logger(conf, name=None, log_to_console=False):
     root_logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
     adapted_logger = LogAdapter(root_logger)
-    get_logger.handler.setFormatter(NamedFormatter(name, adapted_logger))
+    formatter = NamedFormatter(name, adapted_logger)
+    get_logger.handler.setFormatter(formatter)
+    if hasattr(get_logger, 'console'):
+        get_logger.console.setFormatter(formatter)
     return adapted_logger
 
 
