@@ -1142,13 +1142,13 @@ class Swauth(object):
     def get_conn(self, urlparsed=None):
         """
         Returns an HTTPConnection based on the urlparse result given or the
-        default Swift cluster urlparse result.
+        default Swift cluster (internal url) urlparse result.
 
         :param urlparsed: The result from urlparse.urlparse or None to use the
                           default Swift cluster's value
         """
         if not urlparsed:
-            urlparsed = self.dsc_parsed
+            urlparsed = self.dsc_parsed2
         if urlparsed.scheme == 'http':
             return HTTPConnection(urlparsed.netloc)
         else:
