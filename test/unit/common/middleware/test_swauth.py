@@ -161,8 +161,13 @@ class TestAuth(unittest.TestCase):
                           'local:http://host/path')
         ath = auth.filter_factory({'super_admin_key': 'supertest',
             'default_swift_cluster': 'local:https://host/path/'})(app)
-        self.assertEquals(ath.default_swift_cluster,
-                          'local:https://host/path')
+        self.assertEquals(ath.dsc_url, 'https://host/path')
+        self.assertEquals(ath.dsc_url2, 'https://host/path')
+        ath = auth.filter_factory({'super_admin_key': 'supertest',
+            'default_swift_cluster':
+                'local::https://host/path/::http://host2/path2/'})(app)
+        self.assertEquals(ath.dsc_url, 'https://host/path')
+        self.assertEquals(ath.dsc_url2, 'http://host2/path2')
 
     def test_top_level_ignore(self):
         resp = Request.blank('/').get_response(self.test_auth)
@@ -3095,7 +3100,8 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-Admin-Key': 'bad'}), 'act'))
 
     def test_reseller_admin_but_account_is_internal_use_only(self):
-        req = Request.blank('/v1/AUTH_.auth', environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank('/v1/AUTH_.auth',
+                            environ={'REQUEST_METHOD': 'GET'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)

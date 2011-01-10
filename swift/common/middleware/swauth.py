@@ -61,12 +61,32 @@ class Swauth(object):
             self.auth_prefix += '/'
         self.auth_account = '%s.auth' % self.reseller_prefix
         self.default_swift_cluster = conf.get('default_swift_cluster',
-            'local:http://127.0.0.1:8080/v1').rstrip('/')
-        self.dsc_name, self.dsc_url = self.default_swift_cluster.split(':', 1)
+            'local:http://127.0.0.1:8080/v1')
+        # This setting is a little messy because of the options it has to
+        # provide. The basic format is cluster_name:url, such as the default
+        # value of local:http://127.0.0.1:8080/v1. But, often the url given to
+        # the user needs to be different than the url used by Swauth to
+        # create/delete accounts. So there's a more complex format of
+        # cluster_name::url::url, such as
+        # local::https://public.com:8080/v1::http://private.com:8080/v1.
+        # The double colon is what sets the two apart.
+        if '::' in self.default_swift_cluster:
+            self.dsc_name, self.dsc_url, self.dsc_url2 = \
+                self.default_swift_cluster.split('::', 2)
+            self.dsc_url = self.dsc_url.rstrip('/')
+            self.dsc_url2 = self.dsc_url2.rstrip('/')
+        else:
+            self.dsc_name, self.dsc_url = \
+                self.default_swift_cluster.split(':', 1)
+            self.dsc_url = self.dsc_url2 = self.dsc_url.rstrip('/')
         self.dsc_parsed = urlparse(self.dsc_url)
         if self.dsc_parsed.scheme not in ('http', 'https'):
             raise Exception('Cannot handle protocol scheme %s for url %s' %
                             (self.dsc_parsed.scheme, repr(self.dsc_url)))
+        self.dsc_parsed2 = urlparse(self.dsc_url2)
+        if self.dsc_parsed2.scheme not in ('http', 'https'):
+            raise Exception('Cannot handle protocol scheme %s for url %s' %
+                            (self.dsc_parsed2.scheme, repr(self.dsc_url2)))
         self.super_admin_key = conf.get('super_admin_key')
         if not self.super_admin_key:
             msg = _('No super_admin_key set in conf file! Exiting.')
@@ -559,12 +579,12 @@ class Swauth(object):
         if not account_suffix:
             account_suffix = str(uuid4())
         # Create the new account in the Swift cluster
-        path = quote('%s/%s%s' % (self.dsc_parsed.path,
+        path = quote('%s/%s%s' % (self.dsc_parsed2.path,
                                   self.reseller_prefix, account_suffix))
         try:
             conn = self.get_conn()
             conn.request('PUT', path,
-                         headers={'X-Auth-Token': self.get_itoken(req.environ)})
+                        headers={'X-Auth-Token': self.get_itoken(req.environ)})
             resp = conn.getresponse()
             resp.read()
             if resp.status // 100 != 2:
@@ -573,9 +593,9 @@ class Swauth(object):
         except:
             self.logger.error(_('ERROR: Exception while trying to communicate '
                 'with %(scheme)s://%(host)s:%(port)s/%(path)s'),
-                {'scheme': self.dsc_parsed.scheme,
-                 'host': self.dsc_parsed.hostname,
-                 'port': self.dsc_parsed.port, 'path': path})
+                {'scheme': self.dsc_parsed2.scheme,
+                 'host': self.dsc_parsed2.hostname,
+                 'port': self.dsc_parsed2.port, 'path': path})
             raise
         # Record the mapping from account id back to account name
         path = quote('/v1/%s/.account_id/%s%s' %
