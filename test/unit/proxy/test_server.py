@@ -2000,6 +2000,37 @@ class TestObjectController(unittest.TestCase):
                 # will be sent in a single chunk.
                 self.assertEquals(body,
                     '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
+                # Check copy content type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nContent-Type: text/jibberish'
+                    '\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nX-Copy-From: c/obj\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure getting the copied file gets original content-type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('Content-Type: text/jibberish' in headers)
             finally:
                 prospa.kill()
                 acc1spa.kill()
