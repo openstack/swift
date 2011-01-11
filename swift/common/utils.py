@@ -396,6 +396,7 @@ def get_logger(conf, name=None, log_to_console=False):
     root_logger = logging.getLogger()
     if hasattr(get_logger, 'handler') and get_logger.handler:
         root_logger.removeHandler(get_logger.handler)
+        get_logger.handler.close()
         get_logger.handler = None
     if log_to_console:
         # check if a previous call to get_logger already added a console logger

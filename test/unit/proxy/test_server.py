@@ -1264,6 +1264,7 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
+            # initial source object PUT
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0'})
             self.app.update_request(req)
@@ -1273,6 +1274,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
 
+            # basic copy
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o'})
@@ -1285,6 +1287,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o')
 
+            # non-zero content length
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '5',
                                           'X-Copy-From': 'c/o'})
@@ -1296,6 +1299,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
 
+            # extra source path parsing
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o/o2'})
@@ -1308,6 +1312,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o/o2')
 
+            # space in soure path
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o%20o2'})
@@ -1995,6 +2000,125 @@ class TestObjectController(unittest.TestCase):
                 # will be sent in a single chunk.
                 self.assertEquals(body,
                     '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
+                # Make a copy of the manifested object, which should
+                # error since the number of segments exceeds
+                # CONTAINER_LISTING_LIMIT.
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
+                    '0\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 413'
+                self.assertEquals(headers[:len(exp)], exp)
+                body = fd.read()
+                # After adjusting the CONTAINER_LISTING_LIMIT, make a copy of
+                # the manifested object which should consolidate the segments.
+                proxy_server.CONTAINER_LISTING_LIMIT = 10000
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
+                    '0\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                body = fd.read()
+                # Retrieve and validate the copy.
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('x-object-manifest:' not in headers.lower())
+                self.assert_('Content-Length: 25\r' in headers)
+                body = fd.read()
+                self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+                # Check copy content type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nContent-Type: text/jibberish'
+                    '\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nX-Copy-From: c/obj\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure getting the copied file gets original content-type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('Content-Type: text/jibberish' in headers)
+                # Check set content type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj3 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
+                    '\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure getting the copied file gets original content-type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/c/obj3 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('Content-Type: foo/bar' in
+                        headers.split('\r\n'), repr(headers.split('\r\n')))
+                # Check set content type with charset
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/c/obj4 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
+                    '; charset=UTF-8\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure getting the copied file gets original content-type
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/c/obj4 HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('Content-Type: foo/bar; charset=UTF-8' in
+                        headers.split('\r\n'), repr(headers.split('\r\n')))
             finally:
                 prospa.kill()
                 acc1spa.kill()

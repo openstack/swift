@@ -8,7 +8,9 @@ Talking to Swift with Cyberduck
 
 #.  Install Swift, or have credentials for an existing Swift installation. If
     you plan to install Swift on your own server, follow the general guidelines
-    in the section following this one.
+    in the section following this one. (This documentation assumes the use of
+    the DevAuth auth server; if you're using Swauth, you should change all auth
+    URLs /v1.0 to /auth/v1.0)
 
 #.  Verify you can connect using the standard Swift Tool `st` from your
     "public" URL (yes I know this resolves privately inside EC2)::
