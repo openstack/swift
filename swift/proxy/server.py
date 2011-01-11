@@ -632,8 +632,8 @@ class Controller(object):
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
                 if source.getheader('Content-Type'):
-                    res.content_type = source.getheader('Content-Type')
                     res.charset = None
+                    res.content_type = source.getheader('Content-Type')
                 return res
             elif 200 <= source.status <= 399:
                 res = status_map[source.status](request=req)
@@ -641,8 +641,8 @@ class Controller(object):
                 if req.method == 'HEAD':
                     res.content_length = source.getheader('Content-Length')
                     if source.getheader('Content-Type'):
-                        res.content_type = source.getheader('Content-Type')
                         res.charset = None
+                        res.content_type = source.getheader('Content-Type')
                 return res
             statuses.append(source.status)
             reasons.append(source.reason)
