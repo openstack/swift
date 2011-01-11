@@ -31,7 +31,10 @@ if not all([swift_test_auth, swift_test_user[0], swift_test_key[0]]):
         swift_test_auth = 'http'
         if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
             swift_test_auth = 'https'
-        swift_test_auth += '://%(auth_host)s:%(auth_port)s/v1.0' % conf
+        if 'auth_prefix' not in conf:
+            conf['auth_prefix'] = '/'
+        swift_test_auth += \
+            '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
         swift_test_user[0] = '%(account)s:%(username)s' % conf
         swift_test_key[0] = conf['password']
         try:

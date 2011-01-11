@@ -1,0 +1,104 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
+import gettext
+import re
+from datetime import datetime, timedelta
+from optparse import OptionParser
+from sys import argv, exit
+from time import sleep, time
+
+from swift.common.client import Connection
+
+
+if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
+    parser = OptionParser(usage='Usage: %prog [options]')
+    parser.add_option('-t', '--token-life', dest='token_life',
+        default='86400', help='The expected life of tokens; token objects '
+        'modified more than this number of seconds ago will be checked for '
+        'expiration (default: 86400).')
+    parser.add_option('-s', '--sleep', dest='sleep',
+        default='0.1', help='The number of seconds to sleep between token '
+        'checks (default: 0.1)')
+    parser.add_option('-v', '--verbose', dest='verbose', action='store_true',
+        default=False, help='Outputs everything done instead of just the '
+        'deletions.')
+    parser.add_option('-A', '--admin-url', dest='admin_url',
+        default='http://127.0.0.1:8080/auth/', help='The URL to the auth '
+        'subsystem (default: http://127.0.0.1:8080/auth/)')
+    parser.add_option('-K', '--admin-key', dest='admin_key',
+        help='The key for .super_admin.')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+    if len(args) != 0:
+        parser.parse_args(['-h'])
+    options.admin_url = options.admin_url.rstrip('/')
+    if not options.admin_url.endswith('/v1.0'):
+        options.admin_url += '/v1.0'
+    options.admin_user = '.super_admin:.super_admin'
+    options.token_life = timedelta(0, float(options.token_life))
+    options.sleep = float(options.sleep)
+    conn = Connection(options.admin_url, options.admin_user, options.admin_key)
+    for x in xrange(16):
+        container = '.token_%x' % x
+        marker = None
+        while True:
+            if options.verbose:
+                print 'GET %s?marker=%s' % (container, marker)
+            objs = conn.get_container(container, marker=marker)[1]
+            if objs:
+                marker = objs[-1]['name']
+            else:
+                if options.verbose:
+                    print 'No more objects in %s' % container
+                break
+            for obj in objs:
+                last_modified = datetime(*map(int, re.split('[^\d]',
+                                              obj['last_modified'])[:-1]))
+                ago = datetime.utcnow() - last_modified
+                if ago > options.token_life:
+                    if options.verbose:
+                        print '%s/%s last modified %ss ago; investigating' % \
+                              (container, obj['name'],
+                               ago.days * 86400 + ago.seconds)
+                        print 'GET %s/%s' % (container, obj['name'])
+                    detail = conn.get_object(container, obj['name'])[1]
+                    detail = json.loads(detail)
+                    if detail['expires'] < time():
+                        if options.verbose:
+                            print '%s/%s expired %ds ago; deleting' % \
+                                  (container, obj['name'],
+                                   time() - detail['expires'])
+                        print 'DELETE %s/%s' % (container, obj['name'])
+                        conn.delete_object(container, obj['name'])
+                    elif options.verbose:
+                        print "%s/%s won't expire for %ds; skipping" % \
+                              (container, obj['name'],
+                               detail['expires'] - time())
+                elif options.verbose:
+                    print '%s/%s last modified %ss ago; skipping' % \
+                          (container, obj['name'],
+                           ago.days * 86400 + ago.seconds)
+                sleep(options.sleep)
+    if options.verbose:
+        print 'Done.'

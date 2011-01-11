@@ -1683,7 +1683,8 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
+        if 'x-cf-trans-id' not in req.headers:
+            req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
