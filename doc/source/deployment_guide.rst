@@ -229,7 +229,12 @@ Option              Default         Description
 log_name            object-auditor  Label used when logging
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
-interval            1800            Minimum time for a pass to take
+files_per_second    20              Maximum files audited per second. Should
+                                    be tuned according to individual system
+                                    specs. 0 is unlimited.
+bytes_per_second    10000000        Maximum bytes audited per second. Should
+                                    be tuned according to individual system
+                                    specs. 0 is unlimited.
 ==================  ==============  ==========================================
 
 ------------------------------

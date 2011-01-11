@@ -779,19 +779,22 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                     on devices
     :param logger: a logger object
     '''
-    for device in os.listdir(devices):
-        if mount_check and not\
+    device_dir = os.listdir(devices)
+    # randomize devices in case of process restart before sweep completed
+    shuffle(device_dir)
+    for device in device_dir:
+        if mount_check and not \
                 os.path.ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)
             continue
-        datadir = os.path.join(devices, device, datadir)
-        if not os.path.exists(datadir):
+        datadir_path = os.path.join(devices, device, datadir)
+        if not os.path.exists(datadir_path):
             continue
-        partitions = os.listdir(datadir)
+        partitions = os.listdir(datadir_path)
         for partition in partitions:
-            part_path = os.path.join(datadir, partition)
+            part_path = os.path.join(datadir_path, partition)
             if not os.path.isdir(part_path):
                 continue
             suffixes = os.listdir(part_path)
@@ -808,3 +811,30 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                                         reverse=True):
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
+
+
+def ratelimit_sleep(running_time, max_rate, incr_by=1):
+    '''
+    Will eventlet.sleep() for the appropriate time so that the max_rate
+    is never exceeded.  If max_rate is 0, will not ratelimit.  The
+    maximum recommended rate should not exceed (1000 * incr_by) a second
+    as eventlet.sleep() does involve some overhead.  Returns running_time
+    that should be used for subsequent calls.
+
+    :param running_time: the running time of the next allowable request. Best
+                         to start at zero.
+    :param max_rate: The maximum rate per second allowed for the process.
+    :param incr_by: How much to increment the counter.  Useful if you want
+                    to ratelimit 1024 bytes/sec and have differing sizes
+                    of requests. Must be >= 0.
+    '''
+    if not max_rate or incr_by <= 0:
+        return running_time
+    clock_accuracy = 1000.0
+    now = time.time() * clock_accuracy
+    time_per_request = clock_accuracy * (float(incr_by) / max_rate)
+    if running_time < now:
+        running_time = now
+    elif running_time - now > time_per_request:
+        eventlet.sleep((running_time - now) / clock_accuracy)
+    return running_time + time_per_request
