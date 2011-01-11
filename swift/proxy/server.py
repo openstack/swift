@@ -911,12 +911,14 @@ class ObjectController(Controller):
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         # Sometimes the 'content-type' header exists, but is set to None.
+        content_type_manually_set = True
         if not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             if not guessed_type:
                 req.headers['Content-Type'] = 'application/octet-stream'
             else:
                 req.headers['Content-Type'] = guessed_type
+            content_type_manually_set = False
         error_response = check_object_creation(req, self.object_name)
         if error_response:
             return error_response
@@ -961,6 +963,9 @@ class ObjectController(Controller):
             new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
+            if not content_type_manually_set:
+                new_req.headers['Content-Type'] = \
+                    source_resp.headers['Content-Type']
             for k, v in source_resp.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
