@@ -1,0 +1,85 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
+import gettext
+from optparse import OptionParser
+from os.path import basename
+from sys import argv, exit
+from urlparse import urlparse
+
+from swift.common.bufferedhttp import http_connect_raw as http_connect
+
+
+if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
+    parser = OptionParser(usage='''
+Usage: %prog [options] [account] [user]
+
+If [account] and [user] are omitted, a list of accounts will be output.
+
+If [account] is included but not [user], an account's information will be
+output, including a list of users within the account.
+
+If [account] and [user] are included, the user's information will be output,
+including a list of groups the user belongs to.
+
+If the [user] is '.groups', the active groups for the account will be listed.
+'''.strip())
+    parser.add_option('-p', '--plain-text', dest='plain_text',
+        action='store_true', default=False, help='Changes the output from '
+        'JSON to plain text. This will cause an account to list only the '
+        'users and a user to list only the groups.')
+    parser.add_option('-A', '--admin-url', dest='admin_url',
+        default='http://127.0.0.1:8080/auth/', help='The URL to the auth '
+        'subsystem (default: http://127.0.0.1:8080/auth/')
+    parser.add_option('-U', '--admin-user', dest='admin_user',
+        default='.super_admin', help='The user with admin rights to add users '
+        '(default: .super_admin).')
+    parser.add_option('-K', '--admin-key', dest='admin_key',
+        help='The key for the user with admin rights to add users.')
+    args = argv[1:]
+    if not args:
+        args.append('-h')
+    (options, args) = parser.parse_args(args)
+    if len(args) > 2:
+        parser.parse_args(['-h'])
+    parsed = urlparse(options.admin_url)
+    if parsed.scheme not in ('http', 'https'):
+        raise Exception('Cannot handle protocol scheme %s for url %s' %
+                        (parsed.scheme, repr(options.admin_url)))
+    if not parsed.path:
+        parsed.path = '/'
+    elif parsed.path[-1] != '/':
+        parsed.path += '/'
+    path = '%sv2/%s' % (parsed.path, '/'.join(args))
+    headers = {'X-Auth-Admin-User': options.admin_user,
+               'X-Auth-Admin-Key': options.admin_key}
+    conn = http_connect(parsed.hostname, parsed.port, 'GET', path, headers,
+                        ssl=(parsed.scheme == 'https'))
+    resp = conn.getresponse()
+    if resp.status // 100 != 2:
+        print 'List failed: %s %s' % (resp.status, resp.reason)
+    body = resp.read()
+    if options.plain_text:
+        info = json.loads(body)
+        for group in info[['accounts', 'users', 'groups'][len(args)]]:
+            print group['name']
+    else:
+        print body

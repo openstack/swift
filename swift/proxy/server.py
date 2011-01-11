@@ -952,15 +952,15 @@ class ObjectController(Controller):
             self.container_name = orig_container_name
             new_req = Request.blank(req.path_info,
                         environ=req.environ, headers=req.headers)
-            if 'x-object-manifest' in source_resp.headers:
-                data_source = iter([''])
-                new_req.content_length = 0
-                new_req.headers['X-Object-Manifest'] = \
-                    source_resp.headers['x-object-manifest']
-            else:
-                data_source = source_resp.app_iter
-                new_req.content_length = source_resp.content_length
-                new_req.etag = source_resp.etag
+            data_source = source_resp.app_iter
+            new_req.content_length = source_resp.content_length
+            if new_req.content_length is None:
+                # This indicates a transfer-encoding: chunked source object,
+                # which currently only happens because there are more than
+                # CONTAINER_LISTING_LIMIT segments in a segmented object. In
+                # this case, we're going to refuse to do the server-side copy.
+                return HTTPRequestEntityTooLarge(request=req)
+            new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
             if not content_type_manually_set:
@@ -1688,7 +1688,8 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
+        if 'x-cf-trans-id' not in req.headers:
+            req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']

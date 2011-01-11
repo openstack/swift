@@ -21,6 +21,7 @@ import subprocess
 
 from swift import __version__ as version
 
+
 class local_sdist(sdist):
     """Customized sdist hook - builds the ChangeLog file from VC first"""
 
@@ -79,6 +80,10 @@ setup(
         'bin/swift-log-uploader',
         'bin/swift-log-stats-collector',
         'bin/swift-account-stats-logger',
+        'bin/swauth-add-account', 'bin/swauth-add-user',
+        'bin/swauth-cleanup-tokens', 'bin/swauth-delete-account',
+        'bin/swauth-delete-user', 'bin/swauth-list', 'bin/swauth-prep',
+        'bin/swauth-set-account-service', 'bin/swift-auth-to-swauth',
         ],
     entry_points={
         'paste.app_factory': [
@@ -90,6 +95,7 @@ setup(
             ],
         'paste.filter_factory': [
             'auth=swift.common.middleware.auth:filter_factory',
+            'swauth=swift.common.middleware.swauth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
             'ratelimit=swift.common.middleware.ratelimit:filter_factory',

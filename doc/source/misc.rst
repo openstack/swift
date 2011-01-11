@@ -42,6 +42,15 @@ Auth
     :members:
     :show-inheritance:
 
+.. _common_swauth:
+
+Swauth
+======
+
+.. automodule:: swift.common.middleware.swauth
+    :members:
+    :show-inheritance:
+
 .. _acls:
 
 ACLs

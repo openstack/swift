@@ -22,7 +22,7 @@ import uuid
 from optparse import OptionParser
 
 from swift.common.bench import BenchController
-from swift.common.utils import readconf, NamedLogger
+from swift.common.utils import readconf, LogAdapter, NamedFormatter
 
 # The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
@@ -124,10 +124,11 @@ if __name__ == '__main__':
         'critical': logging.CRITICAL}.get(
             options.log_level.lower(), logging.INFO))
     loghandler = logging.StreamHandler()
-    logformat = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    loghandler.setFormatter(logformat)
     logger.addHandler(loghandler)
-    logger = NamedLogger(logger, 'swift-bench')
+    logger = LogAdapter(logger)
+    logformat = NamedFormatter('swift-bench', logger,
+                   fmt='%(server)s %(asctime)s %(levelname)s %(message)s')
+    loghandler.setFormatter(logformat)
 
     controller = BenchController(logger, options)
     controller.run()
