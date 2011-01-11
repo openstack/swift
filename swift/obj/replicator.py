@@ -254,8 +254,8 @@ class ObjectReplicator(Daemon):
                 continue
             self.logger.info(result)
         if ret_val:
-            self.logger.error(_('Bad rsync return code: %s -> %d'),
-                    (str(args), ret_val))
+            self.logger.error(_('Bad rsync return code: %(args)s -> %(ret)d'),
+                    {'args': str(args), 'ret': ret_val})
         elif results:
             self.logger.info(
                 _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
