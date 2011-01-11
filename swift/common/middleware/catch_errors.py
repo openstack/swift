@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,11 @@ class CatchErrorMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.logger = get_logger(conf)
+        # if the application already has a logger we should use that one
+        self.logger = getattr(app, 'logger', None)
+        if not self.logger:
+            # and only call get_logger if we have to
+            self.logger = get_logger(conf)
 
     def __call__(self, env, start_response):
         try:

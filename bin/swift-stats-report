@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ from optparse import OptionParser
 from sys import argv, exit, stderr
 from time import time
 from uuid import uuid4
-import gettext
 
 from eventlet import GreenPool, hubs, patcher, sleep, Timeout
 from eventlet.pools import Pool
@@ -747,7 +746,6 @@ def object_delete_report(coropool, connpool, options):
 
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     patcher.monkey_patch()
     hubs.get_hub().debug_exceptions = False
 

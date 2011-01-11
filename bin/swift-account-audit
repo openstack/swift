@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ from urllib import quote
 from hashlib import md5
 import getopt
 from itertools import chain
-import gettext
 
 import simplejson
 from eventlet.greenpool import GreenPool
@@ -325,7 +324,6 @@ class Auditor(object):
 
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     try:
         optlist, args = getopt.getopt(sys.argv[1:], 'c:r:e:d')
     except getopt.GetoptError, err:

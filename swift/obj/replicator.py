@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -245,7 +245,7 @@ class ObjectReplicator(Daemon):
         except Timeout:
             self.logger.error(_("Killing long-running rsync: %s"), str(args))
             proc.kill()
-            return 1 # failure response code
+            return 1  # failure response code
         total_time = time.time() - start_time
         for result in results.split('\n'):
             if result == '':

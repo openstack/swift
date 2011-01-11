@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ from optparse import OptionParser
 from sys import exit, argv
 from time import time
 from uuid import uuid4
-import gettext
 
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
@@ -76,7 +75,6 @@ def report(success):
 
 if __name__ == '__main__':
     global begun, created, item_type, next_report, need_to_create, retries_done
-    gettext.install('swift', unicode=1)
     patcher.monkey_patch()
 
     parser = OptionParser()

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,13 +18,11 @@ from ConfigParser import ConfigParser
 from optparse import OptionParser
 from os.path import basename
 from sys import argv, exit
-import gettext
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 
 
 if __name__ == '__main__':
-    gettext.install('swift', unicode=1)
     default_conf = '/etc/swift/auth-server.conf'
     parser = OptionParser(
         usage='Usage: %prog [options] <account> <user> <password>')

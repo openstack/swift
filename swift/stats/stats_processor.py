@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,10 +22,11 @@ class StatsLogProcessor(object):
     def __init__(self, conf):
         self.logger = get_logger(conf)
 
-    def process(self, obj_stream, account, container, object_name):
+    def process(self, obj_stream, data_object_account, data_object_container,
+                data_object_name):
         '''generate hourly groupings of data from one stats log file'''
         account_totals = {}
-        year, month, day, hour, _ = object_name.split('/')
+        year, month, day, hour, _ = data_object_name.split('/')
         for line in obj_stream:
             if not line:
                 continue

@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -96,8 +96,10 @@ def delay_denial(func):
         return func(*a, **kw)
     return wrapped
 
+
 def get_account_memcache_key(account):
     return 'account/%s' % account
+
 
 def get_container_memcache_key(account, container):
     return 'container/%s/%s' % (account, container)
@@ -298,7 +300,8 @@ class Controller(object):
         :param additional_info: additional information to log
         """
         self.app.logger.exception(
-            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s'),
+            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
+              '%(info)s'),
             {'type': typ, 'ip': node['ip'], 'port': node['port'],
              'device': node['device'], 'info': additional_info})
 
@@ -349,7 +352,7 @@ class Controller(object):
             if result_code == 200:
                 return partition, nodes
             elif result_code == 404:
-                 return None, None
+                return None, None
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
         path = '/%s' % account
@@ -1618,7 +1621,7 @@ class BaseApplication(object):
         self.account_ring = account_ring or \
             Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
-        mimetypes.init(mimetypes.knownfiles + 
+        mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
 
     def get_controller(self, path):
