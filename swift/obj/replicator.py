@@ -407,7 +407,7 @@ class ObjectReplicator(Daemon):
                         conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                 except (Exception, Timeout):
-                    logging.exception("Error syncing with node: %s" % node)
+                    self.logger.exception("Error syncing with node: %s" % node)
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing partition"))
