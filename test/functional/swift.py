@@ -24,6 +24,7 @@ import urllib
 
 import simplejson as json
 
+from nose import SkipTest
 from xml.dom import minidom
 
 class AuthenticationFailed(Exception):
@@ -79,6 +80,10 @@ def listing_items(method):
 
 class Connection(object):
     def __init__(self, config):
+        for key in 'auth_host auth_port auth_ssl account username password'.split():
+            if not config.has_key(key):
+                raise SkipTest
+
         self.auth_host = config['auth_host']
         self.auth_port = int(config['auth_port'])
         self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
