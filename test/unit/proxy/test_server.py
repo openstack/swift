@@ -2042,6 +2042,31 @@ class TestObjectController(unittest.TestCase):
                 self.assert_('Content-Length: 25\r' in headers)
                 body = fd.read()
                 self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+                # Create an object manifest file pointing to nothing
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('PUT /v1/a/segmented/empty HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                    't\r\nContent-Length: 0\r\nX-Object-Manifest: '
+                    'segmented/empty/\r\nContent-Type: text/jibberish\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 201'
+                self.assertEquals(headers[:len(exp)], exp)
+                # Ensure retrieving the manifest file gives a zero-byte file
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write('GET /v1/a/segmented/empty HTTP/1.1\r\nHost: '
+                    'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                    't\r\n\r\n')
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+                exp = 'HTTP/1.1 200'
+                self.assertEquals(headers[:len(exp)], exp)
+                self.assert_('X-Object-Manifest: segmented/empty/' in headers)
+                self.assert_('Content-Type: text/jibberish' in headers)
+                body = fd.read()
+                self.assertEquals(body, '')
                 # Check copy content type
                 sock = connect_tcp(('localhost', prolis.getsockname()[1]))
                 fd = sock.makefile()
