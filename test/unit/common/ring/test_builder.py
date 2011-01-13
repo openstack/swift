@@ -125,6 +125,41 @@ class TestRingBuilder(unittest.TestCase):
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEquals(counts, {0: 256, 2: 256, 3: 256})
 
+    def test_shuffled_gather(self):
+        if self._shuffled_gather_helper() and \
+            self._shuffled_gather_helper():
+                raise AssertionError('It is highly likely the ring is no '
+                    'longer shuffling the set of partitions to reassign on a '
+                    'rebalance.')
+
+    def _shuffled_gather_helper(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sda1'})
+        rb.rebalance()
+        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10003, 'device': 'sda1'})
+        rb.pretend_min_part_hours_passed()
+        parts = rb._gather_reassign_parts()
+        max_run = 0
+        run = 0
+        last_part = 0
+        for part in parts:
+            if part > last_part:
+                run += 1
+            else:
+                if run > max_run:
+                    max_run = run
+                run = 0
+            last_part = part
+        if run > max_run:
+            max_run = run
+        return max_run > len(parts) / 2
+
     def test_rerebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
