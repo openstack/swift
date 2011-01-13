@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unittest
+from datetime import datetime
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized, HTTPCreated, HTTPNoContent,\
@@ -214,6 +215,16 @@ class TestSwift3(unittest.TestCase):
         code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
         self.assertEquals(code, 'InvalidURI')
 
+    def test_bad_method(self):
+        req = Request.blank('/',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AUTH_something:hoge'})
+        resp = self.app(req.environ, start_response)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.firstChild.nodeName, 'Error')
+        code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
+        self.assertEquals(code, 'InvalidURI')
+
     def _test_method_error(self, cl, method, path, status):
         local_app = swift3.filter_factory({})(cl(status))
         req = Request.blank(path,
@@ -347,6 +358,17 @@ class TestSwift3(unittest.TestCase):
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
 
+    def test_object_GET_error(self):
+        code = self._test_method_error(FakeAppObject, 'GET',
+                                       '/bucket/object', 401)
+        self.assertEquals(code, 'AccessDenied')
+        code = self._test_method_error(FakeAppObject, 'GET',
+                                       '/bucket/object', 404)
+        self.assertEquals(code, 'NoSuchKey')
+        code = self._test_method_error(FakeAppObject, 'GET',
+                                       '/bucket/object', 0)
+        self.assertEquals(code, 'InvalidURI')
+
     def test_object_GET(self):
         self._test_object_GETorHEAD('GET')
 
@@ -365,7 +387,11 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppObject(201))
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AUTH_who:password',
+                                     'x-amz-storage-class': 'REDUCED_REDUNDANCY',
+                                     'Content-MD5': '1b2cf535f27731c974343645a3985328'})
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '200')
 
