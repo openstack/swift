@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from array import array
-from random import randint
+from random import randint, shuffle
 from time import time
 
 from swift.common.ring import RingData
@@ -413,6 +413,7 @@ class RingBuilder(object):
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         reassign_parts.append(part)
+        shuffle(reassign_parts)
         return reassign_parts
 
     def _reassign_parts(self, reassign_parts):
