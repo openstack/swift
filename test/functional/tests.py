@@ -19,8 +19,10 @@ import configobj
 from datetime import datetime
 import locale
 import os
+import os.path
 import random
 import StringIO
+import sys
 import time
 import threading
 import uuid
@@ -30,10 +32,18 @@ import urllib
 from swift import Account, AuthenticationFailed, Connection, Container, \
      File, ResponseError
 
-config = configobj.ConfigObj(os.environ['SWIFT_TEST_CONFIG_FILE'])
-locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
+config_file_env_var = 'SWIFT_TEST_CONFIG_FILE'
+default_config_file = '/etc/swift/func_test.conf'
 
-NoRun = object
+if os.environ.has_key(config_file_env_var):
+    config_file = os.environ[config_file_env_var]
+elif os.path.isfile(default_config_file):
+    config_file = default_config_file
+else:
+    print >>sys.stderr, 'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG'
+
+config = configobj.ConfigObj(config_file)
+locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
 class Base:
     pass
