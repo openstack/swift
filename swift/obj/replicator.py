@@ -179,7 +179,7 @@ def get_hashes(partition_dir, do_listdir=True, reclaim_age=ONE_WEEK):
                         hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
                         hashed += 1
                     except OSError:
-                        logging.exception('Error hashing suffix')
+                        logging.exception(_('Error hashing suffix'))
                         hashes[suffix] = None
                 else:
                     del hashes[suffix]
@@ -407,7 +407,7 @@ class ObjectReplicator(Daemon):
                         conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                 except (Exception, Timeout):
-                    self.logger.exception("Error syncing with node: %s" % node)
+                    self.logger.exception(_("Error syncing with node: %s") % node)
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing partition"))
