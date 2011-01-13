@@ -310,7 +310,7 @@ class LogAdapter(object):
         return self.logger.getEffectiveLevel()
 
     def exception(self, msg, *args):
-        _, exc, _ = sys.exc_info()
+        _junk, exc, _junk = sys.exc_info()
         call = self.logger.error
         emsg = ''
         if isinstance(exc, OSError):
