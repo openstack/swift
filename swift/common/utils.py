@@ -38,6 +38,7 @@ import cPickle as pickle
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
 from eventlet.green import socket, subprocess, ssl, thread, threading
+import netifaces
 
 from swift.common.exceptions import LockTimeout, MessageTimeout
 
@@ -522,15 +523,19 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
 
 def whataremyips():
     """
-    Get the machine's ip addresses using ifconfig
+    Get the machine's ip addresses
 
-    :returns: list of Strings of IPv4 ip addresses
+    :returns: list of Strings of ip addresses
     """
-    proc = subprocess.Popen(['/sbin/ifconfig'], stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT)
-    ret_val = proc.wait()
-    results = proc.stdout.read().split('\n')
-    return [x.split(':')[1].split()[0] for x in results if 'inet addr' in x]
+    addresses = []
+    for interface in netifaces.interfaces():
+        iface_data = netifaces.ifaddresses(interface)
+        for family in iface_data:
+            if family not in (netifaces.AF_INET, netifaces.AF_INET6):
+                continue
+            for address in iface_data[family]:
+                addresses.append(address['addr'])
+    return addresses
 
 
 def storage_directory(datadir, partition, hash):
