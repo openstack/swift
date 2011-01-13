@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,6 +72,21 @@ def read_metadata(fd):
     return pickle.loads(metadata)
 
 
+def write_metadata(fd, metadata):
+    """
+    Helper function to write pickled metadata for an object file.
+
+    :param fd: file descriptor to write the metadata
+    :param metadata: metadata to write
+    """
+    metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
+    key = 0
+    while metastr:
+        setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
+        metastr = metastr[254:]
+        key += 1
+
+
 class DiskFile(object):
     """
     Manage object files on disk.
@@ -97,6 +112,7 @@ class DiskFile(object):
         self.metadata = {}
         self.meta_file = None
         self.data_file = None
+        self.fp = None
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
@@ -203,17 +219,12 @@ class DiskFile(object):
 
         :params fd: file descriptor of the temp file
         :param tmppath: path to the temporary file being used
-        :param metadata: dictionary of metada to be written
+        :param metadata: dictionary of metadata to be written
         :param extention: extension to be used when making the file
         """
         metadata['name'] = self.name
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
-        metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
-        key = 0
-        while metastr:
-            setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
-            metastr = metastr[254:]
-            key += 1
+        write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
             drop_buffer_cache(fd, 0, int(metadata['Content-Length']))
         os.fsync(fd)

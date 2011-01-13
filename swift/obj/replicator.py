@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -179,7 +179,7 @@ def get_hashes(partition_dir, do_listdir=True, reclaim_age=ONE_WEEK):
                         hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
                         hashed += 1
                     except OSError:
-                        logging.exception('Error hashing suffix')
+                        logging.exception(_('Error hashing suffix'))
                         hashes[suffix] = None
                 else:
                     del hashes[suffix]
@@ -254,8 +254,8 @@ class ObjectReplicator(Daemon):
                 continue
             self.logger.info(result)
         if ret_val:
-            self.logger.error(_('Bad rsync return code: %s -> %d'),
-                    (str(args), ret_val))
+            self.logger.error(_('Bad rsync return code: %(args)s -> %(ret)d'),
+                    {'args': str(args), 'ret': ret_val})
         elif results:
             self.logger.info(
                 _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
@@ -407,7 +407,7 @@ class ObjectReplicator(Daemon):
                         conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                 except (Exception, Timeout):
-                    logging.exception("Error syncing with node: %s" % node)
+                    self.logger.exception(_("Error syncing with node: %s") % node)
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing partition"))

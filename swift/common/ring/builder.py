@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from array import array
-from random import randint
+from random import randint, shuffle
 from time import time
 
 from swift.common.ring import RingData
@@ -413,6 +413,7 @@ class RingBuilder(object):
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         reassign_parts.append(part)
+        shuffle(reassign_parts)
         return reassign_parts
 
     def _reassign_parts(self, reassign_parts):

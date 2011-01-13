@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -428,6 +428,40 @@ class TestAuth(unittest.TestCase):
         # .super_admin is not something the middleware should ever see or care
         # about
         req = Request.blank('/v1/AUTH_new', environ={'REQUEST_METHOD': 'PUT'})
+        req.remote_user = 'act:usr,act,.super_admin'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp and resp.status_int, 403)
+
+    def test_account_delete_permissions(self):
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp and resp.status_int, 403)
+
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,AUTH_other'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp and resp.status_int, 403)
+
+        # Even DELETEs to your own account as account admin should fail
+        req = Request.blank('/v1/AUTH_old',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,AUTH_old'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp and resp.status_int, 403)
+
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
+        req.remote_user = 'act:usr,act,.reseller_admin'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp, None)
+
+        # .super_admin is not something the middleware should ever see or care
+        # about
+        req = Request.blank('/v1/AUTH_new',
+                            environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp and resp.status_int, 403)

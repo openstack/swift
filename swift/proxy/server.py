@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -911,12 +911,14 @@ class ObjectController(Controller):
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         # Sometimes the 'content-type' header exists, but is set to None.
+        content_type_manually_set = True
         if not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             if not guessed_type:
                 req.headers['Content-Type'] = 'application/octet-stream'
             else:
                 req.headers['Content-Type'] = guessed_type
+            content_type_manually_set = False
         error_response = check_object_creation(req, self.object_name)
         if error_response:
             return error_response
@@ -950,17 +952,20 @@ class ObjectController(Controller):
             self.container_name = orig_container_name
             new_req = Request.blank(req.path_info,
                         environ=req.environ, headers=req.headers)
-            if 'x-object-manifest' in source_resp.headers:
-                data_source = iter([''])
-                new_req.content_length = 0
-                new_req.headers['X-Object-Manifest'] = \
-                    source_resp.headers['x-object-manifest']
-            else:
-                data_source = source_resp.app_iter
-                new_req.content_length = source_resp.content_length
-                new_req.etag = source_resp.etag
+            data_source = source_resp.app_iter
+            new_req.content_length = source_resp.content_length
+            if new_req.content_length is None:
+                # This indicates a transfer-encoding: chunked source object,
+                # which currently only happens because there are more than
+                # CONTAINER_LISTING_LIMIT segments in a segmented object. In
+                # this case, we're going to refuse to do the server-side copy.
+                return HTTPRequestEntityTooLarge(request=req)
+            new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
+            if not content_type_manually_set:
+                new_req.headers['Content-Type'] = \
+                    source_resp.headers['Content-Type']
             for k, v in source_resp.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
@@ -1683,7 +1688,8 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
+        if 'x-cf-trans-id' not in req.headers:
+            req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
