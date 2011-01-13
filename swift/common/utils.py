@@ -310,7 +310,7 @@ class LogAdapter(object):
         return self.logger.getEffectiveLevel()
 
     def exception(self, msg, *args):
-        _, exc, _ = sys.exc_info()
+        _junk, exc, _junk = sys.exc_info()
         call = self.logger.error
         emsg = ''
         if isinstance(exc, OSError):
@@ -320,9 +320,11 @@ class LogAdapter(object):
                 call = self.logger.exception
         elif isinstance(exc, socket.error):
             if exc.errno == errno.ECONNREFUSED:
-                emsg = 'Connection refused'
+                emsg = _('Connection refused')
             elif exc.errno == errno.EHOSTUNREACH:
-                emsg = 'Host unreachable'
+                emsg = _('Host unreachable')
+            elif exc.errno == errno.ETIMEDOUT:
+                emsg = _('Connection timeout')
             else:
                 call = self.logger.exception
         elif isinstance(exc, eventlet.Timeout):
