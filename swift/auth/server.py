@@ -93,7 +93,7 @@ class AuthController(object):
         self.logger = get_logger(conf)
         self.super_admin_key = conf.get('super_admin_key')
         if not self.super_admin_key:
-            msg = 'No super_admin_key set in conf file! Exiting.'
+            msg = _('No super_admin_key set in conf file! Exiting.')
             try:
                 self.logger.critical(msg)
             except:
@@ -149,7 +149,7 @@ class AuthController(object):
                 previous_prefix = ''
                 if '_' in row[0]:
                     previous_prefix = row[0].split('_', 1)[0]
-                msg = ('''
+                msg = _(('''
 THERE ARE ACCOUNTS IN YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER
 PREFIX OF "%s".
 YOU HAVE A FEW OPTIONS:
@@ -167,14 +167,14 @@ YOU HAVE A FEW OPTIONS:
        TO REVERT BACK TO YOUR PREVIOUS RESELLER PREFIX.
 
     %s
-                    ''' % (self.reseller_prefix.rstrip('_'), self.db_file,
+                    ''') % (self.reseller_prefix.rstrip('_'), self.db_file,
                     self.reseller_prefix.rstrip('_'), self.db_file,
-                    previous_prefix, previous_prefix and ' ' or '''
+                    previous_prefix, previous_prefix and ' ' or _('''
     SINCE YOUR PREVIOUS RESELLER PREFIX WAS AN EMPTY STRING, IT IS NOT
     RECOMMENDED TO PERFORM OPTION 3 AS THAT WOULD MAKE SUPPORTING MULTIPLE
     RESELLERS MORE DIFFICULT.
-                    '''.strip())).strip()
-                self.logger.critical('CRITICAL: ' + ' '.join(msg.split()))
+                    ''').strip())).strip()
+                self.logger.critical(_('CRITICAL: ') + ' '.join(msg.split()))
                 raise Exception('\n' + msg)
 
     def add_storage_account(self, account_name=''):
@@ -209,8 +209,9 @@ YOU HAVE A FEW OPTIONS:
         resp = conn.getresponse()
         resp.read()
         if resp.status // 100 != 2:
-            self.logger.error('ERROR attempting to create account %s: %s %s' %
-                              (url, resp.status, resp.reason))
+            self.logger.error(_('ERROR attempting to create account %(url)s:' \
+                  ' %(status)s %(reason)s') %
+                  {'url': url, 'status': resp.status, 'reason': resp.reason})
             return False
         return account_name
 
@@ -341,7 +342,7 @@ YOU HAVE A FEW OPTIONS:
                 (account, user)).fetchone()
             if row:
                 self.logger.info(
-                    'ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]' %
+                    _('ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]') %
                     (repr(account), repr(user), repr(admin),
                      repr(reseller_admin), time() - begin))
                 return 'already exists'
@@ -355,7 +356,7 @@ YOU HAVE A FEW OPTIONS:
                 account_hash = self.add_storage_account()
                 if not account_hash:
                     self.logger.info(
-                        'FAILED create_user(%s, %s, _, %s, %s) [%.02f]' %
+                        _('FAILED create_user(%s, %s, _, %s, %s) [%.02f]') %
                         (repr(account), repr(user), repr(admin),
                          repr(reseller_admin), time() - begin))
                     return False
@@ -368,7 +369,7 @@ YOU HAVE A FEW OPTIONS:
                  admin and 't' or '', reseller_admin and 't' or ''))
             conn.commit()
         self.logger.info(
-            'SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]' %
+            _('SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]') %
             (repr(account), repr(user), repr(admin), repr(reseller_admin),
              repr(url), time() - begin))
         return url
@@ -635,7 +636,8 @@ YOU HAVE A FEW OPTIONS:
                 return HTTPBadRequest(request=env)(env, start_response)
             response = handler(req)
         except:
-            self.logger.exception('ERROR Unhandled exception in ReST request')
+            self.logger.exception(
+                    _('ERROR Unhandled exception in ReST request'))
             return HTTPServiceUnavailable(request=req)(env, start_response)
         trans_time = '%.4f' % (time() - start_time)
         if not response.content_length and response.app_iter and \

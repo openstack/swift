@@ -127,7 +127,7 @@ class ContainerUpdater(Daemon):
         Run the updater once.
         """
         patcher.monkey_patch(all=False, socket=True)
-        self.logger.info('Begin container update single threaded sweep')
+        self.logger.info(_('Begin container update single threaded sweep'))
         begin = time.time()
         self.no_changes = 0
         self.successes = 0

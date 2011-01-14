@@ -52,10 +52,10 @@ class AccountStat(Daemon):
         self.logger = get_logger(stats_conf, 'swift-account-stats-logger')
 
     def run_once(self):
-        self.logger.info("Gathering account stats")
+        self.logger.info(_("Gathering account stats"))
         start = time.time()
         self.find_and_process()
-        self.logger.info("Gathering account stats complete (%0.2f minutes)" %
+        self.logger.info(_("Gathering account stats complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
 
     def find_and_process(self):
@@ -70,14 +70,14 @@ class AccountStat(Daemon):
             # Account Name, Container Count, Object Count, Bytes Used
             for device in os.listdir(self.devices):
                 if self.mount_check and not check_mount(self.devices, device):
-                    self.logger.error("Device %s is not mounted, skipping." %
+                    self.logger.error(_("Device %s is not mounted, skipping.") %
                         device)
                     continue
                 accounts = os.path.join(self.devices,
                                         device,
                                         account_server_data_dir)
                 if not os.path.exists(accounts):
-                    self.logger.debug("Path %s does not exist, skipping." %
+                    self.logger.debug(_("Path %s does not exist, skipping.") %
                         accounts)
                     continue
                 for root, dirs, files in os.walk(accounts, topdown=False):
