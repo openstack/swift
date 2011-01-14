@@ -146,7 +146,7 @@ class AuthController(object):
                 previous_prefix = ''
                 if '_' in row[0]:
                     previous_prefix = row[0].split('_', 1)[0]
-                msg = ('''
+                msg = _(('''
 THERE ARE ACCOUNTS IN YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER
 PREFIX OF "%s".
 YOU HAVE A FEW OPTIONS:
@@ -164,14 +164,14 @@ YOU HAVE A FEW OPTIONS:
        TO REVERT BACK TO YOUR PREVIOUS RESELLER PREFIX.
 
     %s
-                    ''' % (self.reseller_prefix.rstrip('_'), self.db_file,
+                    ''') % (self.reseller_prefix.rstrip('_'), self.db_file,
                     self.reseller_prefix.rstrip('_'), self.db_file,
-                    previous_prefix, previous_prefix and ' ' or '''
+                    previous_prefix, previous_prefix and ' ' or _('''
     SINCE YOUR PREVIOUS RESELLER PREFIX WAS AN EMPTY STRING, IT IS NOT
     RECOMMENDED TO PERFORM OPTION 3 AS THAT WOULD MAKE SUPPORTING MULTIPLE
     RESELLERS MORE DIFFICULT.
-                    '''.strip())).strip()
-                self.logger.critical('CRITICAL: ' + ' '.join(msg.split()))
+                    ''').strip())).strip()
+                self.logger.critical(_('CRITICAL: ') + ' '.join(msg.split()))
                 raise Exception('\n' + msg)
 
     def add_storage_account(self, account_name=''):

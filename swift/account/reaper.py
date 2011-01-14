@@ -241,28 +241,28 @@ class AccountReaper(Daemon):
         except Exception:
             self.logger.exception(
                 _('Exception with account %s'), account)
-            log = 'Incomplete pass on account %s' % account
+            log = _('Incomplete pass on account %s') % account
         if self.stats_containers_deleted:
-            log += ', %s containers deleted' % self.stats_containers_deleted
+            log += _(', %s containers deleted') % self.stats_containers_deleted
         if self.stats_objects_deleted:
-            log += ', %s objects deleted' % self.stats_objects_deleted
+            log += _(', %s objects deleted') % self.stats_objects_deleted
         if self.stats_containers_remaining:
-            log += ', %s containers remaining' % \
+            log += _(', %s containers remaining') % \
                    self.stats_containers_remaining
         if self.stats_objects_remaining:
-            log += ', %s objects remaining' % self.stats_objects_remaining
+            log += _(', %s objects remaining') % self.stats_objects_remaining
         if self.stats_containers_possibly_remaining:
-            log += ', %s containers possibly remaining' % \
+            log += _(', %s containers possibly remaining') % \
                    self.stats_containers_possibly_remaining
         if self.stats_objects_possibly_remaining:
-            log += ', %s objects possibly remaining' % \
+            log += _(', %s objects possibly remaining') % \
                    self.stats_objects_possibly_remaining
         if self.stats_return_codes:
-            log += ', return codes: '
+            log += _(', return codes: ')
             for code in sorted(self.stats_return_codes.keys()):
                 log += '%s %sxxs, ' % (self.stats_return_codes[code], code)
             log = log[:-2]
-        log += ', elapsed: %.02fs' % (time() - begin)
+        log += _(', elapsed: %.02fs') % (time() - begin)
         self.logger.info(log)
 
     def reap_container(self, account, account_partition, account_nodes,
