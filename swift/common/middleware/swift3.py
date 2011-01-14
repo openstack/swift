@@ -266,9 +266,7 @@ class ObjectController(Controller):
             else:
                 return get_err_response('InvalidURI')
 
-        etag = headers['etag']
-        del headers['etag']
-        return Response(status=200, headers=headers, etag=etag)
+        return Response(status=200, etag=headers['etag'])
 
     def DELETE(self, env, start_response):
         body_iter = self.app(env, self.do_start_response)
