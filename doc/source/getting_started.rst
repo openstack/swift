@@ -21,6 +21,7 @@ And the following python libraries:
 * Xattr
 * Nose
 * Sphinx
+* netifaces
 
 -----------
 Development

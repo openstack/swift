@@ -13,6 +13,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+The swift3 middleware will emulate the S3 REST api on top of swift.
+
+The following opperations are currently supported:
+
+    * GET Service
+    * DELETE Bucket
+    * GET Bucket (List Objects)
+    * PUT Bucket
+    * DELETE Object
+    * GET Object
+    * HEAD Object
+    * PUT Object
+    * PUT Object (Copy)
+
+To add this middleware to your configuration, add the swift3 middleware
+in front of the auth middleware, and before any other middleware that
+look at swift requests (like rate limiting).
+
+To set up your client, the access key will be the account string that
+should look like AUTH_d305e9dbedbc47df8b25ab46f3152f81, and the
+secret access key is the account password.  The host should also point
+to the swift storage hostname.  It also will have to use the old style
+calling format, and not the hostname based container format.
+
+An example client using the python boto library might look like the
+following for an SAIO setup::
+
+    connection = boto.s3.Connection(
+        aws_access_key_id='AUTH_d305e9dbedbc47df8b25ab46f3152f81',
+        aws_secret_access_key='testing',
+        port=8080,
+        host='127.0.0.1',
+        is_secure=False,
+        calling_format=boto.s3.connection.OrdinaryCallingFormat())
+"""
+
 from urllib import unquote, quote
 import rfc822
 import hmac
@@ -32,25 +69,32 @@ MAX_BUCKET_LISTING = 1000
 
 
 def get_err_response(code):
-    error_table = {'AccessDenied':
-                   (403, 'Access denied'),
-                   'BucketAlreadyExists':
-                   (409, 'The requested bucket name is not available'),
-                   'BucketNotEmpty':
-                   (409, 'The bucket you tried to delete is not empty'),
-                   'InvalidArgument':
-                   (400, 'Invalid Argument'),
-                   'InvalidBucketName':
-                   (400, 'The specified bucket is not valid'),
-                   'InvalidURI':
-                   (400, 'Could not parse the specified URI'),
-                   'NoSuchBucket':
-                   (404, 'The specified bucket does not exist'),
-                   'SignatureDoesNotMatch':
-                   (403, 'The calculated request signature does not match '\
-                            'your provided one'),
-                   'NoSuchKey':
-                   (404, 'The resource you requested does not exist')}
+    """
+    Given an HTTP response code, create a properly formatted xml error response
+
+    :param code: error code
+    :returns: webob.response object
+    """
+    error_table = {
+        'AccessDenied':
+            (403, 'Access denied'),
+        'BucketAlreadyExists':
+            (409, 'The requested bucket name is not available'),
+        'BucketNotEmpty':
+            (409, 'The bucket you tried to delete is not empty'),
+        'InvalidArgument':
+            (400, 'Invalid Argument'),
+        'InvalidBucketName':
+            (400, 'The specified bucket is not valid'),
+        'InvalidURI':
+            (400, 'Could not parse the specified URI'),
+        'NoSuchBucket':
+            (404, 'The specified bucket does not exist'),
+        'SignatureDoesNotMatch':
+            (403, 'The calculated request signature does not match '\
+            'your provided one'),
+        'NoSuchKey':
+            (404, 'The resource you requested does not exist')}
 
     resp = Response(content_type='text/xml')
     resp.status = error_table[code][0]
@@ -71,12 +115,18 @@ class Controller(object):
 
 
 class ServiceController(Controller):
+    """
+    Handles account level requests.
+    """
     def __init__(self, env, app, account_name, token, **kwargs):
         Controller.__init__(self, app)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s' % account_name
 
     def GET(self, env, start_response):
+        """
+        Handle GET Service request
+        """
         env['QUERY_STRING'] = 'format=json'
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
@@ -105,6 +155,9 @@ class ServiceController(Controller):
 
 
 class BucketController(Controller):
+    """
+    Handles bucket request.
+    """
     def __init__(self, env, app, account_name, token, container_name,
                     **kwargs):
         Controller.__init__(self, app)
@@ -113,6 +166,9 @@ class BucketController(Controller):
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
 
     def GET(self, env, start_response):
+        """
+        Handle GET Bucket (List Objects) request
+        """
         if 'QUERY_STRING' in env:
             args = dict(cgi.parse_qsl(env['QUERY_STRING']))
         else:
@@ -170,6 +226,9 @@ class BucketController(Controller):
         return Response(body=body, content_type='text/xml')
 
     def PUT(self, env, start_response):
+        """
+        Handle PUT Bucket request
+        """
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
@@ -188,6 +247,9 @@ class BucketController(Controller):
         return resp
 
     def DELETE(self, env, start_response):
+        """
+        Handle DELETE Bucket request
+        """
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
@@ -208,6 +270,9 @@ class BucketController(Controller):
 
 
 class ObjectController(Controller):
+    """
+    Handles requests on objects
+    """
     def __init__(self, env, app, account_name, token, container_name,
                     object_name, **kwargs):
         Controller.__init__(self, app)
@@ -239,12 +304,21 @@ class ObjectController(Controller):
             return get_err_response('InvalidURI')
 
     def HEAD(self, env, start_response):
+        """
+        Handle HEAD Object request
+        """
         return self.GETorHEAD(env, start_response)
 
     def GET(self, env, start_response):
+        """
+        Handle GET Object request
+        """
         return self.GETorHEAD(env, start_response)
 
     def PUT(self, env, start_response):
+        """
+        Handle PUT Object and PUT Object (Copy) request
+        """
         for key, value in env.items():
             if key.startswith('HTTP_X_AMZ_META_'):
                 del env[key]
@@ -269,6 +343,9 @@ class ObjectController(Controller):
         return Response(status=200, etag=headers['etag'])
 
     def DELETE(self, env, start_response):
+        """
+        Handle DELETE Object request
+        """
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
@@ -287,6 +364,7 @@ class ObjectController(Controller):
 
 
 class Swift3Middleware(object):
+    """Swift3 S3 compatibility midleware"""
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
 
@@ -352,6 +430,7 @@ class Swift3Middleware(object):
 
 
 def filter_factory(global_conf, **local_conf):
+    """Standard filter factory to use the middleware with paste.deploy"""
     conf = global_conf.copy()
     conf.update(local_conf)
 
