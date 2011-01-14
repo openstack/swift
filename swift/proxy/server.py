@@ -161,13 +161,13 @@ class SegmentedIterable(object):
             if self.segment > 10:
                 sleep(max(self.next_get_time - time.time(), 0))
                 self.next_get_time = time.time() + 1
-            resp = self.controller.GETorHEAD_base(req, 'Object', partition,
+            resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
                 self.controller.app.object_ring.replica_count)
             if resp.status_int // 100 != 2:
-                raise Exception('Could not load object segment %s: %s' % (path,
-                    resp.status_int))
+                raise Exception(_('Could not load object segment %(path)s:' \
+                    ' %(status)s') % {'path': path, 'status': resp.status_int})
             self.segment_iter = resp.app_iter
         except StopIteration:
             raise
@@ -707,7 +707,7 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        resp = self.GETorHEAD_base(req, 'Object', partition,
+        resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
         # If we get a 416 Requested Range Not Satisfiable we have to check if
@@ -716,7 +716,7 @@ class ObjectController(Controller):
         if resp.status_int == 416:
             req_range = req.range
             req.range = None
-            resp2 = self.GETorHEAD_base(req, 'Object', partition,
+            resp2 = self.GETorHEAD_base(req, _('Object'), partition,
                     self.iter_nodes(partition, nodes, self.app.object_ring),
                     req.path_info, self.app.object_ring.replica_count)
             if 'x-object-manifest' not in resp2.headers:
@@ -735,7 +735,7 @@ class ObjectController(Controller):
                 lreq = Request.blank('/%s/%s?prefix=%s&format=json&marker=%s' %
                     (quote(self.account_name), quote(lcontainer),
                      quote(lprefix), quote(marker)))
-                lresp = self.GETorHEAD_base(lreq, 'Container', lpartition,
+                lresp = self.GETorHEAD_base(lreq, _('Container'), lpartition,
                     lnodes, lreq.path_info,
                     self.app.container_ring.replica_count)
                 if lresp.status_int // 100 != 2:
@@ -767,19 +767,19 @@ class ObjectController(Controller):
                             '/%s/%s?prefix=%s&format=json&marker=%s' %
                             (quote(self.account_name), quote(lcontainer),
                              quote(lprefix), quote(marker)))
-                        lresp = self.GETorHEAD_base(lreq, 'Container',
+                        lresp = self.GETorHEAD_base(lreq, _('Container'),
                             lpartition, lnodes, lreq.path_info,
                             self.app.container_ring.replica_count)
                         if lresp.status_int // 100 != 2:
-                            raise Exception('Object manifest GET could not '
-                                'continue listing: %s %s' %
+                            raise Exception(_('Object manifest GET could not '
+                                'continue listing: %s %s') %
                                 (req.path, lreq.path))
                         if 'swift.authorize' in req.environ:
                             req.acl = lresp.headers.get('x-container-read')
                             aresp = req.environ['swift.authorize'](req)
                             if aresp:
-                                raise Exception('Object manifest GET could '
-                                    'not continue listing: %s %s' %
+                                raise Exception(_('Object manifest GET could '
+                                    'not continue listing: %s %s') %
                                     (req.path, aresp))
                         sublisting = json.loads(lresp.body)
                         if not sublisting:
@@ -894,7 +894,7 @@ class ObjectController(Controller):
             reasons.append('')
             bodies.append('')
         return self.best_response(req, statuses, reasons,
-                bodies, 'Object POST')
+                bodies, _('Object POST'))
 
     @public
     @delay_denial
@@ -1089,8 +1089,8 @@ class ObjectController(Controller):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        resp = self.best_response(req, statuses, reasons, bodies, 'Object PUT',
-                                  etag=etag)
+        resp = self.best_response(req, statuses, reasons, bodies,
+                    _('Object PUT'), etag=etag)
         if source_header:
             resp.headers['X-Copied-From'] = quote(
                                                 source_header.split('/', 2)[2])
@@ -1142,7 +1142,7 @@ class ObjectController(Controller):
             reasons.append('')
             bodies.append('')
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Object DELETE')
+                                  _('Object DELETE'))
 
     @public
     @delay_denial
@@ -1203,7 +1203,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
                         self.account_name, self.container_name)
-        resp = self.GETorHEAD_base(req, 'Container', part, nodes,
+        resp = self.GETorHEAD_base(req, _('Container'), part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
         if self.app.memcache:
@@ -1303,7 +1303,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Container PUT')
+                                  _('Container PUT'))
 
     @public
     def POST(self, req):
@@ -1358,7 +1358,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Container POST')
+                                  _('Container POST'))
 
     @public
     def DELETE(self, req):
@@ -1415,7 +1415,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Container DELETE')
+                                  _('Container DELETE'))
         if 200 <= resp.status_int <= 299:
             for status in statuses:
                 if status < 200 or status > 299:
@@ -1440,7 +1440,7 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
-        return self.GETorHEAD_base(req, 'Account', partition, nodes,
+        return self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
 
     @public
@@ -1497,7 +1497,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account PUT')
+                                  _('Account PUT'))
 
     @public
     def POST(self, req):
@@ -1545,7 +1545,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account POST')
+                                  _('Account POST'))
 
     @public
     def DELETE(self, req):
@@ -1590,7 +1590,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account DELETE')
+                                  _('Account DELETE'))
 
 
 class BaseApplication(object):
