@@ -13,6 +13,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+The swift3 middleware will emulate the S3 REST api on top of swift.
+
+The following opperations are currently supported:
+
+    * GET Service
+    * DELETE Bucket
+    * GET Bucket (List Objects)
+    * PUT Bucket
+    * DELETE Object
+    * GET Object
+    * HEAD Object
+    * PUT Object
+    * PUT Object (Copy)
+
+To add this middleware to your configuration, add the swift3 middleware
+in front of the auth middleware, and before any other middleware that
+look at swift requests (like rate limiting).
+
+To set up your client, the access key will be the account string that
+should look like AUTH_d305e9dbedbc47df8b25ab46f3152f81, and the
+secret access key is the account password.  The host should also point
+to the swift storage hostname.  It also will have to use the old style
+calling format, and not the hostname based container format.
+
+An example client using the python boto library might look like the
+following for an SAIO setup::
+
+    connection = boto.s3.Connection(
+        aws_access_key_id='AUTH_d305e9dbedbc47df8b25ab46f3152f81',
+        aws_secret_access_key='testing',
+        port=8080,
+        host='127.0.0.1',
+        is_secure=False,
+        calling_format=boto.s3.connection.OrdinaryCallingFormat())
+"""
+
 from urllib import unquote, quote
 import rfc822
 import hmac
@@ -327,42 +364,7 @@ class ObjectController(Controller):
 
 
 class Swift3Middleware(object):
-    """
-    The swift3 middleware will emulate the S3 REST api on top of swift.
-
-    The following opperations are currently supported:
-
-        * GET Service
-        * DELETE Bucket
-        * GET Bucket (List Objects)
-        * PUT Bucket
-        * DELETE Object
-        * GET Object
-        * HEAD Object
-        * PUT Object
-        * PUT Object (Copy)
-
-    To add this middleware to your configuration, add the swift3 middleware
-    in front of the auth middleware, and before any other middleware that
-    look at swift requests (like rate limiting).
-
-    To set up your client, the access key will be the account string that
-    should look like AUTH_d305e9dbedbc47df8b25ab46f3152f81, and the
-    secret access key is the account password.  The host should also point
-    to the swift storage hostname.  It also will have to use the old style
-    calling format, and not the hostname based container format.
-
-    An example client using the python boto library might look like the
-    following for an SAIO setup::
-
-        connection = boto.s3.Connection(
-            aws_access_key_id='AUTH_d305e9dbedbc47df8b25ab46f3152f81',
-            aws_secret_access_key='testing',
-            port=8080,
-            host='127.0.0.1',
-            is_secure=False,
-            calling_format=boto.s3.connection.OrdinaryCallingFormat())
-    """
+    """Swift3 S3 compatibility midleware"""
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
 
