@@ -19,12 +19,16 @@ import hmac
 import base64
 import errno
 from xml.sax.saxutils import escape as xml_escape
+import cgi
 
 from webob import Request, Response
 from webob.exc import HTTPNotFound
 from simplejson import loads
 
 from swift.common.utils import split_path
+
+
+MAX_BUCKET_LISTING = 1000
 
 
 def get_err_response(code):
@@ -82,7 +86,6 @@ class ServiceController(Controller):
             if status == 401:
                 return get_err_response('AccessDenied')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         containers = loads(''.join(list(body_iter)))
@@ -110,7 +113,19 @@ class BucketController(Controller):
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
 
     def GET(self, env, start_response):
-        env['QUERY_STRING'] = 'format=json'
+        if 'QUERY_STRING' in env:
+            args = dict(cgi.parse_qsl(env['QUERY_STRING']))
+        else:
+            args = {}
+        max_keys = min(int(args.get('max-keys', MAX_BUCKET_LISTING)),
+                        MAX_BUCKET_LISTING)
+        env['QUERY_STRING'] = 'format=json&limit=%s' % (max_keys + 1)
+        if 'marker' in args:
+            env['QUERY_STRING'] += '&marker=%s' % quote(args['marker'])
+        if 'prefix' in args:
+            env['QUERY_STRING'] += '&prefix=%s' % quote(args['prefix'])
+        if 'delimiter' in args:
+            env['QUERY_STRING'] += '&delimiter=%s' % quote(args['delimiter'])
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
@@ -121,25 +136,39 @@ class BucketController(Controller):
             elif status == 404:
                 return get_err_response('InvalidBucketName')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         objects = loads(''.join(list(body_iter)))
-        resp = Response(content_type='text/xml')
-        resp.status = 200
-        resp.body = '<?xml version="1.0" encoding="UTF-8"?>' \
-            '<ListBucketResult ' \
-                'xmlns="http://s3.amazonaws.com/doc/2006-03-01">' \
-            '<Name>%s</Name>' \
-            '%s' \
-            '</ListBucketResult>' % \
-            (self.container_name,
-            "".join(['<Contents><Key>%s</Key><LastModified>%s</LastModified>'\
-                     '<ETag>%s</ETag><Size>%s</Size><StorageClass>STANDARD'\
-                     '</StorageClass></Contents>' %
-                     (xml_escape(i['name']), i['last_modified'], i['hash'],
-                        i['bytes']) for i in objects]))
-        return resp
+        body = ('<?xml version="1.0" encoding="UTF-8"?>'
+            '<ListBucketResult '
+                'xmlns="http://s3.amazonaws.com/doc/2006-03-01">'
+            '<Prefix>%s</Prefix>'
+            '<Marker>%s</Marker>'
+            '<Delimiter>%s</Delimiter>'
+            '<IsTruncated>%s</IsTruncated>'
+            '<MaxKeys>%s</MaxKeys>'
+            '<Name>%s</Name>'
+            '%s'
+            '%s'
+            '</ListBucketResult>' %
+            (
+                xml_escape(args.get('prefix', '')),
+                xml_escape(args.get('marker', '')),
+                xml_escape(args.get('delimiter', '')),
+                'true' if len(objects) == (max_keys + 1) else 'false',
+                max_keys,
+                xml_escape(self.container_name),
+                "".join(['<Contents><Key>%s</Key><LastModified>%s</LastModif'\
+                        'ied><ETag>%s</ETag><Size>%s</Size><StorageClass>STA'\
+                        'NDARD</StorageClass></Contents>' %
+                        (xml_escape(i['name']), i['last_modified'], i['hash'],
+                           i['bytes'])
+                           for i in objects[:max_keys] if 'subdir' not in i]),
+                "".join(['<CommonPrefixes><Prefix>%s</Prefix><CommonPrefixes>'
+                         % xml_escape(i['subdir'])
+                         for i in objects[:max_keys] if 'subdir' in i])
+            ))
+        return Response(body=body, content_type='text/xml')
 
     def PUT(self, env, start_response):
         body_iter = self.app(env, self.do_start_response)
@@ -152,7 +181,6 @@ class BucketController(Controller):
             elif status == 202:
                 return get_err_response('BucketAlreadyExists')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         resp = Response()
@@ -173,7 +201,6 @@ class BucketController(Controller):
             elif status == 409:
                 return get_err_response('BucketNotEmpty')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         resp = Response()
@@ -229,7 +256,6 @@ class ObjectController(Controller):
             elif status == 404:
                 return get_err_response('InvalidBucketName')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         resp = Response()
@@ -248,7 +274,6 @@ class ObjectController(Controller):
             elif status == 404:
                 return get_err_response('NoSuchKey')
             else:
-                print status, headers, body_iter
                 return get_err_response('InvalidURI')
 
         resp = Response()
