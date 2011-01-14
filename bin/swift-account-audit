@@ -72,7 +72,7 @@ class Auditor(object):
         self.in_progress = {}
 
     def audit_object(self, account, container, name):
-        path = '/%s/%s/%s' % (quote(account), quote(container), quote(name))
+        path = '/%s/%s/%s' % (account, container, name)
         part, nodes = self.object_ring.get_nodes(account, container, name)
         container_listing = self.audit_container(account, container)
         consistent = True
@@ -145,7 +145,7 @@ class Auditor(object):
             return self.list_cache[(account, name)]
         self.in_progress[(account, name)] = Event()
         print 'Auditing container "%s"...' % name
-        path = '/%s/%s' % (quote(account), quote(name))
+        path = '/%s/%s' % (account, name)
         account_listing = self.audit_account(account)
         consistent = True
         if name not in account_listing:
@@ -189,7 +189,7 @@ class Auditor(object):
                             self.container_obj_mismatch += 1
                             consistent = False
                             print "  Different versions of %s/%s in container dbs." % \
-                                    (quote(name), quote(obj['name']))
+                                    name, obj['name']
                             if obj['last_modified'] > rec_d[obj_name]['last_modified']:
                                 rec_d[obj_name] = obj
         obj_counts = [int(header['x-container-object-count'])
