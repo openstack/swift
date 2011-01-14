@@ -198,10 +198,10 @@ class ObjectController(Controller):
         if 200 <= status < 300:
             new_hdrs = {}
             for key, val in headers.iteritems():
-                key = key.lower()
-                if key.startswith('x-object-meta-'):
+                _key = key.lower()
+                if _key.startswith('x-object-meta-'):
                     new_hdrs['x-amz-meta-' + key[14:]] = val
-                elif key in ('content-length', 'content-type',
+                elif _key in ('content-length', 'content-type',
                              'content-encoding', 'etag', 'last-modified'):
                     new_hdrs[key] = val
             return Response(status=status, headers=new_hdrs, app_iter=app_iter)
