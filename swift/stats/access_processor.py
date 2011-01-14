@@ -59,19 +59,20 @@ class AccessLogProcessor(object):
             headers,
             processing_time) = (unquote(x) for x in raw_log[16:].split(' '))
         except ValueError:
-            self.logger.debug('Bad line data: %s' % repr(raw_log))
+            self.logger.debug(_('Bad line data: %s') % repr(raw_log))
             return {}
         if server != self.server_name:
             # incorrect server name in log line
-            self.logger.debug('Bad server name: found "%s" expected "%s"' \
-                               % (server, self.server_name))
+            self.logger.debug(_('Bad server name: found "%(found)s" ' \
+                    'expected "%(expected)s"') %
+                    {'found': server, 'expected': self.server_name})
             return {}
         try:
             (version, account, container_name, object_name) = \
                 split_path(request, 2, 4, True)
         except ValueError, e:
-            self.logger.debug(
-                'Invalid path: %s from data: %s' % (e, repr(raw_log)))
+            self.logger.debug(_('Invalid path: %(error)s from data: %(log)s') %
+            {'error': e, 'log': repr(raw_log)})
             return {}
         if container_name is not None:
             container_name = container_name.split('?', 1)[0]
@@ -194,8 +195,9 @@ class AccessLogProcessor(object):
         if bad_lines > (total_lines * self.warn_percent):
             name = '/'.join([data_object_account, data_object_container,
                              data_object_name])
-            self.logger.warning('I found a bunch of bad lines in %s '\
-                        '(%d bad, %d total)' % (name, bad_lines, total_lines))
+            self.logger.warning(_('I found a bunch of bad lines in %(name)s '\
+                    '(%(bad)d bad, %(total)d total)') %
+                    {'name': name, 'bad': bad_lines, 'total': total_lines})
         return hourly_aggr_info
 
     def keylist_mapping(self):

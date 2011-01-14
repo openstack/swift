@@ -384,8 +384,8 @@ class Controller(object):
                         if attempts_left <= 0:
                             break
             except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to get account info for %s' % path)
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to get account info for %s') % path)
         if self.app.memcache and result_code in (200, 404):
             if result_code == 200:
                 cache_timeout = self.app.recheck_account_existence
@@ -462,8 +462,8 @@ class Controller(object):
                         if attempts_left <= 0:
                             break
             except:
-                self.exception_occurred(node, 'Container',
-                    'Trying to get container info for %s' % path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to get container info for %s') % path)
         if self.app.memcache and result_code in (200, 404):
             if result_code == 200:
                 cache_timeout = self.app.recheck_container_existence
@@ -594,7 +594,8 @@ class Controller(object):
                     source = conn.getresponse()
             except:
                 self.exception_occurred(node, server_type,
-                    'Trying to %s %s' % (req.method, req.path))
+                    _('Trying to %(method)s %(path)s') %
+                    {'method': req.method, 'path': req.path})
                 continue
             if source.status == 507:
                 self.error_limit(node)
@@ -624,8 +625,8 @@ class Controller(object):
                         res.client_disconnect = True
                         self.app.logger.info(_('Client disconnected on read'))
                     except:
-                        self.exception_occurred(node, 'Object',
-                            'Trying to read during GET of %s' % req.path)
+                        self.exception_occurred(node, _('Object'),
+                            _('Trying to read during GET of %s') % req.path)
                         raise
                 res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
@@ -648,8 +649,9 @@ class Controller(object):
             reasons.append(source.reason)
             bodies.append(source.read())
             if source.status >= 500:
-                self.error_occurred(node, 'ERROR %d %s From %s Server' %
-                    (source.status, bodies[-1][:1024], server_type))
+                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
+                    'From %(type)s Server') % {'status': source.status,
+                    'body': bodies[-1][:1024], 'type': server_type})
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
 
@@ -686,12 +688,13 @@ class ObjectController(Controller):
                     self.error_limit(node)
                 elif response.status >= 500:
                     self.error_occurred(node,
-                        'ERROR %d %s From Object Server' %
-                        (response.status, body[:1024]))
+                        _('ERROR %(status)d %(body)s From Object Server') %
+                        {'status': response.status, 'body': body[:1024]})
                 return response.status, response.reason, body
         except:
-            self.exception_occurred(node, 'Object',
-                'Trying to %s %s' % (req.method, req.path))
+            self.exception_occurred(node, _('Object'),
+                _('Trying to %(method)s %(path)s') %
+                {'method': req.method, 'path': req.path})
         return 500, '', ''
 
     def GETorHEAD(self, req):
@@ -990,8 +993,8 @@ class ObjectController(Controller):
                     with Timeout(self.app.node_timeout):
                         resp = conn.getexpect()
                 except:
-                    self.exception_occurred(node, 'Object',
-                        'Expect: 100-continue on %s' % req.path)
+                    self.exception_occurred(node, _('Object'),
+                        _('Expect: 100-continue on %s') % req.path)
             if conn and resp:
                 if resp.status == 100:
                     conns.append(conn)
@@ -1030,8 +1033,8 @@ class ObjectController(Controller):
                             else:
                                 conn.send(chunk)
                     except:
-                        self.exception_occurred(conn.node, 'Object',
-                            'Trying to write to %s' % req.path)
+                        self.exception_occurred(conn.node, _('Object'),
+                            _('Trying to write to %s') % req.path)
                         conns.remove(conn)
                         if len(conns) <= len(nodes) / 2:
                             self.app.logger.error(
@@ -1069,13 +1072,14 @@ class ObjectController(Controller):
                     bodies.append(response.read())
                     if response.status >= 500:
                         self.error_occurred(conn.node,
-                            'ERROR %d %s From Object Server re: %s' %
-                            (response.status, bodies[-1][:1024], req.path))
+                            _('ERROR %(status)d %(body)s From Object Server ' \
+                            're: %(path)s') % {'status': response.status,
+                            'body': bodies[-1][:1024], 'path': req.path})
                     elif 200 <= response.status < 300:
                         etags.add(response.getheader('etag').strip('"'))
             except:
-                self.exception_occurred(conn.node, 'Object',
-                    'Trying to get final status of PUT to %s' % req.path)
+                self.exception_occurred(conn.node, _('Object'),
+                    _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
@@ -1286,8 +1290,8 @@ class ContainerController(Controller):
                         accounts.insert(0, account)
             except:
                 accounts.insert(0, account)
-                self.exception_occurred(node, 'Container',
-                    'Trying to PUT to %s' % req.path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to PUT to %s') % req.path)
             if not accounts:
                 break
         while len(statuses) < len(containers):
@@ -1341,8 +1345,8 @@ class ContainerController(Controller):
                     elif source.status == 507:
                         self.error_limit(node)
             except:
-                self.exception_occurred(node, 'Container',
-                    'Trying to POST %s' % req.path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to POST %s') % req.path)
             if len(statuses) >= len(containers):
                 break
         while len(statuses) < len(containers):
@@ -1398,8 +1402,8 @@ class ContainerController(Controller):
                         accounts.insert(0, account)
             except:
                 accounts.insert(0, account)
-                self.exception_occurred(node, 'Container',
-                    'Trying to DELETE %s' % req.path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to DELETE %s') % req.path)
             if not accounts:
                 break
         while len(statuses) < len(containers):
@@ -1482,8 +1486,8 @@ class AccountController(Controller):
                         if source.status == 507:
                             self.error_limit(node)
             except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to PUT to %s' % req.path)
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to PUT to %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):
@@ -1530,8 +1534,8 @@ class AccountController(Controller):
                     elif source.status == 507:
                         self.error_limit(node)
             except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to POST %s' % req.path)
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to POST %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):
@@ -1575,8 +1579,8 @@ class AccountController(Controller):
                     elif source.status == 507:
                         self.error_limit(node)
             except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to DELETE %s' % req.path)
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to DELETE %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):

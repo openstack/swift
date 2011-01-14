@@ -86,8 +86,10 @@ class CNAMELookupMiddleware(object):
                     break
                 elif found_domain.endswith(self.storage_domain):
                     # Found it!
-                    self.logger.info('Mapped %s to %s' % (given_domain,
-                                                          found_domain))
+                    self.logger.info(
+                        _('Mapped %(given_domain)s to %(found_domain)s') %
+                        {'given_domain': given_domain,
+                         'found_domain': found_domain})
                     if port:
                         env['HTTP_HOST'] = ':'.join([found_domain, port])
                     else:
@@ -96,8 +98,10 @@ class CNAMELookupMiddleware(object):
                     break
                 else:
                     # try one more deep in the chain
-                    self.logger.debug('Following CNAME chain for  %s to %s' %
-                                     (given_domain, found_domain))
+                    self.logger.debug(_('Following CNAME chain for  ' \
+                            '%(given_domain)s to %(found_domain)s') %
+                            {'given_domain': given_domain,
+                             'found_domain': found_domain})
                     a_domain = found_domain
             if error:
                 if found_domain:

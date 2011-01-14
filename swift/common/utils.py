@@ -453,7 +453,7 @@ def capture_stdio(logger, **kwargs):
     """
     # log uncaught exceptions
     sys.excepthook = lambda * exc_info: \
-        logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
+        logger.critical(_('UNCAUGHT EXCEPTION'), exc_info=exc_info)
 
     # collect stdio file desc not in use for logging
     stdio_fds = [0, 1, 2]

@@ -90,7 +90,7 @@ class AuthController(object):
         self.logger = get_logger(conf)
         self.super_admin_key = conf.get('super_admin_key')
         if not self.super_admin_key:
-            msg = 'No super_admin_key set in conf file! Exiting.'
+            msg = _('No super_admin_key set in conf file! Exiting.')
             try:
                 self.logger.critical(msg)
             except:
@@ -206,8 +206,9 @@ YOU HAVE A FEW OPTIONS:
         resp = conn.getresponse()
         resp.read()
         if resp.status // 100 != 2:
-            self.logger.error('ERROR attempting to create account %s: %s %s' %
-                              (url, resp.status, resp.reason))
+            self.logger.error(_('ERROR attempting to create account %(url)s:' \
+                  ' %(status)s %(reason)s') %
+                  {'url': url, 'status': resp.status, 'reason': resp.reason})
             return False
         return account_name
 
@@ -320,7 +321,7 @@ YOU HAVE A FEW OPTIONS:
                 (account, user)).fetchone()
             if row:
                 self.logger.info(
-                    'ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]' %
+                    _('ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]') %
                     (repr(account), repr(user), repr(admin),
                      repr(reseller_admin), time() - begin))
                 return 'already exists'
@@ -334,7 +335,7 @@ YOU HAVE A FEW OPTIONS:
                 account_hash = self.add_storage_account()
                 if not account_hash:
                     self.logger.info(
-                        'FAILED create_user(%s, %s, _, %s, %s) [%.02f]' %
+                        _('FAILED create_user(%s, %s, _, %s, %s) [%.02f]') %
                         (repr(account), repr(user), repr(admin),
                          repr(reseller_admin), time() - begin))
                     return False
@@ -347,7 +348,7 @@ YOU HAVE A FEW OPTIONS:
                  admin and 't' or '', reseller_admin and 't' or ''))
             conn.commit()
         self.logger.info(
-            'SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]' %
+            _('SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]') %
             (repr(account), repr(user), repr(admin), repr(reseller_admin),
              repr(url), time() - begin))
         return url
@@ -611,7 +612,8 @@ YOU HAVE A FEW OPTIONS:
                 return HTTPBadRequest(request=env)(env, start_response)
             response = handler(req)
         except:
-            self.logger.exception('ERROR Unhandled exception in ReST request')
+            self.logger.exception(
+                    _('ERROR Unhandled exception in ReST request'))
             return HTTPServiceUnavailable(request=req)(env, start_response)
         trans_time = '%.4f' % (time() - start_time)
         if not response.content_length and response.app_iter and \

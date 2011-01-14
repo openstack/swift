@@ -37,7 +37,7 @@ class StatsLogProcessor(object):
                 bytes_used) = line.split(',')
             except (IndexError, ValueError):
                 # bad line data
-                self.logger.debug('Bad line data: %s' % repr(line))
+                self.logger.debug(_('Bad line data: %s') % repr(line))
                 continue
             account = account.strip('"')
             container_count = int(container_count.strip('"'))
