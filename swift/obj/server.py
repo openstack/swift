@@ -33,7 +33,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
-from eventlet import sleep, Timeout
+from eventlet import sleep, Timeout, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
@@ -227,7 +227,7 @@ class DiskFile(object):
         write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
             drop_buffer_cache(fd, 0, int(metadata['Content-Length']))
-        os.fsync(fd)
+        tpool.execute(os.fsync, fd)
         invalidate_hash(os.path.dirname(self.datadir))
         renamer(tmppath, os.path.join(self.datadir, timestamp + extension))
         self.metadata = metadata
@@ -387,7 +387,7 @@ class ObjectController(object):
                     chunk = chunk[written:]
                 # For large files sync every 512MB (by default) written
                 if upload_size - last_sync >= self.bytes_per_sync:
-                    os.fdatasync(fd)
+                    tpool.execute(os.fdatasync, fd)
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
 
