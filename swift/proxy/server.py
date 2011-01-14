@@ -814,11 +814,17 @@ class ObjectController(Controller):
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
-                content_length = sum(o['bytes'] for o in listing)
-                last_modified = max(o['last_modified'] for o in listing)
-                last_modified = \
-                    datetime(*map(int, re.split('[^\d]', last_modified)[:-1]))
-                etag = md5('"'.join(o['hash'] for o in listing)).hexdigest()
+                if listing:
+                    content_length = sum(o['bytes'] for o in listing)
+                    last_modified = max(o['last_modified'] for o in listing)
+                    last_modified = datetime(*map(int, re.split('[^\d]',
+                        last_modified)[:-1]))
+                    etag = md5(
+                        '"'.join(o['hash'] for o in listing)).hexdigest()
+                else:
+                    content_length = 0
+                    last_modified = resp.last_modified
+                    etag = md5().hexdigest()
                 headers = {
                     'X-Object-Manifest': resp.headers['x-object-manifest'],
                     'Content-Type': resp.content_type,
