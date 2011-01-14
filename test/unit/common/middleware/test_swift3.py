@@ -15,6 +15,7 @@
 
 import unittest
 from datetime import datetime
+import cgi
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized, HTTPCreated, HTTPNoContent,\
@@ -299,6 +300,86 @@ class TestSwift3(unittest.TestCase):
         for i in FakeAppBucket().objects:
             self.assertTrue(i[0] in names)
 
+    def test_bucket_GET_is_truncated(self):
+        local_app = swift3.filter_factory({})(FakeAppBucket())
+        bucket_name = 'junk'
+
+        req = Request.blank('/%s' % bucket_name,
+                environ={'REQUEST_METHOD': 'GET',
+                         'QUERY_STRING': 'max-keys=3'},
+                headers={'Authorization': 'AUTH_who:password'})
+        resp = local_app(req.environ, local_app.app.do_start_response)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.getElementsByTagName('IsTruncated')[0].
+                childNodes[0].nodeValue, 'false')
+
+        req = Request.blank('/%s' % bucket_name,
+                environ={'REQUEST_METHOD': 'GET',
+                         'QUERY_STRING': 'max-keys=2'},
+                headers={'Authorization': 'AUTH_who:password'})
+        resp = local_app(req.environ, local_app.app.do_start_response)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.getElementsByTagName('IsTruncated')[0].
+                childNodes[0].nodeValue, 'true')
+
+    def test_bucket_GET_max_keys(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.query_string = env['QUERY_STRING']
+                start_response('200 OK', [])
+                return '[]'
+        fake_app = FakeApp()
+        local_app = swift3.filter_factory({})(fake_app)
+        bucket_name = 'junk'
+
+        req = Request.blank('/%s' % bucket_name,
+                environ={'REQUEST_METHOD': 'GET',
+                         'QUERY_STRING': 'max-keys=5'},
+                headers={'Authorization': 'AUTH_who:password'})
+        resp = local_app(req.environ, lambda *args: None)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.getElementsByTagName('MaxKeys')[0].
+                childNodes[0].nodeValue, '5')
+        args = dict(cgi.parse_qsl(fake_app.query_string))
+        self.assert_(args['limit'] == '6')
+
+        req = Request.blank('/%s' % bucket_name,
+                environ={'REQUEST_METHOD': 'GET',
+                         'QUERY_STRING': 'max-keys=5000'},
+                headers={'Authorization': 'AUTH_who:password'})
+        resp = local_app(req.environ, lambda *args: None)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.getElementsByTagName('MaxKeys')[0].
+                childNodes[0].nodeValue, '1000')
+        args = dict(cgi.parse_qsl(fake_app.query_string))
+        self.assertEquals(args['limit'], '1001')
+
+    def test_bucket_GET_passthroughs(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.query_string = env['QUERY_STRING']
+                start_response('200 OK', [])
+                return '[]'
+        fake_app = FakeApp()
+        local_app = swift3.filter_factory({})(fake_app)
+        bucket_name = 'junk'
+        req = Request.blank('/%s' % bucket_name,
+                environ={'REQUEST_METHOD': 'GET', 'QUERY_STRING':
+                         'delimiter=a&marker=b&prefix=c'},
+                headers={'Authorization': 'AUTH_who:password'})
+        resp = local_app(req.environ, lambda *args: None)
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.getElementsByTagName('Prefix')[0].
+                childNodes[0].nodeValue, 'c')
+        self.assertEquals(dom.getElementsByTagName('Marker')[0].
+                childNodes[0].nodeValue, 'b')
+        self.assertEquals(dom.getElementsByTagName('Delimiter')[0].
+                childNodes[0].nodeValue, 'a')
+        args = dict(cgi.parse_qsl(fake_app.query_string))
+        self.assertEquals(args['delimiter'], 'a')
+        self.assertEquals(args['marker'], 'b')
+        self.assertEquals(args['prefix'], 'c')
+
     def test_bucket_PUT_error(self):
         code = self._test_method_error(FakeAppBucket, 'PUT', '/bucket', 401)
         self.assertEquals(code, 'AccessDenied')
@@ -389,7 +470,7 @@ class TestSwift3(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AUTH_who:password',
                                      'x-amz-storage-class': 'REDUCED_REDUNDANCY',
-                                     'Content-MD5': '1b2cf535f27731c974343645a3985328'})
+                                     'Content-MD5': 'Gyz1NfJ3Mcl0NDZFo5hTKA=='})
         req.date = datetime.now()
         req.content_type = 'text/plain'
         resp = local_app(req.environ, local_app.app.do_start_response)
@@ -398,6 +479,29 @@ class TestSwift3(unittest.TestCase):
         headers = dict(local_app.app.response_args[1])
         self.assertEquals(headers['ETag'],
                           "\"%s\"" % local_app.app.response_headers['etag'])
+
+    def test_object_PUT_headers(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.req = Request(env)
+                start_response('200 OK')
+                start_response([])
+        app = FakeApp()
+        local_app = swift3.filter_factory({})(app)
+        req = Request.blank('/bucket/object',
+                        environ={'REQUEST_METHOD': 'PUT'},
+                        headers={'Authorization': 'AUTH_who:password',
+                                 'X-Amz-Storage-Class': 'REDUCED_REDUNDANCY',
+                                 'X-Amz-Meta-Something': 'oh hai',
+                                 'X-Amz-Copy-Source': '/some/source',
+                                 'Content-MD5': 'ffoHqOWd280dyE1MT4KuoQ=='})
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        resp = local_app(req.environ, lambda *args: None)
+        self.assertEquals(app.req.headers['ETag'],
+                    '7dfa07a8e59ddbcd1dc84d4c4f82aea1')
+        self.assertEquals(app.req.headers['X-Object-Meta-Something'], 'oh hai')
+        self.assertEquals(app.req.headers['X-Object-Copy'], '/some/source')
 
     def test_object_DELETE_error(self):
         code = self._test_method_error(FakeAppObject, 'DELETE',
