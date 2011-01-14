@@ -54,12 +54,13 @@ class DevAuth(object):
         requests, acts as the fallback auth service when no other auth
         middleware overrides it.
         """
+        s3 = env.get('HTTP_AUTHORIZATION')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
-        if token and token.startswith(self.reseller_prefix):
+        if s3 or (token and token.startswith(self.reseller_prefix)):
             # Note: Empty reseller_prefix will match all tokens.
             # Attempt to auth my token with my auth server
             groups = \
-                self.get_groups(token, memcache_client=cache_from_env(env))
+                self.get_groups(env, token, memcache_client=cache_from_env(env))
             if groups:
                 env['REMOTE_USER'] = groups
                 user = groups and groups.split(',', 1)[0] or ''
@@ -104,7 +105,7 @@ class DevAuth(object):
                 env['swift.clean_acl'] = clean_acl
         return self.app(env, start_response)
 
-    def get_groups(self, token, memcache_client=None):
+    def get_groups(self, env, token, memcache_client=None):
         """
         Get groups for the given token.
 
@@ -129,10 +130,19 @@ class DevAuth(object):
             start, expiration, groups = cached_auth_data
             if time() - start > expiration:
                 groups = None
+
+        headers = {}
+        if env.get('HTTP_AUTHORIZATION'):
+            groups = None
+            if env.get('HTTP_AUTHORIZATION'):
+                headers["Authorization"] = env.get('HTTP_AUTHORIZATION')
+
         if not groups:
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                        '%stoken/%s' % (self.auth_prefix, token), ssl=self.ssl)
+                                    '%stoken/%s' % (self.auth_prefix, token),
+                                    headers, ssl=self.ssl)
+
                 resp = conn.getresponse()
                 resp.read()
                 conn.close()
