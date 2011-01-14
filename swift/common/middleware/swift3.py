@@ -166,8 +166,7 @@ class BucketController(Controller):
                            for i in objects[:max_keys] if 'subdir' not in i]),
                 "".join(['<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>'
                          % xml_escape(i['subdir'])
-                         for i in objects[:max_keys] if 'subdir' in i])
-            ))
+                         for i in objects[:max_keys] if 'subdir' in i])))
         return Response(body=body, content_type='text/xml')
 
     def PUT(self, env, start_response):
@@ -246,6 +245,15 @@ class ObjectController(Controller):
         return self.GETorHEAD(env, start_response)
 
     def PUT(self, env, start_response):
+        for key, value in env.items():
+            if key.startswith('HTTP_X_AMZ_META_'):
+                del env[key]
+                env['HTTP_X_OBJECT_META_' + key[16:]] = value
+            elif key == 'HTTP_CONTENT_MD5':
+                env['HTTP_ETAG'] = value.decode('base64').encode('hex')
+            elif key == 'HTTP_X_AMZ_COPY_SOURCE':
+                env['HTTP_X_OBJECT_COPY'] = value
+
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
@@ -258,10 +266,9 @@ class ObjectController(Controller):
             else:
                 return get_err_response('InvalidURI')
 
-        resp = Response()
-        resp.etag = headers['etag']
-        resp.status = 200
-        return resp
+        etag = headers['etag']
+        del headers['etag']
+        return Response(status=200, headers=headers, etag=etag)
 
     def DELETE(self, env, start_response):
         body_iter = self.app(env, self.do_start_response)

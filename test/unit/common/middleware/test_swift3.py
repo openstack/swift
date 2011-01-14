@@ -470,7 +470,7 @@ class TestSwift3(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Authorization': 'AUTH_who:password',
                                      'x-amz-storage-class': 'REDUCED_REDUNDANCY',
-                                     'Content-MD5': '1b2cf535f27731c974343645a3985328'})
+                                     'Content-MD5': 'Gyz1NfJ3Mcl0NDZFo5hTKA=='})
         req.date = datetime.now()
         req.content_type = 'text/plain'
         resp = local_app(req.environ, local_app.app.do_start_response)
@@ -479,6 +479,29 @@ class TestSwift3(unittest.TestCase):
         headers = dict(local_app.app.response_args[1])
         self.assertEquals(headers['ETag'],
                           "\"%s\"" % local_app.app.response_headers['etag'])
+
+    def test_object_PUT_headers(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.req = Request(env)
+                start_response('200 OK')
+                start_response([])
+        app = FakeApp()
+        local_app = swift3.filter_factory({})(app)
+        req = Request.blank('/bucket/object',
+                        environ={'REQUEST_METHOD': 'PUT'},
+                        headers={'Authorization': 'AUTH_who:password',
+                                 'X-Amz-Storage-Class': 'REDUCED_REDUNDANCY',
+                                 'X-Amz-Meta-Something': 'oh hai',
+                                 'X-Amz-Copy-Source': '/some/source',
+                                 'Content-MD5': 'ffoHqOWd280dyE1MT4KuoQ=='})
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        resp = local_app(req.environ, lambda *args: None)
+        self.assertEquals(app.req.headers['ETag'],
+                    '7dfa07a8e59ddbcd1dc84d4c4f82aea1')
+        self.assertEquals(app.req.headers['X-Object-Meta-Something'], 'oh hai')
+        self.assertEquals(app.req.headers['X-Object-Copy'], '/some/source')
 
     def test_object_DELETE_error(self):
         code = self._test_method_error(FakeAppObject, 'DELETE',
