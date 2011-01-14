@@ -164,7 +164,7 @@ class BucketController(Controller):
                         (xml_escape(i['name']), i['last_modified'], i['hash'],
                            i['bytes'])
                            for i in objects[:max_keys] if 'subdir' not in i]),
-                "".join(['<CommonPrefixes><Prefix>%s</Prefix><CommonPrefixes>'
+                "".join(['<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>'
                          % xml_escape(i['subdir'])
                          for i in objects[:max_keys] if 'subdir' in i])
             ))
