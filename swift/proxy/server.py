@@ -30,7 +30,7 @@ import uuid
 import functools
 from hashlib import md5
 
-from eventlet import sleep
+from eventlet import sleep, GreenPile
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -493,6 +493,54 @@ class Controller(object):
         for node in ring.get_more_nodes(partition):
             yield node
 
+    def _make_request(self, node, part, method, path, headers, hl, query):
+        if self.error_limited(node):
+            return False
+        try:
+            with ConnectionTimeout(self.app.conn_timeout):
+                conn = http_connect(node['ip'], node['port'],
+                        node['device'], part, method, path,
+                        headers=headers, query_string=query)
+                conn.node = node
+            with Timeout(self.app.node_timeout):
+                resp = conn.getresponse()
+                if 200 <= resp.status < 300 or 400 <= resp.status < 500:
+                    return resp.status, resp.reason, resp.read()
+                elif resp.status == 507:
+                    self.error_limit(node)
+        except Exception:
+            self.error_limit(node)
+            self.exception_occurred(node, _('Object'), # TODO FIX LOGGIN'
+                _('Trying to %(method)s %(path)s') %
+                {'method': method, 'path': path})
+        hl.append(headers)
+
+    def make_requests(self, req, ring, partition, method, path, headers,
+                    query_string=''):
+        """
+        Sends an HTTP request to multiple nodes and aggregates the results.
+        It attempts the primary nodes concurrently, then iterates over the
+        handoff nodes as needed.
+        """
+        nodes = ring.get_part_nodes(partition)
+        pool = GreenPile(len(nodes))
+        for node in nodes:
+            pool.spawn(self._make_request, node, partition, method, path,
+                    headers.pop(), headers, query_string)
+        response = [resp for resp in pool if resp]
+        more_nodes = ring.get_more_nodes(partition)
+        while len(response) < len(nodes):
+            try:
+                resp = self._make_request(next(more_nodes), partition, method,
+                        path, headers.pop(), headers, query_string)
+                if resp:
+                    response.append(resp)
+            except StopIteration:
+                response.append((503, '', ''))
+        statuses, reasons, bodies = zip(*response)
+        return self.best_response(req, statuses, reasons, bodies,
+                                  _('Container POST')) # TODO fix loggin'
+
     def get_update_nodes(self, partition, nodes, ring):
         """ Returns ring.replica_count nodes; the nodes will not be error
             limited, if possible. """
@@ -665,37 +713,6 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-
-    def node_post_or_delete(self, req, partition, node, path):
-        """
-        Handle common POST/DELETE functionality
-
-        :param req: webob.Request object
-        :param partition: partition for the object
-        :param node: node dictionary for the object
-        :param path: path to send for the request
-        """
-        if self.error_limited(node):
-            return 500, '', ''
-        try:
-            with ConnectionTimeout(self.app.conn_timeout):
-                conn = http_connect(node['ip'], node['port'], node['device'],
-                        partition, req.method, path, req.headers)
-            with Timeout(self.app.node_timeout):
-                response = conn.getresponse()
-                body = response.read()
-                if response.status == 507:
-                    self.error_limit(node)
-                elif response.status >= 500:
-                    self.error_occurred(node,
-                        _('ERROR %(status)d %(body)s From Object Server') %
-                        {'status': response.status, 'body': body[:1024]})
-                return response.status, response.reason, body
-        except:
-            self.exception_occurred(node, _('Object'),
-                _('Trying to %(method)s %(path)s') %
-                {'method': req.method, 'path': req.path})
-        return 500, '', ''
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -877,30 +894,15 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(partition, nodes, self.app.object_ring):
-            container = containers.pop()
-            req.headers['X-Container-Host'] = '%(ip)s:%(port)s' % container
-            req.headers['X-Container-Partition'] = container_partition
-            req.headers['X-Container-Device'] = container['device']
-            status, reason, body = \
-                self.node_post_or_delete(req, partition, node, req.path_info)
-            if 200 <= status < 300 or 400 <= status < 500:
-                statuses.append(status)
-                reasons.append(reason)
-                bodies.append(body)
-            else:
-                containers.insert(0, container)
-            if not containers:
-                break
-        while len(statuses) < len(nodes):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
-        return self.best_response(req, statuses, reasons,
-                bodies, _('Object POST'))
+        headers = []
+        for container in containers:
+            nheaders = dict(req.headers.iteritems())
+            nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
+            nheaders['X-Container-Partition'] = container_partition
+            nheaders['X-Container-Device'] = container['device']
+            headers.append(nheaders)
+        return self.make_requests(req, self.app.object_ring,
+                partition, 'POST', req.path_info, headers)
 
     @public
     @delay_denial
@@ -1125,30 +1127,15 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(partition, nodes, self.app.object_ring):
-            container = containers.pop()
-            req.headers['X-Container-Host'] = '%(ip)s:%(port)s' % container
-            req.headers['X-Container-Partition'] = container_partition
-            req.headers['X-Container-Device'] = container['device']
-            status, reason, body = \
-                self.node_post_or_delete(req, partition, node, req.path_info)
-            if 200 <= status < 300 or 400 <= status < 500:
-                statuses.append(status)
-                reasons.append(reason)
-                bodies.append(body)
-            else:
-                containers.insert(0, container)
-            if not containers:
-                break
-        while len(statuses) < len(nodes):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Object DELETE'))
+        headers = []
+        for container in containers:
+            nheaders = dict(req.headers.iteritems())
+            nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
+            nheaders['X-Container-Partition'] = container_partition
+            nheaders['X-Container-Device'] = container['device']
+            headers.append(nheaders)
+        return self.make_requests(req, self.app.object_ring,
+                partition, 'DELETE', req.path_info, headers)
 
     @public
     @delay_denial
@@ -1261,55 +1248,23 @@ class ContainerController(Controller):
                                          self.app.account_ring)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
-        headers.update(value for value in req.headers.iteritems()
-            if value[0].lower() in self.pass_through_headers or
-               value[0].lower().startswith('x-container-meta-'))
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(container_partition, containers,
-                                    self.app.container_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                account = accounts.pop()
-                headers['X-Account-Host'] = '%(ip)s:%(port)s' % account
-                headers['X-Account-Partition'] = account_partition
-                headers['X-Account-Device'] = account['device']
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], container_partition, 'PUT',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    else:
-                        if source.status == 507:
-                            self.error_limit(node)
-                        accounts.insert(0, account)
-            except:
-                accounts.insert(0, account)
-                self.exception_occurred(node, _('Container'),
-                    _('Trying to PUT to %s') % req.path)
-            if not accounts:
-                break
-        while len(statuses) < len(containers):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
+        headers = []
+        for account in accounts:
+            nheaders = {'X-Timestamp': normalize_timestamp(time.time()),
+                        'x-cf-trans-id': self.trans_id,
+                        'X-Account-Host': '%(ip)s:%(port)s' % account,
+                        'X-Account-Partition': account_partition,
+                        'X-Account-Device': account['device']}
+            nheaders.update(value for value in req.headers.iteritems()
+                if value[0].lower() in self.pass_through_headers or
+                   value[0].lower().startswith('x-container-meta-'))
+            headers.append(nheaders)
         if self.app.memcache:
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Container PUT'))
+        return self.make_requests(req, self.app.container_ring,
+                container_partition, 'PUT', req.path_info, headers)
 
     @public
     def POST(self, req):
@@ -1328,43 +1283,13 @@ class ContainerController(Controller):
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(container_partition, containers,
-                                    self.app.container_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], container_partition, 'POST',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    elif source.status == 507:
-                        self.error_limit(node)
-            except:
-                self.exception_occurred(node, _('Container'),
-                    _('Trying to POST %s') % req.path)
-            if len(statuses) >= len(containers):
-                break
-        while len(statuses) < len(containers):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
         if self.app.memcache:
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Container POST'))
+        return self.make_requests(req, self.app.container_ring,
+                container_partition, 'POST', req.path_info,
+                [headers] * len(containers))
 
     @public
     def DELETE(self, req):
@@ -1376,61 +1301,20 @@ class ContainerController(Controller):
                                          self.app.account_ring)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
-             'x-cf-trans-id': self.trans_id}
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(container_partition, containers,
-                                    self.app.container_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                account = accounts.pop()
-                headers['X-Account-Host'] = '%(ip)s:%(port)s' % account
-                headers['X-Account-Partition'] = account_partition
-                headers['X-Account-Device'] = account['device']
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], container_partition, 'DELETE',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    else:
-                        if source.status == 507:
-                            self.error_limit(node)
-                        accounts.insert(0, account)
-            except:
-                accounts.insert(0, account)
-                self.exception_occurred(node, _('Container'),
-                    _('Trying to DELETE %s') % req.path)
-            if not accounts:
-                break
-        while len(statuses) < len(containers):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
+        headers = []
+        for account in accounts:
+            headers.append({'X-Timestamp': normalize_timestamp(time.time()),
+                           'X-Cf-Trans-Id': self.trans_id,
+                           'X-Account-Host': '%(ip)s:%(port)s' % account,
+                           'X-Account-Partition': account_partition,
+                           'X-Account-Device': account['device']})
         if self.app.memcache:
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Container DELETE'))
-        if 200 <= resp.status_int <= 299:
-            for status in statuses:
-                if status < 200 or status > 299:
-                    # If even one node doesn't do the delete, we can't be sure
-                    # what the outcome will be once everything is in sync; so
-                    # we 503.
-                    self.app.logger.error(_('Returning 503 because not all '
-                        'container nodes confirmed DELETE'))
-                    return HTTPServiceUnavailable(request=req)
+        resp = self.make_requests(req, self.app.container_ring,
+                    container_partition, 'PUT', req.path_info,
+                    [headers] * len(containers))
         if resp.status_int == 202:  # Indicates no server had the container
             return HTTPNotFound(request=req)
         return resp
@@ -1468,42 +1352,10 @@ class AccountController(Controller):
                    'x-cf-trans-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(account_partition, accounts,
-                                    self.app.account_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], account_partition, 'PUT',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    else:
-                        if source.status == 507:
-                            self.error_limit(node)
-            except:
-                self.exception_occurred(node, _('Account'),
-                    _('Trying to PUT to %s') % req.path)
-            if len(statuses) >= len(accounts):
-                break
-        while len(statuses) < len(accounts):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Account PUT'))
+        return self.make_requests(req, self.app.account_ring, account_partition,
+                    'PUT', req.path_info, [headers] * len(accounts))
 
     @public
     def POST(self, req):
@@ -1517,41 +1369,10 @@ class AccountController(Controller):
                    'X-CF-Trans-Id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(account_partition, accounts,
-                                    self.app.account_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], account_partition, 'POST',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    elif source.status == 507:
-                        self.error_limit(node)
-            except:
-                self.exception_occurred(node, _('Account'),
-                    _('Trying to POST %s') % req.path)
-            if len(statuses) >= len(accounts):
-                break
-        while len(statuses) < len(accounts):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Account POST'))
+        return self.make_requests(req, self.app.account_ring, account_partition,
+                    'POST', req.path_info, [headers] * len(accounts))
 
     @public
     def DELETE(self, req):
@@ -1562,41 +1383,10 @@ class AccountController(Controller):
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'X-CF-Trans-Id': self.trans_id}
-        statuses = []
-        reasons = []
-        bodies = []
-        for node in self.iter_nodes(account_partition, accounts,
-                                    self.app.account_ring):
-            if self.error_limited(node):
-                continue
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], account_partition, 'DELETE',
-                            req.path_info, headers)
-                with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
-                    body = source.read()
-                    if 200 <= source.status < 300 \
-                            or 400 <= source.status < 500:
-                        statuses.append(source.status)
-                        reasons.append(source.reason)
-                        bodies.append(body)
-                    elif source.status == 507:
-                        self.error_limit(node)
-            except:
-                self.exception_occurred(node, _('Account'),
-                    _('Trying to DELETE %s') % req.path)
-            if len(statuses) >= len(accounts):
-                break
-        while len(statuses) < len(accounts):
-            statuses.append(503)
-            reasons.append('')
-            bodies.append('')
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.best_response(req, statuses, reasons, bodies,
-                                  _('Account DELETE'))
+        return self.make_requests(req, self.app.account_ring, account_partition,
+                    'DELETE', req.path_info, [headers] * len(accounts))
 
 
 class BaseApplication(object):
