@@ -21,7 +21,6 @@ from httplib import HTTPConnection, HTTPSConnection
 from time import gmtime, strftime, time
 from traceback import format_exc
 from urllib import quote, unquote
-from urlparse import urlparse
 from uuid import uuid4
 
 from eventlet.timeout import Timeout
@@ -32,7 +31,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, get_logger, split_path
+from swift.common.utils import cache_from_env, get_logger, split_path, urlparse
 
 
 class Swauth(object):
@@ -61,23 +60,23 @@ class Swauth(object):
             self.auth_prefix += '/'
         self.auth_account = '%s.auth' % self.reseller_prefix
         self.default_swift_cluster = conf.get('default_swift_cluster',
-            'local:http://127.0.0.1:8080/v1')
+            'local#http://127.0.0.1:8080/v1')
         # This setting is a little messy because of the options it has to
         # provide. The basic format is cluster_name:url, such as the default
-        # value of local:http://127.0.0.1:8080/v1. But, often the url given to
+        # value of local#http://127.0.0.1:8080/v1. But, often the url given to
         # the user needs to be different than the url used by Swauth to
         # create/delete accounts. So there's a more complex format of
         # cluster_name::url::url, such as
-        # local::https://public.com:8080/v1::http://private.com:8080/v1.
+        # local##https://public.com:8080/v1##http://private.com:8080/v1.
         # The double colon is what sets the two apart.
-        if '::' in self.default_swift_cluster:
+        if '##' in self.default_swift_cluster:
             self.dsc_name, self.dsc_url, self.dsc_url2 = \
-                self.default_swift_cluster.split('::', 2)
+                self.default_swift_cluster.split('##', 2)
             self.dsc_url = self.dsc_url.rstrip('/')
             self.dsc_url2 = self.dsc_url2.rstrip('/')
         else:
             self.dsc_name, self.dsc_url = \
-                self.default_swift_cluster.split(':', 1)
+                self.default_swift_cluster.split('#', 1)
             self.dsc_url = self.dsc_url2 = self.dsc_url.rstrip('/')
         self.dsc_parsed = urlparse(self.dsc_url)
         if self.dsc_parsed.scheme not in ('http', 'https'):

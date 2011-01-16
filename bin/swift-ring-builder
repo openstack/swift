@@ -235,10 +235,17 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
             print 'Invalid add value: %s' % argv[3]
             exit(EXIT_ERROR)
         i = 1
-        while i < len(rest) and rest[i] in '0123456789.':
+        if rest[i] == '[':
+            while i < len(rest) and rest[i] != ']':
+                i += 1
+            ip = rest[2:i]
             i += 1
-        ip = rest[1:i]
-        rest = rest[i:]
+            rest = rest[i:]
+        else:
+            while i < len(rest) and rest[i] in '0123456789.':
+                i += 1
+            ip = rest[1:i]
+            rest = rest[i:]
 
         if not rest.startswith(':'):
             print 'Invalid add value: %s' % argv[3]

@@ -68,11 +68,15 @@ def get_socket(conf, default_port=8080):
     """
     bind_addr = (conf.get('bind_ip', '0.0.0.0'),
                  int(conf.get('bind_port', default_port)))
+    address_family = [addr[0] for addr in socket.getaddrinfo(bind_addr[0],
+            bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
+            if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
     sock = None
     retry_until = time.time() + 30
     while not sock and time.time() < retry_until:
         try:
-            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)))
+            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
+                        family=address_family)
             if 'cert_file' in conf:
                 sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
                     keyfile=conf['key_file'])

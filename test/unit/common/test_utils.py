@@ -477,6 +477,27 @@ log_name = yarr'''
             total += i
         self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
 
+    def test_urlparse(self):
+        parsed = utils.urlparse('http://127.0.0.1/')
+        self.assertEquals(parsed.scheme, 'http')
+        self.assertEquals(parsed.hostname, '127.0.0.1')
+        self.assertEquals(parsed.path, '/')
+
+        parsed = utils.urlparse('http://127.0.0.1:8080/')
+        self.assertEquals(parsed.port, 8080)
+
+        parsed = utils.urlparse('https://127.0.0.1/')
+        self.assertEquals(parsed.scheme, 'https')
+
+        parsed = utils.urlparse('http://[::1]/')
+        self.assertEquals(parsed.hostname, '::1')
+
+        parsed = utils.urlparse('http://[::1]:8080/')
+        self.assertEquals(parsed.hostname, '::1')
+        self.assertEquals(parsed.port, 8080)
+
+        parsed = utils.urlparse('www.example.com')
+        self.assertEquals(parsed.hostname, '')
 
 if __name__ == '__main__':
     unittest.main()
