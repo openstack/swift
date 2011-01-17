@@ -26,21 +26,21 @@ from urlparse import urlparse, urlunparse
 
 try:
     from eventlet.green.httplib import HTTPSConnection
-except:
+except ImportError:
     from httplib import HTTPSConnection
 
 try:
     from eventlet import sleep
-except:
+except ImportError:
     from time import sleep
 
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
-except:
+except ImportError:
     try:
         from eventlet.green.httplib import HTTPConnection
-    except:
+    except ImportError:
         from httplib import HTTPConnection
 
 
