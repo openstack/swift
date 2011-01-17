@@ -18,11 +18,16 @@ Cloud Files client library used internally
 """
 import socket
 from cStringIO import StringIO
-from httplib import HTTPException, HTTPSConnection
+from httplib import HTTPException
 from re import compile, DOTALL
 from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote, unquote
 from urlparse import urlparse, urlunparse
+
+try:
+    from eventlet.green.httplib import HTTPSConnection
+except:
+    from httplib import HTTPSConnection
 
 try:
     from eventlet import sleep
@@ -33,7 +38,10 @@ try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
 except:
-    from httplib import HTTPConnection
+    try:
+        from eventlet.green.httplib import HTTPConnection
+    except:
+        from httplib import HTTPConnection
 
 
 def quote(value, safe='/'):
