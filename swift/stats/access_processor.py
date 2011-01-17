@@ -40,7 +40,7 @@ class AccessLogProcessor(object):
         '''given a raw access log line, return a dict of the good parts'''
         d = {}
         try:
-            (_,
+            (unused,
             server,
             client_ip,
             lb_ip,
@@ -57,7 +57,8 @@ class AccessLogProcessor(object):
             etag,
             trans_id,
             headers,
-            processing_time) = (unquote(x) for x in raw_log[16:].split(' '))
+            processing_time) = (unquote(x) for x in
+                                raw_log[16:].split(' ')[:18])
         except ValueError:
             self.logger.debug(_('Bad line data: %s') % repr(raw_log))
             return {}
