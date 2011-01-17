@@ -243,18 +243,17 @@ YOU HAVE A FEW OPTIONS:
             raise err
 
     def validate_s3_sign(self, request, token):
-        cfaccount, sign = request.headers['Authorization'].split(' ')[-1].split(':')
+        account, user, sign = request.headers['Authorization'].split(' ')[-1].split(':')
         msg = base64.urlsafe_b64decode(unquote(token))
         rv = False
         with self.get_conn() as conn:
             row = conn.execute('''
-                SELECT account, user, password FROM account
-                WHERE cfaccount = ?''',
-                (cfaccount,)).fetchone()
-            rv = (84000, row[0], row[1], cfaccount)
-       
+                SELECT password, cfaccount FROM account
+                WHERE account = ? AND user = ?''',
+                (account, user)).fetchone()
+            rv = (84000, account, user, row[1])
         if rv:
-            s = base64.encodestring(hmac.new(row[2], msg, sha1).digest()).strip()
+            s = base64.encodestring(hmac.new(row[0], msg, sha1).digest()).strip()
             self.logger.info("orig %s, calc %s" % (sign, s))
             if sign != s:
                 rv = False
@@ -440,8 +439,10 @@ YOU HAVE A FEW OPTIONS:
         except ValueError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
+        headers = {}
         if 'Authorization' in request.headers:
             validation = self.validate_s3_sign(request, token)
+            headers['X-Auth-Account-Suffix'] = validation[3]
         else:
             validation = self.validate_token(token)
         if not validation:
@@ -451,8 +452,9 @@ YOU HAVE A FEW OPTIONS:
             # admin access to a cfaccount or ".reseller_admin" to access to all
             # accounts, including creating new ones.
             groups.append(validation[3])
-        return HTTPNoContent(headers={'X-Auth-TTL': validation[0],
-                                      'X-Auth-Groups': ','.join(groups)})
+        headers['X-Auth-TTL'] = validation[0]
+        headers['X-Auth-Groups'] = ','.join(groups)
+        return HTTPNoContent(headers=headers)
 
     def handle_add_user(self, request):
         """
