@@ -151,21 +151,21 @@ class TestAuth(unittest.TestCase):
         app = FakeApp()
         self.assertRaises(Exception, auth.filter_factory({
             'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:badscheme://host/path'}), app)
+            'default_swift_cluster': 'local#badscheme://host/path'}), app)
         ath = auth.filter_factory({'super_admin_key': 'supertest'})(app)
         self.assertEquals(ath.default_swift_cluster,
-                          'local:http://127.0.0.1:8080/v1')
+                          'local#http://127.0.0.1:8080/v1')
         ath = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:http://host/path'})(app)
+            'default_swift_cluster': 'local#http://host/path'})(app)
         self.assertEquals(ath.default_swift_cluster,
-                          'local:http://host/path')
+                          'local#http://host/path')
         ath = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:https://host/path/'})(app)
+            'default_swift_cluster': 'local#https://host/path/'})(app)
         self.assertEquals(ath.dsc_url, 'https://host/path')
         self.assertEquals(ath.dsc_url2, 'https://host/path')
         ath = auth.filter_factory({'super_admin_key': 'supertest',
             'default_swift_cluster':
-                'local::https://host/path/::http://host2/path2/'})(app)
+                'local#https://host/path/#http://host2/path2/'})(app)
         self.assertEquals(ath.dsc_url, 'https://host/path')
         self.assertEquals(ath.dsc_url2, 'http://host2/path2')
 
@@ -2882,7 +2882,7 @@ class TestAuth(unittest.TestCase):
 
     def test_get_conn_default_https(self):
         local_auth = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:https://1.2.3.4/v1'})(FakeApp())
+            'default_swift_cluster': 'local#https://1.2.3.4/v1'})(FakeApp())
         conn = local_auth.get_conn()
         self.assertEquals(conn.__class__, auth.HTTPSConnection)
         self.assertEquals(conn.host, '1.2.3.4')
@@ -2890,7 +2890,7 @@ class TestAuth(unittest.TestCase):
 
     def test_get_conn_overridden(self):
         local_auth = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:https://1.2.3.4/v1'})(FakeApp())
+            'default_swift_cluster': 'local#https://1.2.3.4/v1'})(FakeApp())
         conn = \
             local_auth.get_conn(urlparsed=auth.urlparse('http://5.6.7.8/v1'))
         self.assertEquals(conn.__class__, auth.HTTPConnection)
@@ -2899,7 +2899,7 @@ class TestAuth(unittest.TestCase):
 
     def test_get_conn_overridden_https(self):
         local_auth = auth.filter_factory({'super_admin_key': 'supertest',
-            'default_swift_cluster': 'local:http://1.2.3.4/v1'})(FakeApp())
+            'default_swift_cluster': 'local#http://1.2.3.4/v1'})(FakeApp())
         conn = \
             local_auth.get_conn(urlparsed=auth.urlparse('https://5.6.7.8/v1'))
         self.assertEquals(conn.__class__, auth.HTTPSConnection)

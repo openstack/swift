@@ -61,24 +61,23 @@ class Swauth(object):
             self.auth_prefix += '/'
         self.auth_account = '%s.auth' % self.reseller_prefix
         self.default_swift_cluster = conf.get('default_swift_cluster',
-            'local:http://127.0.0.1:8080/v1')
+            'local#http://127.0.0.1:8080/v1')
         # This setting is a little messy because of the options it has to
-        # provide. The basic format is cluster_name:url, such as the default
-        # value of local:http://127.0.0.1:8080/v1. But, often the url given to
-        # the user needs to be different than the url used by Swauth to
-        # create/delete accounts. So there's a more complex format of
-        # cluster_name::url::url, such as
-        # local::https://public.com:8080/v1::http://private.com:8080/v1.
-        # The double colon is what sets the two apart.
-        if '::' in self.default_swift_cluster:
-            self.dsc_name, self.dsc_url, self.dsc_url2 = \
-                self.default_swift_cluster.split('::', 2)
-            self.dsc_url = self.dsc_url.rstrip('/')
-            self.dsc_url2 = self.dsc_url2.rstrip('/')
+        # provide. The basic format is cluster_name#url, such as the default
+        # value of local#http://127.0.0.1:8080/v1.
+        # If the URL given to the user needs to differ from the url used by
+        # Swauth to create/delete accounts, there's a more complex format:
+        # cluster_name#url#url, such as
+        # local#https://public.com:8080/v1#http://private.com:8080/v1.
+        cluster_parts = self.default_swift_cluster.split('#', 2)
+        self.dsc_name = cluster_parts[0]
+        if len(cluster_parts) == 3:
+            self.dsc_url = cluster_parts[1].rstrip('/')
+            self.dsc_url2 = cluster_parts[2].rstrip('/')
+        elif len(cluster_parts) == 2:
+            self.dsc_url = self.dsc_url2 = cluster_parts[1].rstrip('/')
         else:
-            self.dsc_name, self.dsc_url = \
-                self.default_swift_cluster.split(':', 1)
-            self.dsc_url = self.dsc_url2 = self.dsc_url.rstrip('/')
+            raise Exception('Invalid cluster format')
         self.dsc_parsed = urlparse(self.dsc_url)
         if self.dsc_parsed.scheme not in ('http', 'https'):
             raise Exception('Cannot handle protocol scheme %s for url %s' %
