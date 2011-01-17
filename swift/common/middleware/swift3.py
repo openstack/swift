@@ -400,11 +400,11 @@ class Swift3Middleware(object):
                 h += header.lower() + ":" + str(req.headers[header]) + "\n"
         h += req.path
         try:
-            account, _ = req.headers['Authorization'].split(' ')[-1].split(':')
+            account, user, _ = req.headers['Authorization'].split(' ')[-1].split(':')
         except:
             return None, None
         token = base64.urlsafe_b64encode(h)
-        return account, token
+        return '%s:%s' % (account, user), token
 
     def __call__(self, env, start_response):
         req = Request(env)
