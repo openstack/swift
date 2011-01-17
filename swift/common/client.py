@@ -810,12 +810,6 @@ class Connection(object):
         return self._retry(None, get_object, container, obj,
                            resp_chunk_size=resp_chunk_size)
 
-    def _put_object_reset(self, func, container, obj, contents, *args,
-                          **kwargs):
-        seek = getattr(contents, 'seek', None)
-        if seek:
-            seek(0)
-
     def put_object(self, container, obj, contents, content_length=None,
                    etag=None, chunk_size=65536, content_type=None,
                    headers=None):
