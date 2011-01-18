@@ -139,11 +139,9 @@ class ServiceController(Controller):
                 return get_err_response('InvalidURI')
 
         containers = loads(''.join(list(body_iter)))
-        resp = Response(content_type='text/xml')
-        resp.status = 200
         # we don't keep the creation time of a backet (s3cmd doesn't
         # work without that) so we use something bogus.
-        resp.body = '<?xml version="1.0" encoding="UTF-8"?>' \
+        body = '<?xml version="1.0" encoding="UTF-8"?>' \
             '<ListAllMyBucketsResult ' \
               'xmlns="http://doc.s3.amazonaws.com/2006-03-01">' \
             '<Buckets>%s</Buckets>' \
@@ -151,6 +149,7 @@ class ServiceController(Controller):
             % ("".join(['<Bucket><Name>%s</Name><CreationDate>' \
                          '2009-02-03T16:45:09.000Z</CreationDate></Bucket>' %
                          xml_escape(i['name']) for i in containers]))
+        resp = Response(status=200, content_type='text/xml', body=body)
         return resp
 
 
