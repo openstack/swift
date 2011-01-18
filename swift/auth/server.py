@@ -442,7 +442,8 @@ YOU HAVE A FEW OPTIONS:
         headers = {}
         if 'Authorization' in request.headers:
             validation = self.validate_s3_sign(request, token)
-            headers['X-Auth-Account-Suffix'] = validation[3]
+            if validation:
+                headers['X-Auth-Account-Suffix'] = validation[3]
         else:
             validation = self.validate_token(token)
         if not validation:
