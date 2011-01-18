@@ -515,7 +515,7 @@ auth_prefix            /auth/                          The HTTP request path
                                                        reserves anything
                                                        beginning with the
                                                        letter `v`.
-default_swift_cluster  local:http://127.0.0.1:8080/v1  The default Swift
+default_swift_cluster  local#http://127.0.0.1:8080/v1  The default Swift
                                                        cluster to place newly
                                                        created accounts on.
 token_life             86400                           The number of seconds a
