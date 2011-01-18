@@ -29,6 +29,7 @@ from urllib import unquote, quote
 import uuid
 import functools
 from hashlib import md5
+from random import shuffle
 
 from eventlet import sleep
 from eventlet.timeout import Timeout
@@ -707,6 +708,7 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
+        shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
