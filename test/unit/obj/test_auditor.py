@@ -14,6 +14,7 @@
 # limitations under the License.
 
 # TODO: Tests
+from test import unit as _setup_mocks
 import unittest
 import tempfile
 import os

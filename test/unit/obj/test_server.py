@@ -27,7 +27,8 @@ from tempfile import mkdtemp
 
 from eventlet import sleep, spawn, wsgi, listen
 from webob import Request
-from xattr import getxattr, setxattr
+from test.unit import _getxattr as getxattr
+from test.unit import _setxattr as setxattr
 
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
