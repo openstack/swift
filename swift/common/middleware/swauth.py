@@ -198,7 +198,8 @@ class Swauth(object):
                     groups = None
 
         if env.get('HTTP_AUTHORIZATION'):
-            account, user, sign = env['HTTP_AUTHORIZATION'].split(' ')[1].split(':')
+            account = env['HTTP_AUTHORIZATION'].split(' ')[1]
+            account, user, sign = account.split(':')
             path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
             resp = self.make_request(env, 'GET', path).get_response(self.app)
             if resp.status_int // 100 != 2:
@@ -208,21 +209,23 @@ class Swauth(object):
                 account_id = resp.headers['x-object-meta-account-id']
             else:
                 path = quote('/v1/%s/%s' % (self.auth_account, account))
-                resp2 = self.make_request(env, 'GET', path).get_response(self.app)
+                resp2 = self.make_request(env, 'GET',
+                                          path).get_response(self.app)
                 if resp2.status_int // 100 != 2:
                     return None
                 account_id = resp2.headers['x-container-meta-account-id']
 
             path = env['PATH_INFO']
-            env['PATH_INFO'] = path.replace("%s:%s" % (account, user), account_id, 1)
+            env['PATH_INFO'] = path.replace("%s:%s" % (account, user),
+                                            account_id, 1)
             detail = json.loads(resp.body)
 
-            password =  detail['auth'].split(':')[-1]
+            password = detail['auth'].split(':')[-1]
             msg = base64.urlsafe_b64decode(unquote(token))
-            s = base64.encodestring(hmac.new(detail['auth'].split(':')[-1], msg, sha1).digest()).strip()
+            s = base64.encodestring(hmac.new(detail['auth'].split(':')[-1],
+                                             msg, sha1).digest()).strip()
             if s != sign:
                 return None
-            
             groups = [g['name'] for g in detail['groups']]
             if '.admin' in groups:
                 groups.remove('.admin')
@@ -883,7 +886,7 @@ class Swauth(object):
         if resp.status_int // 100 != 2:
             raise Exception('Could not create user object: %s %s' %
                             (path, resp.status))
-        headers={'X-Object-Meta-Account-Id': '%s' % resp.headers['x-container-meta-account-id']}
+        headers = {'X-Object-Meta-Account-Id': '%s' % resp.headers['x-container-meta-account-id']}
         # Create the object in the main auth account (this object represents
         # the user)
         path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
@@ -892,7 +895,6 @@ class Swauth(object):
             groups.append('.admin')
         if reseller_admin:
             groups.append('.reseller_admin')
-            
         resp = self.make_request(req.environ, 'PUT', path, json.dumps({'auth':
             'plaintext:%s' % key,
             'groups': [{'name': g} for g in groups]}), headers=headers).get_response(self.app)
