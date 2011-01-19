@@ -60,22 +60,6 @@ def setup():
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
     # proxy_server.Application we couldn't get to easily otherwise.
-    xattr_data = {}
-
-    def mock_setxattr(fd, k, v):
-        inode = os.fstat(fd).st_ino
-        data = xattr_data.get(inode, {})
-        data[k] = v
-        xattr_data[inode] = data
-
-    def mock_getxattr(fd, k):
-        inode = os.stat(fd.name).st_ino
-        data = xattr_data.get(inode, {}).get(k)
-        if not data:
-            raise IOError
-        return data
-    object_server.setxattr = mock_setxattr
-    object_server.getxattr = mock_getxattr
     _testdir = \
         os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
@@ -1648,7 +1632,6 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
 
     def test_chunked_put(self):
-        # quick test of chunked put w/o PATH_TO_TEST_XFS
 
         class ChunkedFile():
 

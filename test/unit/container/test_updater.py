@@ -19,6 +19,7 @@ import sys
 import unittest
 from gzip import GzipFile
 from shutil import rmtree
+from tempfile import mkdtemp
 
 from eventlet import spawn, TimeoutError, listen
 from eventlet.timeout import Timeout
@@ -35,17 +36,7 @@ class TestContainerUpdater(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
-        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not self.path_to_test_xfs or \
-                not os.path.exists(self.path_to_test_xfs):
-            print >>sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            self.testdir = '/tmp/SWIFTUNITTEST'
-        else:
-            self.testdir = os.path.join(self.path_to_test_xfs,
-                                        'tmp_test_container_updater')
+        self.testdir = os.path.join(mkdtemp(), 'tmp_test_container_updater')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         pickle.dump(RingData([[0, 1, 0, 1], [1, 0, 1, 0]],

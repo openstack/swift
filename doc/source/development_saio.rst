@@ -204,7 +204,6 @@ Do these commands as you on guest:
   #. `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
-        export PATH_TO_TEST_XFS=/mnt/sdb1/test
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
         export PATH=${PATH}:~/bin
 
