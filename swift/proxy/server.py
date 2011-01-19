@@ -30,7 +30,7 @@ import uuid
 import functools
 from hashlib import md5
 
-from eventlet import sleep, GreenPile
+from eventlet import sleep, GreenPile, Queue
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -41,7 +41,7 @@ from webob import Request, Response
 
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, normalize_timestamp, split_path, \
-    cache_from_env
+    cache_from_env, ContextPool
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -904,6 +904,19 @@ class ObjectController(Controller):
         return self.make_requests(req, self.app.object_ring,
                 partition, 'POST', req.path_info, headers)
 
+    def _send_file(self, conn, path):
+        while True:
+            chunk = conn.queue.get()
+            if not conn.failed:
+                try:
+                    with ChunkWriteTimeout(self.app.node_timeout):
+                        conn.send(chunk)
+                except (Exception, ChunkWriteTimeout):
+                    conn.failed = True
+                    self.exception_occurred(conn.node, _('Object'),
+                        _('Trying to write to %s') % path)
+            conn.queue.task_done()
+
     @public
     @delay_denial
     def PUT(self, req):
@@ -1018,46 +1031,45 @@ class ObjectController(Controller):
                 'required connections'),
                 {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
             return HTTPServiceUnavailable(request=req)
+        chunked = req.headers.get('transfer-encoding')
         try:
-            req.bytes_transferred = 0
-            while True:
-                with ChunkReadTimeout(self.app.client_timeout):
-                    try:
-                        chunk = data_source.next()
-                    except StopIteration:
-                        if req.headers.get('transfer-encoding'):
-                            chunk = ''
-                        else:
+            with ContextPool(len(nodes)) as pool:
+                for conn in conns:
+                    conn.failed = False
+                    conn.queue = Queue(self.app.put_queue_depth)
+                    pool.spawn(self._send_file, conn, req.path)
+                req.bytes_transferred = 0
+                while True:
+                    with ChunkReadTimeout(self.app.client_timeout):
+                        try:
+                            chunk = next(data_source)
+                        except StopIteration:
+                            if chunked:
+                                [conn.queue.put('0\r\n\r\n') for conn in conns]
                             break
-                len_chunk = len(chunk)
-                req.bytes_transferred += len_chunk
-                if req.bytes_transferred > MAX_FILE_SIZE:
-                    return HTTPRequestEntityTooLarge(request=req)
-                for conn in list(conns):
-                    try:
-                        with ChunkWriteTimeout(self.app.node_timeout):
-                            if req.headers.get('transfer-encoding'):
-                                conn.send('%x\r\n%s\r\n' % (len_chunk, chunk))
-                            else:
-                                conn.send(chunk)
-                    except:
-                        self.exception_occurred(conn.node, _('Object'),
-                            _('Trying to write to %s') % req.path)
-                        conns.remove(conn)
-                        if len(conns) <= len(nodes) / 2:
-                            self.app.logger.error(
-                                _('Object PUT exceptions during send, '
-                                  '%(conns)s/%(nodes)s required connections'),
-                                {'conns': len(conns),
-                                 'nodes': len(nodes) // 2 + 1})
-                            return HTTPServiceUnavailable(request=req)
-                if req.headers.get('transfer-encoding') and chunk == '':
-                    break
+                    req.bytes_transferred += len(chunk)
+                    if req.bytes_transferred > MAX_FILE_SIZE:
+                        return HTTPRequestEntityTooLarge(request=req)
+                    for conn in list(conns):
+                        if not conn.failed:
+                            conn.queue.put('%x\r\n%s\r\n' % (len(chunk), chunk)
+                                        if chunked else chunk)
+                        else:
+                            conns.remove(conn)
+                    if len(conns) <= len(nodes) / 2:
+                        self.app.logger.error(_('Object PUT exceptions during'
+                            ' send, %(conns)s/%(nodes)s required connections'),
+                            {'conns': len(conns), 'nodes': len(nodes) / 2 + 1})
+                        return HTTPServiceUnavailable(request=req)
+                for conn in conns:
+                    if conn.queue.unfinished_tasks:
+                        conn.queue.join()
+            conns = [conn for conn in conns if not conn.failed]
         except ChunkReadTimeout, err:
             self.app.logger.info(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
-        except:
+        except Exception:
             req.client_disconnect = True
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
@@ -1404,6 +1416,7 @@ class BaseApplication(object):
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
+        self.put_queue_depth = int(conf.get('put_queue_depth', 10))
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
         self.log_headers = conf.get('log_headers') == 'True'
