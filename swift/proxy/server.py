@@ -493,8 +493,10 @@ class Controller(object):
         for node in ring.get_more_nodes(partition):
             yield node
 
-    def _make_request(self, node, part, method, path, headers, hl, query):
-        if not self.error_limited(node):
+    def _make_request(self, nodes, part, method, path, headers, query):
+        for node in nodes:
+            if self.error_limited(node):
+                continue
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -512,31 +514,22 @@ class Controller(object):
                 self.exception_occurred(node, _('Object'), # TODO FIX LOGGIN'
                     _('Trying to %(method)s %(path)s') %
                     {'method': method, 'path': path})
-        hl.append(headers)
 
-    def make_requests(self, req, ring, partition, method, path, headers,
+    def make_requests(self, req, ring, part, method, path, headers,
                     query_string=''):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
         handoff nodes as needed.
         """
-        nodes = ring.get_part_nodes(partition)
-        pool = GreenPile(len(nodes))
-        assert(len(headers) == len(nodes))
-        for node in nodes:
-            pool.spawn(self._make_request, node, partition, method, path,
-                    headers.pop(), headers, query_string)
+        nodes = self.iter_nodes(part, ring.get_part_nodes(part), ring)
+        pool = GreenPile(ring.replica_count)
+        for head in headers:
+            pool.spawn(self._make_request, nodes, part, method, path,
+                    head, query_string)
         response = [resp for resp in pool if resp]
-        more_nodes = ring.get_more_nodes(partition)
-        while len(response) < len(nodes):
-            try:
-                resp = self._make_request(next(more_nodes), partition, method,
-                        path, headers.pop(), headers, query_string)
-                if resp:
-                    response.append(resp)
-            except StopIteration:
-                response.append((503, '', ''))
+        while len(response) < ring.replica_count:
+            response.append((503, '', ''))
         statuses, reasons, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   _('Container POST')) # TODO fix loggin'
