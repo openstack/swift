@@ -14,7 +14,10 @@
 # limitations under the License.
 
 # TODO: More tests
+import socket
 import unittest
+from StringIO import StringIO
+from urlparse import urlparse
 
 # TODO: mock http connection class with more control over headers
 from test.unit.proxy.test_server import fake_http_connect
@@ -376,6 +379,98 @@ class TestConnection(MockHttpTest):
         self.assertEquals(conn.attempts, 2)
         self.assertEquals(conn.url, 'http://www.new.com')
         self.assertEquals(conn.token, 'new')
+
+    def test_reset_stream(self):
+
+        class LocalContents(object):
+
+            def __init__(self, tell_value=0):
+                self.already_read = False
+                self.seeks = []
+                self.tell_value = tell_value
+
+            def tell(self):
+                return self.tell_value
+
+            def seek(self, position):
+                self.seeks.append(position)
+                self.already_read = False
+
+            def read(self, size=-1):
+                if self.already_read:
+                    return ''
+                else:
+                    self.already_read = True
+                    return 'abcdef'
+
+        class LocalConnection(object):
+
+            def putrequest(self, *args, **kwargs):
+                return
+
+            def putheader(self, *args, **kwargs):
+                return
+
+            def endheaders(self, *args, **kwargs):
+                return
+
+            def send(self, *args, **kwargs):
+                raise socket.error('oops')
+
+            def request(self, *args, **kwargs):
+                return
+
+            def getresponse(self, *args, **kwargs):
+                self.status = 200
+                return self
+
+            def getheader(self, *args, **kwargs):
+                return ''
+
+            def read(self, *args, **kwargs):
+                return ''
+
+        def local_http_connection(url):
+            parsed = urlparse(url)
+            return parsed, LocalConnection()
+
+        orig_conn = c.http_connection
+        try:
+            c.http_connection = local_http_connection
+            conn = c.Connection('http://www.example.com', 'asdf', 'asdf',
+                                retries=1, starting_backoff=.0001)
+
+            contents = LocalContents()
+            exc = None
+            try:
+                conn.put_object('c', 'o', contents)
+            except socket.error, err:
+                exc = err
+            self.assertEquals(contents.seeks, [0])
+            self.assertEquals(str(exc), 'oops')
+
+            contents = LocalContents(tell_value=123)
+            exc = None
+            try:
+                conn.put_object('c', 'o', contents)
+            except socket.error, err:
+                exc = err
+            self.assertEquals(contents.seeks, [123])
+            self.assertEquals(str(exc), 'oops')
+
+            contents = LocalContents()
+            contents.tell = None
+            exc = None
+            try:
+                conn.put_object('c', 'o', contents)
+            except c.ClientException, err:
+                exc = err
+            self.assertEquals(contents.seeks, [])
+            self.assertEquals(str(exc), "put_object('c', 'o', ...) failure "
+                "and no ability to reset contents for reupload.")
+        finally:
+            c.http_connection = orig_conn
+
 
 if __name__ == '__main__':
     unittest.main()

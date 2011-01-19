@@ -1047,6 +1047,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
+            proxy_server.shuffle = lambda l: None
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
             self.assert_status_map(controller.HEAD, (503, 200, 200), 200)

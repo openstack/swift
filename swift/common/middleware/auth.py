@@ -134,8 +134,7 @@ class DevAuth(object):
         headers = {}
         if env.get('HTTP_AUTHORIZATION'):
             groups = None
-            if env.get('HTTP_AUTHORIZATION'):
-                headers["Authorization"] = env.get('HTTP_AUTHORIZATION')
+            headers["Authorization"] = env.get('HTTP_AUTHORIZATION')
 
         if not groups:
             with Timeout(self.timeout):
@@ -153,6 +152,13 @@ class DevAuth(object):
             if memcache_client:
                 memcache_client.set(key, (time(), expiration, groups),
                                     timeout=expiration)
+
+        if env.get('HTTP_AUTHORIZATION'):
+            account, user, sign = env['HTTP_AUTHORIZATION'].split(' ')[-1].split(':')
+            cfaccount = resp.getheader('x-auth-account-suffix')
+            path = env['PATH_INFO']
+            env['PATH_INFO'] = path.replace("%s:%s" % (account, user), cfaccount, 1)
+
         return groups
 
     def authorize(self, req):

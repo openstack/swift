@@ -67,15 +67,15 @@ use = egg:swift#swauth
 # The auth prefix will cause requests beginning with this prefix to be routed
 # to the auth subsystem, for granting tokens, creating accounts, users, etc.
 # auth_prefix = /auth/
-# Cluster strings are of the format name:url where name is a short name for the
+# Cluster strings are of the format name#url where name is a short name for the
 # Swift cluster and url is the url to the proxy server(s) for the cluster.
-# default_swift_cluster = local:http://127.0.0.1:8080/v1
-# You may also use the format name::url::url where the first url is the one
+# default_swift_cluster = local#http://127.0.0.1:8080/v1
+# You may also use the format name#url#url where the first url is the one
 # given to users to access their account (public url) and the second is the one
 # used by swauth itself to create and delete accounts (private url). This is
 # useful when a load balancer url should be used by users, but swauth itself is
 # behind the load balancer. Example:
-# default_swift_cluster = local::https://public.com:8080/v1::http://private.com:8080/v1
+# default_swift_cluster = local#https://public.com:8080/v1#http://private.com:8080/v1
 # token_life = 86400
 # node_timeout = 10
 # Highly recommended to change this.

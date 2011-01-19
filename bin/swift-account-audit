@@ -189,7 +189,7 @@ class Auditor(object):
                             self.container_obj_mismatch += 1
                             consistent = False
                             print "  Different versions of %s/%s in container dbs." % \
-                                    name, obj['name']
+                                (name, obj['name'])
                             if obj['last_modified'] > rec_d[obj_name]['last_modified']:
                                 rec_d[obj_name] = obj
         obj_counts = [int(header['x-container-object-count'])
@@ -259,14 +259,16 @@ class Auditor(object):
             self.account_container_mismatch += 1
             consistent = False
             print "  Account databases don't agree on number of containers."
-            print "  Max: %s, Min: %s" % (max(cont_counts), min(cont_counts))
+            if cont_counts:
+                print "  Max: %s, Min: %s" % (max(cont_counts), min(cont_counts))
         obj_counts = [int(header['x-account-object-count'])
                              for header in headers]
         if len(set(obj_counts)) != 1:
             self.account_object_mismatch += 1
             consistent = False
             print "  Account databases don't agree on number of objects."
-            print "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts))
+            if obj_counts:
+                print "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts))
         containers = set()
         for resp in responses.values():
             containers.update(container['name'] for container in resp[1])

@@ -209,7 +209,7 @@ class TestSwift3(unittest.TestCase):
     def test_bad_path(self):
         req = Request.blank('/bucket/object/bad',
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AUTH_something:hoge'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = self.app(req.environ, start_response)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.firstChild.nodeName, 'Error')
@@ -219,7 +219,7 @@ class TestSwift3(unittest.TestCase):
     def test_bad_method(self):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AUTH_something:hoge'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = self.app(req.environ, start_response)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.firstChild.nodeName, 'Error')
@@ -230,7 +230,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(cl(status))
         req = Request.blank(path,
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, start_response)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.firstChild.nodeName, 'Error')
@@ -246,7 +246,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppService())
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '200')
 
@@ -279,7 +279,7 @@ class TestSwift3(unittest.TestCase):
         bucket_name = 'junk'
         req = Request.blank('/%s' % bucket_name,
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '200')
 
@@ -307,7 +307,7 @@ class TestSwift3(unittest.TestCase):
         req = Request.blank('/%s' % bucket_name,
                 environ={'REQUEST_METHOD': 'GET',
                          'QUERY_STRING': 'max-keys=3'},
-                headers={'Authorization': 'AUTH_who:password'})
+                headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.getElementsByTagName('IsTruncated')[0].
@@ -316,7 +316,7 @@ class TestSwift3(unittest.TestCase):
         req = Request.blank('/%s' % bucket_name,
                 environ={'REQUEST_METHOD': 'GET',
                          'QUERY_STRING': 'max-keys=2'},
-                headers={'Authorization': 'AUTH_who:password'})
+                headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.getElementsByTagName('IsTruncated')[0].
@@ -335,7 +335,7 @@ class TestSwift3(unittest.TestCase):
         req = Request.blank('/%s' % bucket_name,
                 environ={'REQUEST_METHOD': 'GET',
                          'QUERY_STRING': 'max-keys=5'},
-                headers={'Authorization': 'AUTH_who:password'})
+                headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, lambda *args: None)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.getElementsByTagName('MaxKeys')[0].
@@ -346,7 +346,7 @@ class TestSwift3(unittest.TestCase):
         req = Request.blank('/%s' % bucket_name,
                 environ={'REQUEST_METHOD': 'GET',
                          'QUERY_STRING': 'max-keys=5000'},
-                headers={'Authorization': 'AUTH_who:password'})
+                headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, lambda *args: None)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.getElementsByTagName('MaxKeys')[0].
@@ -366,7 +366,7 @@ class TestSwift3(unittest.TestCase):
         req = Request.blank('/%s' % bucket_name,
                 environ={'REQUEST_METHOD': 'GET', 'QUERY_STRING':
                          'delimiter=a&marker=b&prefix=c'},
-                headers={'Authorization': 'AUTH_who:password'})
+                headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, lambda *args: None)
         dom = xml.dom.minidom.parseString("".join(resp))
         self.assertEquals(dom.getElementsByTagName('Prefix')[0].
@@ -392,7 +392,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppBucket(201))
         req = Request.blank('/bucket',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '200')
 
@@ -410,7 +410,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppBucket(204))
         req = Request.blank('/bucket',
                             environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '204')
 
@@ -418,7 +418,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppObject())
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '200')
 
@@ -468,7 +468,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppObject(201))
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AUTH_who:password',
+                            headers={'Authorization': 'AWS test:tester:hmac',
                                      'x-amz-storage-class': 'REDUCED_REDUNDANCY',
                                      'Content-MD5': 'Gyz1NfJ3Mcl0NDZFo5hTKA=='})
         req.date = datetime.now()
@@ -490,7 +490,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(app)
         req = Request.blank('/bucket/object',
                         environ={'REQUEST_METHOD': 'PUT'},
-                        headers={'Authorization': 'AUTH_who:password',
+                        headers={'Authorization': 'AWS test:tester:hmac',
                                  'X-Amz-Storage-Class': 'REDUCED_REDUNDANCY',
                                  'X-Amz-Meta-Something': 'oh hai',
                                  'X-Amz-Copy-Source': '/some/source',
@@ -518,7 +518,7 @@ class TestSwift3(unittest.TestCase):
         local_app = swift3.filter_factory({})(FakeAppObject(204))
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AUTH_who:password'})
+                            headers={'Authorization': 'AWS test:tester:hmac'})
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '204')
 

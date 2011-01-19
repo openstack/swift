@@ -138,7 +138,7 @@ Configure the Proxy node
         # Only needed for Swauth
         [filter:swauth]
         use = egg:swift#swauth
-        default_swift_cluster = https://<PROXY_LOCAL_NET_IP>:8080/v1
+        default_swift_cluster = local#https://<PROXY_LOCAL_NET_IP>:8080/v1
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
         
@@ -437,7 +437,7 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
         # For Swauth, in /etc/swift/proxy-server.conf
         [filter:swauth]
         use = egg:swift#swauth
-        default_swift_cluster = local:http://<LOAD_BALANCER_HOSTNAME>/v1
+        default_swift_cluster = local#http://<LOAD_BALANCER_HOSTNAME>/v1
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
 
