@@ -494,25 +494,24 @@ class Controller(object):
             yield node
 
     def _make_request(self, node, part, method, path, headers, hl, query):
-        if self.error_limited(node):
-            return False
-        try:
-            with ConnectionTimeout(self.app.conn_timeout):
-                conn = http_connect(node['ip'], node['port'],
-                        node['device'], part, method, path,
-                        headers=headers, query_string=query)
-                conn.node = node
-            with Timeout(self.app.node_timeout):
-                resp = conn.getresponse()
-                if 200 <= resp.status < 300 or 400 <= resp.status < 500:
-                    return resp.status, resp.reason, resp.read()
-                elif resp.status == 507:
-                    self.error_limit(node)
-        except Exception:
-            self.error_limit(node)
-            self.exception_occurred(node, _('Object'), # TODO FIX LOGGIN'
-                _('Trying to %(method)s %(path)s') %
-                {'method': method, 'path': path})
+        if not self.error_limited(node):
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], part, method, path,
+                            headers=headers, query_string=query)
+                    conn.node = node
+                with Timeout(self.app.node_timeout):
+                    resp = conn.getresponse()
+                    if 200 <= resp.status < 300 or 400 <= resp.status < 500:
+                        return resp.status, resp.reason, resp.read()
+                    elif resp.status == 507:
+                        self.error_limit(node)
+            except Exception:
+                self.error_limit(node)
+                self.exception_occurred(node, _('Object'), # TODO FIX LOGGIN'
+                    _('Trying to %(method)s %(path)s') %
+                    {'method': method, 'path': path})
         hl.append(headers)
 
     def make_requests(self, req, ring, partition, method, path, headers,
@@ -524,6 +523,7 @@ class Controller(object):
         """
         nodes = ring.get_part_nodes(partition)
         pool = GreenPile(len(nodes))
+        assert(len(headers) == len(nodes))
         for node in nodes:
             pool.spawn(self._make_request, node, partition, method, path,
                     headers.pop(), headers, query_string)
@@ -1325,8 +1325,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         resp = self.make_requests(req, self.app.container_ring,
-                    container_partition, 'PUT', req.path_info,
-                    [headers] * len(containers))
+                    container_partition, 'DELETE', req.path_info, headers)
         if resp.status_int == 202:  # Indicates no server had the container
             return HTTPNotFound(request=req)
         return resp
