@@ -358,8 +358,6 @@ class Controller(object):
         path = '/%s' % account
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
-            if self.error_limited(node):
-                continue
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -432,8 +430,6 @@ class Controller(object):
         attempts_left = self.app.container_ring.replica_count
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.container_ring):
-            if self.error_limited(node):
-                continue
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -489,14 +485,14 @@ class Controller(object):
         :param ring: ring to get handoff nodes from
         """
         for node in nodes:
-            yield node
+            if not self.error_limited(node):
+                yield node
         for node in ring.get_more_nodes(partition):
-            yield node
+            if not self.error_limited(node):
+                yield node
 
     def _make_request(self, nodes, part, method, path, headers, query):
         for node in nodes:
-            if self.error_limited(node):
-                continue
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -533,33 +529,6 @@ class Controller(object):
         statuses, reasons, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   _('Container POST')) # TODO fix loggin'
-
-    def get_update_nodes(self, partition, nodes, ring):
-        """ Returns ring.replica_count nodes; the nodes will not be error
-            limited, if possible. """
-        """
-        Attempt to get a non error limited list of nodes.
-
-        :param partition: partition for the nodes
-        :param nodes: list of node dicts for the partition
-        :param ring: ring to get handoff nodes from
-        :returns: list of node dicts that are not error limited (if possible)
-        """
-
-        # make a copy so we don't modify caller's list
-        nodes = list(nodes)
-        update_nodes = []
-        for node in self.iter_nodes(partition, nodes, ring):
-            if self.error_limited(node):
-                continue
-            update_nodes.append(node)
-            if len(update_nodes) >= ring.replica_count:
-                break
-        while len(update_nodes) < ring.replica_count:
-            node = nodes.pop()
-            if node not in update_nodes:
-                update_nodes.append(node)
-        return update_nodes
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
                       etag=None):
@@ -882,8 +851,6 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
-        containers = self.get_update_nodes(container_partition, containers,
-                                           self.app.container_ring)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
@@ -922,8 +889,6 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
-        containers = self.get_update_nodes(container_partition, containers,
-                                           self.app.container_ring)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
@@ -997,18 +962,17 @@ class ObjectController(Controller):
             req.headers['X-Container-Device'] = container['device']
             req.headers['Expect'] = '100-continue'
             resp = conn = None
-            if not self.error_limited(node):
-                try:
-                    with ConnectionTimeout(self.app.conn_timeout):
-                        conn = http_connect(node['ip'], node['port'],
-                                node['device'], partition, 'PUT',
-                                req.path_info, req.headers)
-                        conn.node = node
-                    with Timeout(self.app.node_timeout):
-                        resp = conn.getexpect()
-                except:
-                    self.exception_occurred(node, _('Object'),
-                        _('Expect: 100-continue on %s') % req.path)
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], partition, 'PUT',
+                            req.path_info, req.headers)
+                    conn.node = node
+                with Timeout(self.app.node_timeout):
+                    resp = conn.getexpect()
+            except:
+                self.exception_occurred(node, _('Object'),
+                    _('Expect: 100-continue on %s') % req.path)
             if conn and resp:
                 if resp.status == 100:
                     conns.append(conn)
@@ -1127,8 +1091,6 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
-        containers = self.get_update_nodes(container_partition, containers,
-                                           self.app.container_ring)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
@@ -1249,8 +1211,6 @@ class ContainerController(Controller):
         account_partition, accounts = self.account_info(self.account_name)
         if not accounts:
             return HTTPNotFound(request=req)
-        accounts = self.get_update_nodes(account_partition, accounts,
-                                         self.app.account_ring)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = []
@@ -1302,8 +1262,6 @@ class ContainerController(Controller):
         account_partition, accounts = self.account_info(self.account_name)
         if not accounts:
             return HTTPNotFound(request=req)
-        accounts = self.get_update_nodes(account_partition, accounts,
-                                         self.app.account_ring)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = []
