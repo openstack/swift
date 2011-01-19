@@ -118,6 +118,8 @@ def http_connect(ipaddr, port, device, partition, method, path,
     :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
+    if not port:
+        port = 443 if ssl else 80
     if ssl:
         conn = HTTPSConnection('%s:%s' % (ipaddr, port))
     else:
@@ -150,6 +152,8 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
+    if not port:
+        port = 443 if ssl else 80
     if ssl:
         conn = HTTPSConnection('%s:%s' % (ipaddr, port))
     else:
