@@ -865,6 +865,7 @@ class ObjectController(Controller):
                 partition, 'POST', req.path_info, headers)
 
     def _send_file(self, conn, path):
+        """Method for a file PUT coro"""
         while True:
             chunk = conn.queue.get()
             if not conn.failed:
@@ -876,6 +877,24 @@ class ObjectController(Controller):
                     self.exception_occurred(conn.node, _('Object'),
                         _('Trying to write to %s') % path)
             conn.queue.task_done()
+
+    def _connect_put_node(self, nodes, part, path, headers):
+        """Method for a file PUT connect"""
+        for node in nodes:
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(node['ip'], node['port'],
+                            node['device'], part, 'PUT', path, headers)
+                with Timeout(self.app.node_timeout):
+                    resp = conn.getexpect()
+                if resp.status == 100:
+                    conn.node = node
+                    return conn
+                elif resp.status == 507:
+                    self.error_limit(node)
+            except:
+                self.exception_occurred(node, _('Object'),
+                    _('Expect: 100-continue on %s') % path)
 
     @public
     @delay_denial
@@ -955,33 +974,17 @@ class ObjectController(Controller):
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
             req = new_req
-        for node in self.iter_nodes(partition, nodes, self.app.object_ring):
-            container = containers.pop()
-            req.headers['X-Container-Host'] = '%(ip)s:%(port)s' % container
-            req.headers['X-Container-Partition'] = container_partition
-            req.headers['X-Container-Device'] = container['device']
-            req.headers['Expect'] = '100-continue'
-            resp = conn = None
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], partition, 'PUT',
-                            req.path_info, req.headers)
-                    conn.node = node
-                with Timeout(self.app.node_timeout):
-                    resp = conn.getexpect()
-            except:
-                self.exception_occurred(node, _('Object'),
-                    _('Expect: 100-continue on %s') % req.path)
-            if conn and resp:
-                if resp.status == 100:
-                    conns.append(conn)
-                    if not containers:
-                        break
-                    continue
-                elif resp.status == 507:
-                    self.error_limit(node)
-            containers.insert(0, container)
+        node_iter = self.iter_nodes(partition, nodes, self.app.object_ring)
+        pile = GreenPile(len(nodes))
+        for container in containers:
+            nheaders = dict(req.headers.iteritems())
+            nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
+            nheaders['X-Container-Partition'] = container_partition
+            nheaders['X-Container-Device'] = container['device']
+            nheaders['Expect'] = '100-continue'
+            pile.spawn(self._connect_put_node, node_iter, partition,
+                        req.path_info, nheaders)
+        conns = [conn for conn in pile if conn]
         if len(conns) <= len(nodes) / 2:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '
