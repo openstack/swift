@@ -60,15 +60,24 @@ def setup():
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
     # proxy_server.Application we couldn't get to easily otherwise.
-    path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-    if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-        print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-            'pointing to a valid directory.\n' \
-            'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-            'system for testing.'
-        raise SkipTest
+    xattr_data = {}
+
+    def mock_setxattr(fd, k, v):
+        inode = os.fstat(fd).st_ino
+        data = xattr_data.get(inode, {})
+        data[k] = v
+        xattr_data[inode] = data
+
+    def mock_getxattr(fd, k):
+        inode = os.stat(fd.name).st_ino
+        data = xattr_data.get(inode, {}).get(k)
+        if not data:
+            raise IOError
+        return data
+    object_server.setxattr = mock_setxattr
+    object_server.getxattr = mock_getxattr
     _testdir = \
-        os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
+        os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
     rmtree(_testdir)
     mkdirs(os.path.join(_testdir, 'sda1'))
