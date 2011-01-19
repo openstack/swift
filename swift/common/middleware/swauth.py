@@ -299,8 +299,8 @@ class Swauth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _ = split_path(req.path_info, minsegs=1,
-                                                maxsegs=4, rest_with_last=True)
+            version, account, user, _junk = split_path(req.path_info,
+                minsegs=1, maxsegs=4, rest_with_last=True)
         except ValueError:
             return HTTPNotFound(request=req)
         if version in ('v1', 'v1.0', 'auth'):

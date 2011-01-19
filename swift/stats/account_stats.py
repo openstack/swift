@@ -87,11 +87,11 @@ class AccountStat(Daemon):
                             broker = AccountBroker(db_path)
                             if not broker.is_deleted():
                                 (account_name,
-                                _, _, _,
+                                _junk, _junk, _junk,
                                 container_count,
                                 object_count,
                                 bytes_used,
-                                _, _) = broker.get_info()
+                                _junk, _junk) = broker.get_info()
                                 line_data = '"%s",%d,%d,%d\n' % (
                                     account_name, container_count,
                                     object_count, bytes_used)

@@ -127,7 +127,7 @@ if __name__ == '__main__':
         next_report += 2
         while need_to_queue >= 1:
             container = 'stats_container_dispersion_%s' % uuid4()
-            part, _ = container_ring.get_nodes(account, container)
+            part, _junk = container_ring.get_nodes(account, container)
             if part in parts_left:
                 coropool.spawn(put_container, connpool, container, report)
                 sleep()
@@ -152,7 +152,7 @@ if __name__ == '__main__':
         next_report += 2
         while need_to_queue >= 1:
             obj = 'stats_object_dispersion_%s' % uuid4()
-            part, _ = object_ring.get_nodes(account, container, obj)
+            part, _junk = object_ring.get_nodes(account, container, obj)
             if part in parts_left:
                 coropool.spawn(put_object, connpool, container, obj, report)
                 sleep()

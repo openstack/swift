@@ -25,7 +25,7 @@ if __name__ == '__main__':
     gettext.install('swift', unicode=1)
     if len(argv) != 4 or argv[1] != '-K':
         exit('Syntax: %s -K <super_admin_key> <path to auth.db>' % argv[0])
-    _, _, super_admin_key, auth_db = argv
+    _junk, _junk, super_admin_key, auth_db = argv
     call(['swauth-prep', '-K', super_admin_key])
     conn = sqlite3.connect(auth_db)
     for account, cfaccount, user, password, admin, reseller_admin in \

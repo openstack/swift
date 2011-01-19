@@ -365,7 +365,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
     results = []
     in_queue = multiprocessing.Queue()
     out_queue = multiprocessing.Queue()
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         p = multiprocessing.Process(target=collate_worker,
                                     args=(processor_args,
                                           in_queue,
@@ -374,7 +374,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
         results.append(p)
     for x in logs_to_process:
         in_queue.put(x)
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         in_queue.put(None)
     count = 0
     while True:

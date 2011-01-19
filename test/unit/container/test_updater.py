@@ -142,7 +142,7 @@ class TestContainerUpdater(unittest.TestCase):
         bindsock = listen(('127.0.0.1', 0))
         def spawn_accepts():
             events = []
-            for _ in xrange(2):
+            for _junk in xrange(2):
                 sock, addr = bindsock.accept()
                 events.append(spawn(accept, sock, addr, 201))
             return events
@@ -195,7 +195,7 @@ class TestContainerUpdater(unittest.TestCase):
         bindsock = listen(('127.0.0.1', 0))
         def spawn_accepts():
             events = []
-            for _ in xrange(2):
+            for _junk in xrange(2):
                 with Timeout(3):
                     sock, addr = bindsock.accept()
                     events.append(spawn(accept, sock, addr))
