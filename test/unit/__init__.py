@@ -39,6 +39,7 @@ def tmpfile(content):
 
 xattr_data = {}
 
+
 def _get_inode(fd):
     if not isinstance(fd, int):
         try:
@@ -47,11 +48,13 @@ def _get_inode(fd):
             return os.stat(fd).st_ino
     return os.fstat(fd).st_ino
 
+
 def _setxattr(fd, k, v):
     inode = _get_inode(fd)
     data = xattr_data.get(inode, {})
     data[k] = v
     xattr_data[inode] = data
+
 
 def _getxattr(fd, k):
     inode = _get_inode(fd)

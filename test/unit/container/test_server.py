@@ -34,7 +34,8 @@ class TestContainerController(unittest.TestCase):
     """ Test swift.container_server.ContainerController """
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
-        self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
+        self.testdir = os.path.join(mkdtemp(),
+                                    'tmp_test_object_server_ObjectController')
         mkdirs(self.testdir)
         rmtree(self.testdir)
         mkdirs(os.path.join(self.testdir, 'sda1'))
