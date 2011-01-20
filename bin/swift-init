@@ -227,18 +227,18 @@ class SwiftInit():
         return status
 
     @command
-    def wait(self, daemon=True, **kwargs):
+    def wait(self, **kwargs):
         """spawn server and wait for it to start
         """
         kwargs['wait'] = True
-        self.start(**kwargs)
+        return self.start(**kwargs)
 
     @command
     def no_daemon(self, **kwargs):
         """start a server interactivly
         """
         kwargs['daemon'] = False
-        self.start(**kwargs)
+        return self.start(**kwargs)
 
     @command
     def once(self, **kwargs):

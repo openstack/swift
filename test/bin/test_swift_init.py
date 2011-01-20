@@ -1234,7 +1234,7 @@ class TestSwiftInitClass(unittest.TestCase):
             for server in controller.servers:
                 self.assertEquals(server.called['launch'], [{}])
 
-            # test wait
+            # test error on wait
             controller = swift_init.SwiftInit(['proxy', 'error'])
             kwargs = {'wait': True}
             status = controller.start(**kwargs)
@@ -1257,13 +1257,134 @@ class TestSwiftInitClass(unittest.TestCase):
 
 
     def test_wait(self):
-        raise SkipTest
+        class MockSwiftServer():
+            def __init__(self, server):
+                self.server = server
+                self.called = defaultdict(list)
+
+            def launch(self, **kwargs):
+                self.called['launch'].append(kwargs)
+
+            def wait(self, **kwargs):
+                self.called['wait'].append(kwargs)
+                return int('error' in self.server)
+
+        orig_swift_server = swift_init.SwiftServer
+        try:
+            swift_init.SwiftServer = MockSwiftServer
+            # test success
+            init = swift_init.SwiftInit(['proxy'])
+            status = init.wait()
+            self.assertEquals(status, 0)
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                called_kwargs = server.called['launch'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+                self.assertEquals(len(server.called['wait']), 1)
+                called_kwargs = server.called['wait'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+            # test error
+            init = swift_init.SwiftInit(['error'])
+            status = init.wait()
+            self.assertEquals(status, 1)
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                called_kwargs = server.called['launch'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+                self.assertEquals(len(server.called['wait']), 1)
+                called_kwargs = server.called['wait'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+            # test wait with once option
+            init = swift_init.SwiftInit(['updater', 'replicator-error'])
+            status = init.wait(once=True)
+            self.assertEquals(status, 1)
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                called_kwargs = server.called['launch'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+                self.assert_('once' in called_kwargs)
+                self.assert_(called_kwargs['once'])
+                self.assertEquals(len(server.called['wait']), 1)
+                called_kwargs = server.called['wait'][0]
+                self.assert_('wait' in called_kwargs)
+                self.assert_(called_kwargs['wait'])
+                self.assert_('once' in called_kwargs)
+                self.assert_(called_kwargs['once'])
+        finally:
+            swift_init.SwiftServer = orig_swift_server
+            
 
     def test_no_daemon(self):
-        raise SkipTest
+        class MockSwiftServer():
+
+            def __init__(self, server):
+                self.server = server
+                self.called = defaultdict(list)
+
+            def launch(self, **kwargs):
+                self.called['launch'].append(kwargs)
+
+            def interact(self, **kwargs):
+                self.called['interact'].append(kwargs)
+                return int('error' in self.server)
+
+        orig_swift_server = swift_init.SwiftServer
+        try:
+            swift_init.SwiftServer = MockSwiftServer
+            # test success
+            init = swift_init.SwiftInit(['proxy'])
+            stats = init.no_daemon()
+            self.assertEquals(stats, 0)
+            # test error
+            init = swift_init.SwiftInit(['proxy', 'object-error'])
+            stats = init.no_daemon()
+            self.assertEquals(stats, 1)
+            # test once
+            init = swift_init.SwiftInit(['proxy', 'object-error'])
+            stats = init.no_daemon()
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                self.assertEquals(len(server.called['wait']), 0)
+                self.assertEquals(len(server.called['interact']), 1)
+        finally:
+            swift_init.SwiftServer = orig_swift_server
 
     def test_once(self):
-        raise SkipTest
+        class MockSwiftServer():
+
+            def __init__(self, server):
+                self.server = server
+                self.called = defaultdict(list)
+
+            def launch(self, **kwargs):
+                return self.called['launch'].append(kwargs)
+                
+
+        orig_swift_server = swift_init.SwiftServer
+        try:
+            swift_init.SwiftServer = MockSwiftServer
+            # test no errors
+            init = swift_init.SwiftInit(['account-reaper'])
+            status = init.once()
+            self.assertEquals(status, 0)
+            # test no error code on error
+            init = swift_init.SwiftInit(['error-reaper'])
+            status = init.once()
+            self.assertEquals(status, 0)
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                called_kwargs = server.called['launch'][0]
+                self.assertEquals(called_kwargs, {'once': True})
+                self.assertEquals(len(server.called['wait']), 0)
+                self.assertEquals(len(server.called['interact']), 0)
+        finally:
+            swift_init.SwiftServer = orig_swift_server
+            
 
     def test_stop(self):
         raise SkipTest
