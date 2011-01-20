@@ -577,7 +577,7 @@ class ObjectController(object):
         if suffix:
             recalculate_hashes(path, suffix.split('-'))
             return Response()
-        _, hashes = get_hashes(path, do_listdir=False)
+        _junk, hashes = get_hashes(path, do_listdir=False)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):

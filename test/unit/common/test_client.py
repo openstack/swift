@@ -35,10 +35,10 @@ class TestHttpHelpers(unittest.TestCase):
 
     def test_http_connection(self):
         url = 'http://www.test.com'
-        _, conn = c.http_connection(url)
+        _junk, conn = c.http_connection(url)
         self.assertTrue(isinstance(conn, c.HTTPConnection))
         url = 'https://www.test.com'
-        _, conn = c.http_connection(url)
+        _junk, conn = c.http_connection(url)
         self.assertTrue(isinstance(conn, c.HTTPSConnection))
         url = 'ftp://www.test.com'
         self.assertRaises(c.ClientException, c.http_connection, url)

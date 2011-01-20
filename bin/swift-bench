@@ -105,7 +105,7 @@ if __name__ == '__main__':
     else:
         conf = CONF_DEFAULTS
     parser.set_defaults(**conf)
-    options, _ = parser.parse_args()
+    options, _junk = parser.parse_args()
     if options.concurrency is not '':
         options.put_concurrency = options.concurrency
         options.get_concurrency = options.concurrency

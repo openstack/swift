@@ -26,7 +26,7 @@ class StatsLogProcessor(object):
                 data_object_name):
         '''generate hourly groupings of data from one stats log file'''
         account_totals = {}
-        year, month, day, hour, _ = data_object_name.split('/')
+        year, month, day, hour, _junk = data_object_name.split('/')
         for line in obj_stream:
             if not line:
                 continue

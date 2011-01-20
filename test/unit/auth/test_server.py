@@ -119,7 +119,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_validate_token_expired(self):
@@ -134,7 +134,7 @@ class TestAuthServer(unittest.TestCase):
                     headers={'X-Storage-User': 'tester',
                              'X-Storage-Pass': 'testing'}))
             token = res.headers['x-storage-token']
-            ttl, _, _, _ = self.controller.validate_token(token)
+            ttl, _junk, _junk, _junk = self.controller.validate_token(token)
             self.assert_(ttl > 0, repr(ttl))
             auth_server.time = lambda: 1 + self.controller.token_life
             self.assertEquals(self.controller.validate_token(token), False)
@@ -318,7 +318,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_good_Mosso_headers(self):
@@ -330,7 +330,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_bad_Mosso_headers(self):
@@ -438,7 +438,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_Mosso_good_SOSO_header_names(self):
@@ -450,7 +450,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'test:tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_basic_logging(self):
@@ -712,7 +712,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, stgact = \
+        _junk, _junk, _junk, stgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, '')
 
@@ -723,7 +723,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, vstgact = \
+        _junk, _junk, _junk, vstgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, vstgact)
 
@@ -734,7 +734,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, stgact = \
+        _junk, _junk, _junk, stgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, '.reseller_admin')
 

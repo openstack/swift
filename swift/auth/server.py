@@ -435,7 +435,7 @@ YOU HAVE A FEW OPTIONS:
         :param request: webob.Request object
         """
         try:
-            _, token = split_path(request.path, minsegs=2)
+            _junk, token = split_path(request.path, minsegs=2)
         except ValueError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
@@ -478,7 +478,8 @@ YOU HAVE A FEW OPTIONS:
         :param request: webob.Request object
         """
         try:
-            _, account_name, user_name = split_path(request.path, minsegs=3)
+            _junk, account_name, user_name = \
+                split_path(request.path, minsegs=3)
         except ValueError:
             return HTTPBadRequest()
         create_reseller_admin = \

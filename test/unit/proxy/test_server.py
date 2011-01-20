@@ -1154,7 +1154,7 @@ class TestObjectController(unittest.TestCase):
             self.assert_status_map(controller.HEAD, (503, 200, 200), 200)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.object_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (503, 503, 503), 503)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'],
                               self.app.error_suppression_limit + 1)
@@ -2590,7 +2590,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(
                 controller.app.container_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.container_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD,
                                        (200, 503, 503, 503), 503)
             self.assertEquals(controller.app.container_ring.devs[0]['errors'],
