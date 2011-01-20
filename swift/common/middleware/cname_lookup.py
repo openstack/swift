@@ -17,6 +17,7 @@ from webob import Request
 from webob.exc import HTTPBadRequest
 import dns.resolver
 from dns.exception import DNSException
+from dns.resolver import NXDOMAIN
 
 from swift.common.utils import cache_from_env, get_logger
 
@@ -34,7 +35,7 @@ def lookup_cname(domain):  # pragma: no cover
         result = answer.items[0].to_text()
         result = result.rstrip('.')
         return ttl, result
-    except DNSException:
+    except (DNSException, NXDOMAIN):
         return 0, None
 
 
