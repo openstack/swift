@@ -63,7 +63,8 @@ class DomainRemapMiddleware(object):
                 return resp(env, start_response)
             if '_' not in account and '-' in account:
                 account = account.replace('-', '_', 1)
-            if account.lower().startswith(self.reseller_prefix.lower()) and not account.startswith(self.reseller_prefix):
+            if account.lower().startswith(self.reseller_prefix.lower()) and \
+                    not account.startswith(self.reseller_prefix):
                 account_suffix = account[len(self.reseller_prefix):]
                 account = self.reseller_prefix + account_suffix
             path = env['PATH_INFO'].strip('/')
