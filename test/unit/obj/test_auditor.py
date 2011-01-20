@@ -14,13 +14,16 @@
 # limitations under the License.
 
 # TODO: Tests
+from test import unit as _setup_mocks
 import unittest
 import tempfile
 import os
 import time
 from shutil import rmtree
 from hashlib import md5
+from tempfile import mkdtemp
 from swift.obj import auditor
+from swift.obj import server as object_server
 from swift.obj.server import DiskFile, write_metadata
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, renamer
 from swift.obj.replicator import invalidate_hash
@@ -30,18 +33,8 @@ from swift.common.exceptions import AuditException
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
-        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not self.path_to_test_xfs or \
-                not os.path.exists(self.path_to_test_xfs):
-            print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            self.testdir = '/tmp/SWIFTUNITTEST'
-        else:
-            self.testdir = os.path.join(self.path_to_test_xfs,
-                            'tmp_test_object_auditor')
-
+        self.testdir = \
+            os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)

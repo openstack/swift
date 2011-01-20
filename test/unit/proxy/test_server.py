@@ -60,15 +60,8 @@ def setup():
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
     # proxy_server.Application we couldn't get to easily otherwise.
-    path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-    if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-        print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-            'pointing to a valid directory.\n' \
-            'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-            'system for testing.'
-        raise SkipTest
     _testdir = \
-        os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
+        os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
     rmtree(_testdir)
     mkdirs(os.path.join(_testdir, 'sda1'))
@@ -1639,7 +1632,6 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
 
     def test_chunked_put(self):
-        # quick test of chunked put w/o PATH_TO_TEST_XFS
 
         class ChunkedFile():
 
