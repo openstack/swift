@@ -118,6 +118,7 @@ use = egg:swift#ratelimit
 use = egg:swift#domain_remap
 # storage_domain = example.com
 # path_root = v1
+# reseller_prefix = AUTH
 
 [filter:catch_errors]
 use = egg:swift#catch_errors

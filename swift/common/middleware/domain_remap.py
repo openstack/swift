@@ -27,6 +27,10 @@ class DomainRemapMiddleware(object):
 
     account.storageurl/path_root/container/object gets translated to
     account.storageurl/path_root/account/container/object
+
+    Browsers can convert a url to lowercase, so check that reseller_prefix
+    is the correct case and fix if necessary
+
     """
 
     def __init__(self, app, conf):
@@ -35,6 +39,7 @@ class DomainRemapMiddleware(object):
         if self.storage_domain and self.storage_domain[0] != '.':
             self.storage_domain = '.' + self.storage_domain
         self.path_root = conf.get('path_root', 'v1').strip('/')
+        self.reseller_prefix = conf.get('reseller_prefix','AUTH');
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -58,6 +63,9 @@ class DomainRemapMiddleware(object):
                 return resp(env, start_response)
             if '_' not in account and '-' in account:
                 account = account.replace('-', '_', 1)
+            if account.lower().startswith(self.reseller_prefix.lower()) and not account.startswith(self.reseller_prefix):
+                account_suffix = account[len(self.reseller_prefix):]
+                account = self.reseller_prefix + account_suffix
             path = env['PATH_INFO'].strip('/')
             new_path_parts = ['', self.path_root, account]
             if container:
@@ -78,3 +86,4 @@ def filter_factory(global_conf, **local_conf):
     def domain_filter(app):
         return DomainRemapMiddleware(app, conf)
     return domain_filter
+
