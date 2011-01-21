@@ -73,7 +73,7 @@ class Auditor(object):
 
     def audit_object(self, account, container, name):
         path = '/%s/%s/%s' % (account, container, name)
-        part, nodes = self.object_ring.get_nodes(account, container, name)
+        part, nodes = self.object_ring.get_nodes(account, container.encode('utf-8'), name.encode('utf-8'))
         container_listing = self.audit_container(account, container)
         consistent = True
         if name not in container_listing:
@@ -109,7 +109,7 @@ class Auditor(object):
                     etags.append(resp.getheader('ETag'))
                 else:
                     conn = http_connect(node['ip'], node['port'],
-                            node['device'], part, 'HEAD', path, {})
+                            node['device'], part, 'HEAD', path.encode('utf-8'), {})
                     resp = conn.getresponse()
                     if resp.status // 100 != 2:
                         self.object_not_found += 1
@@ -144,14 +144,14 @@ class Auditor(object):
         if (account, name) in self.list_cache:
             return self.list_cache[(account, name)]
         self.in_progress[(account, name)] = Event()
-        print 'Auditing container "%s"...' % name
+        print 'Auditing container "%s"' % name
         path = '/%s/%s' % (account, name)
         account_listing = self.audit_account(account)
         consistent = True
         if name not in account_listing:
             consistent = False
             print "  Container %s not in account listing!" % path
-        part, nodes = self.container_ring.get_nodes(account, name)
+        part, nodes = self.container_ring.get_nodes(account, name.encode('utf-8'))
         rec_d = {}
         responses = {}
         for node in nodes:
@@ -161,8 +161,8 @@ class Auditor(object):
                 node_id = node['id']
                 try:
                     conn = http_connect(node['ip'], node['port'], node['device'],
-                            part, 'GET', path, {},
-                            'format=json&marker=%s' % quote(marker))
+                            part, 'GET', path.encode('utf-8'), {},
+                            'format=json&marker=%s' % quote(marker.encode('utf-8')))
                     resp = conn.getresponse()
                     if resp.status // 100 != 2:
                         self.container_not_found += 1
@@ -220,7 +220,7 @@ class Auditor(object):
         if account in self.list_cache:
             return self.list_cache[account]
         self.in_progress[account] = Event()
-        print "Auditing account %s..." % account
+        print 'Auditing account "%s"' % account
         consistent = True
         path = '/%s' % account
         part, nodes = self.account_ring.get_nodes(account)
@@ -233,7 +233,7 @@ class Auditor(object):
                 try:
                     conn = http_connect(node['ip'], node['port'],
                             node['device'], part, 'GET', path, {},
-                            'format=json&marker=%s' % quote(marker))
+                            'format=json&marker=%s' % quote(marker.encode('utf-8')))
                     resp = conn.getresponse()
                     if resp.status // 100 != 2:
                         self.account_not_found += 1
