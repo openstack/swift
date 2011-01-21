@@ -39,7 +39,7 @@ class DomainRemapMiddleware(object):
         if self.storage_domain and self.storage_domain[0] != '.':
             self.storage_domain = '.' + self.storage_domain
         self.path_root = conf.get('path_root', 'v1').strip('/')
-        self.reseller_prefix = conf.get('reseller_prefix','AUTH');
+        self.reseller_prefixes = conf.get('reseller_prefixes','AUTH').split(',');
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -63,10 +63,12 @@ class DomainRemapMiddleware(object):
                 return resp(env, start_response)
             if '_' not in account and '-' in account:
                 account = account.replace('-', '_', 1)
-            if account.lower().startswith(self.reseller_prefix.lower()) and \
-                    not account.startswith(self.reseller_prefix):
-                account_suffix = account[len(self.reseller_prefix):]
-                account = self.reseller_prefix + account_suffix
+            for reseller_prefix in self.reseller_prefixes:
+                if account.lower().startswith(reseller_prefix.lower()):
+                   if not account.startswith(reseller_prefix):
+                      account_suffix = account[len(reseller_prefix):]
+                      account = reseller_prefix + account_suffix
+                   break
             path = env['PATH_INFO'].strip('/')
             new_path_parts = ['', self.path_root, account]
             if container:
