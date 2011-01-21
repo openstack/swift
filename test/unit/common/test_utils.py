@@ -474,7 +474,7 @@ log_name = yarr'''
         sleeps = [0] * 7 + [.2] * 3 + [0] * 30
         for i in sleeps:
             running_time = utils.ratelimit_sleep(running_time, 40,
-                                                 rate_buffer = 1)
+                                                 rate_buffer=1)
             time.sleep(i)
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
