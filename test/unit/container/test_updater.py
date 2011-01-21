@@ -78,6 +78,7 @@ class TestContainerUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '1',
             'node_timeout': '15',
+            'account_suppression_time': 0
             })
         cu.run_once()
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
