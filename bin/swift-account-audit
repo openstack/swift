@@ -151,7 +151,7 @@ class Auditor(object):
         if name not in account_listing:
             consistent = False
             print "  Container %s not in account listing!" % path
-        part, nodes = self.container_ring.get_nodes(account, name)
+        part, nodes = self.container_ring.get_nodes(account, name.encode('utf-8'))
         rec_d = {}
         responses = {}
         for node in nodes:
@@ -161,7 +161,7 @@ class Auditor(object):
                 node_id = node['id']
                 try:
                     conn = http_connect(node['ip'], node['port'], node['device'],
-                            part, 'GET', path, {},
+                            part, 'GET', path.encode('utf-8'), {},
                             'format=json&marker=%s' % quote(marker.encode('utf-8')))
                     resp = conn.getresponse()
                     if resp.status // 100 != 2:
@@ -233,7 +233,7 @@ class Auditor(object):
                 try:
                     conn = http_connect(node['ip'], node['port'],
                             node['device'], part, 'GET', path, {},
-                            'format=json&marker=%s' % quote(marker))
+                            'format=json&marker=%s' % quote(marker.encode('utf-8')))
                     resp = conn.getresponse()
                     if resp.status // 100 != 2:
                         self.account_not_found += 1
