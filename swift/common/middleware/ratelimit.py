@@ -44,6 +44,7 @@ class RateLimitMiddleware(object):
         self.log_sleep_time_seconds = float(conf.get('log_sleep_time_seconds',
                                                    0))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
+        self.rate_buffer_seconds = int(conf.get('rate_buffer_seconds', 5))
         self.ratelimit_whitelist = [acc.strip() for acc in
             conf.get('account_whitelist', '').split(',')
             if acc.strip()]
@@ -140,8 +141,8 @@ class RateLimitMiddleware(object):
         running_time_m = self.memcache_client.incr(key,
                                                    delta=time_per_request_m)
         need_to_sleep_m = 0
-        request_time_limit = now_m + (time_per_request_m * max_rate)
-        if running_time_m < now_m:
+        if (now_m - running_time_m >
+            self.rate_buffer_seconds * self.clock_accuracy):
             next_avail_time = int(now_m + time_per_request_m)
             self.memcache_client.set(key, str(next_avail_time),
                                      serialize=False)

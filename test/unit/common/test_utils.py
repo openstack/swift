@@ -456,15 +456,6 @@ log_name = yarr'''
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(25 - (time.time() - start) * 100) < 10)
 
-    def test_ratelimit_sleep_with_sleep(self):
-        running_time = 0
-        start = time.time()
-        for i in range(25):
-            running_time = utils.ratelimit_sleep(running_time, 50)
-            time.sleep(1.0 / 75)
-        # make sure its accurate to 10th of a second
-        self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
-
     def test_ratelimit_sleep_with_incr(self):
         running_time = 0
         start = time.time()
@@ -476,6 +467,17 @@ log_name = yarr'''
                                                  500, incr_by=i)
             total += i
         self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
+
+    def test_ratelimit_sleep_with_sleep(self):
+        running_time = 0
+        start = time.time()
+        sleeps = [0] * 7 + [.2] * 3 + [0] * 30
+        for i in sleeps:
+            running_time = utils.ratelimit_sleep(running_time, 40,
+                                                 rate_buffer = 1)
+            time.sleep(i)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
 
 if __name__ == '__main__':

@@ -820,7 +820,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                         yield path, device, partition
 
 
-def ratelimit_sleep(running_time, max_rate, incr_by=1):
+def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     '''
     Will eventlet.sleep() for the appropriate time so that the max_rate
     is never exceeded.  If max_rate is 0, will not ratelimit.  The
@@ -834,13 +834,17 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1):
     :param incr_by: How much to increment the counter.  Useful if you want
                     to ratelimit 1024 bytes/sec and have differing sizes
                     of requests. Must be >= 0.
+    :param rate_buffer: Number of seconds the rate counter can drop and be
+                        allowed to catch up (at a faster than listed rate).
+                        A larger number will result in larger spikes in rate
+                        but better average accuracy.
     '''
     if not max_rate or incr_by <= 0:
         return running_time
     clock_accuracy = 1000.0
     now = time.time() * clock_accuracy
     time_per_request = clock_accuracy * (float(incr_by) / max_rate)
-    if running_time < now:
+    if now - running_time > rate_buffer * clock_accuracy:
         running_time = now
     elif running_time - now > time_per_request:
         eventlet.sleep((running_time - now) / clock_accuracy)

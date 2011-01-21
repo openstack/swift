@@ -99,6 +99,8 @@ use = egg:swift#ratelimit
 # max_sleep_time_seconds = 60
 # log_sleep_time_seconds of 0 means disabled
 # log_sleep_time_seconds = 0
+# allows for slow rates (e.g. running up to 5 sec's behind) to catch up.
+# rate_buffer_seconds = 5
 # account_ratelimit of 0 means disabled
 # account_ratelimit = 0
 
