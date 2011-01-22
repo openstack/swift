@@ -224,6 +224,7 @@ class TestRateLimit(unittest.TestCase):
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
         self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit.BLACK_LIST_SLEEP = 0
         ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/b/c')
         req.environ['swift.cache'] = FakeMemcache()
@@ -400,8 +401,6 @@ class TestRateLimit(unittest.TestCase):
         make_app_call = lambda: self.test_ratelimit(req.environ,
                                                     start_response)
         self._run(make_app_call, num_calls, current_rate)
-
-
 
 
 if __name__ == '__main__':
