@@ -203,10 +203,10 @@ The main rule to remember when working with Swift configuration files is:
 
 .. note::
 
-    Always use the ``set option_name = value`` syntax in subsections if the
-    option is also set in the ``[DEFAULT]`` section. Don't get in the habit of
-    always using the ``set`` syntax or you'll probably mess up your
-    non-paste.deploy configuration files.
+    Use the ``set option_name = value`` syntax in subsections if the option is
+    also set in the ``[DEFAULT]`` section. Don't get in the habit of always
+    using the ``set`` syntax or you'll probably mess up your non-paste.deploy
+    configuration files.
 
 
 ---------------------------
