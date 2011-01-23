@@ -7,16 +7,21 @@
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
+# You can specify default log routing here if you want:
+# log_name = swift
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 
 [pipeline:main]
 pipeline = object-server
 
 [app:object-server]
 use = egg:swift#object
-# log_name = object-server
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_requests = True
+# You can override the default log routing for this app here:
+# set log_name = object-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_requests = True
 # node_timeout = 3
 # conn_timeout = 0.5
 # network_chunk_size = 65536
@@ -27,7 +32,10 @@ use = egg:swift#object
 # mb_per_sync = 512
 
 [object-replicator]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = object-replicator
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # vm_test_mode = no
 # daemonize = on
 # run_pause = 30
@@ -45,7 +53,10 @@ use = egg:swift#object
 # reclaim_age = 604800
 
 [object-updater]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = object-updater
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # interval = 300
 # concurrency = 1
 # node_timeout = 10
@@ -54,6 +65,9 @@ use = egg:swift#object
 # slowdown = 0.01
 
 [object-auditor]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = object-auditor
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # files_per_second = 20
 # bytes_per_second = 10000000

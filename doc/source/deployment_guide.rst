@@ -241,10 +241,10 @@ Option              Default        Description
 use                                paste.deploy entry point for the object
                                    server.  For most cases, this should be
                                    `egg:swift#object`.
-log_name            object-server  Label used when logging
-log_facility        LOG_LOCAL0     Syslog log facility
-log_level           INFO           Logging level
-log_requests        True           Whether or not to log each request
+set log_name        object-server  Label used when logging
+set log_facility    LOG_LOCAL0     Syslog log facility
+set log_level       INFO           Logging level
+set log_requests    True           Whether or not to log each request
 user                swift          User to run as
 node_timeout        3              Request timeout to external services
 conn_timeout        0.5            Connection timeout to external services
@@ -341,9 +341,9 @@ Option              Default           Description
 use                                   paste.deploy entry point for the 
                                       container server.  For most cases, this 
                                       should be `egg:swift#container`.
-log_name            container-server  Label used when logging
-log_facility        LOG_LOCAL0        Syslog log facility
-log_level           INFO              Logging level
+set log_name        container-server  Label used when logging
+set log_facility    LOG_LOCAL0        Syslog log facility
+set log_level       INFO              Logging level
 node_timeout        3                 Request timeout to external services
 conn_timeout        0.5               Connection timeout to external services
 ==================  ================  ========================================
@@ -428,9 +428,9 @@ Option              Default         Description
 use                                 Entry point for paste.deploy for the account
                                     server.  For most cases, this should be
                                     `egg:swift#account`.
-log_name            account-server  Label used when logging
-log_facility        LOG_LOCAL0      Syslog log facility
-log_level           INFO            Logging level
+set log_name        account-server  Label used when logging
+set log_facility    LOG_LOCAL0      Syslog log facility
+set log_level       INFO            Logging level
 ==================  ==============  ==========================================
 
 [account-replicator]
@@ -509,10 +509,10 @@ use                                            Entry point for paste.deploy for
                                                the proxy server.  For most
                                                cases, this should be
                                                `egg:swift#proxy`.
-log_name                      proxy-server     Label used when logging
-log_facility                  LOG_LOCAL0       Syslog log facility
-log_level                     INFO             Log level
-log_headers                   True             If True, log headers in each
+set log_name                  proxy-server     Label used when logging
+set log_facility              LOG_LOCAL0       Syslog log facility
+set log_level                 INFO             Log level
+set log_headers               True             If True, log headers in each
                                                request
 recheck_account_existence     60               Cache timeout in seconds to
                                                send memcached for account
@@ -570,10 +570,10 @@ use                                                    Entry point for
                                                        auth. To use the swauth
                                                        set to:
                                                        `egg:swift#swauth`
-log_name               auth-server                     Label used when logging
-log_facility           LOG_LOCAL0                      Syslog log facility
-log_level              INFO                            Log level
-log_headers            True                            If True, log headers in
+set log_name           auth-server                     Label used when logging
+set log_facility       LOG_LOCAL0                      Syslog log facility
+set log_level          INFO                            Log level
+set log_headers        True                            If True, log headers in
                                                        each request
 reseller_prefix        AUTH                            The naming scope for the
                                                        auth service. Swift
