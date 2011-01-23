@@ -382,7 +382,7 @@ class NamedFormatter(logging.Formatter):
         return msg
 
 
-def get_logger(conf, name=None, log_to_console=False):
+def get_logger(conf, name=None, log_to_console=False, log_route=None):
     """
     Get the current system logger using config settings.
 
@@ -396,31 +396,39 @@ def get_logger(conf, name=None, log_to_console=False):
     :param name: Name of the logger
     :param log_to_console: Add handler which writes to console on stderr
     """
-    root_logger = logging.getLogger()
+    if not hasattr(get_logger, 'root_logger_configured'):
+        get_logger.root_logger_configured = True
+        get_logger(conf, name, log_to_console, log_route='root')
+    if name is None:
+        name = conf.get('log_name', 'swift') if conf else 'swift'
+    if not log_route:
+        log_route = name
+    if log_route == 'root':
+        logger = logging.getLogger()
+    else:
+        logger = logging.getLogger(log_route)
     if hasattr(get_logger, 'handler') and get_logger.handler:
-        root_logger.removeHandler(get_logger.handler)
+        logger.removeHandler(get_logger.handler)
         get_logger.handler.close()
         get_logger.handler = None
     if log_to_console:
         # check if a previous call to get_logger already added a console logger
         if hasattr(get_logger, 'console') and get_logger.console:
-            root_logger.removeHandler(get_logger.console)
+            logger.removeHandler(get_logger.console)
         get_logger.console = logging.StreamHandler(sys.__stderr__)
-        root_logger.addHandler(get_logger.console)
+        logger.addHandler(get_logger.console)
     if conf is None:
-        root_logger.setLevel(logging.INFO)
-        adapted_logger = LogAdapter(root_logger)
+        logger.setLevel(logging.INFO)
+        adapted_logger = LogAdapter(logger)
         return adapted_logger
-    if name is None:
-        name = conf.get('log_name', 'swift')
     get_logger.handler = SysLogHandler(address='/dev/log',
         facility=getattr(SysLogHandler,
                          conf.get('log_facility', 'LOG_LOCAL0'),
                          SysLogHandler.LOG_LOCAL0))
-    root_logger.addHandler(get_logger.handler)
-    root_logger.setLevel(
+    logger.addHandler(get_logger.handler)
+    logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
-    adapted_logger = LogAdapter(root_logger)
+    adapted_logger = LogAdapter(logger)
     formatter = NamedFormatter(name, adapted_logger)
     get_logger.handler.setFormatter(formatter)
     if hasattr(get_logger, 'console'):
