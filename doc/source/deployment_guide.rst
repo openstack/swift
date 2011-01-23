@@ -134,9 +134,80 @@ can be found in the :doc:`Ring Overview <overview_ring>`.
 General Server Configuration
 ----------------------------
 
-Swift uses paste.deploy to manage server configurations. Default configuration
-options are set in the `[DEFAULT]` section, and any options specified there
-can be overridden in any of the other sections.
+Swift uses paste.deploy (http://pythonpaste.org/deploy/) to manage server
+configurations. Default configuration options are set in the `[DEFAULT]`
+section, and any options specified there can be overridden in any of the other
+sections BUT ONLY BY USING THE SYNTAX ``set option_name = value``. This is the
+unfortunate way paste.deploy works and I'll try to explain it in full.
+
+First, here's an example paste.deploy configuration file::
+
+    [DEFAULT]
+    name1 = globalvalue
+    name2 = globalvalue
+    name3 = globalvalue
+    set name4 = globalvalue
+
+    [pipeline:main]
+    pipeline = myapp
+
+    [app:myapp]
+    use = egg:mypkg#myapp
+    name2 = localvalue
+    set name3 = localvalue
+    set name5 = localvalue
+    name6 = localvalue
+
+The resulting configuration that myapp receives is::
+
+    global {'__file__': '/etc/mypkg/wsgi.conf', 'here': '/etc/mypkg',
+            'name1': 'globalvalue',
+            'name2': 'globalvalue',
+            'name3': 'localvalue',
+            'name4': 'globalvalue',
+            'name5': 'localvalue',
+            'set name4': 'globalvalue'}
+    local {'name6': 'localvalue'}
+
+So, `name1` got the global value which is fine since it's only in the `DEFAULT`
+section anyway.
+
+`name2` got the global value from `DEFAULT` even though it's seemingly
+overridden in the `app:myapp` subsection. This is just the unfortunate way
+paste.deploy works (at least at the time of this writing.)
+
+`name3` got the local value from the `app:myapp` subsection because it using
+the special paste.deploy syntax of ``set option_name = value``. So, if you want
+a default value for most app/filters but want to overridde it in one
+subsection, this is how you do it.
+
+`name4` got the global value from `DEFAULT` since it's only in that section
+anyway. But, since we used the ``set`` syntax in the `DEFAULT` section even
+though we shouldn't, notice we also got a ``set name4`` variable. Weird, but
+probably not harmful.
+
+`name5` got the local value from the `app:myapp` subsection since it's only
+there anyway, but notice that it is in the global configuration and not the
+local configuration. This is because we used the ``set`` syntax to set the
+value. Again, weird, but not harmful since Swift just treats the two sets of
+configuration values as one set anyway.
+
+`name6` got the local value from `app:myapp` subsection since it's only there,
+and since we didn't use the ``set`` syntax, it's only in the local
+configuration and not the global one. Though, as indicated above, there is no
+special distinction with Swift.
+
+That's quite an explanation for something that should be so much simpler, but
+it might be important to know how paste.deploy interprets configuration files.
+The main rule to remember when working with Swift configuration files is:
+
+.. note::
+
+    Always use the ``set option_name = value`` syntax in subsections if the
+    option is also set in the ``[DEFAULT]`` section. Don't get in the habit of
+    always using the ``set`` syntax or you'll probably mess up your
+    non-paste.deploy configuration files.
+
 
 ---------------------------
 Object Server Configuration
