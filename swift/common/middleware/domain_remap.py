@@ -39,7 +39,7 @@ class DomainRemapMiddleware(object):
     Note that this middleware requires that container names and account names
     (except as described above) must be DNS-compatible. This means that the
     account name created in the system and the containers created by users
-    cannot exceede 63 characters or have UTF-8 characters. These are
+    cannot exceed 63 characters or have UTF-8 characters. These are
     restrictions over and above what swift requires and are not explicitly
     checked. Simply put, the this middleware will do a best-effort attempt to
     derive account and container names from elements in the domain name and
