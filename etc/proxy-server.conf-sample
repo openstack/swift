@@ -151,6 +151,7 @@ use = egg:swift#domain_remap
 # set log_headers = False
 # storage_domain = example.com
 # path_root = v1
+# reseller_prefixes = AUTH
 
 [filter:catch_errors]
 use = egg:swift#catch_errors
