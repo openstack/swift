@@ -136,7 +136,8 @@ class Swauth(object):
                 user = groups and groups.split(',', 1)[0] or ''
                 # We know the proxy logs the token, so we augment it just a bit
                 # to also log the authenticated user.
-                env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+                env['HTTP_X_AUTH_TOKEN'] = \
+                    '%s,%s' % (user, 's3' if s3 else token)
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
             else:
@@ -209,7 +210,7 @@ class Swauth(object):
                 account_id = resp.headers['x-object-meta-account-id']
             else:
                 path = quote('/v1/%s/%s' % (self.auth_account, account))
-                resp2 = self.make_request(env, 'GET',
+                resp2 = self.make_request(env, 'HEAD',
                                           path).get_response(self.app)
                 if resp2.status_int // 100 != 2:
                     return None
@@ -882,11 +883,13 @@ class Swauth(object):
             return HTTPForbidden(request=req)
 
         path = quote('/v1/%s/%s' % (self.auth_account, account))
-        resp = self.make_request(req.environ, 'GET', path).get_response(self.app)
+        resp = self.make_request(req.environ, 'HEAD',
+                                 path).get_response(self.app)
         if resp.status_int // 100 != 2:
-            raise Exception('Could not create user object: %s %s' %
+            raise Exception('Could not retrieve account id value: %s %s' %
                             (path, resp.status))
-        headers = {'X-Object-Meta-Account-Id': '%s' % resp.headers['x-container-meta-account-id']}
+        headers = {'X-Object-Meta-Account-Id':
+                        resp.headers['x-container-meta-account-id']}
         # Create the object in the main auth account (this object represents
         # the user)
         path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
@@ -895,9 +898,10 @@ class Swauth(object):
             groups.append('.admin')
         if reseller_admin:
             groups.append('.reseller_admin')
-        resp = self.make_request(req.environ, 'PUT', path, json.dumps({'auth':
-            'plaintext:%s' % key,
-            'groups': [{'name': g} for g in groups]}), headers=headers).get_response(self.app)
+        resp = self.make_request(req.environ, 'PUT', path,
+            json.dumps({'auth': 'plaintext:%s' % key,
+                        'groups': [{'name': g} for g in groups]}),
+            headers=headers).get_response(self.app)
         if resp.status_int == 404:
             return HTTPNotFound(request=req)
         if resp.status_int // 100 != 2:
