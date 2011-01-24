@@ -238,14 +238,13 @@ class Auditor(object):
                     if resp.status // 100 != 2:
                         self.account_not_found += 1
                         consistent = False
-                        print "  Bad status GETting account %(ip)s:%(device)s" \
-                                    % node
+                        print "  Bad status GETting account '%s' from %ss:%ss" % (account, node['ip'], node['device'])
                         break
                     results = simplejson.loads(resp.read())
                 except Exception:
                     self.account_exceptions += 1
                     consistent = False
-                    print "  Exception GETting account %(ip)s:%(device)s" % node
+                    print "  Exception GETting account '%s' on %ss:%ss" % (account, node['ip'], node['device'])
                     break
                 if node_id not in responses:
                     responses[node_id] = [dict(resp.getheaders()), []]
@@ -258,7 +257,7 @@ class Auditor(object):
         if len(set(cont_counts)) != 1:
             self.account_container_mismatch += 1
             consistent = False
-            print "  Account databases don't agree on number of containers."
+            print "  Account databases for '%s' don't agree on number of containers." % account
             if cont_counts:
                 print "  Max: %s, Min: %s" % (max(cont_counts), min(cont_counts))
         obj_counts = [int(header['x-account-object-count'])
@@ -266,7 +265,7 @@ class Auditor(object):
         if len(set(obj_counts)) != 1:
             self.account_object_mismatch += 1
             consistent = False
-            print "  Account databases don't agree on number of objects."
+            print "  Account databases for '%s' don't agree on number of objects." % account
             if obj_counts:
                 print "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts))
         containers = set()
