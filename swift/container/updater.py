@@ -85,6 +85,19 @@ class ContainerUpdater(Daemon):
         shuffle(paths)
         return paths
 
+    def _load_suppressions(self, filename):
+        try:
+            with open(filename, 'r') as tmpfile:
+                for line in tmpfile:
+                    account, until = line.split()
+                    until = float(until)
+                    self.account_suppressions[account] = until
+        except:
+            self.logger.exception(
+                _('ERROR with loading suppressions from %s: ') % filename)
+        finally:
+            os.unlink(filename)
+
     def run_forever(self):   # pragma: no cover
         """
         Run the updator continuously.
@@ -105,17 +118,9 @@ class ContainerUpdater(Daemon):
                 while len(pid2filename) >= self.concurrency:
                     pid = os.wait()[0]
                     try:
-                        with open(pid2filename[pid], 'r') as tmpfile:
-                            for line in tmpfile:
-                                account, until = line.split()
-                                until = float(until)
-                                self.account_suppressions[account] = until
-                    except:
-                        self.logger.exception(_('ERROR with pid2filename '
-                            '%(pid)s %(filename)s: ') % {'pid': pid,
-                            'filename': pid2filename[pid]})
-                    os.unlink(pid2filename[pid])
-                    del pid2filename[pid]
+                        self._load_suppressions(pid2filename[pid])
+                    finally:
+                        del pid2filename[pid]
                 fd, tmpfilename = mkstemp()
                 os.close(fd)
                 pid = os.fork()
@@ -140,7 +145,11 @@ class ContainerUpdater(Daemon):
                          'no_change': self.no_changes})
                     sys.exit()
             while pid2filename:
-                del pid2filename[os.wait()[0]]
+                pid = os.wait()[0]
+                try:
+                    self._load_suppressions(pid2filename[pid])
+                finally:
+                    del pid2filename[pid]
             elapsed = time.time() - begin
             self.logger.info(_('Container update sweep completed: %.02fs'),
                              elapsed)
