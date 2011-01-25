@@ -280,7 +280,8 @@ class LogProcessorDaemon(Daemon):
         logs_to_process = self.log_processor.get_data_list(lookback_start,
                                                        lookback_end,
                                                        already_processed_files)
-        self.logger.info(_('loaded %d files to process') % len(logs_to_process))
+        self.logger.info(_('loaded %d files to process') %
+                         len(logs_to_process))
         if not logs_to_process:
             self.logger.info(_("Log processing done (%0.2f minutes)") %
                         ((time.time() - start) / 60))

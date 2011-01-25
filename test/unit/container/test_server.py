@@ -45,7 +45,7 @@ class TestContainerController(unittest.TestCase):
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_acl_container(self):
         # Ensure no acl by default

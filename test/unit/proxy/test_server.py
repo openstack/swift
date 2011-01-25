@@ -142,7 +142,7 @@ def teardown():
     for server in _test_coros:
         server.kill()
     proxy_server.CONTAINER_LISTING_LIMIT = _orig_container_listing_limit
-    rmtree(_testdir)
+    rmtree(os.path.dirname(_testdir))
 
 
 def fake_http_connect(*code_iter, **kwargs):
@@ -3425,5 +3425,7 @@ class TestSegmentedIterable(unittest.TestCase):
 
 if __name__ == '__main__':
     setup()
-    unittest.main()
-    teardown()
+    try:
+        unittest.main()
+    finally:
+        teardown()
