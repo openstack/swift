@@ -35,7 +35,7 @@ class DomainRemapMiddleware(object):
     instead of the found reseller prefix. The reseller_prefixes list is
     exclusive. If defined, any request with an account prefix not in that list
     will be ignored by this middleware. reseller_prefixes defaults to 'AUTH'.
-    
+
     Note that this middleware requires that container names and account names
     (except as described above) must be DNS-compatible. This means that the
     account name created in the system and the containers created by users
@@ -111,4 +111,3 @@ def filter_factory(global_conf, **local_conf):
     def domain_filter(app):
         return DomainRemapMiddleware(app, conf)
     return domain_filter
-
