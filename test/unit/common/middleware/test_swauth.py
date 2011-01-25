@@ -2561,6 +2561,7 @@ class TestAuth(unittest.TestCase):
 
     def test_put_user_regular_success(self):
         self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of user object
             ('201 Created', {}, '')]))
         resp = Request.blank('/auth/v2/act/usr',
@@ -2570,13 +2571,14 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-User-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 201)
-        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 2)
         self.assertEquals(json.loads(self.test_auth.app.request.body),
             {"groups": [{"name": "act:usr"}, {"name": "act"}],
              "auth": "plaintext:key"})
 
     def test_put_user_account_admin_success(self):
         self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of user object
             ('201 Created', {}, '')]))
         resp = Request.blank('/auth/v2/act/usr',
@@ -2587,7 +2589,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-User-Admin': 'true'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 201)
-        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 2)
         self.assertEquals(json.loads(self.test_auth.app.request.body),
             {"groups": [{"name": "act:usr"}, {"name": "act"},
                         {"name": ".admin"}],
@@ -2595,6 +2597,7 @@ class TestAuth(unittest.TestCase):
 
     def test_put_user_reseller_admin_success(self):
         self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of user object
             ('201 Created', {}, '')]))
         resp = Request.blank('/auth/v2/act/usr',
@@ -2605,7 +2608,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-User-Reseller-Admin': 'true'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 201)
-        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 2)
         self.assertEquals(json.loads(self.test_auth.app.request.body),
             {"groups": [{"name": "act:usr"}, {"name": "act"},
                         {"name": ".admin"}, {"name": ".reseller_admin"}],
@@ -2613,6 +2616,7 @@ class TestAuth(unittest.TestCase):
 
     def test_put_user_fail_not_found(self):
         self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
             # PUT of user object
             ('404 Not Found', {}, '')]))
         resp = Request.blank('/auth/v2/act/usr',
@@ -2622,7 +2626,7 @@ class TestAuth(unittest.TestCase):
                      'X-Auth-User-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
-        self.assertEquals(self.test_auth.app.calls, 1)
+        self.assertEquals(self.test_auth.app.calls, 2)
 
     def test_put_user_fail(self):
         self.test_auth.app = FakeApp(iter([
