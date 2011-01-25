@@ -51,7 +51,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(self.sda1)
 
     def tearDown(self):
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_creation(self):
         cu = container_updater.ContainerUpdater({

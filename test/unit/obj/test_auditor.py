@@ -56,7 +56,7 @@ class TestAuditor(unittest.TestCase):
             mount_check='false')
 
     def tearDown(self):
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_object_audit_extra_data(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
@@ -123,25 +123,21 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
-        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         disk_file = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
-        data = '0' * 1024
-        etag = md5()
+        timestamp = str(normalize_timestamp(time.time()))
+        path = os.path.join(disk_file.datadir, timestamp + '.data')
+        mkdirs(disk_file.datadir)
+        fp = open(path, 'w')
+        fp.write('0' * 1024)
+        fp.close()
+        invalidate_hash(os.path.dirname(disk_file.datadir))
+        self.auditor = auditor.ObjectAuditor(self.conf)
         pre_quarantines = self.auditor.quarantines
-        with disk_file.mkstemp() as (fd, tmppath):
-            os.write(fd, data)
-            etag.update(data)
-            etag = etag.hexdigest()
-            timestamp = str(normalize_timestamp(time.time()))
-            os.fsync(fd)
-            invalidate_hash(os.path.dirname(disk_file.datadir))
-            renamer(tmppath, os.path.join(disk_file.datadir,
-                                          timestamp + '.data'))
-            self.auditor.object_audit(
-                os.path.join(disk_file.datadir, timestamp + '.data'),
-                'sda', cur_part)
-            self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
+        self.auditor.object_audit(
+            os.path.join(disk_file.datadir, timestamp + '.data'),
+            'sda', cur_part)
+        self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_bad_args(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
