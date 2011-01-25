@@ -53,7 +53,7 @@ class TestObjectController(unittest.TestCase):
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
-        rmtree(self.testdir)
+        rmtree(os.path.dirname(self.testdir))
 
     def test_POST_update_meta(self):
         """ Test swift.object_server.ObjectController.POST """
