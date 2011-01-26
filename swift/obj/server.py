@@ -51,6 +51,7 @@ ASYNCDIR = 'async_pending'
 PICKLE_PROTOCOL = 2
 METADATA_KEY = 'user.swift.metadata'
 MAX_OBJECT_NAME_LENGTH = 1024
+KEEP_CACHE_SIZE = (5 * 1024 * 1024)
 
 
 def read_metadata(fd):
@@ -113,6 +114,7 @@ class DiskFile(object):
         self.meta_file = None
         self.data_file = None
         self.fp = None
+        self.keep_cache = False
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
@@ -150,12 +152,12 @@ class DiskFile(object):
                 if chunk:
                     read += len(chunk)
                     if read - dropped_cache > (1024 * 1024):
-                        drop_buffer_cache(self.fp.fileno(), dropped_cache,
+                        self.drop_cache(self.fp.fileno(), dropped_cache,
                             read - dropped_cache)
                         dropped_cache = read
                     yield chunk
                 else:
-                    drop_buffer_cache(self.fp.fileno(), dropped_cache,
+                    self.drop_cache(self.fp.fileno(), dropped_cache,
                         read - dropped_cache)
                     break
         finally:
@@ -226,7 +228,7 @@ class DiskFile(object):
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
-            drop_buffer_cache(fd, 0, int(metadata['Content-Length']))
+            self.drop_cache(fd, 0, int(metadata['Content-Length']))
         tpool.execute(os.fsync, fd)
         invalidate_hash(os.path.dirname(self.datadir))
         renamer(tmppath, os.path.join(self.datadir, timestamp + extension))
@@ -247,6 +249,11 @@ class DiskFile(object):
                 except OSError, err:    # pragma: no cover
                     if err.errno != errno.ENOENT:
                         raise
+
+    def drop_cache(self, fd, offset, length):
+        """Method for no-oping buffer cache drop method."""
+        if not self.keep_cache:
+            drop_buffer_cache(fd, offset, length)
 
 
 class ObjectController(object):
@@ -482,6 +489,10 @@ class ObjectController(object):
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
         response.content_length = int(file.metadata['Content-Length'])
+        if response.content_length < KEEP_CACHE_SIZE and \
+                'X-Auth-Token' not in request.headers and \
+                'X-Storage-Token' not in request.headers:
+            file.keep_cache = True
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
         return request.get_response(response)
@@ -566,7 +577,7 @@ class ObjectController(object):
         if suffix:
             recalculate_hashes(path, suffix.split('-'))
             return Response()
-        _, hashes = get_hashes(path, do_listdir=False)
+        _junk, hashes = get_hashes(path, do_listdir=False)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):

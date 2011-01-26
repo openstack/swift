@@ -7,18 +7,27 @@
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
+# You can specify default log routing here if you want:
+# log_name = swift
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 
 [pipeline:main]
 pipeline = account-server
 
 [app:account-server]
 use = egg:swift#account
-# log_name = account-server
-# log_facility = LOG_LOCAL0
-# log_level = INFO
+# You can override the default log routing for this app here:
+# set log_name = account-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_requests = True
 
 [account-replicator]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = account-replicator
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # vm_test_mode = no
 # log_facility = LOG_LOCAL0
 # log_level = INFO
@@ -36,7 +45,10 @@ use = egg:swift#account
 # reclaim_age = 86400
 
 [account-stats]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = account-stats
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # cf_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 # container_name = account_stats
 # proxy_server_conf = /etc/swift/proxy-server.conf
@@ -44,14 +56,20 @@ use = egg:swift#account
 # log_level = INFO
 
 [account-auditor]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = account-auditor
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 
 [account-reaper]
+# You can override the default log routing for this app here (don't use set!):
 # log_name = account-reaper
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 # concurrency = 25
 # interval = 3600
 # node_timeout = 10

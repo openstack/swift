@@ -80,7 +80,7 @@ except ImportError:
                 res = []
                 consts = {'true': True, 'false': False, 'null': None}
                 string = '(' + comments.sub('', string) + ')'
-                for type, val, _, _, _ in \
+                for type, val, _junk, _junk, _junk in \
                         generate_tokens(StringIO(string).readline):
                     if (type == OP and val not in '[]{}:,()-') or \
                             (type == NAME and val not in consts):
@@ -914,7 +914,7 @@ def st_delete(parser, args, print_queue, error_queue):
                     segment_queue.put((scontainer, delobj['name']))
                 if not segment_queue.empty():
                     segment_threads = [QueueFunctionThread(segment_queue,
-                        _delete_segment, create_connection()) for _ in
+                        _delete_segment, create_connection()) for _junk in
                         xrange(10)]
                     for thread in segment_threads:
                         thread.start()
@@ -972,11 +972,11 @@ def st_delete(parser, args, print_queue, error_queue):
     create_connection = lambda: Connection(options.auth, options.user,
         options.key, preauthurl=url, preauthtoken=token, snet=options.snet)
     object_threads = [QueueFunctionThread(object_queue, _delete_object,
-        create_connection()) for _ in xrange(10)]
+        create_connection()) for _junk in xrange(10)]
     for thread in object_threads:
         thread.start()
     container_threads = [QueueFunctionThread(container_queue,
-        _delete_container, create_connection()) for _ in xrange(10)]
+        _delete_container, create_connection()) for _junk in xrange(10)]
     for thread in container_threads:
         thread.start()
     if not args:
@@ -1142,11 +1142,11 @@ def st_download(options, args, print_queue, error_queue):
     create_connection = lambda: Connection(options.auth, options.user,
         options.key, preauthurl=url, preauthtoken=token, snet=options.snet)
     object_threads = [QueueFunctionThread(object_queue, _download_object,
-        create_connection()) for _ in xrange(10)]
+        create_connection()) for _junk in xrange(10)]
     for thread in object_threads:
         thread.start()
     container_threads = [QueueFunctionThread(container_queue,
-        _download_container, create_connection()) for _ in xrange(10)]
+        _download_container, create_connection()) for _junk in xrange(10)]
     for thread in container_threads:
         thread.start()
     if not args:
@@ -1525,7 +1525,8 @@ def st_upload(options, args, print_queue, error_queue):
                     full_size = getsize(path)
                     segment_queue = Queue(10000)
                     segment_threads = [QueueFunctionThread(segment_queue,
-                        _segment_job, create_connection()) for _ in xrange(10)]
+                        _segment_job, create_connection()) for _junk in
+                        xrange(10)]
                     for thread in segment_threads:
                         thread.start()
                     segment = 0
@@ -1569,7 +1570,7 @@ def st_upload(options, args, print_queue, error_queue):
                             'container': scontainer, 'obj': delobj['name']})
                     if not segment_queue.empty():
                         segment_threads = [QueueFunctionThread(segment_queue,
-                            _segment_job, create_connection()) for _ in
+                            _segment_job, create_connection()) for _junk in
                             xrange(10)]
                         for thread in segment_threads:
                             thread.start()
@@ -1603,7 +1604,7 @@ def st_upload(options, args, print_queue, error_queue):
     create_connection = lambda: Connection(options.auth, options.user,
         options.key, preauthurl=url, preauthtoken=token, snet=options.snet)
     object_threads = [QueueFunctionThread(object_queue, _object_job,
-        create_connection()) for _ in xrange(10)]
+        create_connection()) for _junk in xrange(10)]
     for thread in object_threads:
         thread.start()
     conn = create_connection()

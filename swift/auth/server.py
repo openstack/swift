@@ -149,31 +149,32 @@ class AuthController(object):
                 previous_prefix = ''
                 if '_' in row[0]:
                     previous_prefix = row[0].split('_', 1)[0]
-                msg = _(('''
+                msg = (_('''
 THERE ARE ACCOUNTS IN YOUR auth.db THAT DO NOT BEGIN WITH YOUR NEW RESELLER
-PREFIX OF "%s".
+PREFIX OF "%(reseller)s".
 YOU HAVE A FEW OPTIONS:
-    1) RUN "swift-auth-update-reseller-prefixes %s %s",
+    1. RUN "swift-auth-update-reseller-prefixes %(db_file)s %(reseller)s",
        "swift-init auth-server restart", AND
        "swift-auth-recreate-accounts -K ..." TO CREATE FRESH ACCOUNTS.
     OR
-    2) REMOVE %s, RUN "swift-init auth-server restart", AND RUN
+    2. REMOVE %(db_file)s, RUN "swift-init auth-server restart", AND RUN
        "swift-auth-add-user ..." TO CREATE BRAND NEW ACCOUNTS THAT WAY.
     OR
-    3) ADD "reseller_prefix = %s" (WITHOUT THE QUOTES) TO YOUR
+    3. ADD "reseller_prefix = %(previous)s" (WITHOUT THE QUOTES) TO YOUR
        proxy-server.conf IN THE [filter:auth] SECTION AND TO YOUR
        auth-server.conf IN THE [app:auth-server] SECTION AND RUN
        "swift-init proxy-server restart" AND "swift-init auth-server restart"
        TO REVERT BACK TO YOUR PREVIOUS RESELLER PREFIX.
 
-    %s
-                    ''') % (self.reseller_prefix.rstrip('_'), self.db_file,
-                    self.reseller_prefix.rstrip('_'), self.db_file,
-                    previous_prefix, previous_prefix and ' ' or _('''
+    %(note)s
+                    ''') % {'reseller': self.reseller_prefix.rstrip('_'),
+                            'db_file': self.db_file,
+                            'previous': previous_prefix,
+                            'note': previous_prefix and ' ' or _('''
     SINCE YOUR PREVIOUS RESELLER PREFIX WAS AN EMPTY STRING, IT IS NOT
     RECOMMENDED TO PERFORM OPTION 3 AS THAT WOULD MAKE SUPPORTING MULTIPLE
     RESELLERS MORE DIFFICULT.
-                    ''').strip())).strip()
+                    ''').strip()}).strip()
                 self.logger.critical(_('CRITICAL: ') + ' '.join(msg.split()))
                 raise Exception('\n' + msg)
 
@@ -243,7 +244,8 @@ YOU HAVE A FEW OPTIONS:
             raise err
 
     def validate_s3_sign(self, request, token):
-        account, user, sign = request.headers['Authorization'].split(' ')[-1].split(':')
+        account, user, sign = \
+            request.headers['Authorization'].split(' ')[-1].split(':')
         msg = base64.urlsafe_b64decode(unquote(token))
         rv = False
         with self.get_conn() as conn:
@@ -253,7 +255,8 @@ YOU HAVE A FEW OPTIONS:
                 (account, user)).fetchone()
             rv = (84000, account, user, row[1])
         if rv:
-            s = base64.encodestring(hmac.new(row[0], msg, sha1).digest()).strip()
+            s = base64.encodestring(hmac.new(row[0], msg,
+                                             sha1).digest()).strip()
             self.logger.info("orig %s, calc %s" % (sign, s))
             if sign != s:
                 rv = False
@@ -340,10 +343,14 @@ YOU HAVE A FEW OPTIONS:
                 'SELECT url FROM account WHERE account = ? AND user = ?',
                 (account, user)).fetchone()
             if row:
-                self.logger.info(
-                    _('ALREADY EXISTS create_user(%s, %s, _, %s, %s) [%.02f]') %
-                    (repr(account), repr(user), repr(admin),
-                     repr(reseller_admin), time() - begin))
+                self.logger.info(_('ALREADY EXISTS create_user(%(account)s, '
+                    '%(user)s, _, %(admin)s, %(reseller_admin)s) '
+                    '[%(elapsed).02f]') %
+                    {'account': repr(account),
+                     'user': repr(user),
+                     'admin': repr(admin),
+                     'reseller_admin': repr(reseller_admin),
+                     'elapsed': time() - begin})
                 return 'already exists'
             row = conn.execute(
                 'SELECT url, cfaccount FROM account WHERE account = ?',
@@ -354,10 +361,14 @@ YOU HAVE A FEW OPTIONS:
             else:
                 account_hash = self.add_storage_account()
                 if not account_hash:
-                    self.logger.info(
-                        _('FAILED create_user(%s, %s, _, %s, %s) [%.02f]') %
-                        (repr(account), repr(user), repr(admin),
-                         repr(reseller_admin), time() - begin))
+                    self.logger.info(_('FAILED create_user(%(account)s, '
+                        '%(user)s, _, %(admin)s, %(reseller_admin)s) '
+                        '[%(elapsed).02f]') %
+                        {'account': repr(account),
+                         'user': repr(user),
+                         'admin': repr(admin),
+                         'reseller_admin': repr(reseller_admin),
+                         'elapsed': time() - begin})
                     return False
                 url = self.default_cluster_url.rstrip('/') + '/' + account_hash
             conn.execute('''INSERT INTO account
@@ -367,10 +378,11 @@ YOU HAVE A FEW OPTIONS:
                 (account, url, account_hash, user, password,
                  admin and 't' or '', reseller_admin and 't' or ''))
             conn.commit()
-        self.logger.info(
-            _('SUCCESS create_user(%s, %s, _, %s, %s) = %s [%.02f]') %
-            (repr(account), repr(user), repr(admin), repr(reseller_admin),
-             repr(url), time() - begin))
+        self.logger.info(_('SUCCESS create_user(%(account)s, %(user)s, _, '
+            '%(admin)s, %(reseller_admin)s) = %(url)s [%(elapsed).02f]') %
+            {'account': repr(account), 'user': repr(user),
+             'admin': repr(admin), 'reseller_admin': repr(reseller_admin),
+             'url': repr(url), 'elapsed': time() - begin})
         return url
 
     def recreate_accounts(self):
@@ -435,14 +447,15 @@ YOU HAVE A FEW OPTIONS:
         :param request: webob.Request object
         """
         try:
-            _, token = split_path(request.path, minsegs=2)
+            _junk, token = split_path(request.path, minsegs=2)
         except ValueError:
             return HTTPBadRequest()
         # Retrieves (TTL, account, user, cfaccount) if valid, False otherwise
         headers = {}
         if 'Authorization' in request.headers:
             validation = self.validate_s3_sign(request, token)
-            headers['X-Auth-Account-Suffix'] = validation[3]
+            if validation:
+                headers['X-Auth-Account-Suffix'] = validation[3]
         else:
             validation = self.validate_token(token)
         if not validation:
@@ -477,7 +490,8 @@ YOU HAVE A FEW OPTIONS:
         :param request: webob.Request object
         """
         try:
-            _, account_name, user_name = split_path(request.path, minsegs=3)
+            _junk, account_name, user_name = \
+                split_path(request.path, minsegs=3)
         except ValueError:
             return HTTPBadRequest()
         create_reseller_admin = \

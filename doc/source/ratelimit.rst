@@ -30,6 +30,11 @@ max_sleep_time_seconds   60         App will immediately return a 498 response
 log_sleep_time_seconds   0          To allow visibility into rate limiting set
                                     this value > 0 and all sleeps greater than
                                     the number will be logged.
+rate_buffer_seconds      5          Number of seconds the rate counter can
+                                    drop and be allowed to catch up (at a
+                                    faster than listed rate). A larger number
+                                    will result in larger spikes in rate but
+                                    better average accuracy.
 account_ratelimit        0          If set, will limit all requests to
                                     /account_name and PUTs to
                                     /account_name/container_name. Number is in

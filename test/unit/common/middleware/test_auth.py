@@ -95,7 +95,7 @@ class Logger(object):
         self.error_value = (msg, args, kwargs)
 
     def exception(self, msg, *args, **kwargs):
-        _, exc, _ = sys.exc_info()
+        _junk, exc, _junk = sys.exc_info()
         self.exception_value = (msg,
             '%s %s' % (exc.__class__.__name__, str(exc)), args, kwargs)
 

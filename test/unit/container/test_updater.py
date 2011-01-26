@@ -19,6 +19,7 @@ import sys
 import unittest
 from gzip import GzipFile
 from shutil import rmtree
+from tempfile import mkdtemp
 
 from eventlet import spawn, TimeoutError, listen
 from eventlet.timeout import Timeout
@@ -35,17 +36,7 @@ class TestContainerUpdater(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
-        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not self.path_to_test_xfs or \
-                not os.path.exists(self.path_to_test_xfs):
-            print >>sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            self.testdir = '/tmp/SWIFTUNITTEST'
-        else:
-            self.testdir = os.path.join(self.path_to_test_xfs,
-                                        'tmp_test_container_updater')
+        self.testdir = os.path.join(mkdtemp(), 'tmp_test_container_updater')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         pickle.dump(RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
@@ -60,7 +51,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(self.sda1)
 
     def tearDown(self):
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_creation(self):
         cu = container_updater.ContainerUpdater({
@@ -87,6 +78,7 @@ class TestContainerUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '1',
             'node_timeout': '15',
+            'account_suppression_time': 0
             })
         cu.run_once()
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
@@ -142,7 +134,7 @@ class TestContainerUpdater(unittest.TestCase):
         bindsock = listen(('127.0.0.1', 0))
         def spawn_accepts():
             events = []
-            for _ in xrange(2):
+            for _junk in xrange(2):
                 sock, addr = bindsock.accept()
                 events.append(spawn(accept, sock, addr, 201))
             return events
@@ -195,7 +187,7 @@ class TestContainerUpdater(unittest.TestCase):
         bindsock = listen(('127.0.0.1', 0))
         def spawn_accepts():
             events = []
-            for _ in xrange(2):
+            for _junk in xrange(2):
                 with Timeout(3):
                     sock, addr = bindsock.accept()
                     events.append(spawn(accept, sock, addr))

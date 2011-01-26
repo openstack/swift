@@ -19,6 +19,7 @@ import signal
 import sys
 import time
 from random import random, shuffle
+from tempfile import mkstemp
 
 from eventlet import spawn, patcher, Timeout, TimeoutError
 
@@ -51,6 +52,10 @@ class ContainerUpdater(Daemon):
         self.no_changes = 0
         self.successes = 0
         self.failures = 0
+        self.account_suppressions = {}
+        self.account_suppression_time = \
+            float(conf.get('account_suppression_time', 60))
+        self.new_account_suppressions = None
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""
@@ -80,6 +85,19 @@ class ContainerUpdater(Daemon):
         shuffle(paths)
         return paths
 
+    def _load_suppressions(self, filename):
+        try:
+            with open(filename, 'r') as tmpfile:
+                for line in tmpfile:
+                    account, until = line.split()
+                    until = float(until)
+                    self.account_suppressions[account] = until
+        except Exception:
+            self.logger.exception(
+                _('ERROR with loading suppressions from %s: ') % filename)
+        finally:
+            os.unlink(filename)
+
     def run_forever(self):   # pragma: no cover
         """
         Run the updator continuously.
@@ -88,21 +106,33 @@ class ContainerUpdater(Daemon):
         while True:
             self.logger.info(_('Begin container update sweep'))
             begin = time.time()
-            pids = []
+            now = time.time()
+            expired_suppressions = \
+               [a for a, u in self.account_suppressions.iteritems() if u < now]
+            for account in expired_suppressions:
+                del self.account_suppressions[account]
+            pid2filename = {}
             # read from account ring to ensure it's fresh
             self.get_account_ring().get_nodes('')
             for path in self.get_paths():
-                while len(pids) >= self.concurrency:
-                    pids.remove(os.wait()[0])
+                while len(pid2filename) >= self.concurrency:
+                    pid = os.wait()[0]
+                    try:
+                        self._load_suppressions(pid2filename[pid])
+                    finally:
+                        del pid2filename[pid]
+                fd, tmpfilename = mkstemp()
+                os.close(fd)
                 pid = os.fork()
                 if pid:
-                    pids.append(pid)
+                    pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
                     patcher.monkey_patch(all=False, socket=True)
                     self.no_changes = 0
                     self.successes = 0
                     self.failures = 0
+                    self.new_account_suppressions = open(tmpfilename, 'w')
                     forkbegin = time.time()
                     self.container_sweep(path)
                     elapsed = time.time() - forkbegin
@@ -114,8 +144,12 @@ class ContainerUpdater(Daemon):
                          'success': self.successes, 'fail': self.failures,
                          'no_change': self.no_changes})
                     sys.exit()
-            while pids:
-                pids.remove(os.wait()[0])
+            while pid2filename:
+                pid = os.wait()[0]
+                try:
+                    self._load_suppressions(pid2filename[pid])
+                finally:
+                    del pid2filename[pid]
             elapsed = time.time() - begin
             self.logger.info(_('Container update sweep completed: %.02fs'),
                              elapsed)
@@ -165,6 +199,8 @@ class ContainerUpdater(Daemon):
         # definitely doesn't have up to date statistics.
         if float(info['put_timestamp']) <= 0:
             return
+        if self.account_suppressions.get(info['account'], 0) > time.time():
+            return
         if info['put_timestamp'] > info['reported_put_timestamp'] or \
                 info['delete_timestamp'] > info['reported_delete_timestamp'] \
                 or info['object_count'] != info['reported_object_count'] or \
@@ -195,6 +231,11 @@ class ContainerUpdater(Daemon):
                 self.logger.debug(
                     _('Update report failed for %(container)s %(dbfile)s'),
                     {'container': container, 'dbfile': dbfile})
+                self.account_suppressions[info['account']] = until = \
+                    time.time() + self.account_suppression_time
+                if self.new_account_suppressions:
+                    print >>self.new_account_suppressions, \
+                        info['account'], until
         else:
             self.no_changes += 1
 

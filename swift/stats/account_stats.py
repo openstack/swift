@@ -55,7 +55,8 @@ class AccountStat(Daemon):
         self.logger.info(_("Gathering account stats"))
         start = time.time()
         self.find_and_process()
-        self.logger.info(_("Gathering account stats complete (%0.2f minutes)") %
+        self.logger.info(
+            _("Gathering account stats complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
 
     def find_and_process(self):
@@ -70,8 +71,8 @@ class AccountStat(Daemon):
             # Account Name, Container Count, Object Count, Bytes Used
             for device in os.listdir(self.devices):
                 if self.mount_check and not check_mount(self.devices, device):
-                    self.logger.error(_("Device %s is not mounted, skipping.") %
-                        device)
+                    self.logger.error(
+                        _("Device %s is not mounted, skipping.") % device)
                     continue
                 accounts = os.path.join(self.devices,
                                         device,
@@ -87,11 +88,11 @@ class AccountStat(Daemon):
                             broker = AccountBroker(db_path)
                             if not broker.is_deleted():
                                 (account_name,
-                                _, _, _,
+                                _junk, _junk, _junk,
                                 container_count,
                                 object_count,
                                 bytes_used,
-                                _, _) = broker.get_info()
+                                _junk, _junk) = broker.get_info()
                                 line_data = '"%s",%d,%d,%d\n' % (
                                     account_name, container_count,
                                     object_count, bytes_used)

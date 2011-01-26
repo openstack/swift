@@ -932,7 +932,7 @@ class ContainerBroker(DatabaseBroker):
             if not row:
                 return []
             max_rowid = row['ROWID']
-            for _ in xrange(min(max_count, max_rowid)):
+            for _junk in xrange(min(max_count, max_rowid)):
                 row = conn.execute('''
                     SELECT name FROM object WHERE ROWID >= ? AND +deleted = 0
                     LIMIT 1
@@ -1435,7 +1435,7 @@ class AccountBroker(DatabaseBroker):
             if not row:
                 return []
             max_rowid = row['ROWID']
-            for _ in xrange(min(max_count, max_rowid)):
+            for _junk in xrange(min(max_count, max_rowid)):
                 row = conn.execute('''
                     SELECT name FROM container WHERE
                     ROWID >= ? AND +deleted = 0

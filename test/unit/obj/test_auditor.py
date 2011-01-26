@@ -14,13 +14,16 @@
 # limitations under the License.
 
 # TODO: Tests
+from test import unit as _setup_mocks
 import unittest
 import tempfile
 import os
 import time
 from shutil import rmtree
 from hashlib import md5
+from tempfile import mkdtemp
 from swift.obj import auditor
+from swift.obj import server as object_server
 from swift.obj.server import DiskFile, write_metadata
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, renamer
 from swift.obj.replicator import invalidate_hash
@@ -30,18 +33,8 @@ from swift.common.exceptions import AuditException
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
-        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not self.path_to_test_xfs or \
-                not os.path.exists(self.path_to_test_xfs):
-            print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            self.testdir = '/tmp/SWIFTUNITTEST'
-        else:
-            self.testdir = os.path.join(self.path_to_test_xfs,
-                            'tmp_test_object_auditor')
-
+        self.testdir = \
+            os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
@@ -63,7 +56,7 @@ class TestAuditor(unittest.TestCase):
             mount_check='false')
 
     def tearDown(self):
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_object_audit_extra_data(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
@@ -130,25 +123,21 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
-        self.auditor = auditor.ObjectAuditor(self.conf)
         cur_part = '0'
         disk_file = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
-        data = '0' * 1024
-        etag = md5()
+        timestamp = str(normalize_timestamp(time.time()))
+        path = os.path.join(disk_file.datadir, timestamp + '.data')
+        mkdirs(disk_file.datadir)
+        fp = open(path, 'w')
+        fp.write('0' * 1024)
+        fp.close()
+        invalidate_hash(os.path.dirname(disk_file.datadir))
+        self.auditor = auditor.ObjectAuditor(self.conf)
         pre_quarantines = self.auditor.quarantines
-        with disk_file.mkstemp() as (fd, tmppath):
-            os.write(fd, data)
-            etag.update(data)
-            etag = etag.hexdigest()
-            timestamp = str(normalize_timestamp(time.time()))
-            os.fsync(fd)
-            invalidate_hash(os.path.dirname(disk_file.datadir))
-            renamer(tmppath, os.path.join(disk_file.datadir,
-                                          timestamp + '.data'))
-            self.auditor.object_audit(
-                os.path.join(disk_file.datadir, timestamp + '.data'),
-                'sda', cur_part)
-            self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
+        self.auditor.object_audit(
+            os.path.join(disk_file.datadir, timestamp + '.data'),
+            'sda', cur_part)
+        self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_bad_args(self):
         self.auditor = auditor.ObjectAuditor(self.conf)

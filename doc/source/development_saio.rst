@@ -50,7 +50,7 @@ If you are going to use a separate partition for Swift data, be sure to add anot
        `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
-  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
+  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
   #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
@@ -77,7 +77,7 @@ If you want to use a loopback device instead of another partition, follow these 
        `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
-  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
+  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
   #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
@@ -204,7 +204,6 @@ Do these commands as you on guest:
   #. `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
-        export PATH_TO_TEST_XFS=/mnt/sdb1/test
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
         export PATH=${PATH}:~/bin
 
@@ -536,7 +535,7 @@ Setting up scripts for running Swift
         sudo umount /mnt/sdb1
         sudo mkfs.xfs -f -i size=1024 /dev/sdb1
         sudo mount /mnt/sdb1
-        sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test
+        sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
         sudo chown <your-user-name>:<your-group-name> /mnt/sdb1/*
         mkdir -p /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
