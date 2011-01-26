@@ -49,7 +49,7 @@ def kill_pids(pids):
     for pid in pids.values():
         try:
             kill(pid, SIGTERM)
-        except:
+        except Exception:
             pass
 
 

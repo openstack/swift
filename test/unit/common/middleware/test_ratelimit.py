@@ -51,7 +51,7 @@ class FakeMemcache(object):
     def delete(self, key):
         try:
             del self.store[key]
-        except:
+        except Exception:
             pass
         return True
 

@@ -38,13 +38,13 @@ from urlparse import urlparse, urlunparse
 
 try:
     from eventlet import sleep
-except:
+except Exception:
     from time import sleep
 
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
-except:
+except Exception:
     from httplib import HTTPConnection
 
 
@@ -91,7 +91,7 @@ except ImportError:
                     else:
                         res.append(val)
                 return eval(''.join(res), {}, consts)
-            except:
+            except Exception:
                 raise AttributeError()
 
 
@@ -1615,7 +1615,7 @@ def st_upload(options, args, print_queue, error_queue):
         conn.put_container(args[0])
         if options.segment_size is not None:
             conn.put_container(args[0] + '_segments')
-    except:
+    except Exception:
         pass
     try:
         for arg in args[1:]:
@@ -1722,7 +1722,7 @@ Example:
         error_thread.abort = True
         while error_thread.isAlive():
             error_thread.join(0.01)
-    except:
+    except Exception:
         for thread in threading_enumerate():
             thread.abort = True
         raise

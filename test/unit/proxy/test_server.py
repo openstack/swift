@@ -47,7 +47,7 @@ from swift.common import ring
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, MAX_FILE_SIZE
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
-
+from swift.common.wsgi import monkey_patch_mimetools
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
@@ -426,6 +426,7 @@ class TestObjectController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
             account_ring=FakeRing(), container_ring=FakeRing(),
             object_ring=FakeRing())
+        monkey_patch_mimetools()
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():

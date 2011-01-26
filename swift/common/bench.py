@@ -97,7 +97,7 @@ class Bench(object):
                 self.logger.info(_("CannotSendRequest.  Skipping..."))
                 try:
                     hc.close()
-                except:
+                except Exception:
                     pass
                 self.failures += 1
                 hc = self.conn_pool.create()

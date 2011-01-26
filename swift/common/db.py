@@ -269,7 +269,7 @@ class DatabaseBroker(object):
             yield conn
             conn.rollback()
             self.conn = conn
-        except:
+        except Exception:
             conn.close()
             raise
 
@@ -288,13 +288,13 @@ class DatabaseBroker(object):
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
-        except:
+        except Exception:
             pass
         try:
             conn.execute('ROLLBACK')
             conn.isolation_level = orig_isolation_level
             self.conn = conn
-        except:     # pragma: no cover
+        except Exception:
             logging.exception(
                 _('Broker error trying to rollback locked connection'))
             conn.close()
@@ -749,7 +749,7 @@ class ContainerBroker(DatabaseBroker):
                                 timestamp, 'size': size, 'content_type':
                                 content_type, 'etag': etag,
                                 'deleted': deleted})
-                        except:
+                        except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
                                 {'file': self.pending_file, 'entry': entry})
@@ -1216,7 +1216,7 @@ class AccountBroker(DatabaseBroker):
                                       'object_count': object_count,
                                       'bytes_used': bytes_used,
                                       'deleted': deleted})
-                        except:
+                        except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
                                 {'file': self.pending_file, 'entry': entry})

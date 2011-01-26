@@ -29,7 +29,7 @@ if __name__ == '__main__':
         sys.exit(1)
     try:
         ring = Ring('/etc/swift/object.ring.gz')
-    except:
+    except Exception:
         ring = None
     datafile = sys.argv[1]
     fp = open(datafile, 'rb')

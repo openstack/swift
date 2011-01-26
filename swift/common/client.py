@@ -87,7 +87,7 @@ except ImportError:
                     else:
                         res.append(val)
                 return eval(''.join(res), {}, consts)
-            except:
+            except Exception:
                 raise AttributeError()
 
 
