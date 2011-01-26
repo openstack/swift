@@ -371,19 +371,25 @@ reclaim_age         604800                Time elapsed in seconds before a
 
 [container-updater]
 
-==================  =================  =======================================
-Option              Default            Description
-------------------  -----------------  ---------------------------------------
-log_name            container-updater  Label used when logging
-log_facility        LOG_LOCAL0         Syslog log facility
-log_level           INFO               Logging level
-interval            300                Minimum time for a pass to take
-concurrency         4                  Number of updater workers to spawn
-node_timeout        3                  Request timeout to external services
-conn_timeout        0.5                Connection timeout to external services
-slowdown            0.01               Time in seconds to wait between 
-                                       containers
-==================  =================  =======================================
+========================  =================  ==================================
+Option                    Default            Description
+------------------------  -----------------  ----------------------------------
+log_name                  container-updater  Label used when logging
+log_facility              LOG_LOCAL0         Syslog log facility
+log_level                 INFO               Logging level
+interval                  300                Minimum time for a pass to take
+concurrency               4                  Number of updater workers to spawn
+node_timeout              3                  Request timeout to external
+                                             services
+conn_timeout              0.5                Connection timeout to external
+                                             services
+slowdown                  0.01               Time in seconds to wait between 
+                                             containers
+account_suppression_time  60                 Seconds to suppress updating an
+                                             account that has generated an
+                                             error (timeout, not yet found,
+                                             etc.)
+========================  =================  ==================================
 
 [container-auditor]
 

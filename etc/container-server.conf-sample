@@ -50,6 +50,8 @@ use = egg:swift#container
 # conn_timeout = 0.5
 # slowdown will sleep that amount between containers
 # slowdown = 0.01
+# Seconds to suppress updating an account that has generated an error
+# account_suppression_time = 60
 
 [container-auditor]
 # You can override the default log routing for this app here (don't use set!):
