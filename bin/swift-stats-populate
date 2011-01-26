@@ -38,7 +38,7 @@ def put_container(connpool, container, report):
             retries_done += conn.attempts - 1
         if report:
             report(True)
-    except:
+    except Exception:
         if report:
             report(False)
         raise
@@ -53,7 +53,7 @@ def put_object(connpool, container, obj, report):
             retries_done += conn.attempts - 1
         if report:
             report(True)
-    except:
+    except Exception:
         if report:
             report(False)
         raise

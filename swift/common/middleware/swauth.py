@@ -28,6 +28,7 @@ import hmac
 import base64
 
 from eventlet.timeout import Timeout
+from eventlet import TimeoutError
 from webob import Response, Request
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPForbidden, HTTPNoContent, HTTPNotFound, \
@@ -325,7 +326,7 @@ class Swauth(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except:
+        except (Exception, TimeoutError):
             print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])
@@ -631,7 +632,7 @@ class Swauth(object):
             if resp.status // 100 != 2:
                 raise Exception('Could not create account on the Swift '
                     'cluster: %s %s %s' % (path, resp.status, resp.reason))
-        except:
+        except (Exception, TimeoutError):
             self.logger.error(_('ERROR: Exception while trying to communicate '
                 'with %(scheme)s://%(host)s:%(port)s/%(path)s'),
                 {'scheme': self.dsc_parsed2.scheme,

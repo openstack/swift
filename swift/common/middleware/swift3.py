@@ -401,7 +401,7 @@ class Swift3Middleware(object):
         try:
             account, user, _junk = \
                 req.headers['Authorization'].split(' ')[-1].split(':')
-        except:
+        except Exception:
             return None, None
         token = base64.urlsafe_b64encode(h)
         return '%s:%s' % (account, user), token

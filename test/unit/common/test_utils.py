@@ -107,7 +107,7 @@ class TestUtils(unittest.TestCase):
         testroot = os.path.join(os.path.dirname(__file__), 'mkdirs')
         try:
             os.unlink(testroot)
-        except:
+        except Exception:
             pass
         rmtree(testroot, ignore_errors=1)
         self.assert_(not os.path.exists(testroot))
@@ -211,14 +211,14 @@ class TestUtils(unittest.TestCase):
         try:
             for line in lfo:
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         got_exc = False
         try:
             for line in lfo.xreadlines():
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         self.assertRaises(IOError, lfo.read)

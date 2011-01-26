@@ -280,7 +280,7 @@ class FakeMemcache(object):
     def delete(self, key):
         try:
             del self.store[key]
-        except:
+        except Exception:
             pass
         return True
 
@@ -519,6 +519,7 @@ class TestObjectController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
             account_ring=FakeRing(), container_ring=FakeRing(),
             object_ring=FakeRing())
+        monkey_patch_mimetools()
 
 
     def tearDown(self):

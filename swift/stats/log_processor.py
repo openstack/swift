@@ -273,7 +273,7 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except:
+        except Exception:
             already_processed_files = set()
         self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))

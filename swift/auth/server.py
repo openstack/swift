@@ -96,7 +96,7 @@ class AuthController(object):
             msg = _('No super_admin_key set in conf file! Exiting.')
             try:
                 self.logger.critical(msg)
-            except:
+            except Exception:
                 pass
             raise ValueError(msg)
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -238,7 +238,7 @@ YOU HAVE A FEW OPTIONS:
         except Exception, err:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
             self.conn = get_db_connection(self.db_file)
             raise err
@@ -651,7 +651,7 @@ YOU HAVE A FEW OPTIONS:
             else:
                 return HTTPBadRequest(request=env)(env, start_response)
             response = handler(req)
-        except:
+        except Exception:
             self.logger.exception(
                     _('ERROR Unhandled exception in ReST request'))
             return HTTPServiceUnavailable(request=req)(env, start_response)
