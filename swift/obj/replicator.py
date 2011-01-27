@@ -252,7 +252,7 @@ class ObjectReplicator(Daemon):
                 continue
             if result.startswith('cd+'):
                 continue
-            if not retval:
+            if not ret_val:
                 self.logger.info(result)
             else:
                 self.logger.error(result)
