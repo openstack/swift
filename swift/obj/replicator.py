@@ -223,10 +223,10 @@ class ObjectReplicator(Daemon):
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
         self.run_pause = int(conf.get('run_pause', 30))
-        self.rsync_timeout = int(conf.get('rsync_timeout', 300))
-        self.rsync_io_timeout = conf.get('rsync_io_timeout', '10')
+        self.rsync_timeout = int(conf.get('rsync_timeout', 900))
+        self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.http_timeout = int(conf.get('http_timeout', 60))
-        self.lockup_timeout = int(conf.get('lockup_timeout', 900))
+        self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
 
     def _rsync(self, args):
         """
@@ -252,7 +252,10 @@ class ObjectReplicator(Daemon):
                 continue
             if result.startswith('cd+'):
                 continue
-            self.logger.info(result)
+            if not ret_val:
+                self.logger.info(result)
+            else:
+                self.logger.error(result)
         if ret_val:
             self.logger.error(_('Bad rsync return code: %(args)s -> %(ret)d'),
                     {'args': str(args), 'ret': ret_val})

@@ -42,13 +42,13 @@ use = egg:swift#object
 # concurrency = 1
 # stats_interval = 300
 # max duration of a partition rsync
-# rsync_timeout = 600
+# rsync_timeout = 900
 # passed to rsync for io op timeout
-# rsync_io_timeout = 10
+# rsync_io_timeout = 30
 # max duration of an http request
 # http_timeout = 60
 # attempts to kill all workers if nothing replicates for lockup_timeout seconds
-# lockup_timeout = 900
+# lockup_timeout = 1800
 # The replicator also performs reclamation
 # reclaim_age = 604800
 
