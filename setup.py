@@ -18,7 +18,10 @@ from setuptools import setup, find_packages
 from setuptools.command.sdist import sdist
 import os
 import subprocess
-from babel.messages import frontend
+try:
+    from babel.messages import frontend
+except ImportError:
+    frontend = None
 
 from swift import __version__ as version
 
@@ -40,6 +43,19 @@ class local_sdist(sdist):
 
 name = 'swift'
 
+
+cmdclass = {'sdist': local_sdist}
+
+
+if frontend:
+    cmdclass.update({
+        'compile_catalog': frontend.compile_catalog,
+        'extract_messages': frontend.extract_messages,
+        'init_catalog': frontend.init_catalog,
+        'update_catalog': frontend.update_catalog,
+    })
+
+
 setup(
     name=name,
     version=version,
@@ -50,13 +66,7 @@ setup(
     url='https://launchpad.net/swift',
     packages=find_packages(exclude=['test', 'bin']),
     test_suite='nose.collector',
-    cmdclass={
-        'sdist': local_sdist,
-        'compile_catalog': frontend.compile_catalog,
-        'extract_messages': frontend.extract_messages,
-        'init_catalog': frontend.init_catalog,
-        'update_catalog': frontend.update_catalog,
-    },
+    cmdclass=cmdclass,
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
