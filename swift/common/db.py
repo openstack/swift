@@ -27,6 +27,7 @@ import cPickle as pickle
 import errno
 from random import randint
 from tempfile import mkstemp
+import traceback
 
 from eventlet import sleep
 import simplejson as json
@@ -41,6 +42,7 @@ from swift.common.exceptions import LockTimeout
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
 PICKLE_PROTOCOL = 2
+CONNECT_ATTEMPTS = 4
 PENDING_COMMIT_TIMEOUT = 900
 
 
@@ -122,29 +124,32 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
     :param okay_to_create: if True, create the DB if it doesn't exist
     :returns: DB connection object
     """
-    try:
-        connect_time = time.time()
-        conn = sqlite3.connect(path, check_same_thread=False,
-                    factory=GreenDBConnection, timeout=timeout)
-        if path != ':memory:' and not okay_to_create:
+    # retry logic to address:
+    # http://www.mail-archive.com/sqlite-users@sqlite.org/msg57092.html
+    for tries in xrange(1, CONNECT_ATTEMPTS + 1):
+        try:
+            connect_time = time.time()
+            conn = sqlite3.connect(path, check_same_thread=False,
+                        factory=GreenDBConnection, timeout=timeout)
             # attempt to detect and fail when connect creates the db file
-            stat = os.stat(path)
-            if stat.st_size == 0 and stat.st_ctime >= connect_time:
-                os.unlink(path)
-                raise DatabaseConnectionError(path,
-                    'DB file created by connect?')
-        conn.row_factory = sqlite3.Row
-        conn.text_factory = str
-        conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute('PRAGMA count_changes = OFF')
-        conn.execute('PRAGMA temp_store = MEMORY')
-        conn.execute('PRAGMA journal_mode = WAL')
-        conn.create_function('chexor', 3, chexor)
-    except sqlite3.DatabaseError:
-        import traceback
-        raise DatabaseConnectionError(path, traceback.format_exc(),
-                timeout=timeout)
-    return conn
+            if path != ':memory:' and not okay_to_create:
+                stat = os.stat(path)
+                if stat.st_size == 0 and stat.st_ctime >= connect_time:
+                    os.unlink(path)
+                    raise DatabaseConnectionError(path,
+                        'DB file created by connect?')
+            conn.execute('PRAGMA synchronous = NORMAL')
+            conn.execute('PRAGMA count_changes = OFF')
+            conn.execute('PRAGMA temp_store = MEMORY')
+            conn.execute('PRAGMA journal_mode = WAL')
+            conn.create_function('chexor', 3, chexor)
+            conn.row_factory = sqlite3.Row
+            conn.text_factory = str
+            return conn
+        except sqlite3.DatabaseError, e:
+            if tries == CONNECT_ATTEMPTS or 'locking protocol' not in str(e):
+                raise DatabaseConnectionError(path, traceback.format_exc(),
+                        timeout=timeout)
 
 
 class DatabaseBroker(object):
