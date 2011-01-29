@@ -33,7 +33,7 @@ import simplejson as json
 import sqlite3
 
 from swift.common.utils import normalize_timestamp, renamer, \
-        mkdirs, lock_parent_directory, fallocate
+        mkdirs, lock_parent_directory
 from swift.common.exceptions import LockTimeout
 
 
@@ -41,8 +41,7 @@ from swift.common.exceptions import LockTimeout
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
 PICKLE_PROTOCOL = 2
-#: Max number of pending entries
-PENDING_CAP = 131072
+PENDING_COMMIT_TIMEOUT = 900
 
 
 class DatabaseConnectionError(sqlite3.DatabaseError):
@@ -139,7 +138,7 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
         conn.execute('PRAGMA synchronous = NORMAL')
         conn.execute('PRAGMA count_changes = OFF')
         conn.execute('PRAGMA temp_store = MEMORY')
-        conn.execute('PRAGMA journal_mode = DELETE')
+        conn.execute('PRAGMA journal_mode = WAL')
         conn.create_function('chexor', 3, chexor)
     except sqlite3.DatabaseError:
         import traceback
@@ -152,13 +151,10 @@ class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
-                 account=None, container=None, pending_timeout=10,
-                 stale_reads_ok=False):
+                 account=None, container=None, stale_reads_ok=False):
         """ Encapsulates working with a database. """
         self.conn = None
         self.db_file = db_file
-        self.pending_file = self.db_file + '.pending'
-        self.pending_timeout = pending_timeout
         self.stale_reads_ok = stale_reads_ok
         self.db_dir = os.path.dirname(db_file)
         self.timeout = timeout
@@ -233,7 +229,7 @@ class DatabaseBroker(object):
             conn.close()
             with open(tmp_db_file, 'r+b') as fp:
                 os.fsync(fp.fileno())
-            with lock_parent_directory(self.db_file, self.pending_timeout):
+            with lock_parent_directory(self.db_file, self.timeout):
                 if os.path.exists(self.db_file):
                     # It's as if there was a "condition" where different parts
                     # of the system were "racing" each other.
@@ -348,11 +344,6 @@ class DatabaseBroker(object):
         :param count: number to get
         :returns: list of objects between start and end
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             curs = conn.execute('''
                 SELECT * FROM %s WHERE ROWID > ? ORDER BY ROWID ASC LIMIT ?
@@ -401,11 +392,7 @@ class DatabaseBroker(object):
         :returns: dict containing keys: hash, id, created_at, put_timestamp,
             delete_timestamp, count, max_row, and metadata
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
+        self._commit_puts()
         query_part1 = '''
             SELECT hash, id, created_at, put_timestamp, delete_timestamp,
                 %s_count AS count,
@@ -454,34 +441,6 @@ class DatabaseBroker(object):
                     ''' % ('incoming' if incoming else 'outgoing'),
                     (rec['sync_point'], rec['remote_id']))
             conn.commit()
-
-    def _preallocate(self):
-        """
-        The idea is to allocate space in front of an expanding db.  If it gets
-        within 512k of a boundary, it allocates to the next boundary.
-        Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
-        """
-        if self.db_file == ':memory:':
-            return
-        MB = (1024 * 1024)
-
-        def prealloc_points():
-            for pm in (1, 2, 5, 10, 25, 50):
-                yield pm * MB
-            while True:
-                pm += 50
-                yield pm * MB
-
-        stat = os.stat(self.db_file)
-        file_size = stat.st_size
-        allocated_size = stat.st_blocks * 512
-        for point in prealloc_points():
-            if file_size <= point - MB / 2:
-                prealloc_size = point
-                break
-        if allocated_size < prealloc_size:
-            with open(self.db_file, 'rb+') as fp:
-                fallocate(fp.fileno(), int(prealloc_size))
 
     @property
     def metadata(self):
@@ -717,11 +676,6 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: True if the database has no active objects, False otherwise
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             row = conn.execute(
                     'SELECT object_count from container_stat').fetchone()
@@ -729,17 +683,16 @@ class ContainerBroker(DatabaseBroker):
 
     def _commit_puts(self, item_list=None):
         """Handles commiting rows in .pending files."""
-        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+        pending_file = self.db_file + '.pending'
+        if self.db_file == ':memory:' or not os.path.exists(pending_file):
+            return
+        if not os.path.getsize(pending_file):
+            os.unlink(pending_file)
             return
         if item_list is None:
             item_list = []
-        with lock_parent_directory(self.pending_file, self.pending_timeout):
-            self._preallocate()
-            if not os.path.getsize(self.pending_file):
-                if item_list:
-                    self.merge_items(item_list)
-                return
-            with open(self.pending_file, 'r+b') as fp:
+        with lock_parent_directory(pending_file, PENDING_COMMIT_TIMEOUT):
+            with open(pending_file, 'r+b') as fp:
                 for entry in fp.read().split(':'):
                     if entry:
                         try:
@@ -752,11 +705,11 @@ class ContainerBroker(DatabaseBroker):
                         except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
-                                {'file': self.pending_file, 'entry': entry})
+                                {'file': pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
-                    os.ftruncate(fp.fileno(), 0)
+                    os.unlink(pending_file)
                 except OSError, err:
                     if err.errno != errno.ENOENT:
                         raise
@@ -774,7 +727,6 @@ class ContainerBroker(DatabaseBroker):
                                  delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
-        self._commit_puts()
         with self.get() as conn:
             conn.execute("""
                     DELETE FROM object
@@ -818,30 +770,9 @@ class ContainerBroker(DatabaseBroker):
         record = {'name': name, 'created_at': timestamp, 'size': size,
                   'content_type': content_type, 'etag': etag,
                   'deleted': deleted}
-        if self.db_file == ':memory:':
-            self.merge_items([record])
-            return
-        if not os.path.exists(self.db_file):
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
-        pending_size = 0
-        try:
-            pending_size = os.path.getsize(self.pending_file)
-        except OSError, err:
-            if err.errno != errno.ENOENT:
-                raise
-        if pending_size > PENDING_CAP:
-            self._commit_puts([record])
-        else:
-            with lock_parent_directory(
-                    self.pending_file, self.pending_timeout):
-                with open(self.pending_file, 'a+b') as fp:
-                    # Colons aren't used in base64 encoding; so they are our
-                    # delimiter
-                    fp.write(':')
-                    fp.write(pickle.dumps(
-                        (name, timestamp, size, content_type, etag, deleted),
-                        protocol=PICKLE_PROTOCOL).encode('base64'))
-                    fp.flush()
+        self.merge_items([record])
 
     def is_deleted(self, timestamp=None):
         """
@@ -851,11 +782,6 @@ class ContainerBroker(DatabaseBroker):
         """
         if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             return True
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             row = conn.execute('''
                 SELECT put_timestamp, delete_timestamp, object_count
@@ -878,11 +804,6 @@ class ContainerBroker(DatabaseBroker):
                   reported_put_timestamp, reported_delete_timestamp,
                   reported_object_count, reported_bytes_used, hash, id)
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             return conn.execute('''
                 SELECT account, container, created_at, put_timestamp,
@@ -919,11 +840,6 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: list of object names
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         rv = []
         with self.get() as conn:
             row = conn.execute('''
@@ -960,11 +876,6 @@ class ContainerBroker(DatabaseBroker):
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag)
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         if path is not None:
             prefix = path
             if path:
@@ -1193,17 +1104,16 @@ class AccountBroker(DatabaseBroker):
 
     def _commit_puts(self, item_list=None):
         """Handles commiting rows in .pending files."""
-        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+        pending_file = self.db_file + '.pending'
+        if self.db_file == ':memory:' or not os.path.exists(pending_file):
+            return
+        if not os.path.getsize(pending_file):
+            os.unlink(pending_file)
             return
         if item_list is None:
             item_list = []
-        with lock_parent_directory(self.pending_file, self.pending_timeout):
-            self._preallocate()
-            if not os.path.getsize(self.pending_file):
-                if item_list:
-                    self.merge_items(item_list)
-                return
-            with open(self.pending_file, 'r+b') as fp:
+        with lock_parent_directory(pending_file, PENDING_COMMIT_TIMEOUT):
+            with open(pending_file, 'r+b') as fp:
                 for entry in fp.read().split(':'):
                     if entry:
                         try:
@@ -1219,11 +1129,11 @@ class AccountBroker(DatabaseBroker):
                         except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
-                                {'file': self.pending_file, 'entry': entry})
+                                {'file': pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
-                    os.ftruncate(fp.fileno(), 0)
+                    os.unlink(pending_file)
                 except OSError, err:
                     if err.errno != errno.ENOENT:
                         raise
@@ -1234,11 +1144,6 @@ class AccountBroker(DatabaseBroker):
 
         :returns: True if the database has no active containers.
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             row = conn.execute(
                     'SELECT container_count from account_stat').fetchone()
@@ -1258,7 +1163,6 @@ class AccountBroker(DatabaseBroker):
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
 
-        self._commit_puts()
         with self.get() as conn:
             conn.execute('''
                 DELETE FROM container WHERE
@@ -1286,11 +1190,6 @@ class AccountBroker(DatabaseBroker):
 
         :returns: put_timestamp of the container
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             ret = conn.execute('''
                 SELECT put_timestamp FROM container
@@ -1311,6 +1210,8 @@ class AccountBroker(DatabaseBroker):
         :param object_count: number of objects in the container
         :param bytes_used: number of bytes used by the container
         """
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         if delete_timestamp > put_timestamp and \
                 object_count in (None, '', 0, '0'):
             deleted = 1
@@ -1321,24 +1222,7 @@ class AccountBroker(DatabaseBroker):
                   'object_count': object_count,
                   'bytes_used': bytes_used,
                   'deleted': deleted}
-        if self.db_file == ':memory:':
-            self.merge_items([record])
-            return
-        commit = False
-        with lock_parent_directory(self.pending_file, self.pending_timeout):
-            with open(self.pending_file, 'a+b') as fp:
-                # Colons aren't used in base64 encoding; so they are our
-                # delimiter
-                fp.write(':')
-                fp.write(pickle.dumps(
-                    (name, put_timestamp, delete_timestamp, object_count,
-                     bytes_used, deleted),
-                    protocol=PICKLE_PROTOCOL).encode('base64'))
-                fp.flush()
-                if fp.tell() > PENDING_CAP:
-                    commit = True
-        if commit:
-            self._commit_puts()
+        self.merge_items([record])
 
     def can_delete_db(self, cutoff):
         """
@@ -1346,7 +1230,6 @@ class AccountBroker(DatabaseBroker):
 
         :returns: True if the account can be deleted, False otherwise
         """
-        self._commit_puts()
         with self.get() as conn:
             row = conn.execute('''
                 SELECT status, put_timestamp, delete_timestamp, container_count
@@ -1372,11 +1255,6 @@ class AccountBroker(DatabaseBroker):
         """
         if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             return True
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             row = conn.execute('''
                 SELECT put_timestamp, delete_timestamp, container_count, status
@@ -1401,11 +1279,6 @@ class AccountBroker(DatabaseBroker):
                   delete_timestamp, container_count, object_count,
                   bytes_used, hash, id)
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         with self.get() as conn:
             return conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
@@ -1422,11 +1295,6 @@ class AccountBroker(DatabaseBroker):
 
         :returns: list of container names
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         rv = []
         with self.get() as conn:
             row = conn.execute('''
@@ -1460,11 +1328,6 @@ class AccountBroker(DatabaseBroker):
 
         :returns: list of tuples of (name, object_count, bytes_used, 0)
         """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
         if delimiter and not prefix:
             prefix = ''
         orig_marker = marker
