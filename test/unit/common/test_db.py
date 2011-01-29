@@ -165,14 +165,14 @@ class TestDatabaseBroker(unittest.TestCase):
         try:
             with broker.get() as conn:
                 conn.execute('SELECT 1')
-        except:
+        except Exception:
             got_exc = True
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
         got_exc = False
         try:
             with broker.get() as conn:
                 conn.execute('SELECT 1')
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         def stub(*args, **kwargs):
@@ -186,7 +186,7 @@ class TestDatabaseBroker(unittest.TestCase):
                 conn.execute('INSERT INTO test (one) VALUES ("1")')
                 raise Exception('test')
                 conn.commit()
-        except:
+        except Exception:
             pass
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
         with broker.get() as conn:
@@ -230,7 +230,7 @@ class TestDatabaseBroker(unittest.TestCase):
         try:
             with broker.lock():
                 raise Exception('test')
-        except:
+        except Exception:
             pass
         with broker.lock():
             pass
@@ -548,7 +548,7 @@ class TestContainerBroker(unittest.TestCase):
             with broker.get() as conn:
                 self.assertEquals(first_conn, conn)
                 raise Exception('OMG')
-        except:
+        except Exception:
             pass
         self.assert_(broker.conn == None)
 
@@ -1363,7 +1363,7 @@ class TestAccountBroker(unittest.TestCase):
         try:
             with broker.get() as conn:
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         broker.initialize(normalize_timestamp('1'))
@@ -1384,7 +1384,7 @@ class TestAccountBroker(unittest.TestCase):
             with broker.get() as conn:
                 self.assertEquals(first_conn, conn)
                 raise Exception('OMG')
-        except:
+        except Exception:
             pass
         self.assert_(broker.conn == None)
 

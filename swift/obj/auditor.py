@@ -38,6 +38,7 @@ class ObjectAuditor(Daemon):
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
+        self.log_time = int(conf.get('log_time', 3600))
         self.files_running_time = 0
         self.bytes_running_time = 0
         self.bytes_processed = 0
@@ -46,7 +47,6 @@ class ObjectAuditor(Daemon):
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
-        self.log_time = 3600  # once an hour
 
     def run_forever(self):
         """Run the object audit until stopped."""

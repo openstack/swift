@@ -32,7 +32,7 @@ GRACEFUL_SHUTDOWN_SERVERS = ['account-server', 'container-server',
 MAX_DESCRIPTORS = 32768
 MAX_MEMORY = (1024 * 1024 * 1024) * 2 # 2 GB
 
-_, server, command = sys.argv
+_junk, server, command = sys.argv
 if server == 'all':
     servers = ALL_SERVERS
 else:
@@ -155,7 +155,7 @@ def do_stop(server, graceful=False):
         except OSError:
             pass
     for pid_file, pid in pfiles:
-        for _ in xrange(150): # 15 seconds
+        for _junk in xrange(150):  # 15 seconds
             if not os.path.exists('/proc/%s' % pid):
                 break
             time.sleep(0.1)

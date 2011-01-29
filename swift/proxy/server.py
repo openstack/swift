@@ -29,8 +29,9 @@ from urllib import unquote, quote
 import uuid
 import functools
 from hashlib import md5
+from random import shuffle
 
-from eventlet import sleep
+from eventlet import sleep, TimeoutError
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -383,7 +384,7 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
         if self.app.memcache and result_code in (200, 404):
@@ -461,7 +462,7 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Container'),
                     _('Trying to get container info for %s') % path)
         if self.app.memcache and result_code in (200, 404):
@@ -592,7 +593,7 @@ class Controller(object):
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
                     source = conn.getresponse()
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
@@ -624,7 +625,7 @@ class Controller(object):
                     except GeneratorExit:
                         res.client_disconnect = True
                         self.app.logger.info(_('Client disconnected on read'))
-                    except:
+                    except (Exception, TimeoutError):
                         self.exception_occurred(node, _('Object'),
                             _('Trying to read during GET of %s') % req.path)
                         raise
@@ -691,7 +692,7 @@ class ObjectController(Controller):
                         _('ERROR %(status)d %(body)s From Object Server') %
                         {'status': response.status, 'body': body[:1024]})
                 return response.status, response.reason, body
-        except:
+        except (Exception, TimeoutError):
             self.exception_occurred(node, _('Object'),
                 _('Trying to %(method)s %(path)s') %
                 {'method': req.method, 'path': req.path})
@@ -707,6 +708,7 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
+        shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
@@ -998,7 +1000,7 @@ class ObjectController(Controller):
                         conn.node = node
                     with Timeout(self.app.node_timeout):
                         resp = conn.getexpect()
-                except:
+                except (Exception, TimeoutError):
                     self.exception_occurred(node, _('Object'),
                         _('Expect: 100-continue on %s') % req.path)
             if conn and resp:
@@ -1038,7 +1040,7 @@ class ObjectController(Controller):
                                 conn.send('%x\r\n%s\r\n' % (len_chunk, chunk))
                             else:
                                 conn.send(chunk)
-                    except:
+                    except (Exception, TimeoutError):
                         self.exception_occurred(conn.node, _('Object'),
                             _('Trying to write to %s') % req.path)
                         conns.remove(conn)
@@ -1055,7 +1057,7 @@ class ObjectController(Controller):
             self.app.logger.info(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
-        except:
+        except Exception:
             req.client_disconnect = True
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
@@ -1083,7 +1085,7 @@ class ObjectController(Controller):
                             'body': bodies[-1][:1024], 'path': req.path})
                     elif 200 <= response.status < 300:
                         etags.add(response.getheader('etag').strip('"'))
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
@@ -1294,7 +1296,7 @@ class ContainerController(Controller):
                         if source.status == 507:
                             self.error_limit(node)
                         accounts.insert(0, account)
-            except:
+            except (Exception, TimeoutError):
                 accounts.insert(0, account)
                 self.exception_occurred(node, _('Container'),
                     _('Trying to PUT to %s') % req.path)
@@ -1350,7 +1352,7 @@ class ContainerController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Container'),
                     _('Trying to POST %s') % req.path)
             if len(statuses) >= len(containers):
@@ -1406,7 +1408,7 @@ class ContainerController(Controller):
                         if source.status == 507:
                             self.error_limit(node)
                         accounts.insert(0, account)
-            except:
+            except (Exception, TimeoutError):
                 accounts.insert(0, account)
                 self.exception_occurred(node, _('Container'),
                     _('Trying to DELETE %s') % req.path)
@@ -1491,7 +1493,7 @@ class AccountController(Controller):
                     else:
                         if source.status == 507:
                             self.error_limit(node)
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to PUT to %s') % req.path)
             if len(statuses) >= len(accounts):
@@ -1539,7 +1541,7 @@ class AccountController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to POST %s') % req.path)
             if len(statuses) >= len(accounts):
@@ -1584,7 +1586,7 @@ class AccountController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to DELETE %s') % req.path)
             if len(statuses) >= len(accounts):
@@ -1685,7 +1687,7 @@ class BaseApplication(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except:
+        except Exception:
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
             start_response('500 Server Error',

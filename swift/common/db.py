@@ -269,7 +269,7 @@ class DatabaseBroker(object):
             yield conn
             conn.rollback()
             self.conn = conn
-        except:
+        except Exception:
             conn.close()
             raise
 
@@ -288,13 +288,13 @@ class DatabaseBroker(object):
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
-        except:
+        except Exception:
             pass
         try:
             conn.execute('ROLLBACK')
             conn.isolation_level = orig_isolation_level
             self.conn = conn
-        except:     # pragma: no cover
+        except Exception:
             logging.exception(
                 _('Broker error trying to rollback locked connection'))
             conn.close()
@@ -749,7 +749,7 @@ class ContainerBroker(DatabaseBroker):
                                 timestamp, 'size': size, 'content_type':
                                 content_type, 'etag': etag,
                                 'deleted': deleted})
-                        except:
+                        except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
                                 {'file': self.pending_file, 'entry': entry})
@@ -932,7 +932,7 @@ class ContainerBroker(DatabaseBroker):
             if not row:
                 return []
             max_rowid = row['ROWID']
-            for _ in xrange(min(max_count, max_rowid)):
+            for _junk in xrange(min(max_count, max_rowid)):
                 row = conn.execute('''
                     SELECT name FROM object WHERE ROWID >= ? AND +deleted = 0
                     LIMIT 1
@@ -1216,7 +1216,7 @@ class AccountBroker(DatabaseBroker):
                                       'object_count': object_count,
                                       'bytes_used': bytes_used,
                                       'deleted': deleted})
-                        except:
+                        except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
                                 {'file': self.pending_file, 'entry': entry})
@@ -1435,7 +1435,7 @@ class AccountBroker(DatabaseBroker):
             if not row:
                 return []
             max_rowid = row['ROWID']
-            for _ in xrange(min(max_count, max_rowid)):
+            for _junk in xrange(min(max_count, max_rowid)):
                 row = conn.execute('''
                     SELECT name FROM container WHERE
                     ROWID >= ? AND +deleted = 0

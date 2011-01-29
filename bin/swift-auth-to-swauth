@@ -25,8 +25,9 @@ if __name__ == '__main__':
     gettext.install('swift', unicode=1)
     if len(argv) != 4 or argv[1] != '-K':
         exit('Syntax: %s -K <super_admin_key> <path to auth.db>' % argv[0])
-    _, _, super_admin_key, auth_db = argv
-    call(['swauth-prep', '-K', super_admin_key])
+    _junk, _junk, super_admin_key, auth_db = argv
+    # This version will not attempt to prep swauth
+    # call(['swauth-prep', '-K', super_admin_key])
     conn = sqlite3.connect(auth_db)
     for account, cfaccount, user, password, admin, reseller_admin in \
             conn.execute('SELECT account, cfaccount, user, password, admin, '
@@ -39,7 +40,8 @@ if __name__ == '__main__':
             cmd.append('-r')
         cmd.extend([account, user, password])
         print ' '.join(cmd)
-        call(cmd)
+	# For this version, the script will only print out the commands
+        # call(cmd)
     print '----------------------------------------------------------------'
     print ' Assuming the above worked perfectly, you should copy and paste '
     print ' those lines into your ~/bin/recreateaccounts script.'

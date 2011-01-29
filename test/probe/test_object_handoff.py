@@ -95,7 +95,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Previously downed object server had test object')
@@ -119,7 +119,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff object server still had test object')
@@ -134,7 +134,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff server claimed it had the object when '
@@ -171,7 +171,7 @@ class TestObjectHandoff(unittest.TestCase):
         exc = False
         try:
             client.head_object(self.url, self.token, container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Regular object HEAD was still successful')
@@ -209,7 +209,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff object server still had the object')

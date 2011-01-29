@@ -32,8 +32,8 @@ To add this middleware to your configuration, add the swift3 middleware
 in front of the auth middleware, and before any other middleware that
 look at swift requests (like rate limiting).
 
-To set up your client, the access key will be the account string that
-should look like AUTH_d305e9dbedbc47df8b25ab46f3152f81, and the
+To set up your client, the access key will be the concatenation of the
+account and user strings that should look like test:tester, and the
 secret access key is the account password.  The host should also point
 to the swift storage hostname.  It also will have to use the old style
 calling format, and not the hostname based container format.
@@ -42,7 +42,7 @@ An example client using the python boto library might look like the
 following for an SAIO setup::
 
     connection = boto.s3.Connection(
-        aws_access_key_id='AUTH_d305e9dbedbc47df8b25ab46f3152f81',
+        aws_access_key_id='test:tester',
         aws_secret_access_key='testing',
         port=8080,
         host='127.0.0.1',
@@ -139,11 +139,9 @@ class ServiceController(Controller):
                 return get_err_response('InvalidURI')
 
         containers = loads(''.join(list(body_iter)))
-        resp = Response(content_type='text/xml')
-        resp.status = 200
         # we don't keep the creation time of a backet (s3cmd doesn't
         # work without that) so we use something bogus.
-        resp.body = '<?xml version="1.0" encoding="UTF-8"?>' \
+        body = '<?xml version="1.0" encoding="UTF-8"?>' \
             '<ListAllMyBucketsResult ' \
               'xmlns="http://doc.s3.amazonaws.com/2006-03-01">' \
             '<Buckets>%s</Buckets>' \
@@ -151,6 +149,7 @@ class ServiceController(Controller):
             % ("".join(['<Bucket><Name>%s</Name><CreationDate>' \
                          '2009-02-03T16:45:09.000Z</CreationDate></Bucket>' %
                          xml_escape(i['name']) for i in containers]))
+        resp = Response(status=200, content_type='text/xml', body=body)
         return resp
 
 
@@ -400,11 +399,12 @@ class Swift3Middleware(object):
                 h += header.lower() + ":" + str(req.headers[header]) + "\n"
         h += req.path
         try:
-            account, _ = req.headers['Authorization'].split(' ')[-1].split(':')
-        except:
+            account, user, _junk = \
+                req.headers['Authorization'].split(' ')[-1].split(':')
+        except Exception:
             return None, None
         token = base64.urlsafe_b64encode(h)
-        return account, token
+        return '%s:%s' % (account, user), token
 
     def __call__(self, env, start_response):
         req = Request(env)

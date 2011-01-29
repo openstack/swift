@@ -89,7 +89,7 @@ if __name__ == '__main__':
     c = ConfigParser()
     try:
         conf_path = sys.argv[1]
-    except:
+    except Exception:
         print "Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1]
         sys.exit(1)
     if not c.read(conf_path):
