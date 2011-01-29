@@ -127,7 +127,7 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
     """
     # retry logic to address:
     # http://www.mail-archive.com/sqlite-users@sqlite.org/msg57092.html
-    for tries in xrange(1, CONNECT_ATTEMPTS + 1):
+    for attempt in xrange(CONNECT_ATTEMPTS):
         try:
             connect_time = time.time()
             conn = sqlite3.connect(path, check_same_thread=False,
@@ -139,19 +139,18 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
                     os.unlink(path)
                     raise DatabaseConnectionError(path,
                         'DB file created by connect?')
+            conn.execute('PRAGMA journal_mode = WAL')
             conn.execute('PRAGMA synchronous = NORMAL')
+            conn.execute('PRAGMA wal_autocheckpoint = %s' % AUTOCHECKPOINT)
             conn.execute('PRAGMA count_changes = OFF')
             conn.execute('PRAGMA temp_store = MEMORY')
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA wal_autocheckpoint = %s' % AUTOCHECKPOINT)
             conn.create_function('chexor', 3, chexor)
             conn.row_factory = sqlite3.Row
             conn.text_factory = str
             return conn
         except sqlite3.DatabaseError, e:
-            if tries == CONNECT_ATTEMPTS or 'locking protocol' not in str(e):
-                raise DatabaseConnectionError(path, traceback.format_exc(),
-                        timeout=timeout)
+            errstr = traceback.format_exc()
+    raise DatabaseConnectionError(path, errstr, timeout=timeout)
 
 
 class DatabaseBroker(object):
