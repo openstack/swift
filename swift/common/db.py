@@ -157,11 +157,10 @@ class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
-                 account=None, container=None, stale_reads_ok=False):
+                 account=None, container=None):
         """ Encapsulates working with a database. """
         self.conn = None
         self.db_file = db_file
-        self.stale_reads_ok = stale_reads_ok
         self.db_dir = os.path.dirname(db_file)
         self.timeout = timeout
         self.logger = logger or logging.getLogger()

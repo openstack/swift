@@ -318,7 +318,7 @@ class Replicator(Daemon):
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         try:
-            broker = self.brokerclass(object_file, pending_timeout=30)
+            broker = self.brokerclass(object_file)
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
