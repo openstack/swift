@@ -44,6 +44,7 @@ BROKER_TIMEOUT = 25
 PICKLE_PROTOCOL = 2
 CONNECT_ATTEMPTS = 4
 PENDING_COMMIT_TIMEOUT = 900
+AUTOCHECKPOINT = 8192
 
 
 class DatabaseConnectionError(sqlite3.DatabaseError):
@@ -142,6 +143,7 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
             conn.execute('PRAGMA count_changes = OFF')
             conn.execute('PRAGMA temp_store = MEMORY')
             conn.execute('PRAGMA journal_mode = WAL')
+            conn.execute('PRAGMA wal_autocheckpoint = %s' % AUTOCHECKPOINT)
             conn.create_function('chexor', 3, chexor)
             conn.row_factory = sqlite3.Row
             conn.text_factory = str
