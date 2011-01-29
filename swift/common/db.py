@@ -288,6 +288,7 @@ class DatabaseBroker(object):
         self.conn = None
         orig_isolation_level = conn.isolation_level
         conn.isolation_level = None
+        conn.execute('PRAGMA journal_mode = DELETE') # remove any journal files
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
@@ -295,6 +296,7 @@ class DatabaseBroker(object):
             pass
         try:
             conn.execute('ROLLBACK')
+            conn.execute('PRAGMA journal_mode = WAL') # back to WAL mode
             conn.isolation_level = orig_isolation_level
             self.conn = conn
         except Exception:
