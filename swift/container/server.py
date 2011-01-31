@@ -24,6 +24,7 @@ from datetime import datetime
 
 import simplejson
 from eventlet.timeout import Timeout
+from eventlet import TimeoutError
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, \
@@ -118,7 +119,7 @@ class ContainerController(object):
                              'device': account_device,
                              'status': account_response.status,
                              'reason': account_response.reason})
-            except:
+            except (Exception, TimeoutError):
                 self.logger.exception(_('ERROR account update failed with '
                     '%(ip)s:%(port)s/%(device)s (will retry later)'),
                     {'ip': account_ip, 'port': account_port,
@@ -393,7 +394,7 @@ class ContainerController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except:
+            except Exception:
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())

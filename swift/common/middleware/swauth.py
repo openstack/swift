@@ -23,8 +23,12 @@ from traceback import format_exc
 from urllib import quote, unquote
 from urlparse import urlparse
 from uuid import uuid4
+from hashlib import md5, sha1
+import hmac
+import base64
 
 from eventlet.timeout import Timeout
+from eventlet import TimeoutError
 from webob import Response, Request
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPForbidden, HTTPNoContent, HTTPNotFound, \
@@ -123,8 +127,9 @@ class Swauth(object):
             env['HTTP_X_CF_TRANS_ID'] = 'tx' + str(uuid4())
         if env.get('PATH_INFO', '').startswith(self.auth_prefix):
             return self.handle(env, start_response)
+        s3 = env.get('HTTP_AUTHORIZATION')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
-        if token and token.startswith(self.reseller_prefix):
+        if s3 or (token and token.startswith(self.reseller_prefix)):
             # Note: Empty reseller_prefix will match all tokens.
             groups = self.get_groups(env, token)
             if groups:
@@ -132,7 +137,8 @@ class Swauth(object):
                 user = groups and groups.split(',', 1)[0] or ''
                 # We know the proxy logs the token, so we augment it just a bit
                 # to also log the authenticated user.
-                env['HTTP_X_AUTH_TOKEN'] = '%s,%s' % (user, token)
+                env['HTTP_X_AUTH_TOKEN'] = \
+                    '%s,%s' % (user, 's3' if s3 else token)
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
             else:
@@ -192,6 +198,43 @@ class Swauth(object):
                 expires, groups = cached_auth_data
                 if expires < time():
                     groups = None
+
+        if env.get('HTTP_AUTHORIZATION'):
+            account = env['HTTP_AUTHORIZATION'].split(' ')[1]
+            account, user, sign = account.split(':')
+            path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
+            resp = self.make_request(env, 'GET', path).get_response(self.app)
+            if resp.status_int // 100 != 2:
+                return None
+
+            if 'x-object-meta-account-id' in resp.headers:
+                account_id = resp.headers['x-object-meta-account-id']
+            else:
+                path = quote('/v1/%s/%s' % (self.auth_account, account))
+                resp2 = self.make_request(env, 'HEAD',
+                                          path).get_response(self.app)
+                if resp2.status_int // 100 != 2:
+                    return None
+                account_id = resp2.headers['x-container-meta-account-id']
+
+            path = env['PATH_INFO']
+            env['PATH_INFO'] = path.replace("%s:%s" % (account, user),
+                                            account_id, 1)
+            detail = json.loads(resp.body)
+
+            password = detail['auth'].split(':')[-1]
+            msg = base64.urlsafe_b64decode(unquote(token))
+            s = base64.encodestring(hmac.new(detail['auth'].split(':')[-1],
+                                             msg, sha1).digest()).strip()
+            if s != sign:
+                return None
+            groups = [g['name'] for g in detail['groups']]
+            if '.admin' in groups:
+                groups.remove('.admin')
+                groups.append(account_id)
+            groups = ','.join(groups)
+            return groups
+
         if not groups:
             path = quote('/v1/%s/.token_%s/%s' %
                          (self.auth_account, token[-1], token))
@@ -283,7 +326,7 @@ class Swauth(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except:
+        except (Exception, TimeoutError):
             print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])
@@ -299,8 +342,8 @@ class Swauth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _ = split_path(req.path_info, minsegs=1,
-                                                maxsegs=4, rest_with_last=True)
+            version, account, user, _junk = split_path(req.path_info,
+                minsegs=1, maxsegs=4, rest_with_last=True)
         except ValueError:
             return HTTPNotFound(request=req)
         if version in ('v1', 'v1.0', 'auth'):
@@ -589,7 +632,7 @@ class Swauth(object):
             if resp.status // 100 != 2:
                 raise Exception('Could not create account on the Swift '
                     'cluster: %s %s %s' % (path, resp.status, resp.reason))
-        except:
+        except (Exception, TimeoutError):
             self.logger.error(_('ERROR: Exception while trying to communicate '
                 'with %(scheme)s://%(host)s:%(port)s/%(path)s'),
                 {'scheme': self.dsc_parsed2.scheme,
@@ -839,6 +882,15 @@ class Swauth(object):
                 return HTTPForbidden(request=req)
         elif not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
+
+        path = quote('/v1/%s/%s' % (self.auth_account, account))
+        resp = self.make_request(req.environ, 'HEAD',
+                                 path).get_response(self.app)
+        if resp.status_int // 100 != 2:
+            raise Exception('Could not retrieve account id value: %s %s' %
+                            (path, resp.status))
+        headers = {'X-Object-Meta-Account-Id':
+                        resp.headers['x-container-meta-account-id']}
         # Create the object in the main auth account (this object represents
         # the user)
         path = quote('/v1/%s/%s/%s' % (self.auth_account, account, user))
@@ -847,9 +899,10 @@ class Swauth(object):
             groups.append('.admin')
         if reseller_admin:
             groups.append('.reseller_admin')
-        resp = self.make_request(req.environ, 'PUT', path, json.dumps({'auth':
-            'plaintext:%s' % key,
-            'groups': [{'name': g} for g in groups]})).get_response(self.app)
+        resp = self.make_request(req.environ, 'PUT', path,
+            json.dumps({'auth': 'plaintext:%s' % key,
+                        'groups': [{'name': g} for g in groups]}),
+            headers=headers).get_response(self.app)
         if resp.status_int == 404:
             return HTTPNotFound(request=req)
         if resp.status_int // 100 != 2:

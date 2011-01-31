@@ -273,14 +273,15 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except:
+        except Exception:
             already_processed_files = set()
         self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,
                                                        lookback_end,
                                                        already_processed_files)
-        self.logger.info(_('loaded %d files to process') % len(logs_to_process))
+        self.logger.info(_('loaded %d files to process') %
+                         len(logs_to_process))
         if not logs_to_process:
             self.logger.info(_("Log processing done (%0.2f minutes)") %
                         ((time.time() - start) / 60))
@@ -365,7 +366,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
     results = []
     in_queue = multiprocessing.Queue()
     out_queue = multiprocessing.Queue()
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         p = multiprocessing.Process(target=collate_worker,
                                     args=(processor_args,
                                           in_queue,
@@ -374,7 +375,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
         results.append(p)
     for x in logs_to_process:
         in_queue.put(x)
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         in_queue.put(None)
     count = 0
     while True:

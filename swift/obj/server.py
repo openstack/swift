@@ -33,7 +33,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
-from eventlet import sleep, Timeout, tpool
+from eventlet import sleep, Timeout, TimeoutError, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
@@ -315,7 +315,7 @@ class ObjectController(object):
                         'response from %(ip)s:%(port)s/%(dev)s'),
                         {'status': response.status, 'ip': ip, 'port': port,
                          'dev': contdevice})
-        except:
+        except (Exception, TimeoutError):
             self.logger.exception(_('ERROR container update failed with '
                 '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
                 {'ip': ip, 'port': port, 'dev': contdevice})
@@ -577,7 +577,7 @@ class ObjectController(object):
         if suffix:
             recalculate_hashes(path, suffix.split('-'))
             return Response()
-        _, hashes = get_hashes(path, do_listdir=False)
+        _junk, hashes = get_hashes(path, do_listdir=False)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):
@@ -593,7 +593,7 @@ class ObjectController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except:
+            except Exception:
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())

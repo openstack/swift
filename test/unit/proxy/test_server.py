@@ -60,15 +60,8 @@ def setup():
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
     # proxy_server.Application we couldn't get to easily otherwise.
-    path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-    if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-        print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-            'pointing to a valid directory.\n' \
-            'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-            'system for testing.'
-        raise SkipTest
     _testdir = \
-        os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
+        os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
     rmtree(_testdir)
     mkdirs(os.path.join(_testdir, 'sda1'))
@@ -149,7 +142,7 @@ def teardown():
     for server in _test_coros:
         server.kill()
     proxy_server.CONTAINER_LISTING_LIMIT = _orig_container_listing_limit
-    rmtree(_testdir)
+    rmtree(os.path.dirname(_testdir))
 
 
 def fake_http_connect(*code_iter, **kwargs):
@@ -290,7 +283,7 @@ class FakeMemcache(object):
     def delete(self, key):
         try:
             del self.store[key]
-        except:
+        except Exception:
             pass
         return True
 
@@ -529,6 +522,7 @@ class TestObjectController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
             account_ring=FakeRing(), container_ring=FakeRing(),
             object_ring=FakeRing())
+        monkey_patch_mimetools()
 
 
     def tearDown(self):
@@ -1157,7 +1151,7 @@ class TestObjectController(unittest.TestCase):
             self.assert_status_map(controller.HEAD, (503, 200, 200), 200)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.object_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (503, 503, 503), 503)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'],
                               self.app.error_suppression_limit + 1)
@@ -1642,7 +1636,6 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
 
     def test_chunked_put(self):
-        # quick test of chunked put w/o PATH_TO_TEST_XFS
 
         class ChunkedFile():
 
@@ -2593,7 +2586,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(
                 controller.app.container_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.container_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD,
                                        (200, 503, 503, 503), 503)
             self.assertEquals(controller.app.container_ring.devs[0]['errors'],
@@ -3436,5 +3429,7 @@ class TestSegmentedIterable(unittest.TestCase):
 
 if __name__ == '__main__':
     setup()
-    unittest.main()
-    teardown()
+    try:
+        unittest.main()
+    finally:
+        teardown()

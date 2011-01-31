@@ -7,6 +7,10 @@
 # user = swift
 # cert_file = /etc/swift/proxy.crt
 # key_file = /etc/swift/proxy.key
+# You can specify default log routing here if you want:
+# log_name = swift
+# log_facility = LOG_LOCAL0
+# log_level = INFO
 
 [pipeline:main]
 # For DevAuth:
@@ -16,10 +20,11 @@ pipeline = catch_errors healthcheck cache ratelimit auth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
-# log_name = proxy-server
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_headers = False
+# You can override the default log routing for this app here:
+# set log_name = proxy-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # recheck_account_existence = 60
 # recheck_container_existence = 60
 # object_chunk_size = 8192
@@ -40,6 +45,11 @@ use = egg:swift#proxy
 # Only needed for DevAuth
 [filter:auth]
 use = egg:swift#auth
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # The reseller prefix will verify a token begins with this prefix before even
 # attempting to validate it with the external authentication server. Also, with
 # authorization, only Swift storage accounts with this prefix will be
@@ -55,10 +65,11 @@ use = egg:swift#auth
 # Only needed for Swauth
 [filter:swauth]
 use = egg:swift#swauth
-# log_name = auth-server
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_headers = False
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # The reseller prefix will verify a token begins with this prefix before even
 # attempting to validate it. Also, with authorization, only Swift storage
 # accounts with this prefix will be authorized by this middleware. Useful if
@@ -83,15 +94,30 @@ super_admin_key = swauthkey
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 
 [filter:cache]
 use = egg:swift#memcache
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # Default for memcache_servers is below, but you can specify multiple servers
 # with the format: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211
 
 [filter:ratelimit]
 use = egg:swift#ratelimit
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # clock_accuracy should represent how accurate the proxy servers' system clocks
 # are with each other. 1000 means that all the proxies' clock are accurate to
 # each other within 1 millisecond.  No ratelimit should be higher than the
@@ -100,6 +126,8 @@ use = egg:swift#ratelimit
 # max_sleep_time_seconds = 60
 # log_sleep_time_seconds of 0 means disabled
 # log_sleep_time_seconds = 0
+# allows for slow rates (e.g. running up to 5 sec's behind) to catch up.
+# rate_buffer_seconds = 5
 # account_ratelimit of 0 means disabled
 # account_ratelimit = 0
 
@@ -117,14 +145,30 @@ use = egg:swift#ratelimit
 
 [filter:domain_remap]
 use = egg:swift#domain_remap
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # storage_domain = example.com
 # path_root = v1
+# reseller_prefixes = AUTH
 
 [filter:catch_errors]
 use = egg:swift#catch_errors
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 
 [filter:cname_lookup]
 # Note: this middleware requires python-dnspython
 use = egg:swift#cname_lookup
+# You can override the default log routing for this filter here:
+# set log_name = auth-server
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = False
 # storage_domain = example.com
 # lookup_depth = 1

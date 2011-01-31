@@ -107,7 +107,7 @@ class TestUtils(unittest.TestCase):
         testroot = os.path.join(os.path.dirname(__file__), 'mkdirs')
         try:
             os.unlink(testroot)
-        except:
+        except Exception:
             pass
         rmtree(testroot, ignore_errors=1)
         self.assert_(not os.path.exists(testroot))
@@ -211,14 +211,14 @@ class TestUtils(unittest.TestCase):
         try:
             for line in lfo:
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         got_exc = False
         try:
             for line in lfo.xreadlines():
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         self.assertRaises(IOError, lfo.read)
@@ -456,15 +456,6 @@ log_name = yarr'''
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(25 - (time.time() - start) * 100) < 10)
 
-    def test_ratelimit_sleep_with_sleep(self):
-        running_time = 0
-        start = time.time()
-        for i in range(25):
-            running_time = utils.ratelimit_sleep(running_time, 50)
-            time.sleep(1.0 / 75)
-        # make sure its accurate to 10th of a second
-        self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
-
     def test_ratelimit_sleep_with_incr(self):
         running_time = 0
         start = time.time()
@@ -476,6 +467,17 @@ log_name = yarr'''
                                                  500, incr_by=i)
             total += i
         self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
+
+    def test_ratelimit_sleep_with_sleep(self):
+        running_time = 0
+        start = time.time()
+        sleeps = [0] * 7 + [.2] * 3 + [0] * 30
+        for i in sleeps:
+            running_time = utils.ratelimit_sleep(running_time, 40,
+                                                 rate_buffer=1)
+            time.sleep(i)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
 
 if __name__ == '__main__':

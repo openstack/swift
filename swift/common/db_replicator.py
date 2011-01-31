@@ -21,7 +21,7 @@ import math
 import time
 import shutil
 
-from eventlet import GreenPool, sleep, Timeout
+from eventlet import GreenPool, sleep, Timeout, TimeoutError
 from eventlet.green import subprocess
 import simplejson
 from webob import Response
@@ -79,7 +79,7 @@ class ReplConnection(BufferedHTTPConnection):
             response = self.getresponse()
             response.data = response.read()
             return response
-        except:
+        except Exception:
             self.logger.exception(
                 _('ERROR reading HTTP response from %s'), self.node)
             return None
@@ -359,7 +359,7 @@ class Replicator(Daemon):
             except DriveNotMounted:
                 repl_nodes.append(more_nodes.next())
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
-            except:
+            except (Exception, TimeoutError):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
                         ' %(node)s'), {'file': object_file, 'node': node})
             self.stats['success' if success else 'failure'] += 1
@@ -432,7 +432,7 @@ class Replicator(Daemon):
         while True:
             try:
                 self.run_once()
-            except:
+            except (Exception, TimeoutError):
                 self.logger.exception(_('ERROR trying to replicate'))
             sleep(self.run_pause)
 

@@ -229,7 +229,7 @@ class AccountReaper(Daemon):
                 if not containers:
                     break
                 try:
-                    for (container, _, _, _) in containers:
+                    for (container, _junk, _junk, _junk) in containers:
                         self.container_pool.spawn(self.reap_container, account,
                                                   partition, nodes, container)
                     self.container_pool.waitall()

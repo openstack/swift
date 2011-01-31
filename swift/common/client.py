@@ -76,7 +76,7 @@ except ImportError:
                 res = []
                 consts = {'true': True, 'false': False, 'null': None}
                 string = '(' + comments.sub('', string) + ')'
-                for type, val, _, _, _ in \
+                for type, val, _junk, _junk, _junk in \
                         generate_tokens(StringIO(string).readline):
                     if (type == OP and val not in '[]{}:,()-') or \
                             (type == NAME and val not in consts):
@@ -87,7 +87,7 @@ except ImportError:
                     else:
                         res.append(val)
                 return eval(''.join(res), {}, consts)
-            except:
+            except Exception:
                 raise AttributeError()
 
 
