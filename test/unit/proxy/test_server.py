@@ -2608,8 +2608,8 @@ class TestContainerController(unittest.TestCase):
                                                           'container')
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 204, 204), 204)
-#            self.assert_status_map(controller.DELETE,
-#                                   (200, 204, 204, 503), 503)
+            self.assert_status_map(controller.DELETE,
+                                   (200, 204, 204, 503), 204)
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 503, 503), 503)
             self.assert_status_map(controller.DELETE,

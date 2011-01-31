@@ -502,7 +502,7 @@ class Controller(object):
                     conn.node = node
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    if 200 <= resp.status < 300 or 400 <= resp.status < 500:
+                    if 200 <= resp.status < 500:
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == 507:
                         self.error_limit(node)
