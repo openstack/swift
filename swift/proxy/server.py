@@ -1607,7 +1607,7 @@ class BaseApplication(object):
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
         if logger is None:
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='proxy-server')
         else:
             self.logger = logger
         if conf is None:

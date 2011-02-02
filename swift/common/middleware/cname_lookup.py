@@ -53,7 +53,7 @@ class CNAMELookupMiddleware(object):
             self.storage_domain = '.' + self.storage_domain
         self.lookup_depth = int(conf.get('lookup_depth', '1'))
         self.memcache = None
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='cname-lookup')
 
     def __call__(self, env, start_response):
         if not self.storage_domain:

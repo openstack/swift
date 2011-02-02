@@ -113,7 +113,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         logger = kwargs.pop('logger')
     else:
         logger = get_logger(conf, log_name,
-                            log_to_console=kwargs.pop('verbose', False))
+            log_to_console=kwargs.pop('verbose', False), log_route='wsgi')
 
     # redirect errors to logger and close stdio
     capture_stdio(logger)

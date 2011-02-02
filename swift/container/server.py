@@ -49,7 +49,7 @@ class ContainerController(object):
     save_headers = ['x-container-read', 'x-container-write']
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')

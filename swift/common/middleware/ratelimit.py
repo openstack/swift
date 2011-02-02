@@ -39,7 +39,7 @@ class RateLimitMiddleware(object):
         if logger:
             self.logger = logger
         else:
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='ratelimit')
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = \
             float(conf.get('max_sleep_time_seconds', 60))
