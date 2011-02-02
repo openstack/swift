@@ -410,28 +410,34 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None):
     else:
         logger = logging.getLogger(log_route)
         logger.propagate = False
-    if not hasattr(get_logger, 'handlers'):
-        get_logger.handlers = {}
+    if not hasattr(get_logger, 'handler4facility'):
+        get_logger.handler4facility = {}
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
                        SysLogHandler.LOG_LOCAL0)
-    if facility in get_logger.handlers:
-        logger.removeHandler(get_logger.handlers[facility])
-        get_logger.handlers[facility].close()
-        del get_logger.handlers[facility]
+    if facility in get_logger.handler4facility:
+        logger.removeHandler(get_logger.handler4facility[facility])
+        get_logger.handler4facility[facility].close()
+        del get_logger.handler4facility[facility]
     if log_to_console:
         # check if a previous call to get_logger already added a console logger
         if hasattr(get_logger, 'console') and get_logger.console:
             logger.removeHandler(get_logger.console)
         get_logger.console = logging.StreamHandler(sys.__stderr__)
         logger.addHandler(get_logger.console)
-    get_logger.handlers[facility] = \
+    get_logger.handler4facility[facility] = \
         SysLogHandler(address='/dev/log', facility=facility)
-    logger.addHandler(get_logger.handlers[facility])
+    if not hasattr(get_logger, 'handler4logger'):
+        get_logger.handler4logger = {}
+    if logger in get_logger.handler4logger:
+        logger.removeHandler(get_logger.handler4logger[logger])
+    get_logger.handler4logger[logger] = \
+        get_logger.handler4facility[facility]
+    logger.addHandler(get_logger.handler4facility[facility])
     logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
     adapted_logger = LogAdapter(logger)
     formatter = NamedFormatter(name, adapted_logger)
-    get_logger.handlers[facility].setFormatter(formatter)
+    get_logger.handler4facility[facility].setFormatter(formatter)
     if hasattr(get_logger, 'console'):
         get_logger.console.setFormatter(formatter)
     return adapted_logger
