@@ -409,6 +409,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None):
         logger = logging.getLogger()
     else:
         logger = logging.getLogger(log_route)
+        logger.propagate = False
     if not hasattr(get_logger, 'handlers'):
         get_logger.handlers = {}
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
