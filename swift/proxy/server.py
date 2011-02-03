@@ -624,7 +624,7 @@ class Controller(object):
                             res.bytes_transferred += len(chunk)
                     except GeneratorExit:
                         res.client_disconnect = True
-                        self.app.logger.info(_('Client disconnected on read'))
+                        self.app.logger.warn(_('Client disconnected on read'))
                     except (Exception, TimeoutError):
                         self.exception_occurred(node, _('Object'),
                             _('Trying to read during GET of %s') % req.path)
@@ -1054,7 +1054,7 @@ class ObjectController(Controller):
                 if req.headers.get('transfer-encoding') and chunk == '':
                     break
         except ChunkReadTimeout, err:
-            self.app.logger.info(
+            self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
         except Exception:
@@ -1064,7 +1064,7 @@ class ObjectController(Controller):
             return Response(status='499 Client Disconnect')
         if req.content_length and req.bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.info(
+            self.app.logger.warn(
                 _('Client disconnected without sending enough data'))
             return Response(status='499 Client Disconnect')
         statuses = []
