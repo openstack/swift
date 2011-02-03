@@ -303,9 +303,15 @@ Error: unable to locate %s
         logger.warn('test4')
         self.assertEquals(sio.getvalue(),
                           'test1\ntest3\ntest4\n')
+        # make sure debug doesn't log by default
         logger.debug('test5')
         self.assertEquals(sio.getvalue(),
                           'test1\ntest3\ntest4\n')
+        # make sure access lvl logs by default
+        logger.access('test6')
+        self.assertEquals(sio.getvalue(),
+                          'test1\ntest3\ntest4\ntest6\n')
+
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),

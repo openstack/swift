@@ -1790,7 +1790,7 @@ class Application(BaseApplication):
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
             status_int = 499
-        self.logger.info(' '.join(quote(str(x)) for x in (
+        self.logger.access(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',
                 time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),

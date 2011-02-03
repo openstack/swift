@@ -48,6 +48,11 @@ import logging
 logging.thread = eventlet.green.thread
 logging.threading = eventlet.green.threading
 logging._lock = logging.threading.RLock()
+# setup access level logging
+ACCESS = 25
+logging._levelNames[ACCESS] = 'ACCESS'
+# syslog priority "notice" is used for proxy access log lines
+SysLogHandler.priority_map['ACCESS'] = 'notice'
 
 # These are lazily pulled from libc elsewhere
 _sys_fallocate = None
@@ -309,6 +314,16 @@ class LogAdapter(object):
 
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
+
+    def access(self, msg, *args):
+        """
+        Convenience function for proxy access request log level.  Only
+        proxy access log messages should use this method.  The python
+        logging lvl is set to 25, just above info.  SysLogHandler is
+        monkey patched to map this log lvl to the LOG_NOTICE syslog
+        priority.
+        """
+        self.logger.log(ACCESS, msg, *args)
 
     def exception(self, msg, *args):
         _junk, exc, _junk = sys.exc_info()

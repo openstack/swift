@@ -1802,7 +1802,7 @@ class TestObjectController(unittest.TestCase):
 
         class Logger(object):
 
-            def info(self, msg):
+            def access(self, msg):
                 self.msg = msg
 
         orig_logger = prosrv.logger
