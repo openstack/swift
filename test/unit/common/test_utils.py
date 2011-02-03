@@ -501,5 +501,6 @@ log_name = yarr'''
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
+
 if __name__ == '__main__':
     unittest.main()
