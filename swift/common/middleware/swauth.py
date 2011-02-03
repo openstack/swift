@@ -1320,6 +1320,8 @@ class Swauth(object):
         return False
 
     def posthooklogger(self, env, req):
+        if not req.path.startswith(self.auth_prefix):
+            return
         response = getattr(req, 'response', None)
         if not response:
             return

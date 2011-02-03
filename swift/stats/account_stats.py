@@ -21,7 +21,6 @@ import hashlib
 
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
-from swift.common.internal_proxy import InternalProxy
 from swift.common.utils import renamer, get_logger, readconf, mkdirs
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
