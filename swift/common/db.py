@@ -166,7 +166,7 @@ class DatabaseBroker(object):
         self.logger = logger or logging.getLogger()
         self.account = account
         self.container = container
-        self.db_version = -1
+        self._db_version = -1
 
     def initialize(self, put_timestamp=None):
         """
@@ -645,6 +645,15 @@ class ContainerBroker(DatabaseBroker):
         ''', (self.account, self.container, normalize_timestamp(time.time()),
               str(uuid4()), put_timestamp))
 
+    def _get_db_version(self, conn):
+        if self._db_version == -1:
+            self._db_version = 0
+            for row in conn.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE name = 'ix_object_deleted_name' '''):
+                self._db_version = 1
+        return self._db_version
+
     def _newid(self, conn):
         conn.execute('''
             UPDATE container_stat
@@ -813,12 +822,6 @@ class ContainerBroker(DatabaseBroker):
                   reported_object_count, reported_bytes_used, hash, id)
         """
         with self.get() as conn:
-            if self.db_version == -1:
-                self.db_version = 0
-                for row in conn.execute('''
-                        SELECT name FROM sqlite_master
-                        WHERE name = 'ix_object_deleted_name' '''):
-                    self.db_version = 1
             return conn.execute('''
                 SELECT account, container, created_at, put_timestamp,
                     delete_timestamp, object_count, bytes_used,
@@ -913,7 +916,7 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self.db_version < 1:
+                if self._get_db_version(conn) < 1:
                     query += ' +deleted = 0 ORDER BY name LIMIT ?'
                 else:
                     query += ' deleted = 0 ORDER BY name LIMIT ?'
@@ -1093,6 +1096,15 @@ class AccountBroker(DatabaseBroker):
                    put_timestamp = ?
             ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
             put_timestamp))
+
+    def _get_db_version(self, conn):
+        if self._db_version == -1:
+            self._db_version = 0
+            for row in conn.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE name = 'ix_container_deleted_name' '''):
+                self._db_version = 1
+        return self._db_version
 
     def update_put_timestamp(self, timestamp):
         """
@@ -1299,12 +1311,6 @@ class AccountBroker(DatabaseBroker):
                   bytes_used, hash, id)
         """
         with self.get() as conn:
-            if self.db_version == -1:
-                self.db_version = 0
-                for row in conn.execute('''
-                        SELECT name FROM sqlite_master
-                        WHERE name = 'ix_container_deleted_name' '''):
-                    self.db_version = 1
             return conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
                        container_count, object_count, bytes_used, hash, id
@@ -1373,7 +1379,7 @@ class AccountBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self.db_version < 1:
+                if self._get_db_version(conn) < 1:
                     query += ' +deleted = 0 ORDER BY name LIMIT ?'
                 else:
                     query += ' deleted = 0 ORDER BY name LIMIT ?'
