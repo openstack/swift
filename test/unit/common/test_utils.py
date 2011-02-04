@@ -287,7 +287,7 @@ Error: unable to locate %s
 
     def test_get_logger(self):
         sio = StringIO()
-        logger = logging.getLogger()
+        logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
         logger = utils.get_logger(None, 'server')
         logger.warn('test1')

@@ -222,7 +222,7 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
             listing = \
                 get_account(url, token, marker, limit, prefix, http_conn)[1]
             if listing:
-                rv.extend(listing)
+                rv[1].extend(listing)
         return rv
     parsed, conn = http_conn
     qs = 'format=json'
