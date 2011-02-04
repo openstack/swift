@@ -182,6 +182,34 @@ Setting up rsync
 
   #. `service rsync restart`
 
+---------------------------------------------------
+Optional: Setting up rsyslog for individual logging
+---------------------------------------------------
+
+  #. Create /etc/rsyslog.d/10-swift.conf::
+
+      local1.*;local1.!notice -/var/log/swift/proxy.log
+      local1.notice           -/var/log/swift/proxy.error
+      local1.*                ~
+
+      local2.*;local2.!notice -/var/log/swift/storage1.log
+      local2.notice           -/var/log/swift/storage1.error
+      local2.*                ~
+
+      local3.*;local3.!notice -/var/log/swift/storage2.log
+      local3.notice           -/var/log/swift/storage2.error
+      local3.*                ~
+
+      local4.*;local4.!notice -/var/log/swift/storage3.log
+      local4.notice           -/var/log/swift/storage3.error
+      local4.*                ~
+
+      local5.*;local5.!notice -/var/log/swift/storage4.log
+      local5.notice           -/var/log/swift/storage4.error
+      local5.*                ~
+
+  #. `mkdir /var/log/swift`
+  #. `restart rsyslog`
 
 ------------------------------------------------
 Getting the code and setting up test environment
@@ -236,6 +264,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         bind_port = 8080
         user = <your-user-name>
+        log_facility = LOG_LOCAL1
 
         [pipeline:main]
         # For DevAuth:
@@ -276,6 +305,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6012
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = account-server
@@ -297,6 +327,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6022
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = account-server
@@ -318,6 +349,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6032
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = account-server
@@ -339,6 +371,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6042
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = account-server
@@ -360,6 +393,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6011
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = container-server
@@ -381,6 +415,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6021
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = container-server
@@ -402,6 +437,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6031
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = container-server
@@ -423,6 +459,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6041
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = container-server
@@ -445,6 +482,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6010
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = object-server
@@ -466,6 +504,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6020
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = object-server
@@ -487,6 +526,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6030
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = object-server
@@ -508,6 +548,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6040
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = object-server
