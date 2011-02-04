@@ -1430,12 +1430,8 @@ class AccountBroker(DatabaseBroker):
                     SELECT name, put_timestamp, delete_timestamp,
                            object_count, bytes_used, deleted
                     FROM container WHERE name = ? AND
-                         (put_timestamp < ? OR delete_timestamp < ? OR
-                          object_count != ? OR bytes_used != ?) AND
-                        deleted IN (0, 1)''',
-                    (rec['name'], rec['put_timestamp'],
-                     rec['delete_timestamp'], rec['object_count'],
-                     rec['bytes_used']))
+                        deleted IN (0, 1)
+                ''', (rec['name'],))
                 curs.row_factory = None
                 row = curs.fetchone()
                 if row:
@@ -1447,16 +1443,16 @@ class AccountBroker(DatabaseBroker):
                         record[1] = row[1]
                     if row[2] > record[2]:  # Keep newest delete_timestamp
                         record[2] = row[2]
-                    conn.execute('''
-                        DELETE FROM container WHERE name = ? AND
-                                                    deleted IN (0, 1)
-                    ''', (record[0],))
                     # If deleted, mark as such
                     if record[2] > record[1] and \
                             record[3] in (None, '', 0, '0'):
                         record[5] = 1
                     else:
                         record[5] = 0
+                conn.execute('''
+                    DELETE FROM container WHERE name = ? AND
+                                                deleted IN (0, 1)
+                ''', (record[0],))
                 conn.execute('''
                     INSERT INTO container (name, put_timestamp,
                         delete_timestamp, object_count, bytes_used,
