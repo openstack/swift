@@ -1612,6 +1612,16 @@ class BaseApplication(object):
             self.logger = logger
         if conf is None:
             conf = {}
+        if 'access_log_name' in conf or 'access_log_facility' in conf:
+            access_log_conf = {
+                'log_name': conf.get('access_log_name', conf.get('log_name',
+                                                                 'proxy-server')),
+                'log_facility': conf.get('access_log_facility',
+                                         conf.get('log_facility', 'LOG_LOCAL0')),
+            }
+            self.access_logger = get_logger(access_log_conf)
+        else:
+            self.access_logger = self.logger
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
@@ -1790,7 +1800,7 @@ class Application(BaseApplication):
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
             status_int = 499
-        self.logger.access(' '.join(quote(str(x)) for x in (
+        self.access_logger.info(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',
                 time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),

@@ -307,8 +307,8 @@ Error: unable to locate %s
         logger.debug('test5')
         self.assertEquals(sio.getvalue(),
                           'test1\ntest3\ntest4\n')
-        # make sure access lvl logs by default
-        logger.access('test6')
+        # make sure notice lvl logs by default
+        logger.notice('test7')
         self.assertEquals(sio.getvalue(),
                           'test1\ntest3\ntest4\ntest6\n')
 

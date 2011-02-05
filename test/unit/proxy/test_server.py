@@ -1802,11 +1802,12 @@ class TestObjectController(unittest.TestCase):
 
         class Logger(object):
 
-            def access(self, msg):
+            def info(self, msg):
                 self.msg = msg
 
         orig_logger = prosrv.logger
-        prosrv.logger = Logger()
+        orig_access_logger = prosrv.access_logger
+        prosrv.logger = prosrv.access_logger = Logger()
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write(
@@ -1822,11 +1823,13 @@ class TestObjectController(unittest.TestCase):
                      prosrv.logger.msg)
         exp = 'host1'
         self.assertEquals(prosrv.logger.msg[:len(exp)], exp)
+        prosrv.access_logger = orig_access_logger
         prosrv.logger = orig_logger
         # Turn on header logging.
 
         orig_logger = prosrv.logger
-        prosrv.logger = Logger()
+        orig_access_logger = prosrv.access_logger
+        prosrv.logger = prosrv.access_logger = Logger()
         prosrv.log_headers = True
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -1840,6 +1843,7 @@ class TestObjectController(unittest.TestCase):
         self.assert_('Goofy-Header%3A%20True' in prosrv.logger.msg,
                      prosrv.logger.msg)
         prosrv.log_headers = False
+        prosrv.access_logger = orig_access_logger
         prosrv.logger = orig_logger
 
     def test_chunked_put_utf8_all_the_way_down(self):
