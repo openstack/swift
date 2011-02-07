@@ -188,24 +188,27 @@ Optional: Setting up rsyslog for individual logging
 
   #. Create /etc/rsyslog.d/10-swift.conf::
 
-      local1.*;local1.!notice -/var/log/swift/proxy.log
-      local1.notice           -/var/log/swift/proxy.error
+      # Uncomment the following to have a log containing all logs together
+      #local1,local2,local3,local4,local5.*   /var/log/swift/all.log
+
+      local1.*;local1.!notice /var/log/swift/proxy.log
+      local1.notice           /var/log/swift/proxy.error
       local1.*                ~
 
-      local2.*;local2.!notice -/var/log/swift/storage1.log
-      local2.notice           -/var/log/swift/storage1.error
+      local2.*;local2.!notice /var/log/swift/storage1.log
+      local2.notice           /var/log/swift/storage1.error
       local2.*                ~
 
-      local3.*;local3.!notice -/var/log/swift/storage2.log
-      local3.notice           -/var/log/swift/storage2.error
+      local3.*;local3.!notice /var/log/swift/storage2.log
+      local3.notice           /var/log/swift/storage2.error
       local3.*                ~
 
-      local4.*;local4.!notice -/var/log/swift/storage3.log
-      local4.notice           -/var/log/swift/storage3.error
+      local4.*;local4.!notice /var/log/swift/storage3.log
+      local4.notice           /var/log/swift/storage3.error
       local4.*                ~
 
-      local5.*;local5.!notice -/var/log/swift/storage4.log
-      local5.notice           -/var/log/swift/storage4.error
+      local5.*;local5.!notice /var/log/swift/storage4.log
+      local5.notice           /var/log/swift/storage4.error
       local5.*                ~
 
   #. `mkdir /var/log/swift`
