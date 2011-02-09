@@ -180,7 +180,9 @@ class Replicator(Daemon):
             return False
         # perform block-level sync if the db was modified during the first sync
         if os.path.exists(broker.db_file + '-journal') or \
-                    os.path.getmtime(broker.db_file) > mtime:
+                os.path.exists(broker.db_file + '-wal') or \
+                os.path.exists(broker.db_file + '-shm') or \
+                os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
                 if not self._rsync_file(broker.db_file, remote_file, False):
@@ -316,7 +318,7 @@ class Replicator(Daemon):
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         try:
-            broker = self.brokerclass(object_file, pending_timeout=30)
+            broker = self.brokerclass(object_file)
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
