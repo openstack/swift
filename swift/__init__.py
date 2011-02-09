@@ -1,5 +1,5 @@
 import gettext
 
 
-__version__ = '1.2-rc'
+__version__ = '1.3-dev'
 gettext.install('swift')
