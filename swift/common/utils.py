@@ -51,7 +51,6 @@ logging._lock = logging.threading.RLock()
 # setup notice level logging
 NOTICE = 25
 logging._levelNames[NOTICE] = 'NOTICE'
-# syslog priority "notice" is used for proxy access log lines
 SysLogHandler.priority_map['NOTICE'] = 'notice'
 
 # These are lazily pulled from libc elsewhere
@@ -289,7 +288,7 @@ class LoggerFileObject(object):
         return self
 
 
-# double inhereitence to support property with setter
+# double inheritance to support property with setter
 class LogAdapter(logging.LoggerAdapter, object):
     """
     A Logger like object which performs some reformatting on calls to
@@ -391,6 +390,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger
     :param log_to_console: Add handler which writes to console on stderr
+    :param fmt: Override log format
     """
     if not conf:
         conf = {}
@@ -400,10 +400,10 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_route = name
     logger = logging.getLogger(log_route)
     logger.propagate = False
-    # all swift new handlers will get the same formatter
+    # all new handlers will get the same formatter
     formatter = TxnFormatter(fmt)
 
-    # a single swift logger will only get one SysLog Handler
+    # get_logger will only ever add one SysLog Handler to a logger
     if not hasattr(get_logger, 'handler4logger'):
         get_logger.handler4logger = {}
     if logger in get_logger.handler4logger:
