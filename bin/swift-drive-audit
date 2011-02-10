@@ -99,6 +99,7 @@ if __name__ == '__main__':
     device_dir = conf.get('device_dir', '/srv/node')
     minutes = int(conf.get('minutes', 60))
     error_limit = int(conf.get('error_limit', 1))
+    conf['log_name'] = conf.get('log_name', 'drive-audit')
     logger = get_logger(conf, log_route='drive-audit')
     devices = get_devices(device_dir, logger)
     logger.debug("Devices found: %s" % str(devices))
