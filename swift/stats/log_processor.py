@@ -40,7 +40,7 @@ class LogProcessor(object):
 
     def __init__(self, conf, logger):
         if isinstance(logger, tuple):
-            self.logger = get_logger(*logger)
+            self.logger = get_logger(*logger, log_route='log-processor')
         else:
             self.logger = logger
 
@@ -226,7 +226,7 @@ class LogProcessorDaemon(Daemon):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
         self.total_conf = conf
-        self.logger = get_logger(c)
+        self.logger = get_logger(c, log_route='log-processor')
         self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
         self.lookback_window = int(c.get('lookback_window',

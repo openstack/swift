@@ -90,7 +90,7 @@ class AuthController(object):
     """
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='auth-server')
         self.super_admin_key = conf.get('super_admin_key')
         if not self.super_admin_key:
             msg = _('No super_admin_key set in conf file! Exiting.')

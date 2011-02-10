@@ -48,7 +48,8 @@ class AccountStat(Daemon):
         self.devices = server_conf.get('devices', '/srv/node')
         self.mount_check = server_conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.logger = get_logger(stats_conf, 'swift-account-stats-logger')
+        self.logger = \
+            get_logger(stats_conf, log_route='account-stats')
 
     def run_once(self):
         self.logger.info(_("Gathering account stats"))

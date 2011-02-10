@@ -30,7 +30,7 @@ class CatchErrorMiddleware(object):
         self.logger = getattr(app, 'logger', None)
         if not self.logger:
             # and only call get_logger if we have to
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='catch-errors')
 
     def __call__(self, env, start_response):
         try:

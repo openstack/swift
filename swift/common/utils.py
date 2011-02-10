@@ -395,6 +395,8 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None):
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger
     :param log_to_console: Add handler which writes to console on stderr
+    :param log_route: Route for the logging, not emitted to the log, just used
+                      to separate logging configurations
     """
     if not conf:
         conf = {}

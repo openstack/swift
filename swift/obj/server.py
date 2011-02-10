@@ -266,7 +266,7 @@ class ObjectController(object):
         <source-dir>/etc/object-server.conf-sample or
         /etc/swift/object-server.conf-sample.
         """
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='object-server')
         self.devices = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
