@@ -168,10 +168,10 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 run_server()
-                logger.info('Child %d exiting normally' % os.getpid())
+                logger.notice('Child %d exiting normally' % os.getpid())
                 return
             else:
-                logger.info('Started child %s' % pid)
+                logger.notice('Started child %s' % pid)
                 children.append(pid)
         try:
             pid, status = os.wait()
@@ -182,8 +182,8 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
             if err.errno not in (errno.EINTR, errno.ECHILD):
                 raise
         except KeyboardInterrupt:
-            logger.info('User quit')
+            logger.notice('User quit')
             break
     greenio.shutdown_safe(sock)
     sock.close()
-    logger.info('Exited')
+    logger.notice('Exited')
