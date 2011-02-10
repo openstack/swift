@@ -16,6 +16,7 @@
 from __future__ import with_statement
 import cPickle as pickle
 import logging
+from logging.handlers import SysLogHandler
 import os
 import sys
 import unittest
@@ -465,7 +466,137 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
+
 class TestProxyServer(unittest.TestCase):
+
+    def test_access_log(self):
+
+        class MyApp(proxy_server.Application):
+
+            def handle_request(self, req):
+                resp = Response(request=req)
+                req.response = resp
+                req.start_time = time()
+                return resp
+
+        def start_response(*args):
+            pass
+
+        class MockLogger():
+
+            def __init__(self):
+                self.buffer = StringIO()
+
+            def info(self, msg, args=None):
+                if args:
+                    msg = msg % args
+                self.buffer.write(msg)
+
+            def strip_value(self):
+                rv = self.buffer.getvalue()
+                self.buffer.truncate(0)
+                return rv
+
+        class SnarfStream(object):
+            # i can't seem to subclass cStringIO
+
+            def __init__(self, *args, **kwargs):
+                self.sio = StringIO()
+
+            def strip_value(self):
+                rv = self.getvalue().strip()
+                self.truncate(0)
+                return rv
+
+            def __getattr__(self, name):
+                try:
+                    return object.__getattr__(self, name)
+                except AttributeError:
+                    try:
+                        return getattr(self.sio, name)
+                    except AttributeError:
+                        return self.__getattribute__(name)
+
+        snarf = SnarfStream()
+        _orig_get_logger = proxy_server.get_logger
+
+        def mock_get_logger(*args, **kwargs):
+            if kwargs.get('log_route') != 'proxy-access':
+                return _orig_get_logger(*args, **kwargs)
+            kwargs['log_route'] = 'snarf'
+            logger = _orig_get_logger(*args, **kwargs)
+            if [h for h in logger.logger.handlers if
+                isinstance(h, logging.StreamHandler) and h.stream is snarf]:
+                # snarf handler already setup!
+                return logger
+            formatter = logger.logger.handlers[0].formatter
+            formatter._fmt += ' %(levelname)s'
+            snarf_handler = logging.StreamHandler(snarf)
+            snarf_handler.setFormatter(formatter)
+            logger.logger.addHandler(snarf_handler)
+            return logger
+
+        def test_conf(conf):
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            req = Request.blank('')
+            app(req.environ, start_response)
+
+        try:
+            proxy_server.get_logger = mock_get_logger
+            test_conf({})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('swift'))
+            self.assert_(line.endswith('INFO'))
+            test_conf({'log_name': 'snarf-test'})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('snarf-test'))
+            self.assert_(line.endswith('INFO'))
+            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR'})
+            line = snarf.strip_value()
+            print line
+            self.assertFalse(line)
+            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR',
+                       'access_log_name': 'access-test',
+                       'access_log_level': 'INFO'})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('access-test'))
+            self.assert_(line.endswith('INFO'))
+
+            # test facility
+            def get_facility(logger):
+                h = [h for h in logger.logger.handlers if
+                     isinstance(h, SysLogHandler)][0]
+                return h.facility
+
+            conf = {'log_facility': 'LOG_LOCAL0'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL0)
+            conf = {'log_facility': 'LOG_LOCAL0',
+                    'access_log_facility': 'LOG_LOCAL1'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL1)
+            conf = {'access_log_facility': 'LOG_LOCAL1'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL1)
+
+        finally:
+            proxy_server.get_logger = _orig_get_logger
 
     def test_unhandled_exception(self):
 
@@ -1805,8 +1936,7 @@ class TestObjectController(unittest.TestCase):
             def info(self, msg):
                 self.msg = msg
 
-        orig_logger = prosrv.logger
-        orig_access_logger = prosrv.access_logger
+        orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
         prosrv.logger = prosrv.access_logger = Logger()
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -1823,12 +1953,8 @@ class TestObjectController(unittest.TestCase):
                      prosrv.logger.msg)
         exp = 'host1'
         self.assertEquals(prosrv.logger.msg[:len(exp)], exp)
-        prosrv.access_logger = orig_access_logger
-        prosrv.logger = orig_logger
         # Turn on header logging.
 
-        orig_logger = prosrv.logger
-        orig_access_logger = prosrv.access_logger
         prosrv.logger = prosrv.access_logger = Logger()
         prosrv.log_headers = True
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1843,8 +1969,7 @@ class TestObjectController(unittest.TestCase):
         self.assert_('Goofy-Header%3A%20True' in prosrv.logger.msg,
                      prosrv.logger.msg)
         prosrv.log_headers = False
-        prosrv.access_logger = orig_access_logger
-        prosrv.logger = orig_logger
+        prosrv.logger, prosrv.access_logger = orig_logger, orig_access_logger
 
     def test_chunked_put_utf8_all_the_way_down(self):
         # Test UTF-8 Unicode all the way through the system

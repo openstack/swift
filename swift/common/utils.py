@@ -289,7 +289,8 @@ class LoggerFileObject(object):
         return self
 
 
-class LogAdapter(object):
+# double inhereitence to support property with setter
+class LogAdapter(logging.LoggerAdapter, object):
     """
     A Logger like object which performs some reformatting on calls to
     :meth:`exception`.  Can be used to store a threadlocal transaction id.
@@ -297,11 +298,10 @@ class LogAdapter(object):
 
     _txn_id = threading.local()
 
-    def __init__(self, logger):
-        self.logger = logger
-        for proxied_method in ('debug', 'log', 'warn', 'warning', 'error',
-                               'critical', 'info'):
-            setattr(self, proxied_method, getattr(logger, proxied_method))
+    def __init__(self, logger, server):
+        logging.LoggerAdapter.__init__(self, logger, {})
+        self.server = server
+        setattr(self, 'warn', self.warning)
 
     @property
     def txn_id(self):
@@ -315,24 +315,34 @@ class LogAdapter(object):
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
 
-    def notice(self, msg, *args):
+    def process(self, msg, kwargs):
+        """
+        Add extra info to message
+        """
+        kwargs['extra'] = {'server': self.server, 'txn_id': self.txn_id}
+        return msg, kwargs
+
+    def notice(self, msg, *args, **kwargs):
         """
         Convenience function for syslog priority LOG_NOTICE. The python
         logging lvl is set to 25, just above info.  SysLogHandler is
         monkey patched to map this log lvl to the LOG_NOTICE syslog
         priority.
         """
-        self.logger.log(NOTICE, msg, *args)
+        self.log(NOTICE, msg, *args, **kwargs)
 
-    def exception(self, msg, *args):
+    def _exception(self, msg, *args, **kwargs):
+        logging.LoggerAdapter.exception(self, msg, *args, **kwargs)
+
+    def exception(self, msg, *args, **kwargs):
         _junk, exc, _junk = sys.exc_info()
-        call = self.logger.error
+        call = self.error
         emsg = ''
         if isinstance(exc, OSError):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
             else:
-                call = self.logger.exception
+                call = self._exception
         elif isinstance(exc, socket.error):
             if exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
@@ -341,7 +351,7 @@ class LogAdapter(object):
             elif exc.errno == errno.ETIMEDOUT:
                 emsg = _('Connection timeout')
             else:
-                call = self.logger.exception
+                call = self._exception
         elif isinstance(exc, eventlet.Timeout):
             emsg = exc.__class__.__name__
             if hasattr(exc, 'seconds'):
@@ -350,53 +360,25 @@ class LogAdapter(object):
                 if exc.msg:
                     emsg += ' %s' % exc.msg
         else:
-            call = self.logger.exception
-        call('%s: %s' % (msg, emsg), *args)
+            call = self._exception
+        call('%s: %s' % (msg, emsg), *args, **kwargs)
 
 
-class NamedFormatter(logging.Formatter):
+class TxnFormatter(logging.Formatter):
     """
-    NamedFormatter is used to add additional information to log messages.
-    Normally it will simply add the server name as an attribute on the
-    LogRecord and the default format string will include it at the
-    begining of the log message.  Additionally, if the transaction id is
-    available and not already included in the message, NamedFormatter will
-    add it.
-
-    NamedFormatter may be initialized with a format string which makes use
-    of the standard LogRecord attributes.  In addition the format string
-    may include the following mapping key:
-
-    +----------------+---------------------------------------------+
-    | Format         | Description                                 |
-    +================+=============================================+
-    | %(server)s     | Name of the swift server doing logging      |
-    +----------------+---------------------------------------------+
-
-    :param server: the swift server name, a string.
-    :param logger: a Logger or :class:`LogAdapter` instance, additional
-                   context may be pulled from attributes on this logger if
-                   available.
-    :param fmt: the format string used to construct the message, if none is
-                supplied it defaults to ``"%(server)s %(message)s"``
+    Custom logging.Formatter will append txn_id to a log message if the record
+    has one and the message does not.
     """
-
-    def __init__(self, server, logger,
-                 fmt="%(server)s %(message)s"):
-        logging.Formatter.__init__(self, fmt)
-        self.server = server
-        self.logger = logger
-
     def format(self, record):
-        record.server = self.server
         msg = logging.Formatter.format(self, record)
-        if self.logger.txn_id and (record.levelno != logging.INFO or
-                                   self.logger.txn_id not in msg):
-            msg = "%s (txn: %s)" % (msg, self.logger.txn_id)
+        if (record.txn_id and record.levelno != logging.INFO and
+            record.txn_id not in msg):
+            msg = "%s (txn: %s)" % (msg, record.txn_id)
         return msg
 
 
-def get_logger(conf, name=None, log_to_console=False, log_route=None):
+def get_logger(conf, name=None, log_to_console=False, log_route=None,
+               fmt="%(server)s %(message)s"):
     """
     Get the current system logger using config settings.
 
@@ -412,48 +394,46 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None):
     """
     if not conf:
         conf = {}
-    if not hasattr(get_logger, 'root_logger_configured'):
-        get_logger.root_logger_configured = True
-        get_logger(conf, name, log_to_console, log_route='root')
     if name is None:
         name = conf.get('log_name', 'swift')
     if not log_route:
         log_route = name
-    if log_route == 'root':
-        logger = logging.getLogger()
-    else:
-        logger = logging.getLogger(log_route)
-        logger.propagate = False
-    if not hasattr(get_logger, 'handler4facility'):
-        get_logger.handler4facility = {}
-    facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
-                       SysLogHandler.LOG_LOCAL0)
-    if facility in get_logger.handler4facility:
-        logger.removeHandler(get_logger.handler4facility[facility])
-        get_logger.handler4facility[facility].close()
-        del get_logger.handler4facility[facility]
-    if log_to_console:
-        # check if a previous call to get_logger already added a console logger
-        if hasattr(get_logger, 'console') and get_logger.console:
-            logger.removeHandler(get_logger.console)
-        get_logger.console = logging.StreamHandler(sys.__stderr__)
-        logger.addHandler(get_logger.console)
-    get_logger.handler4facility[facility] = \
-        SysLogHandler(address='/dev/log', facility=facility)
+    logger = logging.getLogger(log_route)
+    logger.propagate = False
+    # all swift new handlers will get the same formatter
+    formatter = TxnFormatter(fmt)
+
+    # a single swift logger will only get one SysLog Handler
     if not hasattr(get_logger, 'handler4logger'):
         get_logger.handler4logger = {}
     if logger in get_logger.handler4logger:
         logger.removeHandler(get_logger.handler4logger[logger])
-    get_logger.handler4logger[logger] = \
-        get_logger.handler4facility[facility]
-    logger.addHandler(get_logger.handler4facility[facility])
+
+    # facility for this logger will be set by last call wins
+    facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
+                       SysLogHandler.LOG_LOCAL0)
+    handler = SysLogHandler(address='/dev/log', facility=facility)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    get_logger.handler4logger[logger] = handler
+
+    # setup console logging
+    if log_to_console or hasattr(get_logger, 'console_handler4logger'):
+        # remove pre-existing console handler for this logger
+        if not hasattr(get_logger, 'console_handler4logger'):
+            get_logger.console_handler4logger = {}
+        if logger in get_logger.console_handler4logger:
+            logger.removeHandler(get_logger.console_handler4logger[logger])
+
+        console_handler = logging.StreamHandler(sys.__stderr__)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        get_logger.console_handler4logger[logger] = console_handler
+
+    # set the level for the logger
     logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
-    adapted_logger = LogAdapter(logger)
-    formatter = NamedFormatter(name, adapted_logger)
-    get_logger.handler4facility[facility].setFormatter(formatter)
-    if hasattr(get_logger, 'console'):
-        get_logger.console.setFormatter(formatter)
+    adapted_logger = LogAdapter(logger, name)
     return adapted_logger
 
 
@@ -486,8 +466,9 @@ def capture_stdio(logger, **kwargs):
 
     # collect stdio file desc not in use for logging
     stdio_fds = [0, 1, 2]
-    if hasattr(get_logger, 'console'):
-        stdio_fds.remove(get_logger.console.stream.fileno())
+    for _junk, handler in getattr(get_logger,
+                                  'console_handler4logger', {}).items():
+        stdio_fds.remove(handler.stream.fileno())
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)

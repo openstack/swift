@@ -1606,22 +1606,20 @@ class BaseApplication(object):
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
-        if logger is None:
-            self.logger = get_logger(conf)
-        else:
-            self.logger = logger
         if conf is None:
             conf = {}
-        if 'access_log_name' in conf or 'access_log_facility' in conf:
-            access_log_conf = {
-                'log_name': conf.get('access_log_name', conf.get('log_name',
-                                                                 'proxy-server')),
-                'log_facility': conf.get('access_log_facility',
-                                         conf.get('log_facility', 'LOG_LOCAL0')),
-            }
-            self.access_logger = get_logger(access_log_conf)
+        if logger is None:
+            self.logger = get_logger(conf)
+            access_log_conf = {}
+            for key in ('log_facility', 'log_name', 'log_level'):
+                value = conf.get('access_' + key, conf.get(key, None))
+                if value:
+                    access_log_conf[key] = value
+            self.access_logger = get_logger(access_log_conf,
+                                            log_route='proxy-access')
         else:
-            self.access_logger = self.logger
+            self.logger = self.access_logger = logger
+
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))

@@ -15,10 +15,9 @@ Access logs
 ***********
 
 Access logs are the proxy server logs. Rackspace uses syslog-ng to redirect
-proxy log messages with the syslog priority LOG_NOTICE to an hourly log
-file. For example, a proxy request that is made on August 4, 2010 at 12:37 gets
-logged in a file named 2010080412.  This allows easy log rotation and easy
-per-hour log processing.
+the proxy log output to an hourly log file. For example, a proxy request that
+is made on August 4, 2010 at 12:37 gets logged in a file named 2010080412.
+This allows easy log rotation and easy per-hour log processing.
 
 ******************
 Account stats logs
@@ -100,11 +99,11 @@ Running the stats system on SAIO
 		destination df_local1 { file("/var/log/swift/proxy.log" owner(<username>) group(<groupname>)); };
 		destination df_local1_err { file("/var/log/swift/proxy.error" owner(<username>) group(<groupname>)); };
 		destination df_local1_hourly { file("/var/log/swift/hourly/$YEAR$MONTH$DAY$HOUR" owner(<username>) group(<groupname>)); };
-		filter f_local1 { facility(local1) and level(notice); };
+		filter f_local1 { facility(local1) and level(info); };
 
-		filter f_local1_err { facility(local1) and not level(notice); };
+		filter f_local1_err { facility(local1) and not level(info); };
 
-		# local1.notice                       -/var/log/swift/proxy.log
+		# local1.info                        -/var/log/swift/proxy.log
 		# write to local file and to remove log server
 		log {
 		        source(s_all);
