@@ -23,4 +23,4 @@ if __name__ == '__main__':
     # currently AccountStat only supports run_once
     options['once'] = True
     run_daemon(AccountStat, conf_file, section_name='log-processor-stats',
-               **options)
+               log_name="account-stats", **options)

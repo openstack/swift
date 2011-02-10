@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # TODO: Tests
-from test import unit as _setup_mocks
+from test import unit
 import unittest
 import tempfile
 import os
@@ -57,6 +57,7 @@ class TestAuditor(unittest.TestCase):
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
+        unit.xattr_data = {}
 
     def test_object_audit_extra_data(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
