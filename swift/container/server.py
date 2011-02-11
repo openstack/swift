@@ -89,7 +89,7 @@ class ContainerController(object):
         account_partition = req.headers.get('X-Account-Partition')
         account_device = req.headers.get('X-Account-Device')
         if all([account_host, account_partition, account_device]):
-            account_ip, account_port = account_host.split(':')
+            account_ip, account_port = account_host.rsplit(':', 1)
             new_path = '/' + '/'.join([account, container])
             info = broker.get_info()
             account_headers = {'x-put-timestamp': info['put_timestamp'],

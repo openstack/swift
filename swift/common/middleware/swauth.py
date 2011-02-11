@@ -21,7 +21,6 @@ from httplib import HTTPConnection, HTTPSConnection
 from time import gmtime, strftime, time
 from traceback import format_exc
 from urllib import quote, unquote
-from urlparse import urlparse
 from uuid import uuid4
 from hashlib import md5, sha1
 import hmac
@@ -36,7 +35,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, get_logger, split_path
+from swift.common.utils import cache_from_env, get_logger, split_path, urlparse
 
 
 class Swauth(object):

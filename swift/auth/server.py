@@ -20,7 +20,6 @@ from contextlib import contextmanager
 from time import gmtime, strftime, time
 from urllib import unquote, quote
 from uuid import uuid4
-from urlparse import urlparse
 from hashlib import md5, sha1
 import hmac
 import base64
@@ -32,7 +31,7 @@ from webob.exc import HTTPBadRequest, HTTPConflict, HTTPForbidden, \
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.db import get_db_connection
-from swift.common.utils import get_logger, split_path
+from swift.common.utils import get_logger, split_path, urlparse
 
 
 class AuthController(object):

@@ -34,6 +34,7 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
+from urlparse import urlparse as stdlib_urlparse, ParseResult
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, Timeout, listen
@@ -861,3 +862,35 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     elif running_time - now > time_per_request:
         eventlet.sleep((running_time - now) / clock_accuracy)
     return running_time + time_per_request
+
+
+class ModifiedParseResult(ParseResult):
+    "Parse results class for urlparse."
+
+    @property
+    def hostname(self):
+        netloc = self.netloc.split('@', 1)[-1]
+        if netloc.startswith('['):
+            return netloc[1:].split(']')[0]
+        elif ':' in netloc:
+            return netloc.rsplit(':')[0]
+        return netloc
+
+    @property
+    def port(self):
+        netloc = self.netloc.split('@', 1)[-1]
+        if netloc.startswith('['):
+            netloc = netloc.rsplit(']')[1]
+        if ':' in netloc:
+            return int(netloc.rsplit(':')[1])
+        return None
+
+
+def urlparse(url):
+    """
+    urlparse augmentation.
+    This is necessary because urlparse can't handle RFC 2732 URLs.
+
+    :param url: URL to parse.
+    """
+    return ModifiedParseResult(*stdlib_urlparse(url))
