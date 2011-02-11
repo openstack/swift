@@ -4,6 +4,8 @@ import os
 from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 from eventlet.green import socket
+from tempfile import mkdtemp
+from shutil import rmtree
 
 
 def readuntil2crlfs(fd):
@@ -36,6 +38,27 @@ def tmpfile(content):
         yield file_name
     finally:
         os.unlink(file_name)
+
+
+@contextmanager
+def temptree(files, contents=''):
+    # generate enough contents to fill the files
+    c = len(files)
+    contents = (list(contents) + [''] * c)[:c]
+    tempdir = mkdtemp()
+    for path, content in zip(files, contents):
+        if os.path.isabs(path):
+            path = '.' + path
+        new_path = os.path.join(tempdir, path)
+        subdir = os.path.dirname(new_path)
+        if not os.path.exists(subdir):
+            os.makedirs(subdir)
+        with open(new_path, 'w') as f:
+            f.write(str(content))
+    try:
+        yield tempdir
+    finally:
+        rmtree(tempdir)
 
 
 class MockTrue(object):
