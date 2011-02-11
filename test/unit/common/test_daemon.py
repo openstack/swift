@@ -28,7 +28,7 @@ class MyDaemon(daemon.Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = utils.get_logger(None, 'server')
+        self.logger = utils.get_logger(None, 'server', log_route='server')
         MyDaemon.forever_called = False
         MyDaemon.once_called = False
 
@@ -99,7 +99,7 @@ user = %s
             sio = StringIO()
             logger = logging.getLogger('server')
             logger.addHandler(logging.StreamHandler(sio))
-            logger = utils.get_logger(None, 'server')
+            logger = utils.get_logger(None, 'server', log_route='server')
             daemon.run_daemon(MyDaemon, conf_file, logger=logger)
             self.assert_('user quit' in sio.getvalue().lower())
 

@@ -51,7 +51,7 @@ class Swauth(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='swauth')
         self.log_headers = conf.get('log_headers') == 'True'
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':

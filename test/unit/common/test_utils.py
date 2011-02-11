@@ -303,17 +303,19 @@ Error: unable to locate %s
         sio = StringIO()
         logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
-        logger = utils.get_logger(None, 'server')
+        logger = utils.get_logger(None, 'server', log_route='server')
         logger.warn('test1')
         self.assertEquals(sio.getvalue(), 'test1\n')
         logger.debug('test2')
         self.assertEquals(sio.getvalue(), 'test1\n')
-        logger = utils.get_logger({'log_level': 'DEBUG'}, 'server')
+        logger = utils.get_logger({'log_level': 'DEBUG'}, 'server',
+                                  log_route='server')
         logger.debug('test3')
         self.assertEquals(sio.getvalue(), 'test1\ntest3\n')
         # Doesn't really test that the log facility is truly being used all the
         # way to syslog; but exercises the code.
-        logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server')
+        logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
+                                  log_route='server')
         logger.warn('test4')
         self.assertEquals(sio.getvalue(),
                           'test1\ntest3\ntest4\n')

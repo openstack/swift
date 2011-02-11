@@ -1609,7 +1609,7 @@ class BaseApplication(object):
         if conf is None:
             conf = {}
         if logger is None:
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='proxy-server')
             access_log_conf = {}
             for key in ('log_facility', 'log_name', 'log_level'):
                 value = conf.get('access_' + key, conf.get(key, None))
