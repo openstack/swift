@@ -19,6 +19,7 @@ from test.unit import temptree
 
 import os
 import sys
+import resource
 import signal
 import errno
 from contextlib import contextmanager
@@ -64,7 +65,7 @@ def pop_stream(f):
     return output
 
 
-class TestMangerModule(unittest.TestCase):
+class TestManagerModule(unittest.TestCase):
 
     def test_servers(self):
         main_plus_rest = set(manager.MAIN_SERVERS + manager.REST_SERVERS)
@@ -74,8 +75,54 @@ class TestMangerModule(unittest.TestCase):
                           len(manager.REST_SERVERS))
 
     def test_setup_env(self):
-        # TODO: tests
-        raise SkipTest
+        class MockResource():
+            def __init__(self, error=None):
+                self.error = error
+                self.called_with_args = []
+            
+            def setrlimit(self, resource, limits):
+                if self.error:
+                    raise self.error
+                self.called_with_args.append((resource, limits))
+
+            def __getattr__(self, name):
+                # I only over-ride portions of the resource module
+                try:
+                    return object.__getattr__(self, name)
+                except AttributeError:
+                    return getattr(resource, name)
+
+        _orig_resource = manager.resource
+        _orig_environ = os.environ
+        try:
+            manager.resource = MockResource()
+            manager.os.environ = {}
+            manager.setup_env()
+            expected = [
+                (resource.RLIMIT_NOFILE, (manager.MAX_DESCRIPTORS,
+                                          manager.MAX_DESCRIPTORS)),
+                (resource.RLIMIT_DATA, (manager.MAX_MEMORY,
+                                        manager.MAX_MEMORY)),
+            ]
+            self.assertEquals(manager.resource.called_with_args, expected)
+            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+
+            # test error condition
+            manager.resource = MockResource(error=ValueError())
+            manager.os.environ = {}
+            manager.setup_env()
+            self.assertEquals(manager.resource.called_with_args, [])
+            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+
+            manager.resource = MockResource(error=OSError())
+            manager.os.environ = {}
+            self.assertRaises(OSError, manager.setup_env)
+            self.assertEquals(manager.os.environ.get('PYTHON_EGG_CACHE'), None)
+        finally:
+            manager.resource = _orig_resource
+            os.environ = _orig_environ
+        
+
 
     def test_command_wrapper(self):
         @manager.command
@@ -1003,45 +1050,57 @@ class TestServer(unittest.TestCase):
 class TestManager(unittest.TestCase):
 
     def test_create(self):
-        controller = manager.Manager(['test'])
-        self.assertEquals(len(controller.servers), 1)
-        server = controller.servers.pop()
+        m = manager.Manager(['test'])
+        self.assertEquals(len(m.servers), 1)
+        server = m.servers.pop()
         self.assert_(isinstance(server, manager.Server))
         self.assertEquals(server.server, 'test-server')
         # test multi-server and simple dedupe
         servers = ['object-replicator', 'object-auditor', 'object-replicator']
-        controller = manager.Manager(servers)
-        self.assertEquals(len(controller.servers), 2)
-        for server in controller.servers:
+        m = manager.Manager(servers)
+        self.assertEquals(len(m.servers), 2)
+        for server in m.servers:
             self.assert_(server.server in servers)
         # test all
-        controller = manager.Manager(['all'])
-        self.assertEquals(len(controller.servers), len(manager.ALL_SERVERS))
-        for server in controller.servers:
+        m = manager.Manager(['all'])
+        self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
+        for server in m.servers:
             self.assert_(server.server in manager.ALL_SERVERS)
         # test main
-        controller = manager.Manager(['main'])
-        self.assertEquals(len(controller.servers), len(manager.MAIN_SERVERS))
-        for server in controller.servers:
+        m = manager.Manager(['main'])
+        self.assertEquals(len(m.servers), len(manager.MAIN_SERVERS))
+        for server in m.servers:
             self.assert_(server.server in manager.MAIN_SERVERS)
         # test rest
-        controller = manager.Manager(['rest'])
-        self.assertEquals(len(controller.servers), len(manager.REST_SERVERS))
-        for server in controller.servers:
+        m = manager.Manager(['rest'])
+        self.assertEquals(len(m.servers), len(manager.REST_SERVERS))
+        for server in m.servers:
             self.assert_(server.server in manager.REST_SERVERS)
         # test main + rest == all
-        controller = manager.Manager(['main', 'rest'])
-        self.assertEquals(len(controller.servers), len(manager.ALL_SERVERS))
-        for server in controller.servers:
+        m = manager.Manager(['main', 'rest'])
+        self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
+        for server in m.servers:
             self.assert_(server.server in manager.ALL_SERVERS)
         # test dedupe
-        controller = manager.Manager(['main', 'rest', 'proxy', 'object',
+        m = manager.Manager(['main', 'rest', 'proxy', 'object',
                                            'container', 'account'])
-        self.assertEquals(len(controller.servers), len(manager.ALL_SERVERS))
-        for server in controller.servers:
+        self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
+        for server in m.servers:
             self.assert_(server.server in manager.ALL_SERVERS)
+        # test glob
+        m = manager.Manager(['object-*'])
+        object_servers = [s for s in manager.ALL_SERVERS if
+                          s.startswith('object')]
+        self.assertEquals(len(m.servers), len(object_servers))
+        for s in m.servers:
+            self.assert_(str(s) in object_servers)
+        m = manager.Manager(['*-replicator'])
+        replicators = [s for s in manager.ALL_SERVERS if
+                       s.endswith('replicator')]
+        for s in m.servers:
+            self.assert_(str(s) in replicators)
 
-    #TODO: more tests
+        
     def test_watch_server_pids(self):
         class MockOs():
             WNOHANG = os.WNOHANG
@@ -1081,8 +1140,9 @@ class TestManager(unittest.TestCase):
         class MockServer():
             def __init__(self, server):
                 self.server = server
-                def get_running_pids():
-                    pass
+
+            def get_running_pids(self):
+                return {}
 
         _orig_os = manager.os
         _orig_time = manager.time
@@ -1091,18 +1151,19 @@ class TestManager(unittest.TestCase):
             manager.os = MockOs()
             manager.time = MockTime()
             manager.Server = MockServer
-            controller = manager.Manager(['test'])
-            self.assertEquals(len(controller.servers), 1)
-            server = controller.servers.pop()
+            m = manager.Manager(['test'])
+            self.assertEquals(len(m.servers), 1)
+            server = m.servers.pop()
             server_pids = {
                 server: [1],
             }
             # test default interval
-            gen = controller.watch_server_pids(server_pids)
+            gen = m.watch_server_pids(server_pids)
             self.assertEquals([x for x in gen], [])
             # test small interval
-            gen = controller.watch_server_pids(server_pids, interval=1)
-            # self.assertEquals([x for x in gen], [])
+            gen = m.watch_server_pids(server_pids, interval=1)
+            # TODO: More tests!
+            #self.assertEquals([x for x in gen], [])
         finally:
             manager.os = _orig_os
             manager.time = _orig_time
@@ -1136,18 +1197,18 @@ class TestManager(unittest.TestCase):
         old_server_class = manager.Server
         try:
             manager.Server = MockServer
-            controller = manager.Manager(['test'])
-            status = controller.status()
+            m = manager.Manager(['test'])
+            status = m.status()
             self.assertEquals(status, 0)
-            controller = manager.Manager(['error'])
-            status = controller.status()
+            m = manager.Manager(['error'])
+            status = m.status()
             self.assertEquals(status, 1)
             # test multi-server
-            controller = manager.Manager(['test', 'error'])
+            m = manager.Manager(['test', 'error'])
             kwargs = {'key': 'value'}
-            status = controller.status(**kwargs)
+            status = m.status(**kwargs)
             self.assertEquals(status, 1)
-            for server in controller.servers:
+            for server in m.servers:
                 self.assertEquals(server.called_kwargs, [kwargs])
         finally:
             manager.Server = old_server_class
@@ -1191,27 +1252,27 @@ class TestManager(unittest.TestCase):
             manager.Server = MockServer
 
             # test no errors on launch
-            controller = manager.Manager(['proxy', 'error'])
-            status = controller.start()
+            m = manager.Manager(['proxy', 'error'])
+            status = m.start()
             self.assertEquals(status, 0)
-            for server in controller.servers:
+            for server in m.servers:
                 self.assertEquals(server.called['launch'], [{}])
 
             # test error on wait
-            controller = manager.Manager(['proxy', 'error'])
+            m = manager.Manager(['proxy', 'error'])
             kwargs = {'wait': True}
-            status = controller.start(**kwargs)
+            status = m.start(**kwargs)
             self.assertEquals(status, 1)
-            for server in controller.servers:
+            for server in m.servers:
                 self.assertEquals(server.called['launch'], [kwargs])
                 self.assertEquals(server.called['wait'], [kwargs])
              
             # test interact
-            controller = manager.Manager(['proxy', 'error'])
+            m = manager.Manager(['proxy', 'error'])
             kwargs = {'daemon': False}
-            status = controller.start(**kwargs)
+            status = m.start(**kwargs)
             self.assertEquals(status, 1)
-            for server in controller.servers:
+            for server in m.servers:
                 self.assertEquals(server.called['launch'], [kwargs])
                 self.assertEquals(server.called['interact'], [kwargs])
         finally:
