@@ -331,25 +331,25 @@ class Server():
         except AttributeError:
             return False
 
-    def get_pid_file_name(self, ini_file):
-        """Translate ini_file to a corresponding pid_file
+    def get_pid_file_name(self, conf_file):
+        """Translate conf_file to a corresponding pid_file
 
-        :param ini_file: an ini_file for this server, a string
+        :param conf_file: an conf_file for this server, a string
 
-        :returns: the pid_file for this ini_file
+        :returns: the pid_file for this conf_file
 
         """
-        return ini_file.replace(
+        return conf_file.replace(
             os.path.normpath(SWIFT_DIR), RUN_DIR, 1).replace(
                 '%s-server' % self.type, self.server, 1).rsplit(
                     '.conf', 1)[0] + '.pid'
 
-    def get_ini_file_name(self, pid_file):
-        """Translate pid_file to a corresponding ini_file
+    def get_conf_file_name(self, pid_file):
+        """Translate pid_file to a corresponding conf_file
 
         :param pid_file: a pid_file for this server, a string
 
-        :returns: the ini_file for this pid_file
+        :returns: the conf_file for this pid_file
 
         """
         return pid_file.replace(
@@ -357,35 +357,35 @@ class Server():
                 self.server, '%s-server' % self.type, 1).rsplit(
                     '.pid', 1)[0] + '.conf'
 
-    def ini_files(self, **kwargs):
+    def conf_files(self, **kwargs):
         """Get ini files for this server
 
         :param: number, if supplied will only lookup the nth server
 
         :returns: list of ini files
         """
-        found_ini_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
+        found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
                                       '.conf')
         number = kwargs.get('number')
         if number:
             try:
-                ini_files = [found_ini_files[number - 1]]
+                conf_files = [found_conf_files[number - 1]]
             except IndexError:
-                ini_files = []
+                conf_files = []
         else:
-            ini_files = found_ini_files
-        if not ini_files:
+            conf_files = found_conf_files
+        if not conf_files:
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
                 print('Unable to locate config %sfor %s' % (
                     ('number %s ' % number if number else ''), self.server))
             if kwargs.get('verbose') and not kwargs.get('quiet'):
-                if found_ini_files:
+                if found_conf_files:
                     print('Found configs:')
-                for i, ini_file in enumerate(found_ini_files):
-                    print('  %d) %s' % (i + 1, ini_file))
+                for i, conf_file in enumerate(found_conf_files):
+                    print('  %d) %s' % (i + 1, conf_file))
 
-        return ini_files
+        return conf_files
 
     def pid_files(self, **kwargs):
         """Get pid files for this server
@@ -397,11 +397,11 @@ class Server():
         pid_files = search_tree(RUN_DIR, '%s*' % self.server, '.pid')
         number = kwargs.get('number', 0)
         if number:
-            ini_files = self.ini_files(**kwargs)
-            # limt pid_files the one who translates to the indexed ini_file for
+            conf_files = self.conf_files(**kwargs)
+            # limt pid_files the one who translates to the indexed conf_file for
             # this given number
             pid_files = [pid_file for pid_file in pid_files if
-                         self.get_ini_file_name(pid_file) in ini_files]
+                         self.get_conf_file_name(pid_file) in conf_files]
         return pid_files
 
     def iter_pid_files(self, **kwargs):
@@ -474,29 +474,29 @@ class Server():
             number = kwargs.get('number', 0)
             if number:
                 kwargs['quiet'] = True
-                ini_files = self.ini_files(**kwargs)
-                if ini_files:
+                conf_files = self.conf_files(**kwargs)
+                if conf_files:
                     print "%s #%d not running (%s)" % (self.server, number,
-                                                       ini_files[0])
+                                                       conf_files[0])
             else:
                 print "No %s running" % self.server
             return 1
         for pid, pid_file in pids.items():
-            ini_file = self.get_ini_file_name(pid_file)
-            print "%s running (%s - %s)" % (self.server, pid, ini_file)
+            conf_file = self.get_conf_file_name(pid_file)
+            print "%s running (%s - %s)" % (self.server, pid, conf_file)
         return 0
 
-    def spawn(self, ini_file, once=False, wait=False, daemon=True, **kwargs):
+    def spawn(self, conf_file, once=False, wait=False, daemon=True, **kwargs):
         """Launch a subprocess for this server.
 
-        :param ini_file: path to ini_file to use as first arg
+        :param conf_file: path to conf_file to use as first arg
         :param once: boolean, add once argument to command
         :param wait: boolean, if true capture stdout with a pipe
         :param daemon: boolean, if true ask server to log to console
 
         :returns : the pid of the spawned process
         """
-        args = [self.cmd, ini_file]
+        args = [self.cmd, conf_file]
         if once:
             args.append('once')
         if not daemon:
@@ -516,7 +516,7 @@ class Server():
             else:
                 re_out = open(os.devnull, 'w+b')
         proc = subprocess.Popen(args, stdout=re_out, stderr=re_err)
-        pid_file = self.get_pid_file_name(ini_file)
+        pid_file = self.get_pid_file_name(conf_file)
         write_file(pid_file, proc.pid)
         self.procs.append(proc)
         return proc.pid
@@ -551,22 +551,22 @@ class Server():
         """
         Collect ini files and attempt to spawn the processes for this server
         """
-        ini_files = self.ini_files(**kwargs)
-        if not ini_files:
+        conf_files = self.conf_files(**kwargs)
+        if not conf_files:
             return []
 
         pids = self.get_running_pids(**kwargs)
 
         already_started = False
         for pid, pid_file in pids.items():
-            ini_file = self.get_ini_file_name(pid_file)
+            conf_file = self.get_conf_file_name(pid_file)
             # for legacy compat you can't start other servers if one server is
             # already running (unless -n specifies which one you want), this
             # restriction could potentially be lifted, and launch could start
             # any unstarted instances
-            if ini_file in ini_files:
+            if conf_file in conf_files:
                 already_started = True
-                print "%s running (%s - %s)" % (self.server, pid, ini_file)
+                print "%s running (%s - %s)" % (self.server, pid, conf_file)
             elif not kwargs.get('number', 0):
                 already_started = True
                 print "%s running (%s - %s)" % (self.server, pid, pid_file)
@@ -582,20 +582,20 @@ class Server():
         # TODO: check if self.cmd exists?
 
         pids = {}
-        for ini_file in ini_files:
+        for conf_file in conf_files:
             if kwargs.get('once'):
                 msg = 'Running %s once' % self.server
             else:
                 msg = 'Starting %s' % self.server
-            print '%s...(%s)' % (msg, ini_file)
+            print '%s...(%s)' % (msg, conf_file)
             try:
-                pid = self.spawn(ini_file, **kwargs)
+                pid = self.spawn(conf_file, **kwargs)
             except OSError, e:
                 if e.errno == errno.ENOENT:
                     # cmd does not exist
                     print "%s does not exist" % self.cmd
                     break
-            pids[pid] = ini_file
+            pids[pid] = conf_file
 
         return pids
 

@@ -295,54 +295,54 @@ class TestServer(unittest.TestCase):
 
     def test_get_pid_file_name(self):
         server = manager.Server('proxy')
-        ini_file = self.join_swift_dir('proxy-server.conf')
+        conf_file = self.join_swift_dir('proxy-server.conf')
         pid_file = self.join_run_dir('proxy-server.pid')
-        self.assertEquals(pid_file, server.get_pid_file_name(ini_file))
+        self.assertEquals(pid_file, server.get_pid_file_name(conf_file))
         server = manager.Server('object-replicator')
-        ini_file = self.join_swift_dir('object-server/1.conf')
+        conf_file = self.join_swift_dir('object-server/1.conf')
         pid_file = self.join_run_dir('object-replicator/1.pid')
-        self.assertEquals(pid_file, server.get_pid_file_name(ini_file))
+        self.assertEquals(pid_file, server.get_pid_file_name(conf_file))
         server = manager.Server('container-auditor')
-        ini_file = self.join_swift_dir(
+        conf_file = self.join_swift_dir(
             'container-server/1/container-auditor.conf')
         pid_file = self.join_run_dir(
             'container-auditor/1/container-auditor.pid')
-        self.assertEquals(pid_file, server.get_pid_file_name(ini_file))
+        self.assertEquals(pid_file, server.get_pid_file_name(conf_file))
 
-    def test_get_ini_file_name(self):
+    def test_get_conf_file_name(self):
         server = manager.Server('proxy')
-        ini_file = self.join_swift_dir('proxy-server.conf')
+        conf_file = self.join_swift_dir('proxy-server.conf')
         pid_file = self.join_run_dir('proxy-server.pid')
-        self.assertEquals(ini_file, server.get_ini_file_name(pid_file))
+        self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
         server = manager.Server('object-replicator')
-        ini_file = self.join_swift_dir('object-server/1.conf')
+        conf_file = self.join_swift_dir('object-server/1.conf')
         pid_file = self.join_run_dir('object-replicator/1.pid')
-        self.assertEquals(ini_file, server.get_ini_file_name(pid_file))
+        self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
         server = manager.Server('container-auditor')
-        ini_file = self.join_swift_dir(
+        conf_file = self.join_swift_dir(
             'container-server/1/container-auditor.conf')
         pid_file = self.join_run_dir(
             'container-auditor/1/container-auditor.pid')
-        self.assertEquals(ini_file, server.get_ini_file_name(pid_file))
+        self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
 
-    def test_ini_files(self):
+    def test_conf_files(self):
         # test get single ini file
-        ini_files = (
+        conf_files = (
             'proxy-server.conf',
             'proxy-server.ini',
             'auth-server.conf',
         )
-        with temptree(ini_files) as t:
+        with temptree(conf_files) as t:
             manager.SWIFT_DIR = t
             server = manager.Server('proxy')
-            ini_files = server.ini_files()
-            self.assertEquals(len(ini_files), 1)
-            ini_file = ini_files[0]
+            conf_files = server.conf_files()
+            self.assertEquals(len(conf_files), 1)
+            conf_file = conf_files[0]
             proxy_conf = self.join_swift_dir('proxy-server.conf')
-            self.assertEquals(ini_file, proxy_conf)
+            self.assertEquals(conf_file, proxy_conf)
 
         # test multi server conf files & grouping of server-type config
-        ini_files = (
+        conf_files = (
             'object-server1.conf',
             'object-server/2.conf',
             'object-server/object3.conf',
@@ -350,46 +350,46 @@ class TestServer(unittest.TestCase):
             'object-server.txt',
             'proxy-server.conf',
         )
-        with temptree(ini_files) as t:
+        with temptree(conf_files) as t:
             manager.SWIFT_DIR = t
             server = manager.Server('object-replicator')
-            ini_files = server.ini_files()
-            self.assertEquals(len(ini_files), 4)
+            conf_files = server.conf_files()
+            self.assertEquals(len(conf_files), 4)
             c1 = self.join_swift_dir('object-server1.conf')
             c2 = self.join_swift_dir('object-server/2.conf')
             c3 = self.join_swift_dir('object-server/object3.conf')
             c4 = self.join_swift_dir('object-server/conf/server4.conf')
             for c in [c1, c2, c3, c4]:
-                self.assert_(c in ini_files)
+                self.assert_(c in conf_files)
             # test configs returned sorted
             sorted_confs = sorted([c1, c2, c3, c4])
-            self.assertEquals(ini_files, sorted_confs)
+            self.assertEquals(conf_files, sorted_confs)
 
         # test get single numbered conf
-        ini_files = (
+        conf_files = (
             'account-server/1.conf',
             'account-server/2.conf',
             'account-server/3.conf',
             'account-server/4.conf',
         )
-        with temptree(ini_files) as t:
+        with temptree(conf_files) as t:
             manager.SWIFT_DIR = t
             server = manager.Server('account')
-            ini_files = server.ini_files(number=2)
-            self.assertEquals(len(ini_files), 1)
-            ini_file = ini_files[0]
-            self.assertEquals(ini_file,
+            conf_files = server.conf_files(number=2)
+            self.assertEquals(len(conf_files), 1)
+            conf_file = conf_files[0]
+            self.assertEquals(conf_file,
                               self.join_swift_dir('account-server/2.conf'))
             # test missing config number
-            ini_files = server.ini_files(number=5)
-            self.assertFalse(ini_files)
+            conf_files = server.conf_files(number=5)
+            self.assertFalse(conf_files)
 
         # test verbose & quiet
-        ini_files = (
+        conf_files = (
             'auth-server.ini',
             'container-server/1.conf',
         )
-        with temptree(ini_files) as t:
+        with temptree(conf_files) as t:
             manager.SWIFT_DIR = t
             old_stdout = sys.stdout
             try:
@@ -397,21 +397,21 @@ class TestServer(unittest.TestCase):
                     sys.stdout = f
                     server = manager.Server('auth')
                     # check warn "unable to locate"
-                    ini_files = server.ini_files()
-                    self.assertFalse(ini_files)
+                    conf_files = server.conf_files()
+                    self.assertFalse(conf_files)
                     self.assert_('unable to locate' in pop_stream(f).lower())
                     # check quiet will silence warning
-                    ini_files = server.ini_files(verbose=True, quiet=True)
+                    conf_files = server.conf_files(verbose=True, quiet=True)
                     self.assertEquals(pop_stream(f), '')
                     # check found config no warning
                     server = manager.Server('container-auditor')
-                    ini_files = server.ini_files()
+                    conf_files = server.conf_files()
                     self.assertEquals(pop_stream(f), '')
                     # check missing config number warn "unable to locate"
-                    ini_files = server.ini_files(number=2)
+                    conf_files = server.conf_files(number=2)
                     self.assert_('unable to locate' in pop_stream(f).lower())
                     # check verbose lists configs
-                    ini_files = server.ini_files(number=2, verbose=True)
+                    conf_files = server.conf_files(number=2, verbose=True)
                     c1 = self.join_swift_dir('container-server/1.conf')
                     self.assert_(c1 in pop_stream(f))
             finally:
@@ -457,7 +457,7 @@ class TestServer(unittest.TestCase):
             self.assertEquals(pid_map, real_map)
 
         # test get pid_files by number
-        ini_files = (
+        conf_files = (
             'object-server/1.conf',
             'object-server/2.conf',
             'object-server/3.conf',
@@ -470,7 +470,7 @@ class TestServer(unittest.TestCase):
             ('object-server/5.pid', 5),
         )
 
-        with temptree(ini_files) as swift_dir:
+        with temptree(conf_files) as swift_dir:
             manager.SWIFT_DIR = swift_dir
             files, pids = zip(*pid_files)
             with temptree(files, pids) as t:
@@ -667,7 +667,7 @@ class TestServer(unittest.TestCase):
             self.assert_(1 not in manager.os.pid_sigs)
 
     def test_status(self):
-        ini_files = (
+        conf_files = (
             'test-server/1.conf',
             'test-server/2.conf',
             'test-server/3.conf',
@@ -681,7 +681,7 @@ class TestServer(unittest.TestCase):
             ('test-server/4.pid', 4),
         )
 
-        with temptree(ini_files) as swift_dir:
+        with temptree(conf_files) as swift_dir:
             manager.SWIFT_DIR = swift_dir
             files, pids = zip(*pid_files)
             with temptree(files, pids) as t:
@@ -706,7 +706,7 @@ class TestServer(unittest.TestCase):
                         self.assertEquals(len(output), 1)
                         line = output[0]
                         self.assert_('test-server running' in line)
-                        conf_four = self.join_swift_dir(ini_files[3])
+                        conf_four = self.join_swift_dir(conf_files[3])
                         self.assert_('4 - %s' % conf_four in line)
                         # test some servers not running
                         manager.os = MockOs([1, 2, 3])
@@ -722,7 +722,7 @@ class TestServer(unittest.TestCase):
                         self.assertEquals(len(output), 1)
                         line = output[0]
                         self.assert_('not running' in line)
-                        conf_three = self.join_swift_dir(ini_files[2])
+                        conf_three = self.join_swift_dir(conf_files[2])
                         self.assert_(conf_three in line)
                         # test no running pids
                         manager.os = MockOs([])
@@ -991,7 +991,7 @@ class TestServer(unittest.TestCase):
 
     def test_launch(self):
         # stubs
-        ini_files = (
+        conf_files = (
             'proxy-server.conf',
             'object-server/1.conf',
             'object-server/2.conf',
@@ -1007,7 +1007,7 @@ class TestServer(unittest.TestCase):
         class MockSpawn():
 
             def __init__(self, pids=None):
-                self.ini_files = []
+                self.conf_files = []
                 self.kwargs = []
                 if not pids:
                     def one_forever():
@@ -1017,12 +1017,12 @@ class TestServer(unittest.TestCase):
                 else:
                     self.pids = (x for x in pids)
 
-            def __call__(self, ini_file, **kwargs):
-                self.ini_files.append(ini_file)
+            def __call__(self, conf_file, **kwargs):
+                self.conf_files.append(conf_file)
                 self.kwargs.append(kwargs)
                 return self.pids.next()
 
-        with temptree(ini_files) as swift_dir:
+        with temptree(conf_files) as swift_dir:
             manager.SWIFT_DIR = swift_dir
             files, pids = zip(*pid_files)
             with temptree(files, pids) as t:
@@ -1041,8 +1041,8 @@ class TestServer(unittest.TestCase):
                         self.assertFalse(server.launch())
                         output = pop_stream(f)
                         self.assert_('running' in output)
-                        ini_file = self.join_swift_dir('proxy-server.conf')
-                        self.assert_(ini_file in output)
+                        conf_file = self.join_swift_dir('proxy-server.conf')
+                        self.assert_(conf_file in output)
                         pid_file = self.join_run_dir('proxy-server/2.pid')
                         self.assert_(pid_file in output)
                         self.assert_('already started' in output)
@@ -1051,12 +1051,12 @@ class TestServer(unittest.TestCase):
                         # test ignore once for non-start-once server
                         mock_spawn = MockSpawn([1])
                         server.spawn = mock_spawn
-                        ini_file = self.join_swift_dir('proxy-server.conf')
+                        conf_file = self.join_swift_dir('proxy-server.conf')
                         expected = {
-                            1: ini_file,
+                            1: conf_file,
                         }
                         self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.ini_files, [ini_file])
+                        self.assertEquals(mock_spawn.conf_files, [conf_file])
                         expected = {
                             'once': False,
                         }
@@ -1079,7 +1079,7 @@ class TestServer(unittest.TestCase):
                             4: conf4,
                         }
                         self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.ini_files, [conf1, conf2,
+                        self.assertEquals(mock_spawn.conf_files, [conf1, conf2,
                                                                  conf3, conf4])
                         expected = {
                             'once': True,
@@ -1094,7 +1094,7 @@ class TestServer(unittest.TestCase):
                             4: conf4,
                         }
                         self.assertEquals(server.launch(number=4), expected)
-                        self.assertEquals(mock_spawn.ini_files, [conf4])
+                        self.assertEquals(mock_spawn.conf_files, [conf4])
                         expected = {
                             'number': 4
                         }
@@ -1103,7 +1103,7 @@ class TestServer(unittest.TestCase):
                     sys.stdout = old_stdout
 
     def test_stop(self):
-        ini_files = (
+        conf_files = (
             'account-server/1.conf',
             'account-server/2.conf',
             'account-server/3.conf',
@@ -1116,7 +1116,7 @@ class TestServer(unittest.TestCase):
             ('account-reaper/4.pid', 4),
         )
 
-        with temptree(ini_files) as swift_dir:
+        with temptree(conf_files) as swift_dir:
             manager.SWIFT_DIR = swift_dir
             files, pids = zip(*pid_files)
             with temptree(files, pids) as t:
