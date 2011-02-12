@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import hashlib
 
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
-from swift.common.internal_proxy import InternalProxy
 from swift.common.utils import renamer, get_logger, readconf, mkdirs
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
@@ -49,13 +48,15 @@ class AccountStat(Daemon):
         self.devices = server_conf.get('devices', '/srv/node')
         self.mount_check = server_conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.logger = get_logger(stats_conf, 'swift-account-stats-logger')
+        self.logger = \
+            get_logger(stats_conf, log_route='account-stats')
 
     def run_once(self):
-        self.logger.info("Gathering account stats")
+        self.logger.info(_("Gathering account stats"))
         start = time.time()
         self.find_and_process()
-        self.logger.info("Gathering account stats complete (%0.2f minutes)" %
+        self.logger.info(
+            _("Gathering account stats complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
 
     def find_and_process(self):
@@ -70,14 +71,14 @@ class AccountStat(Daemon):
             # Account Name, Container Count, Object Count, Bytes Used
             for device in os.listdir(self.devices):
                 if self.mount_check and not check_mount(self.devices, device):
-                    self.logger.error("Device %s is not mounted, skipping." %
-                        device)
+                    self.logger.error(
+                        _("Device %s is not mounted, skipping.") % device)
                     continue
                 accounts = os.path.join(self.devices,
                                         device,
                                         account_server_data_dir)
                 if not os.path.exists(accounts):
-                    self.logger.debug("Path %s does not exist, skipping." %
+                    self.logger.debug(_("Path %s does not exist, skipping.") %
                         accounts)
                     continue
                 for root, dirs, files in os.walk(accounts, topdown=False):
@@ -87,11 +88,11 @@ class AccountStat(Daemon):
                             broker = AccountBroker(db_path)
                             if not broker.is_deleted():
                                 (account_name,
-                                _, _, _,
+                                _junk, _junk, _junk,
                                 container_count,
                                 object_count,
                                 bytes_used,
-                                _, _) = broker.get_info()
+                                _junk, _junk) = broker.get_info()
                                 line_data = '"%s",%d,%d,%d\n' % (
                                     account_name, container_count,
                                     object_count, bytes_used)

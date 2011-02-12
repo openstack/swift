@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ if __name__ == '__main__':
         sys.exit(1)
     try:
         ring = Ring('/etc/swift/object.ring.gz')
-    except:
+    except Exception:
         ring = None
     datafile = sys.argv[1]
     fp = open(datafile, 'rb')

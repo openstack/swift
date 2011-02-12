@@ -164,7 +164,10 @@ swift-stats-populate and swift-stats-report use the same configuration file,
 /etc/swift/stats.conf. Example conf file::
 
     [stats]
+    # For DevAuth:
     auth_url = http://saio:11000/v1.0
+    # For Swauth:
+    # auth_url = http://saio:11000/auth/v1.0
     auth_user = test:tester
     auth_key = testing
 
@@ -228,6 +231,21 @@ instance, you can run `swift-stats-populate -p` and `swift-stats-report -p` to
 get performance timings (warning: the initial populate takes a while). These
 timings are dumped into a CSV file (/etc/swift/stats.csv by default) and can
 then be graphed to see how cluster performance is trending.
+
+------------------------------------
+Additional Cleanup Script for Swauth
+------------------------------------
+
+If you decide to use Swauth, you'll want to install a cronjob to clean up any
+orphaned expired tokens. These orphaned tokens can occur when a "stampede"
+occurs where a single user authenticates several times concurrently. Generally,
+these orphaned tokens don't pose much of an issue, but it's good to clean them
+up once a "token life" period (default: 1 day or 86400 seconds).
+
+This should be as simple as adding `swauth-cleanup-tokens -K swauthkey >
+/dev/null` to a crontab entry on one of the proxies that is running Swauth; but
+run `swauth-cleanup-tokens` with no arguments for detailed help on the options
+available.
 
 ------------------------
 Debugging Tips and Tools

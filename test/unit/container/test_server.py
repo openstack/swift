@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import unittest
 from shutil import rmtree
 from StringIO import StringIO
 from time import time
+from tempfile import mkdtemp
 
 from eventlet import spawn, TimeoutError, listen
 from eventlet.timeout import Timeout
@@ -33,17 +34,8 @@ class TestContainerController(unittest.TestCase):
     """ Test swift.container_server.ContainerController """
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
-        self.path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not self.path_to_test_xfs or \
-                not os.path.exists(self.path_to_test_xfs):
-            print >>sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            self.testdir = '/tmp/SWIFTUNITTEST'
-        else:
-            self.testdir = os.path.join(self.path_to_test_xfs,
-                            'tmp_test_object_server_ObjectController')
+        self.testdir = os.path.join(mkdtemp(),
+                                    'tmp_test_object_server_ObjectController')
         mkdirs(self.testdir)
         rmtree(self.testdir)
         mkdirs(os.path.join(self.testdir, 'sda1'))
@@ -53,7 +45,7 @@ class TestContainerController(unittest.TestCase):
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
-        rmtree(self.testdir, ignore_errors=1)
+        rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_acl_container(self):
         # Ensure no acl by default

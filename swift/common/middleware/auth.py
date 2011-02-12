@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ class DevAuth(object):
         self.auth_host = conf.get('ip', '127.0.0.1')
         self.auth_port = int(conf.get('port', 11000))
         self.ssl = conf.get('ssl', 'false').lower() in TRUE_VALUES
+        self.auth_prefix = conf.get('prefix', '/')
         self.timeout = int(conf.get('node_timeout', 10))
 
     def __call__(self, env, start_response):
@@ -53,12 +54,13 @@ class DevAuth(object):
         requests, acts as the fallback auth service when no other auth
         middleware overrides it.
         """
+        s3 = env.get('HTTP_AUTHORIZATION')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
-        if token and token.startswith(self.reseller_prefix):
+        if s3 or (token and token.startswith(self.reseller_prefix)):
             # Note: Empty reseller_prefix will match all tokens.
             # Attempt to auth my token with my auth server
-            groups = \
-                self.get_groups(token, memcache_client=cache_from_env(env))
+            groups = self.get_groups(env, token,
+                                     memcache_client=cache_from_env(env))
             if groups:
                 env['REMOTE_USER'] = groups
                 user = groups and groups.split(',', 1)[0] or ''
@@ -103,7 +105,7 @@ class DevAuth(object):
                 env['swift.clean_acl'] = clean_acl
         return self.app(env, start_response)
 
-    def get_groups(self, token, memcache_client=None):
+    def get_groups(self, env, token, memcache_client=None):
         """
         Get groups for the given token.
 
@@ -128,10 +130,18 @@ class DevAuth(object):
             start, expiration, groups = cached_auth_data
             if time() - start > expiration:
                 groups = None
+
+        headers = {}
+        if env.get('HTTP_AUTHORIZATION'):
+            groups = None
+            headers["Authorization"] = env.get('HTTP_AUTHORIZATION')
+
         if not groups:
             with Timeout(self.timeout):
                 conn = http_connect(self.auth_host, self.auth_port, 'GET',
-                                    '/token/%s' % token, ssl=self.ssl)
+                                    '%stoken/%s' % (self.auth_prefix, token),
+                                    headers, ssl=self.ssl)
+
                 resp = conn.getresponse()
                 resp.read()
                 conn.close()
@@ -142,6 +152,15 @@ class DevAuth(object):
             if memcache_client:
                 memcache_client.set(key, (time(), expiration, groups),
                                     timeout=expiration)
+
+        if env.get('HTTP_AUTHORIZATION'):
+            account, user, sign = \
+                env['HTTP_AUTHORIZATION'].split(' ')[-1].split(':')
+            cfaccount = resp.getheader('x-auth-account-suffix')
+            path = env['PATH_INFO']
+            env['PATH_INFO'] = \
+                path.replace("%s:%s" % (account, user), cfaccount, 1)
+
         return groups
 
     def authorize(self, req):
@@ -158,9 +177,10 @@ class DevAuth(object):
         user_groups = (req.remote_user or '').split(',')
         if '.reseller_admin' in user_groups:
             return None
-        if account in user_groups and (req.method != 'PUT' or container):
+        if account in user_groups and \
+                (req.method not in ('DELETE', 'PUT') or container):
             # If the user is admin for the account and is not trying to do an
-            # account PUT...
+            # account DELETE or PUT...
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):

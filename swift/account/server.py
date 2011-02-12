@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,15 +18,14 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-
 from urllib import unquote
+from xml.sax import saxutils
 
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, HTTPPreconditionFailed
 import simplejson
-from xml.sax import saxutils
 
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
@@ -43,7 +42,7 @@ class AccountController(object):
     """WSGI controller for the account server."""
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='account-server')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -87,8 +86,6 @@ class AccountController(object):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
-            if 'x-cf-trans-id' in req.headers:
-                broker.pending_timeout = 3
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
                 return HTTPNotFound(request=req)
@@ -141,9 +138,6 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
-        if not container:
-            broker.pending_timeout = 0.1
-            broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -172,8 +166,6 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
-        broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -297,6 +289,7 @@ class AccountController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -305,11 +298,9 @@ class AccountController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+            except Exception:
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = '%.4f' % (time.time() - start_time)
         additional_info = ''

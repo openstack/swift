@@ -31,9 +31,9 @@ RUN_DIR = '/var/run/swift'
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
     'container-replicator', 'container-server', 'container-updater',
     'object-auditor', 'object-server', 'object-replicator', 'object-updater',
-    'proxy-server', 'account-replicator', 'auth-server', 'account-reaper']
-MAIN_SERVERS = ['auth-server', 'proxy-server', 'account-server',
-                'container-server', 'object-server']
+    'proxy-server', 'account-replicator', 'account-reaper']
+MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
+                'object-server']
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
 GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS
 START_ONCE_SERVERS = REST_SERVERS

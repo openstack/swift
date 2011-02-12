@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 from __future__ import with_statement
 import cPickle as pickle
 import logging
+from logging.handlers import SysLogHandler
 import os
 import sys
 import unittest
@@ -35,8 +36,8 @@ import eventlet
 from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
 from eventlet.timeout import Timeout
 import simplejson
-from webob import Request
-from webob.exc import HTTPUnauthorized
+from webob import Request, Response
+from webob.exc import HTTPNotFound, HTTPUnauthorized
 
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.proxy import server as proxy_server
@@ -47,13 +48,108 @@ from swift.common import ring
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, MAX_FILE_SIZE
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
+from swift.common.wsgi import monkey_patch_mimetools
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
+def setup():
+    global _testdir, _test_servers, _test_sockets, \
+            _orig_container_listing_limit, _test_coros
+    monkey_patch_mimetools()
+    # Since we're starting up a lot here, we're going to test more than
+    # just chunked puts; we're also going to test parts of
+    # proxy_server.Application we couldn't get to easily otherwise.
+    _testdir = \
+        os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
+    mkdirs(_testdir)
+    rmtree(_testdir)
+    mkdirs(os.path.join(_testdir, 'sda1'))
+    mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
+    mkdirs(os.path.join(_testdir, 'sdb1'))
+    mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+    _orig_container_listing_limit = proxy_server.CONTAINER_LISTING_LIMIT
+    conf = {'devices': _testdir, 'swift_dir': _testdir,
+            'mount_check': 'false'}
+    prolis = listen(('localhost', 0))
+    acc1lis = listen(('localhost', 0))
+    acc2lis = listen(('localhost', 0))
+    con1lis = listen(('localhost', 0))
+    con2lis = listen(('localhost', 0))
+    obj1lis = listen(('localhost', 0))
+    obj2lis = listen(('localhost', 0))
+    _test_sockets = \
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis)
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+        [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+          'port': acc1lis.getsockname()[1]},
+         {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+          'port': acc2lis.getsockname()[1]}], 30),
+        GzipFile(os.path.join(_testdir, 'account.ring.gz'), 'wb'))
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+        [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+          'port': con1lis.getsockname()[1]},
+         {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+          'port': con2lis.getsockname()[1]}], 30),
+        GzipFile(os.path.join(_testdir, 'container.ring.gz'), 'wb'))
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+        [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+          'port': obj1lis.getsockname()[1]},
+         {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+          'port': obj2lis.getsockname()[1]}], 30),
+        GzipFile(os.path.join(_testdir, 'object.ring.gz'), 'wb'))
+    prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone())
+    acc1srv = account_server.AccountController(conf)
+    acc2srv = account_server.AccountController(conf)
+    con1srv = container_server.ContainerController(conf)
+    con2srv = container_server.ContainerController(conf)
+    obj1srv = object_server.ObjectController(conf)
+    obj2srv = object_server.ObjectController(conf)
+    _test_servers = \
+        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv)
+    nl = NullLogger()
+    prospa = spawn(wsgi.server, prolis, prosrv, nl)
+    acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
+    acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)
+    con1spa = spawn(wsgi.server, con1lis, con1srv, nl)
+    con2spa = spawn(wsgi.server, con2lis, con2srv, nl)
+    obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
+    obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
+    _test_coros = \
+        (prospa, acc1spa, acc2spa, con2spa, con2spa, obj1spa, obj2spa)
+    # Create account
+    ts = normalize_timestamp(time())
+    partition, nodes = prosrv.account_ring.get_nodes('a')
+    for node in nodes:
+        conn = proxy_server.http_connect(node['ip'], node['port'],
+                node['device'], partition, 'PUT', '/a',
+                {'X-Timestamp': ts, 'X-CF-Trans-Id': 'test'})
+        resp = conn.getresponse()
+        assert(resp.status == 201)
+    # Create container
+    sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+    fd = sock.makefile()
+    fd.write('PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
+        'Connection: close\r\nX-Auth-Token: t\r\n'
+        'Content-Length: 0\r\n\r\n')
+    fd.flush()
+    headers = readuntil2crlfs(fd)
+    exp = 'HTTP/1.1 201'
+    assert(headers[:len(exp)] == exp)
+
+
+def teardown():
+    for server in _test_coros:
+        server.kill()
+    proxy_server.CONTAINER_LISTING_LIMIT = _orig_container_listing_limit
+    rmtree(os.path.dirname(_testdir))
+
+
 def fake_http_connect(*code_iter, **kwargs):
+
     class FakeConn(object):
+
         def __init__(self, status, etag=None, body=''):
             self.status = status
             self.reason = 'Fake'
@@ -88,6 +184,8 @@ def fake_http_connect(*code_iter, **kwargs):
                 pass
             if 'slow' in kwargs:
                 headers['content-length'] = '4'
+            if 'headers' in kwargs:
+                headers.update(kwargs['headers'])
             return headers.items()
 
         def read(self, amt=None):
@@ -158,11 +256,15 @@ class FakeRing(object):
 
 
 class FakeMemcache(object):
+
     def __init__(self):
         self.store = {}
 
     def get(self, key):
         return self.store.get(key)
+
+    def keys(self):
+        return self.store.keys()
 
     def set(self, key, value, timeout=0):
         self.store[key] = value
@@ -179,7 +281,7 @@ class FakeMemcache(object):
     def delete(self, key):
         try:
             del self.store[key]
-        except:
+        except Exception:
             pass
         return True
 
@@ -201,10 +303,12 @@ class NullLoggingHandler(logging.Handler):
 @contextmanager
 def save_globals():
     orig_http_connect = getattr(proxy_server, 'http_connect', None)
+    orig_account_info = getattr(proxy_server.Controller, 'account_info', None)
     try:
         yield True
     finally:
         proxy_server.http_connect = orig_http_connect
+        proxy_server.Controller.account_info = orig_account_info
 
 # tests
 
@@ -212,70 +316,295 @@ class TestController(unittest.TestCase):
 
     def setUp(self):
         self.account_ring = FakeRing()
+        self.container_ring = FakeRing()
+        self.memcache = FakeMemcache()
 
-        app = proxy_server.Application(None, FakeMemcache(),
-            account_ring=self.account_ring, container_ring=FakeRing(),
+        app = proxy_server.Application(None, self.memcache,
+            account_ring=self.account_ring,
+            container_ring=self.container_ring,
             object_ring=FakeRing())
         self.controller = proxy_server.Controller(app)
 
-    def check_account_info_return(self, account, partition, nodes):
-        p, n = self.account_ring.get_nodes(account)
+        self.account = 'some_account'
+        self.container = 'some_container'
+        self.read_acl = 'read_acl'
+        self.write_acl = 'write_acl'
+
+    def check_account_info_return(self, partition, nodes, is_none=False):
+        if is_none:
+            p, n = None, None
+        else:
+            p, n = self.account_ring.get_nodes(self.account)
         self.assertEqual(p, partition)
         self.assertEqual(n, nodes)
 
-    def test_account_info_404_200(self):
-        account = 'test_account_info_404_200'
-
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
-
-    def test_account_info_404(self):
-        account = 'test_account_info_404'
-
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
-            proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(account)
-            self.assertEqual(partition, None)
-            self.assertEqual(nodes, None)
-
+    # tests if 200 is cached and used
     def test_account_info_200(self):
-        account = 'test_account_info_200'
-
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes)
 
-    def test_account_info_200_200(self):
-        account = 'test_account_info_200_200'
+            cache_key = proxy_server.get_account_memcache_key(self.account)
+            self.assertEquals(200, self.memcache.get(cache_key))
+
+            proxy_server.http_connect = fake_http_connect()
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes)
+
+    # tests if 404 is cached and used
+    def test_account_info_404(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, True)
+
+            cache_key = proxy_server.get_account_memcache_key(self.account)
+            self.assertEquals(404, self.memcache.get(cache_key))
+
+            proxy_server.http_connect = fake_http_connect()
+            partition, nodes = self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, True)
+
+    # tests if some http status codes are not cached
+    def test_account_info_no_cache(self):
+        def test(*status_list):
+            proxy_server.http_connect = fake_http_connect(*status_list)
+            partition, nodes = self.controller.account_info(self.account)
+            self.assertEqual(len(self.memcache.keys()), 0)
+            self.check_account_info_return(partition, nodes, True)
 
         with save_globals():
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+            test(503, 404, 404)
+            test(404, 404, 503)
+            test(404, 507, 503)
+            test(503, 503, 503)
 
-            proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(account)
-            self.check_account_info_return(account, partition, nodes)
+    def check_container_info_return(self, ret, is_none=False):
+        if is_none:
+            partition, nodes, read_acl, write_acl = None, None, None, None
+        else:
+            partition, nodes = self.container_ring.get_nodes(self.account,
+                self.container)
+            read_acl, write_acl = self.read_acl, self.write_acl
+        self.assertEqual(partition, ret[0])
+        self.assertEqual(nodes, ret[1])
+        self.assertEqual(read_acl, ret[2])
+        self.assertEqual(write_acl, ret[3])
+
+    def test_container_info_invalid_account(self):
+        def account_info(self, account):
+            return None, None
+
+        with save_globals():
+            proxy_server.Controller.account_info = account_info
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret, True)
+
+    # tests if 200 is cached and used
+    def test_container_info_200(self):
+        def account_info(self, account):
+            return True, True
+
+        with save_globals():
+            headers = {'x-container-read': self.read_acl,
+                'x-container-write': self.write_acl}
+            proxy_server.Controller.account_info = account_info
+            proxy_server.http_connect = fake_http_connect(200,
+                headers=headers)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret)
+
+            cache_key = proxy_server.get_container_memcache_key(self.account,
+                self.container)
+            cache_value = self.memcache.get(cache_key)
+            self.assertEquals(dict, type(cache_value))
+            self.assertEquals(200, cache_value.get('status'))
+
+            proxy_server.http_connect = fake_http_connect()
+            ret = self.controller.container_info(self.account,
+                 self.container)
+            self.check_container_info_return(ret)
+
+    # tests if 404 is cached and used
+    def test_container_info_404(self):
+        def account_info(self, account):
+            return True, True
+
+        with save_globals():
+            proxy_server.Controller.account_info = account_info
+            proxy_server.http_connect = fake_http_connect(404, 404, 404)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.check_container_info_return(ret, True)
+
+            cache_key = proxy_server.get_container_memcache_key(self.account,
+                self.container)
+            cache_value = self.memcache.get(cache_key)
+            self.assertEquals(dict, type(cache_value))
+            self.assertEquals(404, cache_value.get('status'))
+
+            proxy_server.http_connect = fake_http_connect()
+            ret = self.controller.container_info(self.account,
+                 self.container)
+            self.check_container_info_return(ret, True)
+
+    # tests if some http status codes are not cached
+    def test_container_info_no_cache(self):
+        def test(*status_list):
+            proxy_server.http_connect = fake_http_connect(*status_list)
+            ret = self.controller.container_info(self.account,
+                self.container)
+            self.assertEqual(len(self.memcache.keys()), 0)
+            self.check_container_info_return(ret, True)
+
+        with save_globals():
+            test(503, 404, 404)
+            test(404, 404, 503)
+            test(404, 507, 503)
+            test(503, 503, 503)
+
 
 class TestProxyServer(unittest.TestCase):
 
-    def test_unhandled_exception(self):
+    def test_access_log(self):
+
         class MyApp(proxy_server.Application):
+
+            def handle_request(self, req):
+                resp = Response(request=req)
+                req.response = resp
+                req.start_time = time()
+                return resp
+
+        def start_response(*args):
+            pass
+
+        class MockLogger():
+
+            def __init__(self):
+                self.buffer = StringIO()
+
+            def info(self, msg, args=None):
+                if args:
+                    msg = msg % args
+                self.buffer.write(msg)
+
+            def strip_value(self):
+                rv = self.buffer.getvalue()
+                self.buffer.truncate(0)
+                return rv
+
+        class SnarfStream(object):
+            # i can't seem to subclass cStringIO
+
+            def __init__(self, *args, **kwargs):
+                self.sio = StringIO()
+
+            def strip_value(self):
+                rv = self.getvalue().strip()
+                self.truncate(0)
+                return rv
+
+            def __getattr__(self, name):
+                try:
+                    return object.__getattr__(self, name)
+                except AttributeError:
+                    try:
+                        return getattr(self.sio, name)
+                    except AttributeError:
+                        return self.__getattribute__(name)
+
+        snarf = SnarfStream()
+        _orig_get_logger = proxy_server.get_logger
+
+        def mock_get_logger(*args, **kwargs):
+            if kwargs.get('log_route') != 'proxy-access':
+                return _orig_get_logger(*args, **kwargs)
+            kwargs['log_route'] = 'snarf'
+            logger = _orig_get_logger(*args, **kwargs)
+            if [h for h in logger.logger.handlers if
+                isinstance(h, logging.StreamHandler) and h.stream is snarf]:
+                # snarf handler already setup!
+                return logger
+            formatter = logger.logger.handlers[0].formatter
+            formatter._fmt += ' %(levelname)s'
+            snarf_handler = logging.StreamHandler(snarf)
+            snarf_handler.setFormatter(formatter)
+            logger.logger.addHandler(snarf_handler)
+            return logger
+
+        def test_conf(conf):
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            req = Request.blank('')
+            app(req.environ, start_response)
+
+        try:
+            proxy_server.get_logger = mock_get_logger
+            test_conf({})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('swift'))
+            self.assert_(line.endswith('INFO'))
+            test_conf({'log_name': 'snarf-test'})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('snarf-test'))
+            self.assert_(line.endswith('INFO'))
+            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR'})
+            line = snarf.strip_value()
+            print line
+            self.assertFalse(line)
+            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR',
+                       'access_log_name': 'access-test',
+                       'access_log_level': 'INFO'})
+            line = snarf.strip_value()
+            print line
+            self.assert_(line.startswith('access-test'))
+            self.assert_(line.endswith('INFO'))
+
+            # test facility
+            def get_facility(logger):
+                h = [h for h in logger.logger.handlers if
+                     isinstance(h, SysLogHandler)][0]
+                return h.facility
+
+            conf = {'log_facility': 'LOG_LOCAL0'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL0)
+            conf = {'log_facility': 'LOG_LOCAL0',
+                    'access_log_facility': 'LOG_LOCAL1'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL1)
+            conf = {'access_log_facility': 'LOG_LOCAL1'}
+            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
+                        container_ring=FakeRing(), object_ring=FakeRing())
+            self.assertEquals(get_facility(app.logger),
+                              SysLogHandler.LOG_LOCAL0)
+            self.assertEquals(get_facility(app.access_logger),
+                              SysLogHandler.LOG_LOCAL1)
+
+        finally:
+            proxy_server.get_logger = _orig_get_logger
+
+    def test_unhandled_exception(self):
+
+        class MyApp(proxy_server.Application):
+
             def get_controller(self, path):
                 raise Exception('this shouldnt be caught')
+
         app = MyApp(None, FakeMemcache(), account_ring=FakeRing(),
                 container_ring=FakeRing(), object_ring=FakeRing())
         req = Request.blank('/account', environ={'REQUEST_METHOD': 'HEAD'})
@@ -321,6 +650,11 @@ class TestObjectController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
             account_ring=FakeRing(), container_ring=FakeRing(),
             object_ring=FakeRing())
+        monkey_patch_mimetools()
+
+
+    def tearDown(self):
+        proxy_server.CONTAINER_LISTING_LIMIT = _orig_container_listing_limit
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -398,8 +732,11 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 204, 500, 404), 503)
 
     def test_PUT_connect_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -419,6 +756,7 @@ class TestObjectController(unittest.TestCase):
                     if self.status == -3:
                         return FakeConn(507)
                     return FakeConn(100)
+
             code_iter = iter(code_iter)
 
             def connect(*args, **ckwargs):
@@ -426,7 +764,9 @@ class TestObjectController(unittest.TestCase):
                 if status == -1:
                     raise HTTPException()
                 return FakeConn(status)
+
             return connect
+
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
@@ -447,8 +787,11 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 503, 503, -1), 503)
 
     def test_PUT_send_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -512,8 +855,11 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(res.status_int, 413)
 
     def test_PUT_getresponse_exceptions(self):
+
         def mock_http_connect(*code_iter, **kwargs):
+
             class FakeConn(object):
+
                 def __init__(self, status):
                     self.status = status
                     self.reason = 'Fake'
@@ -708,6 +1054,7 @@ class TestObjectController(unittest.TestCase):
                 dev['port'] = 1
 
             class SlowBody():
+
                 def __init__(self):
                     self.sent = 0
 
@@ -717,6 +1064,7 @@ class TestObjectController(unittest.TestCase):
                         self.sent += 1
                         return ' '
                     return ''
+
             req = Request.blank('/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
                 headers={'Content-Length': '4', 'Content-Type': 'text/plain'})
@@ -755,11 +1103,13 @@ class TestObjectController(unittest.TestCase):
                 dev['port'] = 1
 
             class SlowBody():
+
                 def __init__(self):
                     self.sent = 0
 
                 def read(self, size=-1):
                     raise Exception('Disconnected')
+
             req = Request.blank('/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
                 headers={'Content-Length': '4', 'Content-Type': 'text/plain'})
@@ -923,12 +1273,13 @@ class TestObjectController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
+            proxy_server.shuffle = lambda l: None
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
             self.assert_status_map(controller.HEAD, (503, 200, 200), 200)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.object_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (503, 503, 503), 503)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'],
                               self.app.error_suppression_limit + 1)
@@ -1143,6 +1494,7 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
+            # initial source object PUT
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0'})
             self.app.update_request(req)
@@ -1152,6 +1504,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
 
+            # basic copy
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o'})
@@ -1164,6 +1517,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o')
 
+            # non-zero content length
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '5',
                                           'X-Copy-From': 'c/o'})
@@ -1175,6 +1529,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
 
+            # extra source path parsing
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o/o2'})
@@ -1187,6 +1542,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from'], 'c/o/o2')
 
+            # space in soure path
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                           'X-Copy-From': 'c/o%20o2'})
@@ -1408,8 +1764,9 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
 
     def test_chunked_put(self):
-        # quick test of chunked put w/o PATH_TO_TEST_XFS
+
         class ChunkedFile():
+
             def __init__(self, bytes):
                 self.bytes = bytes
                 self.read_bytes = 0
@@ -1457,360 +1814,525 @@ class TestObjectController(unittest.TestCase):
             finally:
                 server.MAX_FILE_SIZE = MAX_FILE_SIZE
 
-    def test_chunked_put_and_a_bit_more(self):
-        # Since we're starting up a lot here, we're going to test more than
-        # just chunked puts; we're also going to test parts of
-        # proxy_server.Application we couldn't get to easily otherwise.
-        path_to_test_xfs = os.environ.get('PATH_TO_TEST_XFS')
-        if not path_to_test_xfs or not os.path.exists(path_to_test_xfs):
-            print >> sys.stderr, 'WARNING: PATH_TO_TEST_XFS not set or not ' \
-                'pointing to a valid directory.\n' \
-                'Please set PATH_TO_TEST_XFS to a directory on an XFS file ' \
-                'system for testing.'
-            raise SkipTest
-        testdir = \
-            os.path.join(path_to_test_xfs, 'tmp_test_proxy_server_chunked')
-        mkdirs(testdir)
-        rmtree(testdir)
-        mkdirs(os.path.join(testdir, 'sda1'))
-        mkdirs(os.path.join(testdir, 'sda1', 'tmp'))
-        mkdirs(os.path.join(testdir, 'sdb1'))
-        mkdirs(os.path.join(testdir, 'sdb1', 'tmp'))
-        try:
-            conf = {'devices': testdir, 'swift_dir': testdir,
-                    'mount_check': 'false'}
-            prolis = listen(('localhost', 0))
-            acc1lis = listen(('localhost', 0))
-            acc2lis = listen(('localhost', 0))
-            con1lis = listen(('localhost', 0))
-            con2lis = listen(('localhost', 0))
-            obj1lis = listen(('localhost', 0))
-            obj2lis = listen(('localhost', 0))
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': acc1lis.getsockname()[1]},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': acc2lis.getsockname()[1]}], 30),
-                GzipFile(os.path.join(testdir, 'account.ring.gz'), 'wb'))
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': con1lis.getsockname()[1]},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': con2lis.getsockname()[1]}], 30),
-                GzipFile(os.path.join(testdir, 'container.ring.gz'), 'wb'))
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': obj1lis.getsockname()[1]},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': obj2lis.getsockname()[1]}], 30),
-                GzipFile(os.path.join(testdir, 'object.ring.gz'), 'wb'))
-            prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone())
-            acc1srv = account_server.AccountController(conf)
-            acc2srv = account_server.AccountController(conf)
-            con1srv = container_server.ContainerController(conf)
-            con2srv = container_server.ContainerController(conf)
-            obj1srv = object_server.ObjectController(conf)
-            obj2srv = object_server.ObjectController(conf)
-            nl = NullLogger()
-            prospa = spawn(wsgi.server, prolis, prosrv, nl)
-            acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
-            acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)
-            con1spa = spawn(wsgi.server, con1lis, con1srv, nl)
-            con2spa = spawn(wsgi.server, con2lis, con2srv, nl)
-            obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
-            obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
-            try:
-                # Check bad version
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v0 HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 412'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check bad path
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET invalid HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 404'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check invalid utf-8
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 412'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check bad path, no controller
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1 HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 412'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check bad method
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('LICK /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 405'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Check unhandled exception
-                orig_update_request = prosrv.update_request
-                def broken_update_request(env, req):
-                    raise Exception('fake')
-                prosrv.update_request = broken_update_request
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 500'
-                self.assertEquals(headers[:len(exp)], exp)
-                prosrv.update_request = orig_update_request
-                # Okay, back to chunked put testing; Create account
-                ts = normalize_timestamp(time())
-                partition, nodes = prosrv.account_ring.get_nodes('a')
-                for node in nodes:
-                    conn = proxy_server.http_connect(node['ip'], node['port'],
-                            node['device'], partition, 'PUT', '/a',
-                            {'X-Timestamp': ts, 'X-CF-Trans-Id': 'test'})
-                    resp = conn.getresponse()
-                    self.assertEquals(resp.status, 201)
-                # Head account, just a double check and really is here to test
-                # the part Application.log_request that 'enforces' a
-                # content_length on the response.
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 204'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('\r\nContent-Length: 0\r\n' in headers)
-                # Create container
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 201'
-                self.assertEquals(headers[:len(exp)], exp)
-                # GET account with a query string to test that
-                # Application.log_request logs the query string. Also, throws
-                # in a test for logging x-forwarded-for (first entry only).
+    def test_chunked_put_bad_version(self):
+        # Check bad version
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v0 HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 412'
+        self.assertEquals(headers[:len(exp)], exp)
 
-                class Logger(object):
-                    def info(self, msg):
-                        self.msg = msg
-                orig_logger = prosrv.logger
-                prosrv.logger = Logger()
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write(
-                    'GET /v1/a?format=json HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\nX-Forwarded-For: host1, host2\r\n'
-                    '\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('/v1/a%3Fformat%3Djson' in prosrv.logger.msg,
-                             prosrv.logger.msg)
-                exp = 'host1'
-                self.assertEquals(prosrv.logger.msg[:len(exp)], exp)
-                prosrv.logger = orig_logger
-                # Turn on header logging.
+    def test_chunked_put_bad_path(self):
+        # Check bad path
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET invalid HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 404'
+        self.assertEquals(headers[:len(exp)], exp)
 
-                class Logger(object):
-                    def info(self, msg):
-                        self.msg = msg
-                orig_logger = prosrv.logger
-                prosrv.logger = Logger()
-                prosrv.log_headers = True
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Auth-Token: t\r\n'
-                    'Content-Length: 0\r\nGoofy-Header: True\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('Goofy-Header%3A%20True' in prosrv.logger.msg,
-                             prosrv.logger.msg)
-                prosrv.log_headers = False
-                prosrv.logger = orig_logger
-                # Test UTF-8 Unicode all the way through the system
-                ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
-                       '\xbf\xe1\xbd\xbb\xce\x87 \xcf\x84\xe1\xbd\xb0 \xcf' \
-                       '\x80\xe1\xbd\xb1\xce\xbd\xcf\x84\xca\xbc \xe1\xbc' \
-                       '\x82\xce\xbd \xe1\xbc\x90\xce\xbe\xe1\xbd\xb5\xce' \
-                       '\xba\xce\xbf\xce\xb9 \xcf\x83\xce\xb1\xcf\x86\xe1' \
-                       '\xbf\x86.Test'
-                ustr_short = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
-                # Create ustr container
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Storage-Token: t\r\n'
-                         'Content-Length: 0\r\n\r\n' % quote(ustr))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 201'
-                self.assertEquals(headers[:len(exp)], exp)
-                # List account with ustr container (test plain)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Storage-Token: t\r\n'
-                         'Content-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                containers = fd.read().split('\n')
-                self.assert_(ustr in containers)
-                # List account with ustr container (test json)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a?format=json HTTP/1.1\r\n'
-                         'Host: localhost\r\nConnection: close\r\n'
-                         'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                listing = simplejson.loads(fd.read())
-                self.assertEquals(listing[1]['name'], ustr.decode('utf8'))
-                # List account with ustr container (test xml)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a?format=xml HTTP/1.1\r\n'
-                         'Host: localhost\r\nConnection: close\r\n'
-                         'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('<name>%s</name>' % ustr in fd.read())
-                # Create ustr object with ustr metadata in ustr container
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Storage-Token: t\r\n'
-                         'X-Object-Meta-%s: %s\r\nContent-Length: 0\r\n\r\n' %
-                         (quote(ustr), quote(ustr), quote(ustr_short),
-                          quote(ustr)))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 201'
-                self.assertEquals(headers[:len(exp)], exp)
-                # List ustr container with ustr object (test plain)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Storage-Token: t\r\n'
-                         'Content-Length: 0\r\n\r\n' % quote(ustr))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                objects = fd.read().split('\n')
-                self.assert_(ustr in objects)
-                # List ustr container with ustr object (test json)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a/%s?format=json HTTP/1.1\r\n'
-                         'Host: localhost\r\nConnection: close\r\n'
-                         'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
-                         quote(ustr))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                listing = simplejson.loads(fd.read())
-                self.assertEquals(listing[0]['name'], ustr.decode('utf8'))
-                # List ustr container with ustr object (test xml)
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a/%s?format=xml HTTP/1.1\r\n'
-                         'Host: localhost\r\nConnection: close\r\n'
-                         'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
-                         quote(ustr))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('<name>%s</name>' % ustr in fd.read())
-                # Retrieve ustr object with ustr metadata
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Storage-Token: t\r\n'
-                         'Content-Length: 0\r\n\r\n' %
-                         (quote(ustr), quote(ustr)))
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                self.assert_('\r\nX-Object-Meta-%s: %s\r\n' %
-                    (quote(ustr_short).lower(), quote(ustr)) in headers)
-                # Do chunked object put
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                # Also happens to assert that x-storage-token is taken as a
-                # replacement for x-auth-token.
-                fd.write('PUT /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
-                    'Connection: close\r\nX-Storage-Token: t\r\n'
-                    'Transfer-Encoding: chunked\r\n\r\n'
-                    '2\r\noh\r\n4\r\n hai\r\nf\r\n123456789abcdef\r\n'
-                    '0\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 201'
-                self.assertEquals(headers[:len(exp)], exp)
-                # Ensure we get what we put
-                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-                fd = sock.makefile()
-                fd.write('GET /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
-                         'Connection: close\r\nX-Auth-Token: t\r\n\r\n')
-                fd.flush()
-                headers = readuntil2crlfs(fd)
-                exp = 'HTTP/1.1 200'
-                self.assertEquals(headers[:len(exp)], exp)
-                body = fd.read()
-                self.assertEquals(body, 'oh hai123456789abcdef')
-            finally:
-                prospa.kill()
-                acc1spa.kill()
-                acc2spa.kill()
-                con1spa.kill()
-                con2spa.kill()
-                obj1spa.kill()
-                obj2spa.kill()
-        finally:
-            rmtree(testdir)
+    def test_chunked_put_bad_utf8(self):
+        # Check invalid utf-8
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 412'
+        self.assertEquals(headers[:len(exp)], exp)
+
+    def test_chunked_put_bad_path_no_controller(self):
+        # Check bad path, no controller
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1 HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 412'
+        self.assertEquals(headers[:len(exp)], exp)
+
+    def test_chunked_put_bad_method(self):
+        # Check bad method
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('LICK /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 405'
+        self.assertEquals(headers[:len(exp)], exp)
+
+    def test_chunked_put_unhandled_exception(self):
+        # Check unhandled exception
+        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+                _test_servers
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        orig_update_request = prosrv.update_request
+
+        def broken_update_request(env, req):
+            raise Exception('fake')
+
+        prosrv.update_request = broken_update_request
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 500'
+        self.assertEquals(headers[:len(exp)], exp)
+        prosrv.update_request = orig_update_request
+
+    def test_chunked_put_head_account(self):
+        # Head account, just a double check and really is here to test
+        # the part Application.log_request that 'enforces' a
+        # content_length on the response.
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 204'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('\r\nContent-Length: 0\r\n' in headers)
+
+    def test_chunked_put_logging(self):
+        # GET account with a query string to test that
+        # Application.log_request logs the query string. Also, throws
+        # in a test for logging x-forwarded-for (first entry only).
+        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+                _test_servers
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+
+        class Logger(object):
+
+            def info(self, msg):
+                self.msg = msg
+
+        orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
+        prosrv.logger = prosrv.access_logger = Logger()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write(
+            'GET /v1/a?format=json HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\nX-Forwarded-For: host1, host2\r\n'
+            '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('/v1/a%3Fformat%3Djson' in prosrv.logger.msg,
+                     prosrv.logger.msg)
+        exp = 'host1'
+        self.assertEquals(prosrv.logger.msg[:len(exp)], exp)
+        # Turn on header logging.
+
+        prosrv.logger = prosrv.access_logger = Logger()
+        prosrv.log_headers = True
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\nGoofy-Header: True\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('Goofy-Header%3A%20True' in prosrv.logger.msg,
+                     prosrv.logger.msg)
+        prosrv.log_headers = False
+        prosrv.logger, prosrv.access_logger = orig_logger, orig_access_logger
+
+    def test_chunked_put_utf8_all_the_way_down(self):
+        # Test UTF-8 Unicode all the way through the system
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
+               '\xbf\xe1\xbd\xbb\xce\x87 \xcf\x84\xe1\xbd\xb0 \xcf' \
+               '\x80\xe1\xbd\xb1\xce\xbd\xcf\x84\xca\xbc \xe1\xbc' \
+               '\x82\xce\xbd \xe1\xbc\x90\xce\xbe\xe1\xbd\xb5\xce' \
+               '\xba\xce\xbf\xce\xb9 \xcf\x83\xce\xb1\xcf\x86\xe1' \
+               '\xbf\x86.Test'
+        ustr_short = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
+        # Create ustr container
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n' % quote(ustr))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # List account with ustr container (test plain)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        containers = fd.read().split('\n')
+        self.assert_(ustr in containers)
+        # List account with ustr container (test json)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a?format=json HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        listing = simplejson.loads(fd.read())
+        self.assert_(ustr.decode('utf8') in [l['name'] for l in listing])
+        # List account with ustr container (test xml)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a?format=xml HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('<name>%s</name>' % ustr in fd.read())
+        # Create ustr object with ustr metadata in ustr container
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'X-Object-Meta-%s: %s\r\nContent-Length: 0\r\n\r\n' %
+                 (quote(ustr), quote(ustr), quote(ustr_short),
+                  quote(ustr)))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # List ustr container with ustr object (test plain)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n' % quote(ustr))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        objects = fd.read().split('\n')
+        self.assert_(ustr in objects)
+        # List ustr container with ustr object (test json)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/%s?format=json HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
+                 quote(ustr))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        listing = simplejson.loads(fd.read())
+        self.assertEquals(listing[0]['name'], ustr.decode('utf8'))
+        # List ustr container with ustr object (test xml)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/%s?format=xml HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n' %
+                 quote(ustr))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('<name>%s</name>' % ustr in fd.read())
+        # Retrieve ustr object with ustr metadata
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n' %
+                 (quote(ustr), quote(ustr)))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('\r\nX-Object-Meta-%s: %s\r\n' %
+            (quote(ustr_short).lower(), quote(ustr)) in headers)
+
+    def test_chunked_put_chunked_put(self):
+        # Do chunked object put
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        # Also happens to assert that x-storage-token is taken as a
+        # replacement for x-auth-token.
+        fd.write('PUT /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Storage-Token: t\r\n'
+            'Transfer-Encoding: chunked\r\n\r\n'
+            '2\r\noh\r\n4\r\n hai\r\nf\r\n123456789abcdef\r\n'
+            '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure we get what we put
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o/chunky HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Auth-Token: t\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        body = fd.read()
+        self.assertEquals(body, 'oh hai123456789abcdef')
+
+    def test_chunked_put_lobjects(self):
+        # Create a container for our segmented/manifest object testing
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Create the object segments
+        for segment in xrange(5):
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/segmented/name/%s HTTP/1.1\r\nHost: '
+                'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                't\r\nContent-Length: 5\r\n\r\n1234 ' % str(segment))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEquals(headers[:len(exp)], exp)
+        # Create the object manifest file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented/name HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nX-Object-Manifest: '
+            'segmented/name/\r\nContent-Type: text/jibberish\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure retrieving the manifest file gets the whole object
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented/name/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        body = fd.read()
+        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+        # Do it again but exceeding the container listing limit
+        proxy_server.CONTAINER_LISTING_LIMIT = 2
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented/name/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        body = fd.read()
+        # A bit fragile of a test; as it makes the assumption that all
+        # will be sent in a single chunk.
+        self.assertEquals(body,
+            '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
+        # Make a copy of the manifested object, which should
+        # error since the number of segments exceeds
+        # CONTAINER_LISTING_LIMIT.
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
+            '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 413'
+        self.assertEquals(headers[:len(exp)], exp)
+        body = fd.read()
+        # After adjusting the CONTAINER_LISTING_LIMIT, make a copy of
+        # the manifested object which should consolidate the segments.
+        proxy_server.CONTAINER_LISTING_LIMIT = 10000
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
+            '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        body = fd.read()
+        # Retrieve and validate the copy.
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented/copy HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('x-object-manifest:' not in headers.lower())
+        self.assert_('Content-Length: 25\r' in headers)
+        body = fd.read()
+        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+        # Create an object manifest file pointing to nothing
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented/empty HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nX-Object-Manifest: '
+            'segmented/empty/\r\nContent-Type: text/jibberish\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure retrieving the manifest file gives a zero-byte file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented/empty HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented/empty/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        body = fd.read()
+        self.assertEquals(body, '')
+        # Check copy content type
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/obj HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nContent-Type: text/jibberish'
+            '\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nX-Copy-From: c/obj\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure getting the copied file gets original content-type
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        print headers
+        self.assert_('Content-Type: text/jibberish' in headers)
+        # Check set content type
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/obj3 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
+            '\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure getting the copied file gets original content-type
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/obj3 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('Content-Type: foo/bar' in
+                headers.split('\r\n'), repr(headers.split('\r\n')))
+        # Check set content type with charset
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/obj4 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Storage-Token: '
+            't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
+            '; charset=UTF-8\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Ensure getting the copied file gets original content-type
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/obj4 HTTP/1.1\r\nHost: '
+            'localhost\r\nConnection: close\r\nX-Auth-Token: '
+            't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('Content-Type: foo/bar; charset=UTF-8' in
+                headers.split('\r\n'), repr(headers.split('\r\n')))
 
     def test_mismatched_etags(self):
         with save_globals():
@@ -2012,6 +2534,7 @@ class TestObjectController(unittest.TestCase):
             res = controller.COPY(req)
         self.assert_(called[0])
 
+
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
@@ -2155,7 +2678,9 @@ class TestContainerController(unittest.TestCase):
                 self.assertEquals(resp.status_int, 404)
 
     def test_put_locking(self):
+
         class MockMemcache(FakeMemcache):
+
             def __init__(self, allow_lock=None):
                 self.allow_lock = allow_lock
                 super(MockMemcache, self).__init__()
@@ -2166,6 +2691,7 @@ class TestContainerController(unittest.TestCase):
                     yield True
                 else:
                     raise MemcacheLockError()
+
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
@@ -2186,7 +2712,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(
                 controller.app.container_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.container_ring.devs[0])
-            for _ in xrange(self.app.error_suppression_limit):
+            for _junk in xrange(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD,
                                        (200, 503, 503, 503), 503)
             self.assertEquals(controller.app.container_ring.devs[0]['errors'],
@@ -2771,5 +3297,265 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 503)
 
 
+class FakeObjectController(object):
+
+    def __init__(self):
+        self.app = self
+        self.logger = self
+        self.account_name = 'a'
+        self.container_name = 'c'
+        self.object_name = 'o'
+        self.trans_id = 'tx1'
+        self.object_ring = FakeRing()
+        self.node_timeout = 1
+
+    def exception(self, *args):
+        self.exception_args = args
+        self.exception_info = sys.exc_info()
+
+    def GETorHEAD_base(self, *args):
+        self.GETorHEAD_base_args = args
+        req = args[0]
+        path = args[4]
+        body = data = path[-1] * int(path[-1])
+        if req.range and req.range.ranges:
+            body = ''
+            for start, stop in req.range.ranges:
+                body += data[start:stop]
+        resp = Response(app_iter=iter(body))
+        return resp
+
+    def iter_nodes(self, partition, nodes, ring):
+        for node in nodes:
+            yield node
+        for node in ring.get_more_nodes(partition):
+            yield node
+
+
+class Stub(object):
+    pass
+
+
+class TestSegmentedIterable(unittest.TestCase):
+
+    def setUp(self):
+        self.controller = FakeObjectController()
+
+    def test_load_next_segment_unexpected_error(self):
+        # Iterator value isn't a dict
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, None,
+            [None])._load_next_segment)
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
+
+    def test_load_next_segment_with_no_segments(self):
+        self.assertRaises(StopIteration,
+            proxy_server.SegmentedIterable(self.controller, 'lc',
+            [])._load_next_segment)
+
+    def test_load_next_segment_with_one_segment(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '1')
+
+    def test_load_next_segment_with_two_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '1')
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '22')
+
+    def test_load_next_segment_with_two_segments_skip_first(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.segment = 0
+        segit.listing.next()
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '22')
+
+    def test_load_next_segment_with_seek(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.segment = 0
+        segit.listing.next()
+        segit.seek = 1
+        segit._load_next_segment()
+        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        self.assertEquals(str(self.controller.GETorHEAD_base_args[0].range),
+            'bytes=1-')
+        data = ''.join(segit.segment_iter)
+        self.assertEquals(data, '2')
+
+    def test_load_next_segment_with_get_error(self):
+
+        def local_GETorHEAD_base(*args):
+            return HTTPNotFound()
+
+        self.controller.GETorHEAD_base = local_GETorHEAD_base
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])._load_next_segment)
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
+        self.assertEquals(str(self.controller.exception_info[1]),
+            'Could not load object segment /a/lc/o1: 404')
+
+    def test_iter_unexpected_error(self):
+        # Iterator value isn't a dict
+        self.assertRaises(Exception, ''.join,
+            proxy_server.SegmentedIterable(self.controller, None, [None]))
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
+
+    def test_iter_with_no_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [])
+        self.assertEquals(''.join(segit), '')
+
+    def test_iter_with_one_segment(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}])
+        segit.response = Stub()
+        self.assertEquals(''.join(segit), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+    def test_iter_with_two_segments(self):
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}, {'name': 'o2'}])
+        segit.response = Stub()
+        self.assertEquals(''.join(segit), '122')
+        self.assertEquals(segit.response.bytes_transferred, 3)
+
+    def test_iter_with_get_error(self):
+
+        def local_GETorHEAD_base(*args):
+            return HTTPNotFound()
+
+        self.controller.GETorHEAD_base = local_GETorHEAD_base
+        self.assertRaises(Exception, ''.join,
+            proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
+            'o1'}]))
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
+        self.assertEquals(str(self.controller.exception_info[1]),
+            'Could not load object segment /a/lc/o1: 404')
+
+    def test_app_iter_range_unexpected_error(self):
+        # Iterator value isn't a dict
+        self.assertRaises(Exception,
+            proxy_server.SegmentedIterable(self.controller, None,
+            [None]).app_iter_range(None, None).next)
+        self.assert_(self.controller.exception_args[0].startswith(
+            'ERROR: While processing manifest'))
+
+    def test_app_iter_range_with_no_segments(self):
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(None, None)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(3, None)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(3, 5)), '')
+        self.assertEquals(''.join(proxy_server.SegmentedIterable(
+            self.controller, 'lc', []).app_iter_range(None, 5)), '')
+
+    def test_app_iter_range_with_one_segment(self):
+        listing = [{'name': 'o1', 'bytes': 1}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        self.assertEquals(''.join(segit.app_iter_range(3, None)), '')
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        self.assertEquals(''.join(segit.app_iter_range(3, 5)), '')
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 5)), '1')
+        self.assertEquals(segit.response.bytes_transferred, 1)
+
+    def test_app_iter_range_with_two_segments(self):
+        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)), '122')
+        self.assertEquals(segit.response.bytes_transferred, 3)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(1, None)), '22')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(1, 5)), '22')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 2)), '12')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+    def test_app_iter_range_with_many_segments(self):
+        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2},
+            {'name': 'o3', 'bytes': 3}, {'name': 'o4', 'bytes': 4}, {'name':
+            'o5', 'bytes': 5}]
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, None)),
+            '122333444455555')
+        self.assertEquals(segit.response.bytes_transferred, 15)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(3, None)),
+            '333444455555')
+        self.assertEquals(segit.response.bytes_transferred, 12)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(5, None)), '3444455555')
+        self.assertEquals(segit.response.bytes_transferred, 10)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 6)), '122333')
+        self.assertEquals(segit.response.bytes_transferred, 6)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(None, 7)), '1223334')
+        self.assertEquals(segit.response.bytes_transferred, 7)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(3, 7)), '3334')
+        self.assertEquals(segit.response.bytes_transferred, 4)
+
+        segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
+        segit.response = Stub()
+        self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
+        self.assertEquals(segit.response.bytes_transferred, 2)
+
+
 if __name__ == '__main__':
-    unittest.main()
+    setup()
+    try:
+        unittest.main()
+    finally:
+        teardown()

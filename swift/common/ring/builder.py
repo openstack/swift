@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from array import array
-from random import randint
+from random import randint, shuffle
 from time import time
 
 from swift.common.ring import RingData
@@ -239,7 +239,7 @@ class RingBuilder(object):
                 (sum(d['parts'] for d in self.devs if d is not None),
                  self.parts * self.replicas))
         if stats:
-            dev_usage = array('I', (0 for _ in xrange(len(self.devs))))
+            dev_usage = array('I', (0 for _junk in xrange(len(self.devs))))
         for part in xrange(self.parts):
             zones = {}
             for replica in xrange(self.replicas):
@@ -342,8 +342,9 @@ class RingBuilder(object):
                 '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
         available_devs = sorted((d for d in self.devs if d is not None),
                                 key=lambda x: x['sort_key'])
-        self._replica2part2dev = [array('H') for _ in xrange(self.replicas)]
-        for _ in xrange(self.parts):
+        self._replica2part2dev = \
+            [array('H') for _junk in xrange(self.replicas)]
+        for _junk in xrange(self.parts):
             other_zones = array('H')
             for replica in xrange(self.replicas):
                 index = len(available_devs) - 1
@@ -365,7 +366,7 @@ class RingBuilder(object):
                         index = mid + 1
                 available_devs.insert(index, dev)
                 other_zones.append(dev['zone'])
-        self._last_part_moves = array('B', (0 for _ in xrange(self.parts)))
+        self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
         for dev in self.devs:
             del dev['sort_key']
@@ -413,6 +414,7 @@ class RingBuilder(object):
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         reassign_parts.append(part)
+        shuffle(reassign_parts)
         return reassign_parts
 
     def _reassign_parts(self, reassign_parts):

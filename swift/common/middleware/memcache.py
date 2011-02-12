@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,6 +35,8 @@ class MemcacheMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
     def cache_filter(app):
         return MemcacheMiddleware(app, conf)
+
     return cache_filter

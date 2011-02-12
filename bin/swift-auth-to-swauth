@@ -1,0 +1,48 @@
+#!/usr/bin/python
+# Copyright (c) 2010 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import gettext
+from subprocess import call
+from sys import argv, exit
+
+import sqlite3
+
+
+if __name__ == '__main__':
+    gettext.install('swift', unicode=1)
+    if len(argv) != 4 or argv[1] != '-K':
+        exit('Syntax: %s -K <super_admin_key> <path to auth.db>' % argv[0])
+    _junk, _junk, super_admin_key, auth_db = argv
+    # This version will not attempt to prep swauth
+    # call(['swauth-prep', '-K', super_admin_key])
+    conn = sqlite3.connect(auth_db)
+    for account, cfaccount, user, password, admin, reseller_admin in \
+            conn.execute('SELECT account, cfaccount, user, password, admin, '
+                         'reseller_admin FROM account'):
+        cmd = ['swauth-add-user', '-K', super_admin_key, '-s',
+               cfaccount.split('_', 1)[1]]
+        if admin == 't':
+            cmd.append('-a')
+        if reseller_admin == 't':
+            cmd.append('-r')
+        cmd.extend([account, user, password])
+        print ' '.join(cmd)
+	# For this version, the script will only print out the commands
+        # call(cmd)
+    print '----------------------------------------------------------------'
+    print ' Assuming the above worked perfectly, you should copy and paste '
+    print ' those lines into your ~/bin/recreateaccounts script.'
+    print '----------------------------------------------------------------'

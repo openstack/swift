@@ -31,7 +31,7 @@ Installing dependencies and the core code
   #. `apt-get install curl gcc bzr memcached python-configobj
      python-coverage python-dev python-nose python-setuptools python-simplejson
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
-     python-greenlet python-pastedeploy`
+     python-greenlet python-pastedeploy python-netifaces`
   #. Install anything else you want, like screen, ssh, vim, etc.
   #. Next, choose either :ref:`partition-section` or :ref:`loopback-section`. 
 
@@ -50,7 +50,7 @@ If you are going to use a separate partition for Swift data, be sure to add anot
        `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
-  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
+  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
   #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
@@ -77,7 +77,7 @@ If you want to use a loopback device instead of another partition, follow these 
        `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
   #. `mount /mnt/sdb1`
-  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test`
+  #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
   #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
@@ -204,7 +204,6 @@ Do these commands as you on guest:
   #. `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
-        export PATH_TO_TEST_XFS=/mnt/sdb1/test
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
         export PATH=${PATH}:~/bin
 
@@ -216,7 +215,9 @@ Configuring each node
 
 Sample configuration files are provided with all defaults in line-by-line comments.
   
-  #. Create `/etc/swift/auth-server.conf`::
+  #. If your going to use the DevAuth (the default swift-auth-server), create
+     `/etc/swift/auth-server.conf` (you can skip this if you're going to use
+     Swauth)::
 
         [DEFAULT]
         user = <your-user-name>
@@ -237,14 +238,24 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
 
         [pipeline:main]
+        # For DevAuth:
         pipeline = healthcheck cache auth proxy-server
+        # For Swauth:
+        # pipeline = healthcheck cache swauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
 
+        # Only needed for DevAuth
         [filter:auth]
         use = egg:swift#auth
+
+        # Only needed for Swauth
+        [filter:swauth]
+        use = egg:swift#swauth
+        # Highly recommended to change this.
+        super_admin_key = swauthkey
 
         [filter:healthcheck]
         use = egg:swift#healthcheck
@@ -524,7 +535,7 @@ Setting up scripts for running Swift
         sudo umount /mnt/sdb1
         sudo mkfs.xfs -f -i size=1024 /dev/sdb1
         sudo mount /mnt/sdb1
-        sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4 /mnt/sdb1/test
+        sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
         sudo chown <your-user-name>:<your-group-name> /mnt/sdb1/*
         mkdir -p /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
@@ -563,13 +574,28 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init main start
+        # The auth-server line is only needed for DevAuth:
+        swift-init auth-server start
+
+  #. For Swauth (not needed for DevAuth), create `~/bin/recreateaccounts`::
+  
+        #!/bin/bash
+
+        # Replace devauth with whatever your super_admin key is (recorded in
+        # /etc/swift/proxy-server.conf).
+        swauth-prep -K swauthkey
+        swauth-add-user -K swauthkey -a test tester testing
+        swauth-add-user -K swauthkey -a test2 tester2 testing2
+        swauth-add-user -K swauthkey test tester3 testing3
+        swauth-add-user -K swauthkey -a -r reseller reseller reseller
 
   #. Create `~/bin/startrest`::
 
         #!/bin/bash
 
         # Replace devauth with whatever your super_admin key is (recorded in
-        # /etc/swift/auth-server.conf).
+        # /etc/swift/auth-server.conf). This swift-auth-recreate-accounts line
+        # is only needed for DevAuth:
         swift-auth-recreate-accounts -K devauth
         swift-init rest start
 
@@ -577,13 +603,14 @@ Setting up scripts for running Swift
   #. `remakerings`
   #. `cd ~/swift/trunk; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
-  #. `swift-auth-add-user -K devauth -a test tester testing` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0``
+  #. For Swauth: `recreateaccounts`
+  #. For DevAuth: `swift-auth-add-user -K devauth -a test tester testing` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
+  #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0`` # For Swauth, make the last URL `http://127.0.0.1:8080/auth/v1.0`
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
-  #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat`
-  #. `swift-auth-add-user -K devauth -a test2 tester2 testing2` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. `swift-auth-add-user -K devauth test tester3 testing3` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
+  #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat` # For Swauth, make the URL `http://127.0.0.1:8080/auth/v1.0`
+  #. For DevAuth: `swift-auth-add-user -K devauth -a test2 tester2 testing2` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
+  #. For DevAuth: `swift-auth-add-user -K devauth test tester3 testing3` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
+  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf` # For Swauth, add auth_prefix = /auth/ and change auth_port = 8080.
   #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
   #. `cd ~/swift/trunk; ./.probetests` (Note: probe tests will reset your

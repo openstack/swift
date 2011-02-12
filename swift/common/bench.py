@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,13 +16,12 @@
 import uuid
 import time
 import random
-from urlparse import urlparse
 from contextlib import contextmanager
 
 import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest
 
-from swift.common.utils import TRUE_VALUES
+from swift.common.utils import TRUE_VALUES, urlparse
 from swift.common import client
 from swift.common import direct_client
 
@@ -82,10 +81,10 @@ class Bench(object):
 
     def _log_status(self, title):
         total = time.time() - self.beginbeat
-        self.logger.info('%s %s [%s failures], %.01f/s' % (
-                self.complete, title, self.failures,
-                (float(self.complete) / total),
-            ))
+        self.logger.info(_('%(complete)s %(title)s [%(fail)s failures], '
+                           '%(rate).01f/s'),
+            {'title': title, 'complete': self.complete, 'fail': self.failures,
+             'rate': (float(self.complete) / total)})
 
     @contextmanager
     def connection(self):
@@ -94,10 +93,10 @@ class Bench(object):
             try:
                 yield hc
             except CannotSendRequest:
-                self.logger.info("CannotSendRequest.  Skipping...")
+                self.logger.info(_("CannotSendRequest.  Skipping..."))
                 try:
                     hc.close()
-                except:
+                except Exception:
                     pass
                 self.failures += 1
                 hc = self.conn_pool.create()

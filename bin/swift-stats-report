@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -107,7 +107,7 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
             found = False
             error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
             try:
-                attempts, _ = direct_client.retry(
+                attempts, _junk = direct_client.retry(
                                 direct_client.direct_head_object, node, part,
                                 account, container, obj, error_log=error_log,
                                 retries=options.retries)
@@ -160,7 +160,7 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
         print 'Containers Missing'
         print '-' * 78
         for container in sorted(containers_missing_replicas.keys()):
-            part, _ = container_ring.get_nodes(account, container)
+            part, _junk = container_ring.get_nodes(account, container)
             for node in containers_missing_replicas[container]:
                 print 'http://%s:%s/%s/%s/%s/%s' % (node['ip'], node['port'],
                       node['device'], part, account, container)
@@ -170,8 +170,8 @@ def audit(coropool, connpool, account, container_ring, object_ring, options):
         print 'Objects Missing'
         print '-' * 78
         for opath in sorted(objects_missing_replicas.keys()):
-            _, container, obj = opath.split('/', 2)
-            part, _ = object_ring.get_nodes(account, container, obj)
+            _junk, container, obj = opath.split('/', 2)
+            part, _junk = object_ring.get_nodes(account, container, obj)
             for node in objects_missing_replicas[opath]:
                 print 'http://%s:%s/%s/%s/%s/%s/%s' % (node['ip'],
                       node['port'], node['device'], part, account, container,
@@ -200,7 +200,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         for node in nodes:
             error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
             try:
-                attempts, _ = direct_client.retry(
+                attempts, _junk = direct_client.retry(
                                 direct_client.direct_head_container, node,
                                 part, account, container, error_log=error_log,
                                 retries=options.retries)
@@ -284,7 +284,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring, options):
         for node in nodes:
             error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
             try:
-                attempts, _ = direct_client.retry(
+                attempts, _junk = direct_client.retry(
                                 direct_client.direct_head_object, node, part,
                                 account, container, obj, error_log=error_log,
                                 retries=options.retries)

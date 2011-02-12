@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ class LogProcessor(object):
 
     def __init__(self, conf, logger):
         if isinstance(logger, tuple):
-            self.logger = get_logger(*logger)
+            self.logger = get_logger(*logger, log_route='log-processor')
         else:
             self.logger = logger
 
@@ -59,7 +59,7 @@ class LogProcessor(object):
             module = __import__(import_target, fromlist=[import_target])
             klass = getattr(module, class_name)
             self.plugins[plugin_name]['instance'] = klass(plugin_conf)
-            self.logger.debug('Loaded plugin "%s"' % plugin_name)
+            self.logger.debug(_('Loaded plugin "%s"') % plugin_name)
 
     @property
     def internal_proxy(self):
@@ -76,10 +76,9 @@ class LogProcessor(object):
         return self._internal_proxy
 
     def process_one_file(self, plugin_name, account, container, object_name):
-        self.logger.info('Processing %s/%s/%s with plugin "%s"' % (account,
-                                                               container,
-                                                               object_name,
-                                                               plugin_name))
+        self.logger.info(_('Processing %(obj)s with plugin "%(plugin)s"') %
+                    {'obj': '/'.join((account, container, object_name)),
+                     'plugin': plugin_name})
         # get an iter of the object data
         compressed = object_name.endswith('.gz')
         stream = self.get_object_data(account, container, object_name,
@@ -177,10 +176,9 @@ class LogProcessor(object):
                     try:
                         chunk = d.decompress(chunk)
                     except zlib.error:
-                        self.logger.debug('Bad compressed data for %s/%s/%s' %
-                                                                (swift_account,
-                                                                container_name,
-                                                                object_name))
+                        self.logger.debug(_('Bad compressed data for %s')
+                            % '/'.join((swift_account, container_name,
+                                        object_name)))
                         raise BadFileDownload()  # bad compressed data
                 parts = chunk.split('\n')
                 parts[0] = last_part + parts[0]
@@ -228,7 +226,7 @@ class LogProcessorDaemon(Daemon):
         c = conf.get('log-processor')
         super(LogProcessorDaemon, self).__init__(c)
         self.total_conf = conf
-        self.logger = get_logger(c)
+        self.logger = get_logger(c, log_route='log-processor')
         self.log_processor = LogProcessor(conf, self.logger)
         self.lookback_hours = int(c.get('lookback_hours', '120'))
         self.lookback_window = int(c.get('lookback_window',
@@ -239,7 +237,7 @@ class LogProcessorDaemon(Daemon):
         self.worker_count = int(c.get('worker_count', '1'))
 
     def run_once(self):
-        self.logger.info("Beginning log processing")
+        self.logger.info(_("Beginning log processing"))
         start = time.time()
         if self.lookback_hours == 0:
             lookback_start = None
@@ -275,16 +273,17 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except:
+        except Exception:
             already_processed_files = set()
-        self.logger.debug('found %d processed files' % \
+        self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,
                                                        lookback_end,
                                                        already_processed_files)
-        self.logger.info('loaded %d files to process' % len(logs_to_process))
+        self.logger.info(_('loaded %d files to process') %
+                         len(logs_to_process))
         if not logs_to_process:
-            self.logger.info("Log processing done (%0.2f minutes)" %
+            self.logger.info(_("Log processing done (%0.2f minutes)") %
                         ((time.time() - start) / 60))
             return
 
@@ -358,7 +357,7 @@ class LogProcessorDaemon(Daemon):
                                         self.log_processor_container,
                                         'processed_files.pickle.gz')
 
-        self.logger.info("Log processing done (%0.2f minutes)" %
+        self.logger.info(_("Log processing done (%0.2f minutes)") %
                         ((time.time() - start) / 60))
 
 
@@ -367,7 +366,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
     results = []
     in_queue = multiprocessing.Queue()
     out_queue = multiprocessing.Queue()
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         p = multiprocessing.Process(target=collate_worker,
                                     args=(processor_args,
                                           in_queue,
@@ -376,7 +375,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
         results.append(p)
     for x in logs_to_process:
         in_queue.put(x)
-    for _ in range(worker_count):
+    for _junk in range(worker_count):
         in_queue.put(None)
     count = 0
     while True:

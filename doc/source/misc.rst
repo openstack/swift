@@ -42,6 +42,15 @@ Auth
     :members:
     :show-inheritance:
 
+.. _common_swauth:
+
+Swauth
+======
+
+.. automodule:: swift.common.middleware.swauth
+    :members:
+    :show-inheritance:
+
 .. _acls:
 
 ACLs
@@ -113,3 +122,11 @@ Ratelimit
 .. automodule:: swift.common.middleware.ratelimit
     :members:
     :show-inheritance:
+
+Swift3
+======
+
+.. automodule:: swift.common.middleware.swift3
+    :members:
+    :show-inheritance:
+

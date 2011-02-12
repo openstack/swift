@@ -20,7 +20,7 @@ from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
 
 
-class MaxSleepTimeHit(Exception):
+class MaxSleepTimeHitError(Exception):
     pass
 
 
@@ -32,24 +32,25 @@ class RateLimitMiddleware(object):
     configurable.
     """
 
+    BLACK_LIST_SLEEP = 1
+
     def __init__(self, app, conf, logger=None):
         self.app = app
         if logger:
             self.logger = logger
         else:
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='ratelimit')
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
-        self.max_sleep_time_seconds = float(conf.get('max_sleep_time_seconds',
-                                                   60))
-        self.log_sleep_time_seconds = float(conf.get('log_sleep_time_seconds',
-                                                   0))
+        self.max_sleep_time_seconds = \
+            float(conf.get('max_sleep_time_seconds', 60))
+        self.log_sleep_time_seconds = \
+            float(conf.get('log_sleep_time_seconds', 0))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
+        self.rate_buffer_seconds = int(conf.get('rate_buffer_seconds', 5))
         self.ratelimit_whitelist = [acc.strip() for acc in
-            conf.get('account_whitelist', '').split(',')
-            if acc.strip()]
+            conf.get('account_whitelist', '').split(',') if acc.strip()]
         self.ratelimit_blacklist = [acc.strip() for acc in
-            conf.get('account_blacklist', '').split(',')
-            if acc.strip()]
+            conf.get('account_blacklist', '').split(',') if acc.strip()]
         self.memcache_client = None
         conf_limits = []
         for conf_key in conf.keys():
@@ -92,8 +93,7 @@ class RateLimitMiddleware(object):
         return None
 
     def get_ratelimitable_key_tuples(self, req_method, account_name,
-                                     container_name=None,
-                                     obj_name=None):
+                                     container_name=None, obj_name=None):
         """
         Returns a list of key (used in memcache), ratelimit tuples. Keys
         should be checked in order.
@@ -105,19 +105,20 @@ class RateLimitMiddleware(object):
         """
         keys = []
         if self.account_ratelimit and account_name and (
-            not (container_name or obj_name) or
-            (container_name and not obj_name and req_method == 'PUT')):
+                not (container_name or obj_name) or
+                (container_name and not obj_name and
+                 req_method in ('PUT', 'DELETE'))):
             keys.append(("ratelimit/%s" % account_name,
                          self.account_ratelimit))
 
         if account_name and container_name and (
-            (not obj_name and req_method in ('GET', 'HEAD')) or
-            (obj_name and req_method in ('PUT', 'DELETE'))):
+                (not obj_name and req_method in ('GET', 'HEAD')) or
+                (obj_name and req_method in ('PUT', 'DELETE'))):
             container_size = None
             memcache_key = get_container_memcache_key(account_name,
                                                       container_name)
             container_info = self.memcache_client.get(memcache_key)
-            if type(container_info) == dict:
+            if isinstance(container_info, dict):
                 container_size = container_info.get('container_size', 0)
                 container_rate = self.get_container_maxrate(container_size)
                 if container_rate:
@@ -129,31 +130,32 @@ class RateLimitMiddleware(object):
     def _get_sleep_time(self, key, max_rate):
         '''
         Returns the amount of time (a float in seconds) that the app
-        should sleep.  Throws a MaxSleepTimeHit exception if maximum
-        sleep time is exceeded.
+        should sleep.
 
         :param key: a memcache key
         :param max_rate: maximum rate allowed in requests per second
+        :raises: MaxSleepTimeHitError if max sleep time is exceeded.
         '''
         now_m = int(round(time.time() * self.clock_accuracy))
         time_per_request_m = int(round(self.clock_accuracy / max_rate))
         running_time_m = self.memcache_client.incr(key,
                                                    delta=time_per_request_m)
         need_to_sleep_m = 0
-        request_time_limit = now_m + (time_per_request_m * max_rate)
-        if running_time_m < now_m:
+        if (now_m - running_time_m >
+                self.rate_buffer_seconds * self.clock_accuracy):
             next_avail_time = int(now_m + time_per_request_m)
             self.memcache_client.set(key, str(next_avail_time),
                                      serialize=False)
-        elif running_time_m - now_m - time_per_request_m > 0:
-            need_to_sleep_m = running_time_m - now_m - time_per_request_m
+        else:
+            need_to_sleep_m = \
+                max(running_time_m - now_m - time_per_request_m, 0)
 
         max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
         if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
             # treat as no-op decrement time
             self.memcache_client.decr(key, delta=time_per_request_m)
-            raise MaxSleepTimeHit("Max Sleep Time Exceeded: %s" %
-                                  need_to_sleep_m)
+            raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %s" %
+                                       need_to_sleep_m)
 
         return float(need_to_sleep_m) / self.clock_accuracy
 
@@ -167,28 +169,28 @@ class RateLimitMiddleware(object):
         :param obj_name: object name from path
         '''
         if account_name in self.ratelimit_blacklist:
-            self.logger.error('Returning 497 because of blacklisting')
+            self.logger.error(_('Returning 497 because of blacklisting'))
+            eventlet.sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
                 body='Your account has been blacklisted', request=req)
         if account_name in self.ratelimit_whitelist:
             return None
         for key, max_rate in self.get_ratelimitable_key_tuples(
-            req.method,
-            account_name,
-            container_name=container_name,
-            obj_name=obj_name):
+                req.method, account_name, container_name=container_name,
+                obj_name=obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if self.log_sleep_time_seconds and \
                         need_to_sleep > self.log_sleep_time_seconds:
-                    self.logger.info("Ratelimit sleep log: %s for %s/%s/%s" % (
-                            need_to_sleep, account_name,
-                            container_name, obj_name))
+                    self.logger.warning(_("Ratelimit sleep log: %(sleep)s for "
+                        "%(account)s/%(container)s/%(object)s"),
+                        {'sleep': need_to_sleep, 'account': account_name,
+                         'container': container_name, 'object': obj_name})
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
-            except MaxSleepTimeHit, e:
-                self.logger.error('Returning 498 because of ops ' + \
-                                   'rate limiting (Max Sleep) %s' % e)
+            except MaxSleepTimeHitError, e:
+                self.logger.error(_('Returning 498 because of ops rate '
+                            'limiting (Max Sleep) %s') % str(e))
                 error_resp = Response(status='498 Rate Limited',
                                       body='Slow down', request=req)
                 return error_resp
@@ -207,7 +209,7 @@ class RateLimitMiddleware(object):
             self.memcache_client = cache_from_env(env)
         if not self.memcache_client:
             self.logger.warning(
-                'Warning: Cannot ratelimit without a memcached client')
+                _('Warning: Cannot ratelimit without a memcached client'))
             return self.app(env, start_response)
         try:
             version, account, container, obj = split_path(req.path, 1, 4, True)

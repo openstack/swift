@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from subprocess import Popen
 from time import sleep
 
 from swift.common import client
-from common import get_to_final_state, kill_pids, reset_environment
+from test.probe.common import get_to_final_state, kill_pids, reset_environment
 
 
 class TestAccountFailures(unittest.TestCase):

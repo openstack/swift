@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ from webob.exc import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
 
 from swift.common import constraints
+
 
 class TestConstraints(unittest.TestCase):
 
@@ -136,6 +137,32 @@ class TestConstraints(unittest.TestCase):
             Request.blank('/', headers=headers), 'object_name')
         self.assert_(isinstance(resp, HTTPBadRequest))
         self.assert_('Content-Type' in resp.body)
+
+    def test_check_object_manifest_header(self):
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': 'container/prefix', 'Content-Length':
+            '0', 'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(not resp)
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': 'container', 'Content-Length': '0',
+            'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(isinstance(resp, HTTPBadRequest))
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': '/container/prefix',
+            'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(isinstance(resp, HTTPBadRequest))
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': 'container/prefix?query=param',
+            'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(isinstance(resp, HTTPBadRequest))
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': 'container/prefix&query=param',
+            'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(isinstance(resp, HTTPBadRequest))
+        resp = constraints.check_object_creation(Request.blank('/',
+            headers={'X-Object-Manifest': 'http://host/container/prefix',
+            'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
+        self.assert_(isinstance(resp, HTTPBadRequest))
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))

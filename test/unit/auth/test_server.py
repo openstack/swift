@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -119,7 +119,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_validate_token_expired(self):
@@ -134,7 +134,7 @@ class TestAuthServer(unittest.TestCase):
                     headers={'X-Storage-User': 'tester',
                              'X-Storage-Pass': 'testing'}))
             token = res.headers['x-storage-token']
-            ttl, _, _, _ = self.controller.validate_token(token)
+            ttl, _junk, _junk, _junk = self.controller.validate_token(token)
             self.assert_(ttl > 0, repr(ttl))
             auth_server.time = lambda: 1 + self.controller.token_life
             self.assertEquals(self.controller.validate_token(token), False)
@@ -318,7 +318,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_good_Mosso_headers(self):
@@ -330,7 +330,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_SOSO_bad_Mosso_headers(self):
@@ -438,7 +438,7 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Auth-User': 'test:tester',
                          'X-Auth-Key': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_auth_Mosso_good_SOSO_header_names(self):
@@ -450,19 +450,19 @@ class TestAuthServer(unittest.TestCase):
                 headers={'X-Storage-User': 'test:tester',
                          'X-Storage-Pass': 'testing'}))
         token = res.headers['x-storage-token']
-        ttl, _, _, _ = self.controller.validate_token(token)
+        ttl, _junk, _junk, _junk = self.controller.validate_token(token)
         self.assert_(ttl > 0, repr(ttl))
 
     def test_basic_logging(self):
         log = StringIO()
         log_handler = StreamHandler(log)
-        logger = get_logger(self.conf, 'auth')
+        logger = get_logger(self.conf, 'auth-server', log_route='auth-server')
         logger.logger.addHandler(log_handler)
         try:
             auth_server.http_connect = fake_http_connect(201)
             url = self.controller.create_user('test', 'tester', 'testing')
             self.assertEquals(log.getvalue().rsplit(' ', 1)[0],
-                "auth SUCCESS create_user('test', 'tester', _, False, False) "
+                "SUCCESS create_user('test', 'tester', _, False, False) "
                 "= %s" % repr(url))
             log.truncate(0)
             def start_response(*args):
@@ -491,7 +491,7 @@ class TestAuthServer(unittest.TestCase):
             logsegs[1] = '[01/Jan/2001:01:02:03 +0000]'
             logsegs[2:] = logsegs[2].split(' ')
             logsegs[-1] = '0.1234'
-            self.assertEquals(' '.join(logsegs), 'auth testhost - - '
+            self.assertEquals(' '.join(logsegs), 'testhost - - '
                 '[01/Jan/2001:01:02:03 +0000] "GET /v1/test/auth?test=True '
                 'HTTP/1.0" 204 - "-" "-" - - - - - - - - - "-" "None" "-" '
                 '0.1234')
@@ -519,7 +519,7 @@ class TestAuthServer(unittest.TestCase):
             logsegs[1] = '[01/Jan/2001:01:02:03 +0000]'
             logsegs[2:] = logsegs[2].split(' ')
             logsegs[-1] = '0.1234'
-            self.assertEquals(' '.join(logsegs), 'auth None - - [01/Jan/2001:'
+            self.assertEquals(' '.join(logsegs), 'None - - [01/Jan/2001:'
                 '01:02:03 +0000] "GET /v1/test/auth HTTP/1.0" 204 - "-" "-" - '
                 '- - - - - - - - "-" "None" "Content-Length: 0\n'
                 'X-Storage-User: tester\nX-Storage-Pass: testing" 0.1234')
@@ -534,7 +534,7 @@ class TestAuthServer(unittest.TestCase):
         orig_Request = auth_server.Request
         log = StringIO()
         log_handler = StreamHandler(log)
-        logger = get_logger(self.conf, 'auth')
+        logger = get_logger(self.conf, 'auth-server', log_route='auth-server')
         logger.logger.addHandler(log_handler)
         try:
             auth_server.Request = request_causing_exception
@@ -556,7 +556,7 @@ class TestAuthServer(unittest.TestCase):
                                      'HTTP_X_STORAGE_PASS': 'testing'},
                                     start_response)
             self.assert_(log.getvalue().startswith(
-                'auth ERROR Unhandled exception in ReST request'),
+                'ERROR Unhandled exception in ReST request'),
                 log.getvalue())
             log.truncate(0)
         finally:
@@ -712,7 +712,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, stgact = \
+        _junk, _junk, _junk, stgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, '')
 
@@ -723,7 +723,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, vstgact = \
+        _junk, _junk, _junk, vstgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, vstgact)
 
@@ -734,7 +734,7 @@ class TestAuthServer(unittest.TestCase):
         res = self.controller.handle_auth(Request.blank('/v1.0',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Auth-User': 'act:usr', 'X-Auth-Key': 'pas'}))
-        _, _, _, stgact = \
+        _junk, _junk, _junk, stgact = \
             self.controller.validate_token(res.headers['x-auth-token'])
         self.assertEquals(stgact, '.reseller_admin')
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,8 +19,9 @@ import signal
 import sys
 import time
 from random import random, shuffle
+from tempfile import mkstemp
 
-from eventlet import spawn, patcher, Timeout
+from eventlet import spawn, patcher, Timeout, TimeoutError
 
 from swift.container.server import DATADIR
 from swift.common.bufferedhttp import http_connect
@@ -36,7 +37,7 @@ class ContainerUpdater(Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = get_logger(conf, 'container-updater')
+        self.logger = get_logger(conf, log_route='container-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -51,12 +52,16 @@ class ContainerUpdater(Daemon):
         self.no_changes = 0
         self.successes = 0
         self.failures = 0
+        self.account_suppressions = {}
+        self.account_suppression_time = \
+            float(conf.get('account_suppression_time', 60))
+        self.new_account_suppressions = None
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""
         if not self.account_ring:
             self.logger.debug(
-                'Loading account ring from %s' % self.account_ring_path)
+                _('Loading account ring from %s'), self.account_ring_path)
             self.account_ring = Ring(self.account_ring_path)
         return self.account_ring
 
@@ -70,7 +75,7 @@ class ContainerUpdater(Daemon):
         for device in os.listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not os.path.ismount(dev_path):
-                self.logger.warn('%s is not mounted' % device)
+                self.logger.warn(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):
@@ -80,42 +85,73 @@ class ContainerUpdater(Daemon):
         shuffle(paths)
         return paths
 
+    def _load_suppressions(self, filename):
+        try:
+            with open(filename, 'r') as tmpfile:
+                for line in tmpfile:
+                    account, until = line.split()
+                    until = float(until)
+                    self.account_suppressions[account] = until
+        except Exception:
+            self.logger.exception(
+                _('ERROR with loading suppressions from %s: ') % filename)
+        finally:
+            os.unlink(filename)
+
     def run_forever(self):   # pragma: no cover
         """
         Run the updator continuously.
         """
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info('Begin container update sweep')
+            self.logger.info(_('Begin container update sweep'))
             begin = time.time()
-            pids = []
+            now = time.time()
+            expired_suppressions = \
+               [a for a, u in self.account_suppressions.iteritems() if u < now]
+            for account in expired_suppressions:
+                del self.account_suppressions[account]
+            pid2filename = {}
             # read from account ring to ensure it's fresh
             self.get_account_ring().get_nodes('')
             for path in self.get_paths():
-                while len(pids) >= self.concurrency:
-                    pids.remove(os.wait()[0])
+                while len(pid2filename) >= self.concurrency:
+                    pid = os.wait()[0]
+                    try:
+                        self._load_suppressions(pid2filename[pid])
+                    finally:
+                        del pid2filename[pid]
+                fd, tmpfilename = mkstemp()
+                os.close(fd)
                 pid = os.fork()
                 if pid:
-                    pids.append(pid)
+                    pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
                     patcher.monkey_patch(all=False, socket=True)
                     self.no_changes = 0
                     self.successes = 0
                     self.failures = 0
+                    self.new_account_suppressions = open(tmpfilename, 'w')
                     forkbegin = time.time()
                     self.container_sweep(path)
                     elapsed = time.time() - forkbegin
                     self.logger.debug(
-                        'Container update sweep of %s completed: '
-                        '%.02fs, %s successes, %s failures, %s with no changes'
-                        % (path, elapsed, self.successes, self.failures,
-                           self.no_changes))
+                        _('Container update sweep of %(path)s completed: '
+                          '%(elapsed).02fs, %(success)s successes, %(fail)s '
+                          'failures, %(no_change)s with no changes'),
+                        {'path': path, 'elapsed': elapsed,
+                         'success': self.successes, 'fail': self.failures,
+                         'no_change': self.no_changes})
                     sys.exit()
-            while pids:
-                pids.remove(os.wait()[0])
+            while pid2filename:
+                pid = os.wait()[0]
+                try:
+                    self._load_suppressions(pid2filename[pid])
+                finally:
+                    del pid2filename[pid]
             elapsed = time.time() - begin
-            self.logger.info('Container update sweep completed: %.02fs' %
+            self.logger.info(_('Container update sweep completed: %.02fs'),
                              elapsed)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
@@ -125,7 +161,7 @@ class ContainerUpdater(Daemon):
         Run the updater once.
         """
         patcher.monkey_patch(all=False, socket=True)
-        self.logger.info('Begin container update single threaded sweep')
+        self.logger.info(_('Begin container update single threaded sweep'))
         begin = time.time()
         self.no_changes = 0
         self.successes = 0
@@ -133,9 +169,11 @@ class ContainerUpdater(Daemon):
         for path in self.get_paths():
             self.container_sweep(path)
         elapsed = time.time() - begin
-        self.logger.info('Container update single threaded sweep completed: '
-            '%.02fs, %s successes, %s failures, %s with no changes' %
-            (elapsed, self.successes, self.failures, self.no_changes))
+        self.logger.info(_('Container update single threaded sweep completed: '
+            '%(elapsed).02fs, %(success)s successes, %(fail)s failures, '
+            '%(no_change)s with no changes'),
+            {'elapsed': elapsed, 'success': self.successes,
+             'fail': self.failures, 'no_change': self.no_changes})
 
     def container_sweep(self, path):
         """
@@ -161,6 +199,8 @@ class ContainerUpdater(Daemon):
         # definitely doesn't have up to date statistics.
         if float(info['put_timestamp']) <= 0:
             return
+        if self.account_suppressions.get(info['account'], 0) > time.time():
+            return
         if info['put_timestamp'] > info['reported_put_timestamp'] or \
                 info['delete_timestamp'] > info['reported_delete_timestamp'] \
                 or info['object_count'] != info['reported_object_count'] or \
@@ -181,14 +221,21 @@ class ContainerUpdater(Daemon):
             if successes > failures:
                 self.successes += 1
                 self.logger.debug(
-                    'Update report sent for %s %s' % (container, dbfile))
+                    _('Update report sent for %(container)s %(dbfile)s'),
+                    {'container': container, 'dbfile': dbfile})
                 broker.reported(info['put_timestamp'],
                                 info['delete_timestamp'], info['object_count'],
                                 info['bytes_used'])
             else:
                 self.failures += 1
                 self.logger.debug(
-                    'Update report failed for %s %s' % (container, dbfile))
+                    _('Update report failed for %(container)s %(dbfile)s'),
+                    {'container': container, 'dbfile': dbfile})
+                self.account_suppressions[info['account']] = until = \
+                    time.time() + self.account_suppression_time
+                if self.new_account_suppressions:
+                    print >>self.new_account_suppressions, \
+                        info['account'], until
         else:
             self.no_changes += 1
 
@@ -215,17 +262,17 @@ class ContainerUpdater(Daemon):
                              'X-Object-Count': count,
                              'X-Bytes-Used': bytes,
                              'X-Account-Override-Deleted': 'yes'})
-            except:
-                self.logger.exception('ERROR account update failed with '
-                    '%(ip)s:%(port)s/%(device)s (will retry later): ' % node)
+            except (Exception, TimeoutError):
+                self.logger.exception(_('ERROR account update failed with '
+                    '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
                 return 500
         with Timeout(self.node_timeout):
             try:
                 resp = conn.getresponse()
                 resp.read()
                 return resp.status
-            except:
+            except (Exception, TimeoutError):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
-                        'Exception with %(ip)s:%(port)s/%(device)s' % node)
+                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 return 500

@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import urllib
 
 import simplejson as json
 
+from nose import SkipTest
 from xml.dom import minidom
 
 class AuthenticationFailed(Exception):
@@ -79,9 +80,14 @@ def listing_items(method):
 
 class Connection(object):
     def __init__(self, config):
+        for key in 'auth_host auth_port auth_ssl account username password'.split():
+            if not config.has_key(key):
+                raise SkipTest
+
         self.auth_host = config['auth_host']
         self.auth_port = int(config['auth_port'])
         self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
+        self.auth_prefix = config.get('auth_prefix', '/')
 
         self.account = config['account']
         self.username = config['username']
@@ -105,11 +111,11 @@ class Connection(object):
             return
 
         headers = {
-            'x-storage-user': self.username,
-            'x-storage-pass': self.password,
+            'x-auth-user': '%s:%s' % (self.account, self.username),
+            'x-auth-key': self.password,
         }
 
-        path = '/v1/%s/auth' % (self.account)
+        path = '%sv1.0' % (self.auth_prefix)
         if self.auth_ssl:
             connection = httplib.HTTPSConnection(self.auth_host,
                 port=self.auth_port)

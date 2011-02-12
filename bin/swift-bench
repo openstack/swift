@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import uuid
 from optparse import OptionParser
 
 from swift.common.bench import BenchController
-from swift.common.utils import readconf, NamedLogger
+from swift.common.utils import readconf, LogAdapter
 
 # The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     else:
         conf = CONF_DEFAULTS
     parser.set_defaults(**conf)
-    options, _ = parser.parse_args()
+    options, _junk = parser.parse_args()
     if options.concurrency is not '':
         options.put_concurrency = options.concurrency
         options.get_concurrency = options.concurrency
@@ -124,10 +124,11 @@ if __name__ == '__main__':
         'critical': logging.CRITICAL}.get(
             options.log_level.lower(), logging.INFO))
     loghandler = logging.StreamHandler()
-    logformat = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    loghandler.setFormatter(logformat)
     logger.addHandler(loghandler)
-    logger = NamedLogger(logger, 'swift-bench')
+    logger = LogAdapter(logger, 'swift-bench')
+    logformat = logging.Formatter('%(server)s %(asctime)s %(levelname)s '
+                                  '%(message)s')
+    loghandler.setFormatter(logformat)
 
     controller = BenchController(logger, options)
     controller.run()

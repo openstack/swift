@@ -115,6 +115,10 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
         self.assertEquals(resp.getheader('x-container-meta-test'), 'Value')
+        resp = retry(delete, name)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+
         name = uuid4().hex
         resp = retry(put, name, '')
         resp.read()

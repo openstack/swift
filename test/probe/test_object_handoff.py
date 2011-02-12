@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from swift.common import client, direct_client
 
-from common import kill_pids, reset_environment
+from test.probe.common import kill_pids, reset_environment
 
 
 class TestObjectHandoff(unittest.TestCase):
@@ -95,7 +95,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Previously downed object server had test object')
@@ -119,7 +119,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff object server still had test object')
@@ -134,7 +134,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff server claimed it had the object when '
@@ -171,7 +171,7 @@ class TestObjectHandoff(unittest.TestCase):
         exc = False
         try:
             client.head_object(self.url, self.token, container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Regular object HEAD was still successful')
@@ -209,7 +209,7 @@ class TestObjectHandoff(unittest.TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except:
+        except Exception:
             exc = True
         if not exc:
             raise Exception('Handoff object server still had the object')

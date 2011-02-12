@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,22 +56,27 @@ def monkey_patch_mimetools():
 
     mimetools.Message.parsetype = parsetype
 
+
 def get_socket(conf, default_port=8080):
     """Bind socket to bind ip:port in conf
 
     :param conf: Configuration dict to read settings from
     :param default_port: port to use if not specified in conf
 
-    :returns : a socket object as returned from socket.listen or ssl.wrap_socket
-               if conf specifies cert_file
+    :returns : a socket object as returned from socket.listen or
+               ssl.wrap_socket if conf specifies cert_file
     """
     bind_addr = (conf.get('bind_ip', '0.0.0.0'),
                  int(conf.get('bind_port', default_port)))
+    address_family = [addr[0] for addr in socket.getaddrinfo(bind_addr[0],
+            bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
+            if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
     sock = None
     retry_until = time.time() + 30
     while not sock and time.time() < retry_until:
         try:
-            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)))
+            sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
+                        family=address_family)
             if 'cert_file' in conf:
                 sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
                     keyfile=conf['key_file'])
@@ -112,7 +117,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         logger = kwargs.pop('logger')
     else:
         logger = get_logger(conf, log_name,
-                            log_to_console=kwargs.pop('verbose', False))
+            log_to_console=kwargs.pop('verbose', False), log_route='wsgi')
 
     # redirect errors to logger and close stdio
     capture_stdio(logger)
@@ -168,10 +173,10 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 run_server()
-                logger.info('Child %d exiting normally' % os.getpid())
+                logger.notice('Child %d exiting normally' % os.getpid())
                 return
             else:
-                logger.info('Started child %s' % pid)
+                logger.notice('Started child %s' % pid)
                 children.append(pid)
         try:
             pid, status = os.wait()
@@ -182,8 +187,8 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
             if err.errno not in (errno.EINTR, errno.ECHILD):
                 raise
         except KeyboardInterrupt:
-            logger.info('User quit')
+            logger.notice('User quit')
             break
     greenio.shutdown_safe(sock)
     sock.close()
-    logger.info('Exited')
+    logger.notice('Exited')

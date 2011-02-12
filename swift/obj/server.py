@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
-from eventlet import sleep, Timeout
+from eventlet import sleep, Timeout, TimeoutError, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
@@ -51,6 +51,7 @@ ASYNCDIR = 'async_pending'
 PICKLE_PROTOCOL = 2
 METADATA_KEY = 'user.swift.metadata'
 MAX_OBJECT_NAME_LENGTH = 1024
+KEEP_CACHE_SIZE = (5 * 1024 * 1024)
 
 
 def read_metadata(fd):
@@ -70,6 +71,21 @@ def read_metadata(fd):
     except IOError:
         pass
     return pickle.loads(metadata)
+
+
+def write_metadata(fd, metadata):
+    """
+    Helper function to write pickled metadata for an object file.
+
+    :param fd: file descriptor to write the metadata
+    :param metadata: metadata to write
+    """
+    metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
+    key = 0
+    while metastr:
+        setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
+        metastr = metastr[254:]
+        key += 1
 
 
 class DiskFile(object):
@@ -97,6 +113,8 @@ class DiskFile(object):
         self.metadata = {}
         self.meta_file = None
         self.data_file = None
+        self.fp = None
+        self.keep_cache = False
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
@@ -134,12 +152,12 @@ class DiskFile(object):
                 if chunk:
                     read += len(chunk)
                     if read - dropped_cache > (1024 * 1024):
-                        drop_buffer_cache(self.fp.fileno(), dropped_cache,
+                        self.drop_cache(self.fp.fileno(), dropped_cache,
                             read - dropped_cache)
                         dropped_cache = read
                     yield chunk
                 else:
-                    drop_buffer_cache(self.fp.fileno(), dropped_cache,
+                    self.drop_cache(self.fp.fileno(), dropped_cache,
                         read - dropped_cache)
                     break
         finally:
@@ -203,20 +221,15 @@ class DiskFile(object):
 
         :params fd: file descriptor of the temp file
         :param tmppath: path to the temporary file being used
-        :param metadata: dictionary of metada to be written
+        :param metadata: dictionary of metadata to be written
         :param extention: extension to be used when making the file
         """
         metadata['name'] = self.name
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
-        metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
-        key = 0
-        while metastr:
-            setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
-            metastr = metastr[254:]
-            key += 1
+        write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
-            drop_buffer_cache(fd, 0, int(metadata['Content-Length']))
-        os.fsync(fd)
+            self.drop_cache(fd, 0, int(metadata['Content-Length']))
+        tpool.execute(os.fsync, fd)
         invalidate_hash(os.path.dirname(self.datadir))
         renamer(tmppath, os.path.join(self.datadir, timestamp + extension))
         self.metadata = metadata
@@ -237,6 +250,11 @@ class DiskFile(object):
                     if err.errno != errno.ENOENT:
                         raise
 
+    def drop_cache(self, fd, offset, length):
+        """Method for no-oping buffer cache drop method."""
+        if not self.keep_cache:
+            drop_buffer_cache(fd, offset, length)
+
 
 class ObjectController(object):
     """Implements the WSGI application for the Swift Object Server."""
@@ -248,7 +266,7 @@ class ObjectController(object):
         <source-dir>/etc/object-server.conf-sample or
         /etc/swift/object-server.conf-sample.
         """
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='object-server')
         self.devices = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -283,7 +301,7 @@ class ObjectController(object):
         full_path = '/%s/%s/%s' % (account, container, obj)
         try:
             with ConnectionTimeout(self.conn_timeout):
-                ip, port = host.split(':')
+                ip, port = host.rsplit(':', 1)
                 conn = http_connect(ip, port, contdevice, partition, op,
                         full_path, headers_out)
             with Timeout(self.node_timeout):
@@ -292,13 +310,15 @@ class ObjectController(object):
                 if 200 <= response.status < 300:
                     return
                 else:
-                    self.logger.error('ERROR Container update failed (saving '
-                        'for async update later): %d response from %s:%s/%s' %
-                        (response.status, ip, port, contdevice))
-        except:
-            self.logger.exception('ERROR container update failed with '
-                '%s:%s/%s transaction %s (saving for async update later)' %
-                (ip, port, contdevice, headers_in.get('x-cf-trans-id', '-')))
+                    self.logger.error(_('ERROR Container update failed '
+                        '(saving for async update later): %(status)d '
+                        'response from %(ip)s:%(port)s/%(dev)s'),
+                        {'status': response.status, 'ip': ip, 'port': port,
+                         'dev': contdevice})
+        except (Exception, TimeoutError):
+            self.logger.exception(_('ERROR container update failed with '
+                '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                {'ip': ip, 'port': port, 'dev': contdevice})
         async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
         ohash = hash_path(account, container, obj)
         write_pickle(
@@ -374,7 +394,7 @@ class ObjectController(object):
                     chunk = chunk[written:]
                 # For large files sync every 512MB (by default) written
                 if upload_size - last_sync >= self.bytes_per_sync:
-                    os.fdatasync(fd)
+                    tpool.execute(os.fdatasync, fd)
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
 
@@ -391,6 +411,9 @@ class ObjectController(object):
                 'ETag': etag,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
+            if 'x-object-manifest' in request.headers:
+                metadata['X-Object-Manifest'] = \
+                    request.headers['x-object-manifest']
             metadata.update(val for val in request.headers.iteritems()
                     if val[0].lower().startswith('x-object-meta-') and
                     len(val[0]) > 14)
@@ -460,11 +483,16 @@ class ObjectController(object):
                         'application/octet-stream'), app_iter=file,
                         request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
         response.content_length = int(file.metadata['Content-Length'])
+        if response.content_length < KEEP_CACHE_SIZE and \
+                'X-Auth-Token' not in request.headers and \
+                'X-Storage-Token' not in request.headers:
+            file.keep_cache = True
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
         return request.get_response(response)
@@ -488,7 +516,8 @@ class ObjectController(object):
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key.lower().startswith('x-object-meta-'):
+            if key == 'X-Object-Manifest' or \
+                    key.lower().startswith('x-object-meta-'):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -548,13 +577,14 @@ class ObjectController(object):
         if suffix:
             recalculate_hashes(path, suffix.split('-'))
             return Response()
-        _, hashes = get_hashes(path, do_listdir=False)
+        _junk, hashes = get_hashes(path, do_listdir=False)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
         req = Request(env)
+        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -563,11 +593,9 @@ class ObjectController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except:
-                self.logger.exception('ERROR __call__ error with %s %s '
-                    'transaction %s' % (env.get('REQUEST_METHOD', '-'),
-                    env.get('PATH_INFO', '-'), env.get('HTTP_X_CF_TRANS_ID',
-                    '-')))
+            except Exception:
+                self.logger.exception(_('ERROR __call__ error with %(method)s'
+                    ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         if self.log_requests:

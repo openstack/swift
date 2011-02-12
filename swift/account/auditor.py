@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ class AccountAuditor(Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = get_logger(conf, 'account-auditor')
+        self.logger = get_logger(conf, log_route='account-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -49,11 +49,11 @@ class AccountAuditor(Daemon):
             for path, device, partition in all_locs:
                 self.account_audit(path)
                 if time.time() - reported >= 3600:  # once an hour
-                    self.logger.info(
-                        'Since %s: Account audits: %s passed audit, '
-                        '%s failed audit' % (time.ctime(reported),
-                                            self.account_passes,
-                                            self.account_failures))
+                    self.logger.info(_('Since %(time)s: Account audits: '
+                        '%(passed)s passed audit, %(failed)s failed audit'),
+                          {'time': time.ctime(reported),
+                           'passed': self.account_passes,
+                           'failed': self.account_failures})
                     reported = time.time()
                     self.account_passes = 0
                     self.account_failures = 0
@@ -72,17 +72,17 @@ class AccountAuditor(Daemon):
         for path, device, partition in all_locs:
             self.account_audit(path)
             if time.time() - reported >= 3600:  # once an hour
-                self.logger.info(
-                    'Since %s: Account audits: %s passed audit, '
-                    '%s failed audit' % (time.ctime(reported),
-                                        self.account_passes,
-                                        self.account_failures))
+                self.logger.info(_('Since %(time)s: Account audits: '
+                    '%(passed)s passed audit, %(failed)s failed audit'),
+                      {'time': time.ctime(reported),
+                       'passed': self.account_passes,
+                       'failed': self.account_failures})
                 reported = time.time()
                 self.account_passes = 0
                 self.account_failures = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Account audit "once" mode completed: %.02fs' % elapsed)
+            'Account audit "once" mode completed: %.02fs', elapsed)
 
     def account_audit(self, path):
         """
@@ -97,8 +97,8 @@ class AccountAuditor(Daemon):
             if not broker.is_deleted():
                 info = broker.get_info()
                 self.account_passes += 1
-                self.logger.debug('Audit passed for %s' % broker.db_file)
+                self.logger.debug(_('Audit passed for %s') % broker.db_file)
         except Exception:
             self.account_failures += 1
-            self.logger.exception('ERROR Could not get account info %s' %
+            self.logger.exception(_('ERROR Could not get account info %s'),
                 (broker.db_file))

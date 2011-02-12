@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,10 @@ from test.unit import temptree
 import logging
 import mimetools
 import os
+import errno
 import socket
 import sys
+import time
 import unittest
 from getpass import getuser
 from shutil import rmtree
@@ -31,10 +33,13 @@ from tempfile import NamedTemporaryFile
 
 from eventlet import sleep
 
+from swift.common.exceptions import TimeoutError, MessageTimeout, \
+        ConnectionTimeout
 from swift.common import utils
 
 
 class MockOs():
+
     def __init__(self, pass_funcs=[], called_funcs=[], raise_funcs=[]):
         self.closed_fds = []
         for func in pass_funcs:
@@ -75,6 +80,17 @@ class MockSys():
     __stderr__ = sys.__stderr__
 
 
+def reset_loggers():
+    if hasattr(utils.get_logger, 'handler4logger'):
+        for logger, handler in utils.get_logger.handler4logger.items():
+            logger.removeHandler(handler)
+        delattr(utils.get_logger, 'handler4logger')
+    if hasattr(utils.get_logger, 'console_handler4logger'):
+        for logger, h in utils.get_logger.console_handler4logger.items():
+            logger.removeHandler(h)
+        delattr(utils.get_logger, 'console_handler4logger')
+
+
 class TestUtils(unittest.TestCase):
     """ Tests for swift.common.utils """
 
@@ -106,7 +122,7 @@ class TestUtils(unittest.TestCase):
         testroot = os.path.join(os.path.dirname(__file__), 'mkdirs')
         try:
             os.unlink(testroot)
-        except:
+        except Exception:
             pass
         rmtree(testroot, ignore_errors=1)
         self.assert_(not os.path.exists(testroot))
@@ -184,12 +200,12 @@ class TestUtils(unittest.TestCase):
         print 'test2'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
         sys.stderr = lfo
-        print >>sys.stderr, 'test4'
+        print >> sys.stderr, 'test4'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
         sys.stdout = orig_stdout
         print 'test5'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
-        print >>sys.stderr, 'test6'
+        print >> sys.stderr, 'test6'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
             'STDOUT: test6\n')
         sys.stderr = orig_stderr
@@ -210,14 +226,14 @@ class TestUtils(unittest.TestCase):
         try:
             for line in lfo:
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         got_exc = False
         try:
             for line in lfo.xreadlines():
                 pass
-        except:
+        except Exception:
             got_exc = True
         self.assert_(got_exc)
         self.assertRaises(IOError, lfo.read)
@@ -284,35 +300,156 @@ Error: unable to locate %s
         utils.sys.stdout = orig_stdout
         utils.sys.stderr = orig_stderr
 
-    def test_NamedLogger(self):
-        sio = StringIO()
-        logger = logging.getLogger()
-        logger.addHandler(logging.StreamHandler(sio))
-        nl = utils.NamedLogger(logger, 'server')
-        nl.warn('test')
-        self.assertEquals(sio.getvalue(), 'server test\n')
-
     def test_get_logger(self):
         sio = StringIO()
-        logger = logging.getLogger()
+        logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
-        logger = utils.get_logger(None, 'server')
+        logger = utils.get_logger(None, 'server', log_route='server')
         logger.warn('test1')
-        self.assertEquals(sio.getvalue(), 'server test1\n')
+        self.assertEquals(sio.getvalue(), 'test1\n')
         logger.debug('test2')
-        self.assertEquals(sio.getvalue(), 'server test1\n')
-        logger = utils.get_logger({'log_level': 'DEBUG'}, 'server')
+        self.assertEquals(sio.getvalue(), 'test1\n')
+        logger = utils.get_logger({'log_level': 'DEBUG'}, 'server',
+                                  log_route='server')
         logger.debug('test3')
-        self.assertEquals(sio.getvalue(), 'server test1\nserver test3\n')
+        self.assertEquals(sio.getvalue(), 'test1\ntest3\n')
         # Doesn't really test that the log facility is truly being used all the
         # way to syslog; but exercises the code.
-        logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server')
+        logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
+                                  log_route='server')
         logger.warn('test4')
         self.assertEquals(sio.getvalue(),
-                          'server test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
+        # make sure debug doesn't log by default
         logger.debug('test5')
         self.assertEquals(sio.getvalue(),
-                          'server test1\nserver test3\nserver test4\n')
+                          'test1\ntest3\ntest4\n')
+        # make sure notice lvl logs by default
+        logger.notice('test6')
+
+    def test_clean_logger_exception(self):
+        # setup stream logging
+        sio = StringIO()
+        logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        logger.logger.addHandler(handler)
+
+        def strip_value(sio):
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        def log_exception(exc):
+            try:
+                raise exc
+            except (Exception, TimeoutError):
+                logger.exception('blah')
+        try:
+            # establish base case
+            self.assertEquals(strip_value(sio), '')
+            logger.info('test')
+            self.assertEquals(strip_value(sio), 'test\n')
+            self.assertEquals(strip_value(sio), '')
+            logger.info('test')
+            logger.info('test')
+            self.assertEquals(strip_value(sio), 'test\ntest\n')
+            self.assertEquals(strip_value(sio), '')
+
+            # test OSError
+            for en in (errno.EIO, errno.ENOSPC):
+                log_exception(OSError(en, 'my %s error message' % en))
+                log_msg = strip_value(sio)
+                self.assert_('Traceback' not in log_msg)
+                self.assert_('my %s error message' % en in log_msg)
+            # unfiltered
+            log_exception(OSError())
+            self.assert_('Traceback' in strip_value(sio))
+
+            # test socket.error
+            log_exception(socket.error(errno.ECONNREFUSED,
+                                       'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' not in log_msg)
+            self.assert_('errno.ECONNREFUSED message test' not in log_msg)
+            self.assert_('Connection refused' in log_msg)
+            log_exception(socket.error(errno.EHOSTUNREACH,
+                                       'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' not in log_msg)
+            self.assert_('my error message' not in log_msg)
+            self.assert_('Host unreachable' in log_msg)
+            log_exception(socket.error(errno.ETIMEDOUT, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' not in log_msg)
+            self.assert_('my error message' not in log_msg)
+            self.assert_('Connection timeout' in log_msg)
+            # unfiltered
+            log_exception(socket.error(0, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' in log_msg)
+            self.assert_('my error message' in log_msg)
+
+            # test eventlet.Timeout
+            log_exception(ConnectionTimeout(42, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' not in log_msg)
+            self.assert_('ConnectionTimeout' in log_msg)
+            self.assert_('(42s)' in log_msg)
+            self.assert_('my error message' not in log_msg)
+            log_exception(MessageTimeout(42, 'my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' not in log_msg)
+            self.assert_('MessageTimeout' in log_msg)
+            self.assert_('(42s)' in log_msg)
+            self.assert_('my error message' in log_msg)
+
+            # test unhandled
+            log_exception(Exception('my error message'))
+            log_msg = strip_value(sio)
+            self.assert_('Traceback' in log_msg)
+            self.assert_('my error message' in log_msg)
+
+        finally:
+            logger.logger.removeHandler(handler)
+            reset_loggers()
+
+    def test_txn_formatter(self):
+        # setup stream logging
+        sio = StringIO()
+        logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        handler.setFormatter(utils.TxnFormatter())
+        logger.logger.addHandler(handler)
+
+        def strip_value(sio):
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        try:
+            self.assertFalse(logger.txn_id)
+            logger.error('my error message')
+            log_msg = strip_value(sio)
+            self.assert_('my error message' in log_msg)
+            self.assert_('txn' not in log_msg)
+            logger.txn_id = '12345'
+            logger.error('test')
+            log_msg = strip_value(sio)
+            self.assert_('txn' in log_msg)
+            self.assert_('12345' in log_msg)
+            # test no txn on info message
+            self.assertEquals(logger.txn_id, '12345')
+            logger.info('test')
+            log_msg = strip_value(sio)
+            self.assert_('txn' not in log_msg)
+            self.assert_('12345' not in log_msg)
+            # test txn already in message
+            self.assertEquals(logger.txn_id, '12345')
+            logger.warn('test 12345 test')
+            self.assertEquals(strip_value(sio), 'test 12345 test\n')
+        finally:
+            logger.logger.removeHandler(handler)
+            reset_loggers()
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
@@ -325,7 +462,7 @@ Error: unable to locate %s
 
     def test_hash_path(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
-        # that if someones changes the results hash_path produces, they know it.
+        # that if someones changes the results hash_path produces, they know it
         self.assertEquals(utils.hash_path('a'),
                           '1c84525acb02107ea475dcd3d09c2c58')
         self.assertEquals(utils.hash_path('a', 'c'),
@@ -364,10 +501,12 @@ log_name = yarr'''
         result = utils.readconf('/tmp/test', 'section2').get('log_name')
         expected = 'yarr'
         self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1', log_name='foo').get('log_name')
+        result = utils.readconf('/tmp/test', 'section1',
+                                log_name='foo').get('log_name')
         expected = 'foo'
         self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1', defaults={'bar': 'baz'})
+        result = utils.readconf('/tmp/test', 'section1',
+                                defaults={'bar': 'baz'})
         expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
         self.assertEquals(result, expected)
         os.unlink('/tmp/test')
@@ -396,56 +535,131 @@ log_name = yarr'''
         logger = utils.get_logger(None, 'dummy')
 
         # mock utils system modules
-        utils.sys = MockSys()
-        utils.os = MockOs()
+        _orig_sys = utils.sys
+        _orig_os = utils.os
+        try:
+            utils.sys = MockSys()
+            utils.os = MockOs()
 
-        # basic test
-        utils.capture_stdio(logger)
-        self.assert_(utils.sys.excepthook is not None)
-        self.assertEquals(utils.os.closed_fds, [0, 1, 2])
-        self.assert_(utils.sys.stdout is not None)
-        self.assert_(utils.sys.stderr is not None)
+            # basic test
+            utils.capture_stdio(logger)
+            self.assert_(utils.sys.excepthook is not None)
+            self.assertEquals(utils.os.closed_fds, [0, 1, 2])
+            self.assert_(utils.sys.stdout is not None)
+            self.assert_(utils.sys.stderr is not None)
 
-        # reset; test same args, but exc when trying to close stdio
-        utils.os = MockOs(raise_funcs=('dup2',))
-        utils.sys = MockSys()
+            # reset; test same args, but exc when trying to close stdio
+            utils.os = MockOs(raise_funcs=('dup2',))
+            utils.sys = MockSys()
 
-        # test unable to close stdio
-        utils.capture_stdio(logger)
-        self.assert_(utils.sys.excepthook is not None)
-        self.assertEquals(utils.os.closed_fds, [])
-        self.assert_(utils.sys.stdout is not None)
-        self.assert_(utils.sys.stderr is not None)
+            # test unable to close stdio
+            utils.capture_stdio(logger)
+            self.assert_(utils.sys.excepthook is not None)
+            self.assertEquals(utils.os.closed_fds, [])
+            self.assert_(utils.sys.stdout is not None)
+            self.assert_(utils.sys.stderr is not None)
 
-        # reset; test some other args
-        logger = utils.get_logger(None, log_to_console=True)
-        utils.os = MockOs()
-        utils.sys = MockSys()
+            # reset; test some other args
+            logger = utils.get_logger(None, log_to_console=True)
+            utils.os = MockOs()
+            utils.sys = MockSys()
 
-        # test console log
-        utils.capture_stdio(logger, capture_stdout=False,
-                            capture_stderr=False)
-        self.assert_(utils.sys.excepthook is not None)
-        # when logging to console, stderr remains open
-        self.assertEquals(utils.os.closed_fds, [0, 1])
-        logger.logger.removeHandler(utils.get_logger.console)
-        # stdio not captured
-        self.assertFalse(hasattr(utils.sys, 'stdout'))
-        self.assertFalse(hasattr(utils.sys, 'stderr'))
+            # test console log
+            utils.capture_stdio(logger, capture_stdout=False,
+                                capture_stderr=False)
+            self.assert_(utils.sys.excepthook is not None)
+            # when logging to console, stderr remains open
+            self.assertEquals(utils.os.closed_fds, [0, 1])
+            reset_loggers()
+
+            # stdio not captured
+            self.assertFalse(hasattr(utils.sys, 'stdout'))
+            self.assertFalse(hasattr(utils.sys, 'stderr'))
+            reset_loggers()
+        finally:
+            utils.sys = _orig_sys
+            utils.os = _orig_os
 
     def test_get_logger_console(self):
-        reload(utils)  # reset get_logger attrs
+        reset_loggers()
         logger = utils.get_logger(None)
-        self.assertFalse(hasattr(utils.get_logger, 'console'))
+        console_handlers = [h for h in logger.logger.handlers if
+                            isinstance(h, logging.StreamHandler)]
+        self.assertFalse(console_handlers)
         logger = utils.get_logger(None, log_to_console=True)
-        self.assert_(hasattr(utils.get_logger, 'console'))
-        self.assert_(isinstance(utils.get_logger.console,
-                                logging.StreamHandler))
+        console_handlers = [h for h in logger.logger.handlers if
+                            isinstance(h, logging.StreamHandler)]
+        self.assert_(console_handlers)
         # make sure you can't have two console handlers
-        old_handler = utils.get_logger.console
+        self.assertEquals(len(console_handlers), 1)
+        old_handler = console_handlers[0]
         logger = utils.get_logger(None, log_to_console=True)
-        self.assertNotEquals(utils.get_logger.console, old_handler)
-        logger.logger.removeHandler(utils.get_logger.console)
+        console_handlers = [h for h in logger.logger.handlers if
+                            isinstance(h, logging.StreamHandler)]
+        self.assertEquals(len(console_handlers), 1)
+        new_handler = console_handlers[0]
+        self.assertNotEquals(new_handler, old_handler)
+        reset_loggers()
+
+    def test_ratelimit_sleep(self):
+        running_time = 0
+        start = time.time()
+        for i in range(100):
+            running_time = utils.ratelimit_sleep(running_time, 0)
+        self.assertTrue(abs((time.time() - start) * 100) < 1)
+
+        running_time = 0
+        start = time.time()
+        for i in range(50):
+            running_time = utils.ratelimit_sleep(running_time, 200)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(25 - (time.time() - start) * 100) < 10)
+
+    def test_ratelimit_sleep_with_incr(self):
+        running_time = 0
+        start = time.time()
+        vals = [5, 17, 0, 3, 11, 30,
+                40, 4, 13, 2, -1] * 2  # adds up to 250 (with no -1)
+        total = 0
+        for i in vals:
+            running_time = utils.ratelimit_sleep(running_time,
+                                                 500, incr_by=i)
+            total += i
+        self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
+
+    def test_urlparse(self):
+        parsed = utils.urlparse('http://127.0.0.1/')
+        self.assertEquals(parsed.scheme, 'http')
+        self.assertEquals(parsed.hostname, '127.0.0.1')
+        self.assertEquals(parsed.path, '/')
+
+        parsed = utils.urlparse('http://127.0.0.1:8080/')
+        self.assertEquals(parsed.port, 8080)
+
+        parsed = utils.urlparse('https://127.0.0.1/')
+        self.assertEquals(parsed.scheme, 'https')
+
+        parsed = utils.urlparse('http://[::1]/')
+        self.assertEquals(parsed.hostname, '::1')
+
+        parsed = utils.urlparse('http://[::1]:8080/')
+        self.assertEquals(parsed.hostname, '::1')
+        self.assertEquals(parsed.port, 8080)
+
+        parsed = utils.urlparse('www.example.com')
+        self.assertEquals(parsed.hostname, '')
+
+    def test_ratelimit_sleep_with_sleep(self):
+        running_time = 0
+        start = time.time()
+        sleeps = [0] * 7 + [.2] * 3 + [0] * 30
+        for i in sleeps:
+            running_time = utils.ratelimit_sleep(running_time, 40,
+                                                 rate_buffer=1)
+            time.sleep(i)
+        # make sure its accurate to 10th of a second
+        self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
+
 
     def test_search_tree(self):
         # file match & ext miss

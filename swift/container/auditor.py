@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ class ContainerAuditor(Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = get_logger(conf, 'container-auditor')
+        self.logger = get_logger(conf, log_route='container-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -51,10 +51,11 @@ class ContainerAuditor(Daemon):
                 self.container_audit(path)
                 if time.time() - reported >= 3600:  # once an hour
                     self.logger.info(
-                        'Since %s: Container audits: %s passed audit, '
-                        '%s failed audit' % (time.ctime(reported),
-                                            self.container_passes,
-                                            self.container_failures))
+                        _('Since %(time)s: Container audits: %(pass)s passed '
+                          'audit, %(fail)s failed audit'),
+                        {'time': time.ctime(reported),
+                         'pass': self.container_passes,
+                         'fail': self.container_failures})
                     reported = time.time()
                     self.container_passes = 0
                     self.container_failures = 0
@@ -64,7 +65,7 @@ class ContainerAuditor(Daemon):
 
     def run_once(self):
         """Run the container audit once."""
-        self.logger.info('Begin container audit "once" mode')
+        self.logger.info(_('Begin container audit "once" mode'))
         begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             container_server.DATADIR,
@@ -74,16 +75,17 @@ class ContainerAuditor(Daemon):
             self.container_audit(path)
             if time.time() - reported >= 3600:  # once an hour
                 self.logger.info(
-                    'Since %s: Container audits: %s passed audit, '
-                    '%s failed audit' % (time.ctime(reported),
-                                        self.container_passes,
-                                        self.container_failures))
+                    _('Since %(time)s: Container audits: %(pass)s passed '
+                      'audit, %(fail)s failed audit'),
+                    {'time': time.ctime(reported),
+                     'pass': self.container_passes,
+                     'fail': self.container_failures})
                 reported = time.time()
                 self.container_passes = 0
                 self.container_failures = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Container audit "once" mode completed: %.02fs' % elapsed)
+            _('Container audit "once" mode completed: %.02fs'), elapsed)
 
     def container_audit(self, path):
         """
@@ -98,8 +100,8 @@ class ContainerAuditor(Daemon):
             if not broker.is_deleted():
                 info = broker.get_info()
                 self.container_passes += 1
-                self.logger.debug('Audit passed for %s' % broker.db_file)
+                self.logger.debug(_('Audit passed for %s'), broker.db_file)
         except Exception:
             self.container_failures += 1
-            self.logger.exception('ERROR Could not get container info %s' %
+            self.logger.exception(_('ERROR Could not get container info %s'),
                 (broker.db_file))

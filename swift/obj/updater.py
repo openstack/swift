@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import sys
 import time
 from random import random
 
-from eventlet import patcher, Timeout
+from eventlet import patcher, Timeout, TimeoutError
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
@@ -35,7 +35,7 @@ class ObjectUpdater(Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = get_logger(conf, 'object-updater')
+        self.logger = get_logger(conf, log_route='object-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -54,7 +54,7 @@ class ObjectUpdater(Daemon):
         """Get the container ring.  Load it, if it hasn't been yet."""
         if not self.container_ring:
             self.logger.debug(
-                'Loading container ring from %s' % self.container_ring_path)
+                _('Loading container ring from %s'), self.container_ring_path)
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
@@ -62,7 +62,7 @@ class ObjectUpdater(Daemon):
         """Run the updater continuously."""
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info('Begin object update sweep')
+            self.logger.info(_('Begin object update sweep'))
             begin = time.time()
             pids = []
             # read from container ring to ensure it's fresh
@@ -71,7 +71,7 @@ class ObjectUpdater(Daemon):
                 if self.mount_check and not \
                         os.path.ismount(os.path.join(self.devices, device)):
                     self.logger.warn(
-                        'Skipping %s as it is not mounted' % device)
+                        _('Skipping %s as it is not mounted'), device)
                     continue
                 while len(pids) >= self.concurrency:
                     pids.remove(os.wait()[0])
@@ -86,20 +86,23 @@ class ObjectUpdater(Daemon):
                     forkbegin = time.time()
                     self.object_sweep(os.path.join(self.devices, device))
                     elapsed = time.time() - forkbegin
-                    self.logger.info('Object update sweep of %s completed: '
-                        '%.02fs, %s successes, %s failures' %
-                        (device, elapsed, self.successes, self.failures))
+                    self.logger.info(_('Object update sweep of %(device)s'
+                        ' completed: %(elapsed).02fs, %(success)s successes'
+                        ', %(fail)s failures'),
+                        {'device': device, 'elapsed': elapsed,
+                         'success': self.successes, 'fail': self.failures})
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
             elapsed = time.time() - begin
-            self.logger.info('Object update sweep completed: %.02fs' % elapsed)
+            self.logger.info(_('Object update sweep completed: %.02fs'),
+                    elapsed)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
     def run_once(self):
         """Run the updater once"""
-        self.logger.info('Begin object update single threaded sweep')
+        self.logger.info(_('Begin object update single threaded sweep'))
         begin = time.time()
         self.successes = 0
         self.failures = 0
@@ -107,13 +110,14 @@ class ObjectUpdater(Daemon):
             if self.mount_check and \
                     not os.path.ismount(os.path.join(self.devices, device)):
                 self.logger.warn(
-                    'Skipping %s as it is not mounted' % device)
+                    _('Skipping %s as it is not mounted'), device)
                 continue
             self.object_sweep(os.path.join(self.devices, device))
         elapsed = time.time() - begin
-        self.logger.info('Object update single threaded sweep completed: '
-            '%.02fs, %s successes, %s failures' %
-            (elapsed, self.successes, self.failures))
+        self.logger.info(_('Object update single threaded sweep completed: '
+            '%(elapsed).02fs, %(success)s successes, %(fail)s failures'),
+            {'elapsed': elapsed, 'success': self.successes,
+             'fail': self.failures})
 
     def object_sweep(self, device):
         """
@@ -150,7 +154,7 @@ class ObjectUpdater(Daemon):
             update = pickle.load(open(update_path, 'rb'))
         except Exception:
             self.logger.exception(
-                'ERROR Pickle problem, quarantining %s' % update_path)
+                _('ERROR Pickle problem, quarantining %s'), update_path)
             renamer(update_path, os.path.join(device,
                 'quarantined', 'objects', os.path.basename(update_path)))
             return
@@ -170,11 +174,13 @@ class ObjectUpdater(Daemon):
                     successes.append(node['id'])
         if success:
             self.successes += 1
-            self.logger.debug('Update sent for %s %s' % (obj, update_path))
+            self.logger.debug(_('Update sent for %(obj)s %(path)s'),
+                {'obj': obj, 'path': update_path})
             os.unlink(update_path)
         else:
             self.failures += 1
-            self.logger.debug('Update failed for %s %s' % (obj, update_path))
+            self.logger.debug(_('Update failed for %(obj)s %(path)s'),
+                {'obj': obj, 'path': update_path})
             update['successes'] = successes
             write_pickle(update, update_path, os.path.join(device, 'tmp'))
 
@@ -196,7 +202,7 @@ class ObjectUpdater(Daemon):
                 resp = conn.getresponse()
                 resp.read()
                 return resp.status
-        except:
-            self.logger.exception('ERROR with remote server '
-                '%(ip)s:%(port)s/%(device)s' % node)
+        except (Exception, TimeoutError):
+            self.logger.exception(_('ERROR with remote server '
+                '%(ip)s:%(port)s/%(device)s'), node)
         return 500

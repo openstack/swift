@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ class AccessLogProcessor(object):
     """Transform proxy server access logs"""
 
     def __init__(self, conf):
-        self.server_name = conf.get('server_name', 'proxy')
+        self.server_name = conf.get('server_name', 'proxy-server')
         self.lb_private_ips = [x.strip() for x in \
                                conf.get('lb_private_ips', '').split(',')\
                                if x.strip()]
@@ -34,13 +34,13 @@ class AccessLogProcessor(object):
                             conf.get('service_ips', '').split(',')\
                             if x.strip()]
         self.warn_percent = float(conf.get('warn_percent', '0.8'))
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='access-processor')
 
     def log_line_parser(self, raw_log):
         '''given a raw access log line, return a dict of the good parts'''
         d = {}
         try:
-            (_,
+            (unused,
             server,
             client_ip,
             lb_ip,
@@ -57,21 +57,23 @@ class AccessLogProcessor(object):
             etag,
             trans_id,
             headers,
-            processing_time) = (unquote(x) for x in raw_log[16:].split(' '))
+            processing_time) = (unquote(x) for x in
+                                raw_log[16:].split(' ')[:18])
         except ValueError:
-            self.logger.debug('Bad line data: %s' % repr(raw_log))
+            self.logger.debug(_('Bad line data: %s') % repr(raw_log))
             return {}
         if server != self.server_name:
             # incorrect server name in log line
-            self.logger.debug('Bad server name: found "%s" expected "%s"' \
-                               % (server, self.server_name))
+            self.logger.debug(_('Bad server name: found "%(found)s" ' \
+                    'expected "%(expected)s"') %
+                    {'found': server, 'expected': self.server_name})
             return {}
         try:
             (version, account, container_name, object_name) = \
                 split_path(request, 2, 4, True)
         except ValueError, e:
-            self.logger.debug(
-                'Invalid path: %s from data: %s' % (e, repr(raw_log)))
+            self.logger.debug(_('Invalid path: %(error)s from data: %(log)s') %
+            {'error': e, 'log': repr(raw_log)})
             return {}
         if container_name is not None:
             container_name = container_name.split('?', 1)[0]
@@ -127,7 +129,8 @@ class AccessLogProcessor(object):
         d['code'] = int(d['code'])
         return d
 
-    def process(self, obj_stream, account, container, object_name):
+    def process(self, obj_stream, data_object_account, data_object_container,
+                data_object_name):
         '''generate hourly groupings of data from one access log file'''
         hourly_aggr_info = {}
         total_lines = 0
@@ -191,9 +194,11 @@ class AccessLogProcessor(object):
 
             hourly_aggr_info[aggr_key] = d
         if bad_lines > (total_lines * self.warn_percent):
-            name = '/'.join([account, container, object_name])
-            self.logger.warning('I found a bunch of bad lines in %s '\
-                        '(%d bad, %d total)' % (name, bad_lines, total_lines))
+            name = '/'.join([data_object_account, data_object_container,
+                             data_object_name])
+            self.logger.warning(_('I found a bunch of bad lines in %(name)s '\
+                    '(%(bad)d bad, %(total)d total)') %
+                    {'name': name, 'bad': bad_lines, 'total': total_lines})
         return hourly_aggr_info
 
     def keylist_mapping(self):

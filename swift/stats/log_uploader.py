@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,14 +64,15 @@ class LogUploader(Daemon):
         self.container_name = container_name
         self.filename_format = source_filename_format
         self.internal_proxy = InternalProxy(proxy_server_conf)
-        log_name = 'swift-log-uploader-%s' % plugin_name
-        self.logger = utils.get_logger(uploader_conf, plugin_name)
+        log_name = '%s-log-uploader' % plugin_name
+        self.logger = utils.get_logger(uploader_conf, log_name,
+                                       log_route=plugin_name)
 
     def run_once(self):
-        self.logger.info("Uploading logs")
+        self.logger.info(_("Uploading logs"))
         start = time.time()
         self.upload_all_logs()
-        self.logger.info("Uploading logs complete (%0.2f minutes)" %
+        self.logger.info(_("Uploading logs complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
 
     def upload_all_logs(self):
@@ -126,22 +127,22 @@ class LogUploader(Daemon):
                 hour = filename[slice(*hour_offset)]
             except IndexError:
                 # unexpected filename format, move on
-                self.logger.error("Unexpected log: %s" % filename)
+                self.logger.error(_("Unexpected log: %s") % filename)
                 continue
             if ((time.time() - os.stat(filename).st_mtime) <
                                                         self.new_log_cutoff):
                 # don't process very new logs
                 self.logger.debug(
-                    "Skipping log: %s (< %d seconds old)" % (filename,
-                                                        self.new_log_cutoff))
+                    _("Skipping log: %(file)s (< %(cutoff)d seconds old)") %
+                    {'file': filename, 'cutoff': self.new_log_cutoff})
                 continue
             self.upload_one_log(filename, year, month, day, hour)
 
     def upload_one_log(self, filename, year, month, day, hour):
         if os.path.getsize(filename) == 0:
-            self.logger.debug("Log %s is 0 length, skipping" % filename)
+            self.logger.debug(_("Log %s is 0 length, skipping") % filename)
             return
-        self.logger.debug("Processing log: %s" % filename)
+        self.logger.debug(_("Processing log: %s") % filename)
         filehash = hashlib.md5()
         already_compressed = True if filename.endswith('.gz') else False
         opener = gzip.open if already_compressed else open
@@ -162,9 +163,9 @@ class LogUploader(Daemon):
                                           self.container_name,
                                           target_filename,
                                           compress=(not already_compressed)):
-            self.logger.debug("Uploaded log %s to %s" %
-                (filename, target_filename))
+            self.logger.debug(_("Uploaded log %(file)s to %(target)s") %
+                {'file': filename, 'target': target_filename})
             if self.unlink_log:
                 os.unlink(filename)
         else:
-            self.logger.error("ERROR: Upload of log %s failed!" % filename)
+            self.logger.error(_("ERROR: Upload of log %s failed!") % filename)

@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,49 +47,49 @@ class TestDomainRemap(unittest.TestCase):
 
     def test_domain_remap_account(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'a.example.com'})
+                            headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a')
+        self.assertEquals(resp, '/v1/AUTH_a')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'a-uuid.example.com'})
+                            headers={'Host': 'AUTH-uuid.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a_uuid')
+        self.assertEquals(resp, '/v1/AUTH_uuid')
 
     def test_domain_remap_account_container(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'c.a.example.com'})
+                            headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a/c')
+        self.assertEquals(resp, '/v1/AUTH_a/c')
 
     def test_domain_remap_extra_subdomains(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'x.y.c.a.example.com'})
+                            headers={'Host': 'x.y.c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, ['Bad domain in host header'])
 
     def test_domain_remap_account_with_path_root(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'a.example.com'})
+                            headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a')
+        self.assertEquals(resp, '/v1/AUTH_a')
 
     def test_domain_remap_account_container_with_path_root(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'c.a.example.com'})
+                            headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a/c')
+        self.assertEquals(resp, '/v1/AUTH_a/c')
 
     def test_domain_remap_account_container_with_path(self):
         req = Request.blank('/obj', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'c.a.example.com'})
+                            headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a/c/obj')
+        self.assertEquals(resp, '/v1/AUTH_a/c/obj')
 
     def test_domain_remap_account_container_with_path_root_and_path(self):
         req = Request.blank('/v1/obj', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'c.a.example.com'})
+                            headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, '/v1/a/c/obj')
+        self.assertEquals(resp, '/v1/AUTH_a/c/obj')
 
     def test_domain_remap_account_matching_ending_not_domain(self):
         req = Request.blank('/dontchange', environ={'REQUEST_METHOD': 'GET'},
@@ -101,7 +101,23 @@ class TestDomainRemap(unittest.TestCase):
         self.app = domain_remap.DomainRemapMiddleware(FakeApp(),
                                                       {'storage_domain': ''})
         req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Host': 'c.a.example.com'})
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/test')
+
+    def test_domain_remap_configured_with_prefixes(self):
+        conf = {'reseller_prefixes': 'PREFIX'}
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
+        req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.prefix_uuid.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/v1/PREFIX_uuid/c/test')
+
+    def test_domain_remap_configured_with_bad_prefixes(self):
+        conf = {'reseller_prefixes': 'UNKNOWN'}
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
+        req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.prefix_uuid.example.com'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, '/test')
 

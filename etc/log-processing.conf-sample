@@ -23,7 +23,7 @@ class_path = swift.stats.access_processor.AccessLogProcessor
 # load balancer private ips is for load balancer ip addresses that should be
 # counted as servicenet
 # lb_private_ips =
-# server_name = proxy
+# server_name = proxy-server
 # user = swift
 # warn_percent = 0.8
 

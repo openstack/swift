@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,13 +26,13 @@ class CatchErrorMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='catch-errors')
 
     def __call__(self, env, start_response):
         try:
             return self.app(env, start_response)
         except Exception, err:
-            self.logger.exception('Error: %s' % err)
+            self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')

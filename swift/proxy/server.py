@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +14,24 @@
 # limitations under the License.
 
 from __future__ import with_statement
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import mimetypes
 import os
+import re
 import time
 import traceback
 from ConfigParser import ConfigParser
+from datetime import datetime
 from urllib import unquote, quote
 import uuid
 import functools
+from hashlib import md5
+from random import shuffle
 
+from eventlet import sleep, TimeoutError
 from eventlet.timeout import Timeout
 from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -36,8 +45,8 @@ from swift.common.utils import get_logger, normalize_timestamp, split_path, \
     cache_from_env
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    check_utf8, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
-    MAX_FILE_SIZE
+    check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
+    MAX_CONTAINER_NAME_LENGTH, MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout
 
@@ -89,9 +98,170 @@ def delay_denial(func):
     return wrapped
 
 
+def get_account_memcache_key(account):
+    return 'account/%s' % account
+
+
 def get_container_memcache_key(account, container):
-    path = '/%s/%s' % (account, container)
-    return 'container%s' % path
+    return 'container/%s/%s' % (account, container)
+
+
+class SegmentedIterable(object):
+    """
+    Iterable that returns the object contents for a segmented object in Swift.
+
+    If set, the response's `bytes_transferred` value will be updated (used to
+    log the size of the request). Also, if there's a failure that cuts the
+    transfer short, the response's `status_int` will be updated (again, just
+    for logging since the original status would have already been sent to the
+    client).
+
+    :param controller: The ObjectController instance to work with.
+    :param container: The container the object segments are within.
+    :param listing: The listing of object segments to iterate over; this may
+                    be an iterator or list that returns dicts with 'name' and
+                    'bytes' keys.
+    :param response: The webob.Response this iterable is associated with, if
+                     any (default: None)
+    """
+
+    def __init__(self, controller, container, listing, response=None):
+        self.controller = controller
+        self.container = container
+        self.listing = iter(listing)
+        self.segment = -1
+        self.segment_dict = None
+        self.segment_peek = None
+        self.seek = 0
+        self.segment_iter = None
+        self.position = 0
+        self.response = response
+        if not self.response:
+            self.response = Response()
+        self.next_get_time = 0
+
+    def _load_next_segment(self):
+        """
+        Loads the self.segment_iter with the next object segment's contents.
+
+        :raises: StopIteration when there are no more object segments.
+        """
+        try:
+            self.segment += 1
+            self.segment_dict = self.segment_peek or self.listing.next()
+            self.segment_peek = None
+            partition, nodes = self.controller.app.object_ring.get_nodes(
+                self.controller.account_name, self.container,
+                self.segment_dict['name'])
+            path = '/%s/%s/%s' % (self.controller.account_name, self.container,
+                self.segment_dict['name'])
+            req = Request.blank(path)
+            if self.seek:
+                req.range = 'bytes=%s-' % self.seek
+                self.seek = 0
+            if self.segment > 10:
+                sleep(max(self.next_get_time - time.time(), 0))
+                self.next_get_time = time.time() + 1
+            resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
+                self.controller.iter_nodes(partition, nodes,
+                self.controller.app.object_ring), path,
+                self.controller.app.object_ring.replica_count)
+            if resp.status_int // 100 != 2:
+                raise Exception(_('Could not load object segment %(path)s:' \
+                    ' %(status)s') % {'path': path, 'status': resp.status_int})
+            self.segment_iter = resp.app_iter
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
+
+    def next(self):
+        return iter(self).next()
+
+    def __iter__(self):
+        """ Standard iterator function that returns the object's contents. """
+        try:
+            while True:
+                if not self.segment_iter:
+                    self._load_next_segment()
+                while True:
+                    with ChunkReadTimeout(self.controller.app.node_timeout):
+                        try:
+                            chunk = self.segment_iter.next()
+                            break
+                        except StopIteration:
+                            self._load_next_segment()
+                self.position += len(chunk)
+                self.response.bytes_transferred = getattr(self.response,
+                    'bytes_transferred', 0) + len(chunk)
+                yield chunk
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
+
+    def app_iter_range(self, start, stop):
+        """
+        Non-standard iterator function for use with Webob in serving Range
+        requests more quickly. This will skip over segments and do a range
+        request on the first segment to return data from, if needed.
+
+        :param start: The first byte (zero-based) to return. None for 0.
+        :param stop: The last byte (zero-based) to return. None for end.
+        """
+        try:
+            if start:
+                self.segment_peek = self.listing.next()
+                while start >= self.position + self.segment_peek['bytes']:
+                    self.segment += 1
+                    self.position += self.segment_peek['bytes']
+                    self.segment_peek = self.listing.next()
+                self.seek = start - self.position
+            else:
+                start = 0
+            if stop is not None:
+                length = stop - start
+            else:
+                length = None
+            for chunk in self:
+                if length is not None:
+                    length -= len(chunk)
+                    if length < 0:
+                        # Chop off the extra:
+                        self.response.bytes_transferred = \
+                           getattr(self.response, 'bytes_transferred', 0) \
+                           + length
+                        yield chunk[:length]
+                        break
+                yield chunk
+        except StopIteration:
+            raise
+        except Exception, err:
+            if not getattr(err, 'swift_logged', False):
+                self.controller.app.logger.exception(_('ERROR: While '
+                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                    {'acc': self.controller.account_name,
+                     'cont': self.controller.container_name,
+                     'obj': self.controller.object_name})
+                err.swift_logged = True
+                self.response.status_int = 503
+            raise
 
 
 class Controller(object):
@@ -119,8 +289,8 @@ class Controller(object):
         :param msg: error message
         """
         self.error_increment(node)
-        self.app.logger.error(
-            '%s %s:%s' % (msg, node['ip'], node['port']))
+        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s'),
+            {'msg': msg, 'ip': node['ip'], 'port': node['port']})
 
     def exception_occurred(self, node, typ, additional_info):
         """
@@ -131,9 +301,10 @@ class Controller(object):
         :param additional_info: additional information to log
         """
         self.app.logger.exception(
-            'ERROR with %s server %s:%s/%s transaction %s re: %s' % (typ,
-            node['ip'], node['port'], node['device'], self.trans_id,
-            additional_info))
+            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
+              '%(info)s'),
+            {'type': typ, 'ip': node['ip'], 'port': node['port'],
+             'device': node['device'], 'info': additional_info})
 
     def error_limited(self, node):
         """
@@ -154,8 +325,7 @@ class Controller(object):
         limited = node['errors'] > self.app.error_suppression_limit
         if limited:
             self.app.logger.debug(
-                'Node error limited %s:%s (%s)' % (
-                    node['ip'], node['port'], node['device']))
+                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
         return limited
 
     def error_limit(self, node):
@@ -176,13 +346,17 @@ class Controller(object):
                   if it does not exist
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
-        path = '/%s' % account
-        cache_key = 'account%s' % path
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
-        if self.app.memcache and self.app.memcache.get(cache_key) == 200:
-            return partition, nodes
+        if self.app.memcache:
+            cache_key = get_account_memcache_key(account)
+            result_code = self.app.memcache.get(cache_key)
+            if result_code == 200:
+                return partition, nodes
+            elif result_code == 404:
+                return None, None
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
+        path = '/%s' % account
         headers = {'x-cf-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
             if self.error_limited(node):
@@ -210,19 +384,19 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to get account info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_account_existence
-        else:
-            cache_timeout = self.app.recheck_account_existence * 0.1
-        if self.app.memcache:
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to get account info for %s') % path)
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_account_existence
+            else:
+                cache_timeout = self.app.recheck_account_existence * 0.1
             self.app.memcache.set(cache_key, result_code,
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes
-        return (None, None)
+        return None, None
 
     def container_info(self, account, container):
         """
@@ -239,7 +413,6 @@ class Controller(object):
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
         path = '/%s/%s' % (account, container)
-        cache_key = None
         if self.app.memcache:
             cache_key = get_container_memcache_key(account, container)
             cache_value = self.app.memcache.get(cache_key)
@@ -249,8 +422,10 @@ class Controller(object):
                 write_acl = cache_value['write_acl']
                 if status == 200:
                     return partition, nodes, read_acl, write_acl
+                elif status == 404:
+                    return None, None, None, None
         if not self.account_info(account)[1]:
-            return (None, None, None, None)
+            return None, None, None, None
         result_code = 0
         read_acl = None
         write_acl = None
@@ -287,14 +462,14 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except:
-                self.exception_occurred(node, 'Container',
-                    'Trying to get container info for %s' % path)
-        if result_code == 200:
-            cache_timeout = self.app.recheck_container_existence
-        else:
-            cache_timeout = self.app.recheck_container_existence * 0.1
-        if cache_key and self.app.memcache:
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to get container info for %s') % path)
+        if self.app.memcache and result_code in (200, 404):
+            if result_code == 200:
+                cache_timeout = self.app.recheck_container_existence
+            else:
+                cache_timeout = self.app.recheck_container_existence * 0.1
             self.app.memcache.set(cache_key,
                                   {'status': result_code,
                                    'read_acl': read_acl,
@@ -303,7 +478,7 @@ class Controller(object):
                                   timeout=cache_timeout)
         if result_code == 200:
             return partition, nodes, read_acl, write_acl
-        return (None, None, None, None)
+        return None, None, None, None
 
     def iter_nodes(self, partition, nodes, ring):
         """
@@ -374,8 +549,8 @@ class Controller(object):
                     if etag:
                         resp.headers['etag'] = etag.strip('"')
                     return resp
-        self.app.logger.error('%s returning 503 for %s, transaction %s' %
-                              (server_type, statuses, self.trans_id))
+        self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
+                              {'type': server_type, 'statuses': statuses})
         resp.status = '503 Internal Server Error'
         return resp
 
@@ -418,9 +593,10 @@ class Controller(object):
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
                     source = conn.getresponse()
-            except:
+            except (Exception, TimeoutError):
                 self.exception_occurred(node, server_type,
-                    'Trying to %s %s' % (req.method, req.path))
+                    _('Trying to %(method)s %(path)s') %
+                    {'method': req.method, 'path': req.path})
                 continue
             if source.status == 507:
                 self.error_limit(node)
@@ -448,12 +624,10 @@ class Controller(object):
                             res.bytes_transferred += len(chunk)
                     except GeneratorExit:
                         res.client_disconnect = True
-                        self.app.logger.info(
-                            'Client disconnected on read transaction %s' %
-                            self.trans_id)
-                    except:
-                        self.exception_occurred(node, 'Object',
-                            'Trying to read during GET of %s' % req.path)
+                        self.app.logger.warn(_('Client disconnected on read'))
+                    except (Exception, TimeoutError):
+                        self.exception_occurred(node, _('Object'),
+                            _('Trying to read during GET of %s') % req.path)
                         raise
                 res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
@@ -476,8 +650,9 @@ class Controller(object):
             reasons.append(source.reason)
             bodies.append(source.read())
             if source.status >= 500:
-                self.error_occurred(node, 'ERROR %d %s From %s Server' %
-                    (source.status, bodies[-1][:1024], server_type))
+                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
+                    'From %(type)s Server') % {'status': source.status,
+                    'body': bodies[-1][:1024], 'type': server_type})
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
 
@@ -514,12 +689,13 @@ class ObjectController(Controller):
                     self.error_limit(node)
                 elif response.status >= 500:
                     self.error_occurred(node,
-                        'ERROR %d %s From Object Server' %
-                        (response.status, body[:1024]))
+                        _('ERROR %(status)d %(body)s From Object Server') %
+                        {'status': response.status, 'body': body[:1024]})
                 return response.status, response.reason, body
-        except:
-            self.exception_occurred(node, 'Object',
-                'Trying to %s %s' % (req.method, req.path))
+        except (Exception, TimeoutError):
+            self.exception_occurred(node, _('Object'),
+                _('Trying to %(method)s %(path)s') %
+                {'method': req.method, 'path': req.path})
         return 500, '', ''
 
     def GETorHEAD(self, req):
@@ -532,9 +708,144 @@ class ObjectController(Controller):
                 return aresp
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        return self.GETorHEAD_base(req, 'Object', partition,
+        shuffle(nodes)
+        resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, self.app.object_ring.replica_count)
+        # If we get a 416 Requested Range Not Satisfiable we have to check if
+        # we were actually requesting a manifest object and then redo the range
+        # request on the whole object.
+        if resp.status_int == 416:
+            req_range = req.range
+            req.range = None
+            resp2 = self.GETorHEAD_base(req, _('Object'), partition,
+                    self.iter_nodes(partition, nodes, self.app.object_ring),
+                    req.path_info, self.app.object_ring.replica_count)
+            if 'x-object-manifest' not in resp2.headers:
+                return resp
+            resp = resp2
+            req.range = req_range
+
+        if 'x-object-manifest' in resp.headers:
+            lcontainer, lprefix = \
+                resp.headers['x-object-manifest'].split('/', 1)
+            lpartition, lnodes = self.app.container_ring.get_nodes(
+                self.account_name, lcontainer)
+            marker = ''
+            listing = []
+            while True:
+                lreq = Request.blank('/%s/%s?prefix=%s&format=json&marker=%s' %
+                    (quote(self.account_name), quote(lcontainer),
+                     quote(lprefix), quote(marker)))
+                lresp = self.GETorHEAD_base(lreq, _('Container'), lpartition,
+                    lnodes, lreq.path_info,
+                    self.app.container_ring.replica_count)
+                if lresp.status_int // 100 != 2:
+                    lresp = HTTPNotFound(request=req)
+                    lresp.headers['X-Object-Manifest'] = \
+                        resp.headers['x-object-manifest']
+                    return lresp
+                if 'swift.authorize' in req.environ:
+                    req.acl = lresp.headers.get('x-container-read')
+                    aresp = req.environ['swift.authorize'](req)
+                    if aresp:
+                        return aresp
+                sublisting = json.loads(lresp.body)
+                if not sublisting:
+                    break
+                listing.extend(sublisting)
+                if len(listing) > CONTAINER_LISTING_LIMIT:
+                    break
+                marker = sublisting[-1]['name']
+
+            if len(listing) > CONTAINER_LISTING_LIMIT:
+                # We will serve large objects with a ton of segments with
+                # chunked transfer encoding.
+
+                def listing_iter():
+                    marker = ''
+                    while True:
+                        lreq = Request.blank(
+                            '/%s/%s?prefix=%s&format=json&marker=%s' %
+                            (quote(self.account_name), quote(lcontainer),
+                             quote(lprefix), quote(marker)))
+                        lresp = self.GETorHEAD_base(lreq, _('Container'),
+                            lpartition, lnodes, lreq.path_info,
+                            self.app.container_ring.replica_count)
+                        if lresp.status_int // 100 != 2:
+                            raise Exception(_('Object manifest GET could not '
+                                'continue listing: %s %s') %
+                                (req.path, lreq.path))
+                        if 'swift.authorize' in req.environ:
+                            req.acl = lresp.headers.get('x-container-read')
+                            aresp = req.environ['swift.authorize'](req)
+                            if aresp:
+                                raise Exception(_('Object manifest GET could '
+                                    'not continue listing: %s %s') %
+                                    (req.path, aresp))
+                        sublisting = json.loads(lresp.body)
+                        if not sublisting:
+                            break
+                        for obj in sublisting:
+                            yield obj
+                        marker = sublisting[-1]['name']
+
+                headers = {
+                    'X-Object-Manifest': resp.headers['x-object-manifest'],
+                    'Content-Type': resp.content_type}
+                for key, value in resp.headers.iteritems():
+                    if key.lower().startswith('x-object-meta-'):
+                        headers[key] = value
+                resp = Response(headers=headers, request=req,
+                                conditional_response=True)
+                if req.method == 'HEAD':
+                    # These shenanigans are because webob translates the HEAD
+                    # request into a webob EmptyResponse for the body, which
+                    # has a len, which eventlet translates as needing a
+                    # content-length header added. So we call the original
+                    # webob resp for the headers but return an empty iterator
+                    # for the body.
+
+                    def head_response(environ, start_response):
+                        resp(environ, start_response)
+                        return iter([])
+
+                    head_response.status_int = resp.status_int
+                    return head_response
+                else:
+                    resp.app_iter = SegmentedIterable(self, lcontainer,
+                                                      listing_iter(), resp)
+
+            else:
+                # For objects with a reasonable number of segments, we'll serve
+                # them with a set content-length and computed etag.
+                if listing:
+                    content_length = sum(o['bytes'] for o in listing)
+                    last_modified = max(o['last_modified'] for o in listing)
+                    last_modified = datetime(*map(int, re.split('[^\d]',
+                        last_modified)[:-1]))
+                    etag = md5(
+                        '"'.join(o['hash'] for o in listing)).hexdigest()
+                else:
+                    content_length = 0
+                    last_modified = resp.last_modified
+                    etag = md5().hexdigest()
+                headers = {
+                    'X-Object-Manifest': resp.headers['x-object-manifest'],
+                    'Content-Type': resp.content_type,
+                    'Content-Length': content_length,
+                    'ETag': etag}
+                for key, value in resp.headers.iteritems():
+                    if key.lower().startswith('x-object-meta-'):
+                        headers[key] = value
+                resp = Response(headers=headers, request=req,
+                                conditional_response=True)
+                resp.app_iter = SegmentedIterable(self, lcontainer, listing,
+                                                  resp)
+                resp.content_length = content_length
+                resp.last_modified = last_modified
+
+        return resp
 
     @public
     @delay_denial
@@ -555,7 +866,7 @@ class ObjectController(Controller):
         error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -591,13 +902,13 @@ class ObjectController(Controller):
             reasons.append('')
             bodies.append('')
         return self.best_response(req, statuses, reasons,
-                bodies, 'Object POST')
+                bodies, _('Object POST'))
 
     @public
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -610,17 +921,15 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        # this is a temporary hook for migrations to set PUT timestamps
-        if '!Migration-Timestamp!' in req.headers:
-            req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['!Migration-Timestamp!'])
         # Sometimes the 'content-type' header exists, but is set to None.
+        content_type_manually_set = True
         if not req.headers.get('content-type'):
-            guessed_type, _ = mimetypes.guess_type(req.path_info)
+            guessed_type, _junk = mimetypes.guess_type(req.path_info)
             if not guessed_type:
                 req.headers['Content-Type'] = 'application/octet-stream'
             else:
                 req.headers['Content-Type'] = guessed_type
+            content_type_manually_set = False
         error_response = check_object_creation(req, self.object_name)
         if error_response:
             return error_response
@@ -652,13 +961,22 @@ class ObjectController(Controller):
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
-            data_source = source_resp.app_iter
             new_req = Request.blank(req.path_info,
                         environ=req.environ, headers=req.headers)
+            data_source = source_resp.app_iter
             new_req.content_length = source_resp.content_length
+            if new_req.content_length is None:
+                # This indicates a transfer-encoding: chunked source object,
+                # which currently only happens because there are more than
+                # CONTAINER_LISTING_LIMIT segments in a segmented object. In
+                # this case, we're going to refuse to do the server-side copy.
+                return HTTPRequestEntityTooLarge(request=req)
             new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
+            if not content_type_manually_set:
+                new_req.headers['Content-Type'] = \
+                    source_resp.headers['Content-Type']
             for k, v in source_resp.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     new_req.headers[k] = v
@@ -682,9 +1000,9 @@ class ObjectController(Controller):
                         conn.node = node
                     with Timeout(self.app.node_timeout):
                         resp = conn.getexpect()
-                except:
-                    self.exception_occurred(node, 'Object',
-                        'Expect: 100-continue on %s' % req.path)
+                except (Exception, TimeoutError):
+                    self.exception_occurred(node, _('Object'),
+                        _('Expect: 100-continue on %s') % req.path)
             if conn and resp:
                 if resp.status == 100:
                     conns.append(conn)
@@ -696,9 +1014,9 @@ class ObjectController(Controller):
             containers.insert(0, container)
         if len(conns) <= len(nodes) / 2:
             self.app.logger.error(
-                'Object PUT returning 503, %s/%s required connections, '
-                'transaction %s' %
-                (len(conns), len(nodes) / 2 + 1, self.trans_id))
+                _('Object PUT returning 503, %(conns)s/%(nodes)s '
+                'required connections'),
+                {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
             return HTTPServiceUnavailable(request=req)
         try:
             req.bytes_transferred = 0
@@ -722,33 +1040,32 @@ class ObjectController(Controller):
                                 conn.send('%x\r\n%s\r\n' % (len_chunk, chunk))
                             else:
                                 conn.send(chunk)
-                    except:
-                        self.exception_occurred(conn.node, 'Object',
-                            'Trying to write to %s' % req.path)
+                    except (Exception, TimeoutError):
+                        self.exception_occurred(conn.node, _('Object'),
+                            _('Trying to write to %s') % req.path)
                         conns.remove(conn)
                         if len(conns) <= len(nodes) / 2:
                             self.app.logger.error(
-                                'Object PUT exceptions during send, %s/%s '
-                                'required connections, transaction %s' %
-                                (len(conns), len(nodes) // 2 + 1,
-                                 self.trans_id))
+                                _('Object PUT exceptions during send, '
+                                  '%(conns)s/%(nodes)s required connections'),
+                                {'conns': len(conns),
+                                 'nodes': len(nodes) // 2 + 1})
                             return HTTPServiceUnavailable(request=req)
                 if req.headers.get('transfer-encoding') and chunk == '':
                     break
         except ChunkReadTimeout, err:
-            self.app.logger.info(
-                'ERROR Client read timeout (%ss)' % err.seconds)
+            self.app.logger.warn(
+                _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
-        except:
+        except Exception:
             req.client_disconnect = True
             self.app.logger.exception(
-                'ERROR Exception causing client disconnect')
+                _('ERROR Exception causing client disconnect'))
             return Response(status='499 Client Disconnect')
         if req.content_length and req.bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.info(
-                'Client disconnected without sending enough data %s' %
-                self.trans_id)
+            self.app.logger.warn(
+                _('Client disconnected without sending enough data'))
             return Response(status='499 Client Disconnect')
         statuses = []
         reasons = []
@@ -763,24 +1080,25 @@ class ObjectController(Controller):
                     bodies.append(response.read())
                     if response.status >= 500:
                         self.error_occurred(conn.node,
-                            'ERROR %d %s From Object Server re: %s' %
-                            (response.status, bodies[-1][:1024], req.path))
+                            _('ERROR %(status)d %(body)s From Object Server ' \
+                            're: %(path)s') % {'status': response.status,
+                            'body': bodies[-1][:1024], 'path': req.path})
                     elif 200 <= response.status < 300:
                         etags.add(response.getheader('etag').strip('"'))
-            except:
-                self.exception_occurred(conn.node, 'Object',
-                    'Trying to get final status of PUT to %s' % req.path)
+            except (Exception, TimeoutError):
+                self.exception_occurred(conn.node, _('Object'),
+                    _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
             self.app.logger.error(
-                'Object servers returned %s mismatched etags' % len(etags))
+                _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = len(etags) and etags.pop() or None
         while len(statuses) < len(nodes):
             statuses.append(503)
             reasons.append('')
             bodies.append('')
-        resp = self.best_response(req, statuses, reasons, bodies, 'Object PUT',
-                                  etag=etag)
+        resp = self.best_response(req, statuses, reasons, bodies,
+                    _('Object PUT'), etag=etag)
         if source_header:
             resp.headers['X-Copied-From'] = quote(
                                                 source_header.split('/', 2)[2])
@@ -796,7 +1114,7 @@ class ObjectController(Controller):
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        container_partition, containers, _, req.acl = \
+        container_partition, containers, _junk, req.acl = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -832,7 +1150,7 @@ class ObjectController(Controller):
             reasons.append('')
             bodies.append('')
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Object DELETE')
+                                  _('Object DELETE'))
 
     @public
     @delay_denial
@@ -846,24 +1164,22 @@ class ObjectController(Controller):
         if not dest.startswith('/'):
             dest = '/' + dest
         try:
-            _, dest_container, dest_object = dest.split('/', 2)
+            _junk, dest_container, dest_object = dest.split('/', 2)
         except ValueError:
             return HTTPPreconditionFailed(request=req,
                     body='Destination header must be of the form '
                          '<container name>/<object name>')
-        new_source = '/' + self.container_name + '/' + self.object_name
+        source = '/' + self.container_name + '/' + self.object_name
         self.container_name = dest_container
         self.object_name = dest_object
-        new_headers = {}
-        for k, v in req.headers.items():
-            new_headers[k] = v
-        new_headers['X-Copy-From'] = new_source
-        new_headers['Content-Length'] = 0
-        del new_headers['Destination']
-        new_path = '/' + self.account_name + dest
-        new_req = Request.blank(new_path, environ=req.environ,
-                                headers=new_headers)
-        return self.PUT(new_req)
+        # re-write the existing request as a PUT instead of creating a new one
+        # since this one is already attached to the posthooklogger
+        req.method = 'PUT'
+        req.path_info = '/' + self.account_name + dest
+        req.headers['Content-Length'] = 0
+        req.headers['X-Copy-From'] = source
+        del req.headers['Destination']
+        return self.PUT(req)
 
 
 class ContainerController(Controller):
@@ -895,7 +1211,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
                         self.account_name, self.container_name)
-        resp = self.GETorHEAD_base(req, 'Container', part, nodes,
+        resp = self.GETorHEAD_base(req, _('Container'), part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
         if self.app.memcache:
@@ -980,10 +1296,10 @@ class ContainerController(Controller):
                         if source.status == 507:
                             self.error_limit(node)
                         accounts.insert(0, account)
-            except:
+            except (Exception, TimeoutError):
                 accounts.insert(0, account)
-                self.exception_occurred(node, 'Container',
-                    'Trying to PUT to %s' % req.path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to PUT to %s') % req.path)
             if not accounts:
                 break
         while len(statuses) < len(containers):
@@ -995,7 +1311,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Container PUT')
+                                  _('Container PUT'))
 
     @public
     def POST(self, req):
@@ -1036,9 +1352,9 @@ class ContainerController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
-                self.exception_occurred(node, 'Container',
-                    'Trying to POST %s' % req.path)
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to POST %s') % req.path)
             if len(statuses) >= len(containers):
                 break
         while len(statuses) < len(containers):
@@ -1050,7 +1366,7 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Container POST')
+                                  _('Container POST'))
 
     @public
     def DELETE(self, req):
@@ -1092,10 +1408,10 @@ class ContainerController(Controller):
                         if source.status == 507:
                             self.error_limit(node)
                         accounts.insert(0, account)
-            except:
+            except (Exception, TimeoutError):
                 accounts.insert(0, account)
-                self.exception_occurred(node, 'Container',
-                    'Trying to DELETE %s' % req.path)
+                self.exception_occurred(node, _('Container'),
+                    _('Trying to DELETE %s') % req.path)
             if not accounts:
                 break
         while len(statuses) < len(containers):
@@ -1107,16 +1423,15 @@ class ContainerController(Controller):
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
         resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Container DELETE')
+                                  _('Container DELETE'))
         if 200 <= resp.status_int <= 299:
             for status in statuses:
                 if status < 200 or status > 299:
                     # If even one node doesn't do the delete, we can't be sure
                     # what the outcome will be once everything is in sync; so
                     # we 503.
-                    self.app.logger.error('Returning 503 because not all '
-                        'container nodes confirmed DELETE, transaction %s' %
-                        self.trans_id)
+                    self.app.logger.error(_('Returning 503 because not all '
+                        'container nodes confirmed DELETE'))
                     return HTTPServiceUnavailable(request=req)
         if resp.status_int == 202:  # Indicates no server had the container
             return HTTPNotFound(request=req)
@@ -1133,7 +1448,7 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
-        return self.GETorHEAD_base(req, 'Account', partition, nodes,
+        return self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
 
     @public
@@ -1178,9 +1493,9 @@ class AccountController(Controller):
                     else:
                         if source.status == 507:
                             self.error_limit(node)
-            except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to PUT to %s' % req.path)
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to PUT to %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):
@@ -1190,7 +1505,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account PUT')
+                                  _('Account PUT'))
 
     @public
     def POST(self, req):
@@ -1226,9 +1541,9 @@ class AccountController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to POST %s' % req.path)
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to POST %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):
@@ -1238,7 +1553,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account POST')
+                                  _('Account POST'))
 
     @public
     def DELETE(self, req):
@@ -1271,9 +1586,9 @@ class AccountController(Controller):
                         bodies.append(body)
                     elif source.status == 507:
                         self.error_limit(node)
-            except:
-                self.exception_occurred(node, 'Account',
-                    'Trying to DELETE %s' % req.path)
+            except (Exception, TimeoutError):
+                self.exception_occurred(node, _('Account'),
+                    _('Trying to DELETE %s') % req.path)
             if len(statuses) >= len(accounts):
                 break
         while len(statuses) < len(accounts):
@@ -1283,7 +1598,7 @@ class AccountController(Controller):
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.best_response(req, statuses, reasons, bodies,
-                                  'Account DELETE')
+                                  _('Account DELETE'))
 
 
 class BaseApplication(object):
@@ -1291,12 +1606,20 @@ class BaseApplication(object):
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
-        if logger is None:
-            self.logger = get_logger(conf)
-        else:
-            self.logger = logger
         if conf is None:
             conf = {}
+        if logger is None:
+            self.logger = get_logger(conf, log_route='proxy-server')
+            access_log_conf = {}
+            for key in ('log_facility', 'log_name', 'log_level'):
+                value = conf.get('access_' + key, conf.get(key, None))
+                if value:
+                    access_log_conf[key] = value
+            self.access_logger = get_logger(access_log_conf,
+                                            log_route='proxy-access')
+        else:
+            self.logger = self.access_logger = logger
+
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
@@ -1323,7 +1646,7 @@ class BaseApplication(object):
         self.account_ring = account_ring or \
             Ring(os.path.join(swift_dir, 'account.ring.gz'))
         self.memcache = memcache
-        mimetypes.init(mimetypes.knownfiles + 
+        mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
 
     def get_controller(self, path):
@@ -1372,7 +1695,7 @@ class BaseApplication(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except:
+        except Exception:
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
             start_response('500 Server Error',
@@ -1385,7 +1708,8 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
+        if 'x-cf-trans-id' not in req.headers:
+            req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
@@ -1410,6 +1734,7 @@ class BaseApplication(object):
 
             controller = controller(self, **path_parts)
             controller.trans_id = req.headers.get('x-cf-trans-id', '-')
+            self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
@@ -1437,7 +1762,7 @@ class BaseApplication(object):
                         return resp
             return handler(req)
         except Exception:
-            self.logger.exception('ERROR Unhandled exception in request')
+            self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)
 
 
@@ -1473,7 +1798,7 @@ class Application(BaseApplication):
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
             status_int = 499
-        self.logger.info(' '.join(quote(str(x)) for x in (
+        self.access_logger.info(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',
                 time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),

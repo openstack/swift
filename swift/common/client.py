@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,22 +18,30 @@ Cloud Files client library used internally
 """
 import socket
 from cStringIO import StringIO
-from httplib import HTTPException, HTTPSConnection
+from httplib import HTTPException
 from re import compile, DOTALL
 from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote, unquote
 from urlparse import urlparse, urlunparse
 
 try:
+    from eventlet.green.httplib import HTTPSConnection
+except ImportError:
+    from httplib import HTTPSConnection
+
+try:
     from eventlet import sleep
-except:
+except ImportError:
     from time import sleep
 
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
-except:
-    from httplib import HTTPConnection
+except ImportError:
+    try:
+        from eventlet.green.httplib import HTTPConnection
+    except ImportError:
+        from httplib import HTTPConnection
 
 
 def quote(value, safe='/'):
@@ -68,7 +76,7 @@ except ImportError:
                 res = []
                 consts = {'true': True, 'false': False, 'null': None}
                 string = '(' + comments.sub('', string) + ')'
-                for type, val, _, _, _ in \
+                for type, val, _junk, _junk, _junk in \
                         generate_tokens(StringIO(string).readline):
                     if (type == OP and val not in '[]{}:,()-') or \
                             (type == NAME and val not in consts):
@@ -79,7 +87,7 @@ except ImportError:
                     else:
                         res.append(val)
                 return eval(''.join(res), {}, consts)
-            except:
+            except Exception:
                 raise AttributeError()
 
 
@@ -214,7 +222,7 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
             listing = \
                 get_account(url, token, marker, limit, prefix, http_conn)[1]
             if listing:
-                rv.extend(listing)
+                rv[1].extend(listing)
         return rv
     parsed, conn = http_conn
     qs = 'format=json'
@@ -569,7 +577,8 @@ def put_object(url, token, container, name, contents, content_length=None,
     :param container: container name that the object is in
     :param name: object name to put
     :param contents: a string or a file like object to read object data from
-    :param content_length: value to send as content-length header
+    :param content_length: value to send as content-length header; also limits
+                           the amount read from contents
     :param etag: etag of contents
     :param chunk_size: chunk size of data to write
     :param content_type: value to send as content-type header
@@ -599,18 +608,24 @@ def put_object(url, token, container, name, contents, content_length=None,
         conn.putrequest('PUT', path)
         for header, value in headers.iteritems():
             conn.putheader(header, value)
-        if not content_length:
+        if content_length is None:
             conn.putheader('Transfer-Encoding', 'chunked')
-        conn.endheaders()
-        chunk = contents.read(chunk_size)
-        while chunk:
-            if not content_length:
-                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
-            else:
-                conn.send(chunk)
+            conn.endheaders()
             chunk = contents.read(chunk_size)
-        if not content_length:
+            while chunk:
+                conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+                chunk = contents.read(chunk_size)
             conn.send('0\r\n\r\n')
+        else:
+            conn.endheaders()
+            left = content_length
+            while left > 0:
+                size = chunk_size
+                if size > left:
+                    size = left
+                chunk = contents.read(size)
+                conn.send(chunk)
+                left -= len(chunk)
     else:
         conn.request('PUT', path, contents, headers)
     resp = conn.getresponse()
@@ -681,7 +696,7 @@ class Connection(object):
     """Convenience class to make requests that will also retry the request"""
 
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
-                 preauthtoken=None, snet=False):
+                 preauthtoken=None, snet=False, starting_backoff=1):
         """
         :param authurl: authenitcation URL
         :param user: user name to authenticate as
@@ -701,6 +716,7 @@ class Connection(object):
         self.token = preauthtoken
         self.attempts = 0
         self.snet = snet
+        self.starting_backoff = starting_backoff
 
     def get_auth(self):
         return get_auth(self.authurl, self.user, self.key, snet=self.snet)
@@ -708,9 +724,9 @@ class Connection(object):
     def http_connection(self):
         return http_connection(self.url)
 
-    def _retry(self, func, *args, **kwargs):
+    def _retry(self, reset_func, func, *args, **kwargs):
         self.attempts = 0
-        backoff = 1
+        backoff = self.starting_backoff
         while self.attempts <= self.retries:
             self.attempts += 1
             try:
@@ -739,10 +755,12 @@ class Connection(object):
                     raise
             sleep(backoff)
             backoff *= 2
+            if reset_func:
+                reset_func(func, *args, **kwargs)
 
     def head_account(self):
         """Wrapper for :func:`head_account`"""
-        return self._retry(head_account)
+        return self._retry(None, head_account)
 
     def get_account(self, marker=None, limit=None, prefix=None,
                     full_listing=False):
@@ -750,16 +768,16 @@ class Connection(object):
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
-        return self._retry(get_account, marker=marker, limit=limit,
+        return self._retry(None, get_account, marker=marker, limit=limit,
                            prefix=prefix, full_listing=full_listing)
 
     def post_account(self, headers):
         """Wrapper for :func:`post_account`"""
-        return self._retry(post_account, headers)
+        return self._retry(None, post_account, headers)
 
     def head_container(self, container):
         """Wrapper for :func:`head_container`"""
-        return self._retry(head_container, container)
+        return self._retry(None, head_container, container)
 
     def get_container(self, container, marker=None, limit=None, prefix=None,
                       delimiter=None, full_listing=False):
@@ -767,43 +785,55 @@ class Connection(object):
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
-        return self._retry(get_container, container, marker=marker,
+        return self._retry(None, get_container, container, marker=marker,
                            limit=limit, prefix=prefix, delimiter=delimiter,
                            full_listing=full_listing)
 
     def put_container(self, container, headers=None):
         """Wrapper for :func:`put_container`"""
-        return self._retry(put_container, container, headers=headers)
+        return self._retry(None, put_container, container, headers=headers)
 
     def post_container(self, container, headers):
         """Wrapper for :func:`post_container`"""
-        return self._retry(post_container, container, headers)
+        return self._retry(None, post_container, container, headers)
 
     def delete_container(self, container):
         """Wrapper for :func:`delete_container`"""
-        return self._retry(delete_container, container)
+        return self._retry(None, delete_container, container)
 
     def head_object(self, container, obj):
         """Wrapper for :func:`head_object`"""
-        return self._retry(head_object, container, obj)
+        return self._retry(None, head_object, container, obj)
 
     def get_object(self, container, obj, resp_chunk_size=None):
         """Wrapper for :func:`get_object`"""
-        return self._retry(get_object, container, obj,
+        return self._retry(None, get_object, container, obj,
                            resp_chunk_size=resp_chunk_size)
 
     def put_object(self, container, obj, contents, content_length=None,
                    etag=None, chunk_size=65536, content_type=None,
                    headers=None):
         """Wrapper for :func:`put_object`"""
-        return self._retry(put_object, container, obj, contents,
+
+        def _default_reset(*args, **kwargs):
+            raise ClientException('put_object(%r, %r, ...) failure and no '
+                'ability to reset contents for reupload.' % (container, obj))
+
+        reset_func = _default_reset
+        tell = getattr(contents, 'tell', None)
+        seek = getattr(contents, 'seek', None)
+        if tell and seek:
+            orig_pos = tell()
+            reset_func = lambda *a, **k: seek(orig_pos)
+
+        return self._retry(reset_func, put_object, container, obj, contents,
             content_length=content_length, etag=etag, chunk_size=chunk_size,
             content_type=content_type, headers=headers)
 
     def post_object(self, container, obj, headers):
         """Wrapper for :func:`post_object`"""
-        return self._retry(post_object, container, obj, headers)
+        return self._retry(None, post_object, container, obj, headers)
 
     def delete_object(self, container, obj):
         """Wrapper for :func:`delete_object`"""
-        return self._retry(delete_object, container, obj)
+        return self._retry(None, delete_object, container, obj)
