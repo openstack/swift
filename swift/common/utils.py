@@ -80,7 +80,6 @@ def validate_configuration():
         print "Error: [swift-hash]: swift_hash_path_suffix missing from " \
                 "/etc/swift/swift.conf"
         sys.exit(1)
-        
 
 
 def load_libc_function(func_name):
@@ -474,7 +473,10 @@ def capture_stdio(logger, **kwargs):
     stdio_fds = [0, 1, 2]
     for _junk, handler in getattr(get_logger,
                                   'console_handler4logger', {}).items():
-        stdio_fds.remove(handler.stream.fileno())
+        try:
+            stdio_fds.remove(handler.stream.fileno())
+        except ValueError:
+            pass  # fd not in list
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)
@@ -840,6 +842,7 @@ def remove_file(path):
         os.unlink(path)
     except OSError:
         pass
+
 
 def audit_location_generator(devices, datadir, mount_check=True, logger=None):
     '''
