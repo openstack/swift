@@ -43,6 +43,7 @@ KILL_WAIT = 15  # seconds to wait for servers to die
 MAX_DESCRIPTORS = 32768
 MAX_MEMORY = (1024 * 1024 * 1024) * 2  # 2 GB
 
+
 def setup_env():
     """Try to increase resource limits of the OS. Move PYTHON_EGG_CACHE to /tmp
     """
@@ -58,6 +59,7 @@ def setup_env():
     os.environ['PYTHON_EGG_CACHE'] = '/tmp'
     return
 
+
 def command(func):
     """
     Decorator to declare which methods are accessible as commands, commands
@@ -72,6 +74,44 @@ def command(func):
         rv = func(*a, **kw)
         return 1 if rv else 0
     return wrapped
+
+
+def watch_server_pids(server_pids, interval=1, **kwargs):
+    """Monitor a collection of server pids yeilding back those pids that
+    aren't responding to signals.
+
+    :param server_pids: a dict, lists of pids [int,...] keyed on
+                        Server objects
+    """
+    status = {}
+    start = time.time()
+    end = start + interval
+    server_pids = dict(server_pids)  # make a copy
+    while interval:
+        for server, pids in server_pids.items():
+            for pid in pids:
+                try:
+                    # let pid stop if it wants to
+                    os.waitpid(pid, os.WNOHANG)
+                except OSError, e:
+                    if e.errno not in (errno.ECHILD, errno.ESRCH):
+                        raise  # else no such child/process
+            # check running pids for server
+            status[server] = server.get_running_pids(**kwargs)
+            for pid in pids:
+                # original pids no longer in running pids!
+                if pid not in status[server]:
+                    yield server, pid
+            # update active pids list using running_pids
+            server_pids[server] = status[server]
+        if not [p for server, pids in status.items() for p in pids]:
+            # no more running pids
+            break
+        if time.time() > end:
+            break
+        else:
+            time.sleep(0.1)
+    return
 
 
 class UnknownCommandError(Exception):
@@ -104,42 +144,6 @@ class Manager():
         self.servers = set()
         for name in server_names:
             self.servers.add(Server(name))
-
-    def watch_server_pids(self, server_pids, interval=0, **kwargs):
-        """Monitor a collection of server pids yeilding back those pids that
-        aren't responding to signals.
-
-        :param server_pids: a dict, lists of pids [int,...] keyed on
-                            Server objects
-        """
-        status = {}
-        start = time.time()
-        end = start + interval
-        while interval:
-            for server, pids in server_pids.items():
-                for pid in pids:
-                    try:
-                        # let pid stop if it wants to
-                        os.waitpid(pid, os.WNOHANG)
-                    except OSError, e:
-                        if e.errno not in (errno.ECHILD, errno.ESRCH):
-                            raise  # else no such child/process
-                # check running pids for server
-                status[server] = server.get_running_pids(**kwargs)
-                for pid in pids:
-                    # original pids no longer in running pids!
-                    if pid not in status[server]:
-                        yield server, pid
-                # update active pids list using running_pids
-                server_pids[server] = status[server]
-            if not [p for server, pids in status.items() for p in pids]:
-                # no more running pids
-                break
-            if time.time() > end:
-                break
-            else:
-                time.sleep(0.1)
-        return
 
     @command
     def status(self, **kwargs):
@@ -206,11 +210,11 @@ class Manager():
                 server_pids[server] = signaled_pids
 
         # all signaled_pids, i.e. list(itertools.chain(*server_pids.values()))
-        signaled_pids = [p for server, pid in server_pids.items() for p in pid]
+        signaled_pids = [p for server, pids in server_pids.items() for p in pids]
         # keep track of the pids yeiled back as killed for all servers
         killed_pids = set()
-        for server, killed_pid in self.watch_server_pids(server_pids,
-                                                 interval=KILL_WAIT, **kwargs):
+        for server, killed_pid in watch_server_pids(server_pids,
+                                                interval=KILL_WAIT, **kwargs):
             print "%s (%s) appears to have stopped" % (server, killed_pid)
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
@@ -230,7 +234,7 @@ class Manager():
         """
         kwargs['graceful'] = True
         status = 0
-        self.stop(**kwargs)
+        status += self.stop(**kwargs)
         return status
 
     @command
@@ -238,8 +242,8 @@ class Manager():
         """stops then restarts server
         """
         status = 0
-        self.stop(**kwargs)
-        self.start(**kwargs)
+        status += self.stop(**kwargs)
+        status += self.start(**kwargs)
         return status
 
     @command
