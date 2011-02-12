@@ -121,6 +121,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
 
     # redirect errors to logger and close stdio
     capture_stdio(logger)
+
     # bind to address and port
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
     # remaining tasks should not require elevated privileges

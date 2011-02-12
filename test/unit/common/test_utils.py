@@ -16,6 +16,7 @@
 """ Tests for swift.common.utils """
 
 from __future__ import with_statement
+from test.unit import temptree
 import logging
 import mimetools
 import os
@@ -658,6 +659,87 @@ log_name = yarr'''
             time.sleep(i)
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
+
+
+    def test_search_tree(self):
+        # file match & ext miss
+        with temptree(['asdf.conf', 'blarg.conf', 'asdf.cfg']) as t:
+            asdf = utils.search_tree(t, 'a*', '.conf')
+            self.assertEquals(len(asdf), 1)
+            self.assertEquals(asdf[0],
+                              os.path.join(t, 'asdf.conf'))
+
+        # multi-file match & glob miss & sort
+        with temptree(['application.bin', 'apple.bin', 'apropos.bin']) as t:
+            app_bins = utils.search_tree(t, 'app*', 'bin')
+            self.assertEquals(len(app_bins), 2)
+            self.assertEquals(app_bins[0],
+                              os.path.join(t, 'apple.bin'))
+            self.assertEquals(app_bins[1],
+                              os.path.join(t, 'application.bin'))
+
+        # test file in folder & ext miss & glob miss
+        files = (
+            'sub/file1.ini',
+            'sub/file2.conf',
+            'sub.bin',
+            'bus.ini',
+            'bus/file3.ini',
+        )
+        with temptree(files) as t:
+            sub_ini = utils.search_tree(t, 'sub*', '.ini')
+            self.assertEquals(len(sub_ini), 1)
+            self.assertEquals(sub_ini[0],
+                              os.path.join(t, 'sub/file1.ini'))
+
+        # test multi-file in folder & sub-folder & ext miss & glob miss
+        files = (
+            'folder_file.txt',
+            'folder/1.txt',
+            'folder/sub/2.txt',
+            'folder2/3.txt',
+            'Folder3/4.txt'
+            'folder.rc',
+        )
+        with temptree(files) as t:
+            folder_texts = utils.search_tree(t, 'folder*', '.txt')
+            self.assertEquals(len(folder_texts), 4)
+            f1 = os.path.join(t, 'folder_file.txt')
+            f2 = os.path.join(t, 'folder/1.txt')
+            f3 = os.path.join(t, 'folder/sub/2.txt')
+            f4 = os.path.join(t, 'folder2/3.txt')
+            for f in [f1, f2, f3, f4]:
+                self.assert_(f in folder_texts)
+
+    def test_write_file(self):
+        with temptree([]) as t:
+            file_name = os.path.join(t, 'test')
+            utils.write_file(file_name, 'test')
+            with open(file_name, 'r') as f:
+                contents = f.read()
+            self.assertEquals(contents, 'test')
+            # and also subdirs
+            file_name = os.path.join(t, 'subdir/test2')
+            utils.write_file(file_name, 'test2')
+            with open(file_name, 'r') as f:
+                contents = f.read()
+            self.assertEquals(contents, 'test2')
+            # but can't over-write files
+            file_name = os.path.join(t, 'subdir/test2/test3')
+            self.assertRaises(IOError, utils.write_file, file_name,
+                              'test3')
+
+    def test_remove_file(self):
+        with temptree([]) as t:
+            file_name = os.path.join(t, 'blah.pid')
+            # assert no raise
+            self.assertEquals(os.path.exists(file_name), False)
+            self.assertEquals(utils.remove_file(file_name), None)
+            with open(file_name, 'w') as f:
+                f.write('1')
+            self.assert_(os.path.exists(file_name))
+            self.assertEquals(utils.remove_file(file_name), None)
+            self.assertFalse(os.path.exists(file_name))
 
 
 if __name__ == '__main__':
