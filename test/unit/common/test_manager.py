@@ -326,7 +326,7 @@ class TestServer(unittest.TestCase):
         self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
 
     def test_conf_files(self):
-        # test get single ini file
+        # test get single conf file
         conf_files = (
             'proxy-server.conf',
             'proxy-server.ini',
@@ -653,7 +653,7 @@ class TestServer(unittest.TestCase):
             self.assertEquals(manager.os.pid_sigs[1], [signal.SIGHUP])
             # start up other servers
             manager.os = MockOs([11, 12])
-            # test multi server kill & ignore graceful on unsupport server
+            # test multi server kill & ignore graceful on unsupported server
             self.assertFalse('object-replicator' in
                              manager.GRACEFUL_SHUTDOWN_SERVERS)
             server = manager.Server('object-replicator')
@@ -993,6 +993,7 @@ class TestServer(unittest.TestCase):
         # stubs
         conf_files = (
             'proxy-server.conf',
+            'auth-server.conf',
             'object-server/1.conf',
             'object-server/2.conf',
             'object-server/3.conf',
@@ -1020,7 +1021,11 @@ class TestServer(unittest.TestCase):
             def __call__(self, conf_file, **kwargs):
                 self.conf_files.append(conf_file)
                 self.kwargs.append(kwargs)
-                return self.pids.next()
+                rv = self.pids.next()
+                if isinstance(rv, Exception):
+                    raise rv
+                else:
+                    return rv
 
         with temptree(conf_files) as swift_dir:
             manager.SWIFT_DIR = swift_dir
@@ -1099,6 +1104,13 @@ class TestServer(unittest.TestCase):
                             'number': 4
                         }
                         self.assertEquals(mock_spawn.kwargs, [expected])
+                        # test cmd does not exist
+                        server = manager.Server('auth')
+                        mock_spawn = MockSpawn([OSError(errno.ENOENT, 'blah')])
+                        server.spawn = mock_spawn
+                        self.assertEquals(server.launch(), {})
+                        self.assert_('swift-auth-server does not exist' in
+                                     pop_stream(f))
                 finally:
                     sys.stdout = old_stdout
 
@@ -1455,7 +1467,6 @@ class TestManager(unittest.TestCase):
             def __call__(self, server):
                 return MockServerFactory.MockServer(self.server_pids[server])
 
-
         def mock_watch_server_pids(server_pids, **kwargs):
             for server, pids in server_pids.items():
                 for pid in pids:
@@ -1498,19 +1509,112 @@ class TestManager(unittest.TestCase):
 
     # TODO: more tests
     def test_shutdown(self):
-        pass
+        m = manager.Manager(['test'])
+        m.stop_was_called = False
+
+        def mock_stop(*args, **kwargs):
+            m.stop_was_called = True
+            expected = {'graceful': True}
+            self.assertEquals(kwargs, expected)
+            return 0
+        m.stop = mock_stop
+        status = m.shutdown()
+        self.assertEquals(status, 0)
+        self.assertEquals(m.stop_was_called, True)
 
     def test_restart(self):
-        pass
+        m = manager.Manager(['test'])
+        m.stop_was_called = False
+
+        def mock_stop(*args, **kwargs):
+            m.stop_was_called = True
+            return 0
+        m.start_was_called = False
+
+        def mock_start(*args, **kwargs):
+            m.start_was_called = True
+            return 0
+        m.stop = mock_stop
+        m.start = mock_start
+        status = m.restart()
+        self.assertEquals(status, 0)
+        self.assertEquals(m.stop_was_called, True)
+        self.assertEquals(m.start_was_called, True)
 
     def test_reload(self):
-        pass
+        class MockManager():
+            called = defaultdict(list)
+
+            def __init__(self, servers):
+                pass
+
+            @classmethod
+            def reset_called(cls):
+                cls.called = defaultdict(list)
+
+            def stop(self, **kwargs):
+                MockManager.called['stop'].append(kwargs)
+                return 0
+
+            def start(self, **kwargs):
+                MockManager.called['start'].append(kwargs)
+                return 0
+
+        _orig_manager = manager.Manager
+        try:
+            m = _orig_manager(['auth'])
+            for server in m.servers:
+                self.assert_(server.server in
+                             manager.GRACEFUL_SHUTDOWN_SERVERS)
+            manager.Manager = MockManager
+            status = m.reload()
+            self.assertEquals(status, 0)
+            expected = {
+                'start': [{'graceful': True}],
+                'stop': [{'graceful': True}],
+            }
+            self.assertEquals(MockManager.called, expected)
+            # test force graceful
+            MockManager.reset_called()
+            m = _orig_manager(['*-server'])
+            self.assert_(len(m.servers), 4)
+            for server in m.servers:
+                self.assert_(server.server in
+                             manager.GRACEFUL_SHUTDOWN_SERVERS)
+            manager.Manager = MockManager
+            status = m.reload(graceful=False)
+            self.assertEquals(status, 0)
+            expected = {
+                'start': [{'graceful': True}] * 4,
+                'stop': [{'graceful': True}] * 4,
+            }
+            self.assertEquals(MockManager.called, expected)
+
+        finally:
+            manager.Manager = _orig_manager
 
     def test_force_reload(self):
-        pass
+        m = manager.Manager(['test'])
+        m.reload_was_called = False
+
+        def mock_reload(*args, **kwargs):
+            m.reload_was_called = True
+            return 0
+        m.reload = mock_reload
+        status = m.force_reload()
+        self.assertEquals(status, 0)
+        self.assertEquals(m.reload_was_called, True)
 
     def test_get_command(self):
-        pass
+        m = manager.Manager(['test'])
+        self.assertEquals(m.start, m.get_command('start'))
+        self.assertEquals(m.force_reload, m.get_command('force-reload'))
+        self.assertEquals(m.get_command('force-reload'),
+                          m.get_command('force_reload'))
+        self.assertRaises(manager.UnknownCommandError, m.get_command,
+                          'no_command')
+        self.assertRaises(manager.UnknownCommandError, m.get_command,
+                          '__init__')
 
     def test_list_commands(self):
         for cmd, help in manager.Manager.list_commands():
@@ -1520,8 +1624,20 @@ class TestManager(unittest.TestCase):
             self.assertEquals(method.__doc__.strip(), help)
 
     def test_run_command(self):
-        pass
+        m = manager.Manager(['test'])
+        m.cmd_was_called = False
 
+        def mock_cmd(*args, **kwargs):
+            m.cmd_was_called = True
+            expected = {'kw1': True, 'kw2': False}
+            self.assertEquals(kwargs, expected)
+            return 0
+        mock_cmd.publicly_accessible = True
+        m.mock_cmd = mock_cmd
+        kwargs = {'kw1': True, 'kw2': False}
+        status = m.run_command('mock_cmd', **kwargs)
+        self.assertEquals(status, 0)
+        self.assertEquals(m.cmd_was_called, True)
 
 if __name__ == '__main__':
     unittest.main()

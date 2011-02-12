@@ -28,6 +28,7 @@ import re
 SWIFT_DIR = '/etc/swift'
 RUN_DIR = '/var/run/swift'
 
+# auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
     'container-replicator', 'container-server', 'container-updater',
     'object-auditor', 'object-server', 'object-replicator', 'object-updater',
@@ -35,7 +36,7 @@ ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
 MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
                 'object-server']
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
-GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS
+GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
 START_ONCE_SERVERS = REST_SERVERS
 
 KILL_WAIT = 15  # seconds to wait for servers to die
@@ -210,7 +211,8 @@ class Manager():
                 server_pids[server] = signaled_pids
 
         # all signaled_pids, i.e. list(itertools.chain(*server_pids.values()))
-        signaled_pids = [p for server, pids in server_pids.items() for p in pids]
+        signaled_pids = [p for server, pids in server_pids.items()
+                         for p in pids]
         # keep track of the pids yeiled back as killed for all servers
         killed_pids = set()
         for server, killed_pid in watch_server_pids(server_pids,
@@ -253,9 +255,9 @@ class Manager():
         kwargs['graceful'] = True
         status = 0
         for server in self.servers:
-            init = Manager([server.server])
-            status += init.stop(**kwargs)
-            status += init.start(**kwargs)
+            m = Manager([server.server])
+            status += m.stop(**kwargs)
+            status += m.start(**kwargs)
         return status
 
     @command
@@ -398,8 +400,8 @@ class Server():
         number = kwargs.get('number', 0)
         if number:
             conf_files = self.conf_files(**kwargs)
-            # limt pid_files the one who translates to the indexed conf_file for
-            # this given number
+            # limt pid_files the one who translates to the indexed
+            # conf_file for this given number
             pid_files = [pid_file for pid_file in pid_files if
                          self.get_conf_file_name(pid_file) in conf_files]
         return pid_files

@@ -19,7 +19,7 @@ from optparse import OptionParser
 
 from swift.common.manager import Server, Manager, UnknownCommandError
 
-USAGE = """%prog <server> [<server ...] <command>
+USAGE = """%prog <server> [<server> ...] <command>
 
 Commands:
 """ + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
@@ -63,7 +63,7 @@ def main():
     except UnknownCommandError:
         parser.print_help()
         print 'ERROR: unknown command, %s' % command
-        return 1
+        status = 1
 
     return 1 if status else 0
 
