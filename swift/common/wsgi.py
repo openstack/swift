@@ -119,9 +119,10 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         logger = get_logger(conf, log_name,
             log_to_console=kwargs.pop('verbose', False), log_route='wsgi')
 
+    # TODO: should we wait to close stdio until after we've created the socket
+    # and initialized the app?
     # redirect errors to logger and close stdio
     capture_stdio(logger)
-
     # bind to address and port
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
     # remaining tasks should not require elevated privileges

@@ -21,9 +21,10 @@ import resource
 import signal
 import sys
 import time
-from swift.common.utils import search_tree, remove_file, write_file
 import subprocess
 import re
+
+from swift.common.utils import search_tree, remove_file, write_file
 
 SWIFT_DIR = '/etc/swift'
 RUN_DIR = '/var/run/swift'
@@ -58,7 +59,6 @@ def setup_env():
                 "  Running as non-root?"
 
     os.environ['PYTHON_EGG_CACHE'] = '/tmp'
-    return
 
 
 def command(func):
@@ -88,7 +88,7 @@ def watch_server_pids(server_pids, interval=1, **kwargs):
     start = time.time()
     end = start + interval
     server_pids = dict(server_pids)  # make a copy
-    while interval:
+    while True:
         for server, pids in server_pids.items():
             for pid in pids:
                 try:
@@ -112,7 +112,6 @@ def watch_server_pids(server_pids, interval=1, **kwargs):
             break
         else:
             time.sleep(0.1)
-    return
 
 
 class UnknownCommandError(Exception):
@@ -227,7 +226,8 @@ class Manager():
         for server, pids in server_pids.items():
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
-                print 'Waited 15 seconds for %s to die; giving up' % (server)
+                print 'Waited %s seconds for %s to die; giving up' % (
+                    KILL_WAIT, server)
         return 1
 
     @command
@@ -314,7 +314,7 @@ class Server():
         if '-' not in server:
             server = '%s-server' % server
         self.server = server.lower()
-        self.type = '-'.join(server.split('-')[:-1])
+        self.type = server.rsplit('-', 1)[0]
         self.cmd = 'swift-%s' % server
         self.procs = []
 
@@ -360,11 +360,11 @@ class Server():
                     '.pid', 1)[0] + '.conf'
 
     def conf_files(self, **kwargs):
-        """Get ini files for this server
+        """Get conf files for this server
 
         :param: number, if supplied will only lookup the nth server
 
-        :returns: list of ini files
+        :returns: list of conf files
         """
         found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
                                       '.conf')
@@ -397,11 +397,9 @@ class Server():
         :returns: list of pid files
         """
         pid_files = search_tree(RUN_DIR, '%s*' % self.server, '.pid')
-        number = kwargs.get('number', 0)
-        if number:
+        if kwargs.get('number', 0):
             conf_files = self.conf_files(**kwargs)
-            # limt pid_files the one who translates to the indexed
-            # conf_file for this given number
+            # filter pid_files to match the index of numbered conf_file
             pid_files = [pid_file for pid_file in pid_files if
                          self.get_conf_file_name(pid_file) in conf_files]
         return pid_files
@@ -429,7 +427,7 @@ class Server():
                 os.kill(pid, sig)
             except OSError, e:
                 #print '%s sig err: %s' % (pid, e)
-                if e.errno == 3:
+                if e.errno == errno.ESRCH:
                     # pid does not exist
                     if kwargs.get('verbose'):
                         print "Removing stale pid file %s" % pid_file
@@ -533,6 +531,7 @@ class Server():
             output = proc.stdout.read()
             if output:
                 print output
+                proc.communicate()
             if proc.returncode:
                 status += 1
         return status
@@ -551,7 +550,7 @@ class Server():
 
     def launch(self, **kwargs):
         """
-        Collect ini files and attempt to spawn the processes for this server
+        Collect conf files and attempt to spawn the processes for this server
         """
         conf_files = self.conf_files(**kwargs)
         if not conf_files:
@@ -581,8 +580,6 @@ class Server():
         if self.server not in START_ONCE_SERVERS:
             kwargs['once'] = False
 
-        # TODO: check if self.cmd exists?
-
         pids = {}
         for conf_file in conf_files:
             if kwargs.get('once'):
@@ -594,7 +591,7 @@ class Server():
                 pid = self.spawn(conf_file, **kwargs)
             except OSError, e:
                 if e.errno == errno.ENOENT:
-                    # cmd does not exist
+                    # TODO: should I check if self.cmd exists earlier?
                     print "%s does not exist" % self.cmd
                     break
             pids[pid] = conf_file

@@ -204,7 +204,7 @@ class TestManagerModule(unittest.TestCase):
             # basic test, server dies
             gen = manager.watch_server_pids(server_pids)
             expected = [(server, 1)]
-            self.assertEquals([x for x in gen], [(server, 1)])
+            self.assertEquals([x for x in gen], expected)
             # start long running server and short interval
             server = MockServer([1], zombie=15)
             server_pids = {
@@ -886,7 +886,10 @@ class TestServer(unittest.TestCase):
                 self.finished = False
                 self.returncode = None
                 if fail_to_start:
+                    self._returncode = 1
                     self.run = self.fail
+                else:
+                    self._returncode = 0
 
             def __enter__(self):
                 self.start()
@@ -908,8 +911,10 @@ class TestServer(unittest.TestCase):
                 print >>self._stdout, 'mock process started'
                 sleep(self.delay)  # perform setup processing
                 print >>self._stdout, 'mock process failed to start'
-                self.returncode = 1
                 self.close_stdout()
+
+            def communicate(self):
+                self.returncode = self._returncode
 
             def run(self):
                 print >>self._stdout, 'mock process started'

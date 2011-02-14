@@ -77,9 +77,8 @@ TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
 
 def validate_configuration():
     if HASH_PATH_SUFFIX == '':
-        print "Error: [swift-hash]: swift_hash_path_suffix missing from " \
-                "/etc/swift/swift.conf"
-        sys.exit(1)
+        sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
+                 "from /etc/swift/swift.conf")
 
 
 def load_libc_function(func_name):
@@ -822,13 +821,14 @@ def write_file(path, contents):
     :param contents: data to write to file, will be converted to string
 
     """
-    dir, name = os.path.split(path)
-    if not os.path.exists(dir):
+    dirname, name = os.path.split(path)
+    if not os.path.exists(dirname):
         try:
-            os.makedirs(dir)
+            os.makedirs(dirname)
         except OSError, err:
             if err.errno == errno.EACCES:
-                sys.exit('Unable to create %s.  Running as non-root?' % dir)
+                sys.exit('Unable to create %s.  Running as '
+                         'non-root?' % dirname)
     with open(path, 'w') as f:
         f.write('%s' % contents)
 
