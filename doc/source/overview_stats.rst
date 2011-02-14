@@ -89,45 +89,25 @@ Running the stats system on SAIO
 #. Create a swift account to use for storing stats information, and note the
    account hash. The hash will be used in config files.
 
-#. Install syslog-ng::
+#. Edit /etc/rsyslog.d/10-swift.conf::
 
-        sudo apt-get install syslog-ng
+    # Uncomment the following to have a log containing all logs together
+    #local1,local2,local3,local4,local5.*   /var/log/swift/all.log
 
-#. Add the following to the end of `/etc/syslog-ng/syslog-ng.conf`::
+    $template HourlyProxyLog,"/var/log/swift/hourly/%$YEAR%%$MONTH%%$DAY%%$HOUR%"
+    local1.*;local1.!notice ?HourlyProxyLog
 
-		# Added for swift logging
-		destination df_local1 { file("/var/log/swift/proxy.log" owner(<username>) group(<groupname>)); };
-		destination df_local1_err { file("/var/log/swift/proxy.error" owner(<username>) group(<groupname>)); };
-		destination df_local1_hourly { file("/var/log/swift/hourly/$YEAR$MONTH$DAY$HOUR" owner(<username>) group(<groupname>)); };
-		filter f_local1 { facility(local1) and level(info); };
+    local1.*;local1.!notice /var/log/swift/proxy.log
+    local1.notice           /var/log/swift/proxy.error
+    local1.*                ~
 
-		filter f_local1_err { facility(local1) and not level(info); };
+#. Edit /var/log/rsyslog.conf and make the following change::
+      
+    $PrivDropToGroup adm
 
-		# local1.info                        -/var/log/swift/proxy.log
-		# write to local file and to remove log server
-		log {
-		        source(s_all);
-		        filter(f_local1);
-		        destination(df_local1);
-		        destination(df_local1_hourly);
-		};
-
-		# local1.error                        -/var/log/swift/proxy.error
-		# write to local file and to remove log server
-		log {
-		        source(s_all);
-		        filter(f_local1_err);
-		        destination(df_local1_err);
-		};
-
-#. Restart syslog-ng
-
-#. Create the log directories::
-
-		mkdir /var/log/swift/hourly
-		mkdir /var/log/swift/stats
-		chown -R <username>:<groupname> /var/log/swift
-
+#. `mkdir -p /var/log/swift/hourly`
+#. `chown -R syslog.adm /var/log/swift`
+#. `restart rsyslog`
 #. Create `/etc/swift/log-processor.conf`::
 
 		[log-processor]

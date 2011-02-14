@@ -191,6 +191,10 @@ Optional: Setting up rsyslog for individual logging
       # Uncomment the following to have a log containing all logs together
       #local1,local2,local3,local4,local5.*   /var/log/swift/all.log
 
+      # Uncomment the following to have hourly proxy logs for stats processing
+      #$template HourlyProxyLog,"/var/log/swift/hourly/%$YEAR%%$MONTH%%$DAY%%$HOUR%"
+      #local1.*;local1.!notice ?HourlyProxyLog
+
       local1.*;local1.!notice /var/log/swift/proxy.log
       local1.notice           /var/log/swift/proxy.error
       local1.*                ~
@@ -211,7 +215,12 @@ Optional: Setting up rsyslog for individual logging
       local5.notice           /var/log/swift/storage4.error
       local5.*                ~
 
-  #. `mkdir /var/log/swift`
+  #. Edit /var/log/rsyslog.conf and make the following change::
+      
+      $PrivDropToGroup adm
+
+  #. `mkdir -p /var/log/swift/hourly`
+  #. `chown -R syslog.adm /var/log/swift`
   #. `restart rsyslog`
 
 ------------------------------------------------
