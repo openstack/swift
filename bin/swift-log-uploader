@@ -15,13 +15,14 @@
 # limitations under the License.
 
 import sys
-
+from optparse import OptionParser
 from swift.stats.log_uploader import LogUploader
 from swift.common.utils import parse_options
 from swift.common import utils
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(usage="Usage: %prog CONFIG_FILE PLUGIN")
+    parser = OptionParser("Usage: %prog CONFIG_FILE PLUGIN")
+    conf_file, options = parse_options(parser=parser)
     try:
         plugin = options['extra_args'][0]
     except (IndexError, KeyError):
