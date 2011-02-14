@@ -24,7 +24,7 @@ if __name__ == '__main__':
     conf_file, options = parse_options(usage="Usage: %prog CONFIG_FILE PLUGIN")
     try:
         plugin = options['extra_args'][0]
-    except IndexError:
+    except (IndexError, KeyError):
         print "Error: missing plugin name"
         sys.exit(1)
 

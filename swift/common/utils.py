@@ -488,11 +488,11 @@ def capture_stdio(logger, **kwargs):
         sys.stderr = LoggerFileObject(logger)
 
 
-def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
+def parse_options(parser=None, once=False, test_args=None):
     """
     Parse standard swift server/daemon options with optparse.OptionParser.
 
-    :param usage: String describing usage
+    :param parser: OptionParser to use. If not sent one will be created.
     :param once: Boolean indicating the "once" option is available
     :param test_args: Override sys.argv; used in testing
 
@@ -501,7 +501,8 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
 
     :raises SystemExit: First arg (CONFIG) is required, file must exist
     """
-    parser = OptionParser(usage)
+    if not parser:
+        parser = OptionParser(usage="%prog CONFIG [options]")
     parser.add_option("-v", "--verbose", default=False, action="store_true",
                       help="log to console")
     if once:
@@ -530,7 +531,8 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
             extra_args.append(arg)
 
     options = vars(options)
-    options['extra_args'] = extra_args
+    if extra_args:
+        options['extra_args'] = extra_args
     return config, options
 
 

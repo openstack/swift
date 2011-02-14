@@ -41,22 +41,19 @@ class Daemon(object):
         utils.validate_configuration()
         utils.capture_stdio(self.logger, **kwargs)
         utils.drop_privileges(self.conf.get('user', 'swift'))
-
         def kill_children(*args):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             os.killpg(0, signal.SIGTERM)
             sys.exit()
 
         signal.signal(signal.SIGTERM, kill_children)
-
         if once:
-            self.run_once()
+            self.run_once(**kwargs)
         else:
-            self.run_forever()
+            self.run_forever(**kwargs)
 
 
-def run_daemon(klass, conf_file, section_name='',
-               once=False, **kwargs):
+def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     """
     Loads settings from conf, then instantiates daemon "klass" and runs the
     daemon with the specified once kwarg.  The section_name will be derived

@@ -21,23 +21,34 @@ from random import random
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
 from swift.common.utils import get_logger, renamer, audit_location_generator, \
-    ratelimit_sleep
+    ratelimit_sleep, TRUE_VALUES
 from swift.common.exceptions import AuditException
 from swift.common.daemon import Daemon
 
 
-class ObjectAuditor(Daemon):
-    """Audit objects."""
-
-    def __init__(self, conf):
+class AuditorWorker(object):
+    """Walk through file system to audit object"""
+    def __init__(self, conf, zero_byte_file_worker=False, zero_byte_fps=None):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+            TRUE_VALUES
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
+        self.auditor_type = 'ALL'
+        self.fasttrack_zero_byte_files = conf.get(
+                'fasttrack_zero_byte_files', 'False').lower() in TRUE_VALUES
+        self.zero_byte_file_worker = zero_byte_file_worker
+        if self.zero_byte_file_worker:
+            self.fasttrack_zero_byte_files = True
+            if zero_byte_fps:
+                self.max_files_per_second = float(zero_byte_fps)
+            else:
+                self.max_files_per_second = float(
+                    conf.get('zero_byte_files_per_second', 50))
+            self.auditor_type = 'ZBF'
         self.log_time = int(conf.get('log_time', 3600))
         self.files_running_time = 0
         self.bytes_running_time = 0
@@ -48,18 +59,13 @@ class ObjectAuditor(Daemon):
         self.quarantines = 0
         self.errors = 0
 
-    def run_forever(self):
-        """Run the object audit until stopped."""
-        while True:
-            self.run_once('forever')
-            self.total_bytes_processed = 0
-            self.total_files_processed = 0
-            time.sleep(30)
-
-    def run_once(self, mode='once'):
-        """Run the object audit once."""
-        self.logger.info(_('Begin object audit "%s" mode' % mode))
+    def audit_all_objects(self, mode='once'):
+        self.logger.info(_('Begin object audit "%s" mode (%s)' %
+                           (mode, self.auditor_type)))
         begin = reported = time.time()
+        self.total_bytes_processed = 0
+        self.total_files_processed = 0
+        files_running_time = 0
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
                                             mount_check=self.mount_check,
@@ -71,9 +77,11 @@ class ObjectAuditor(Daemon):
             self.total_files_processed += 1
             if time.time() - reported >= self.log_time:
                 self.logger.info(_(
-                    'Since %(start_time)s: Locally: %(passes)d passed audit, '
+                    'Object audit (%(type)s). '
+                    'Since %(start_time)s: Locally: %(passes)d passed, '
                     '%(quars)d quarantined, %(errors)d errors '
                     'files/sec: %(frate).2f , bytes/sec: %(brate).2f') % {
+                            'type': self.auditor_type,
                             'start_time': time.ctime(reported),
                             'passes': self.passes,
                             'quars': self.quarantines,
@@ -88,9 +96,11 @@ class ObjectAuditor(Daemon):
                 self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(_(
-                'Object audit "%(mode)s" mode completed: %(elapsed).02fs. '
+                'Object audit (%(type)s) "%(mode)s" mode '
+                'completed: %(elapsed).02fs. '
                 'Total files/sec: %(frate).2f , '
                 'Total bytes/sec: %(brate).2f ') % {
+                    'type': self.auditor_type,
                     'mode': mode,
                     'elapsed': elapsed,
                     'frate': self.total_files_processed / elapsed,
@@ -98,7 +108,7 @@ class ObjectAuditor(Daemon):
 
     def object_audit(self, path, device, partition):
         """
-        Audits the given object path
+        Audits the given object path.
 
         :param path: a path to an object
         :param device: the device the path is on
@@ -119,11 +129,14 @@ class ObjectAuditor(Daemon):
             if df.data_file is None:
                 # file is deleted, we found the tombstone
                 return
-            if os.path.getsize(df.data_file) != \
-                    int(df.metadata['Content-Length']):
+            obj_size = os.path.getsize(df.data_file)
+            if obj_size != int(df.metadata['Content-Length']):
                 raise AuditException('Content-Length of %s does not match '
                     'file size of %s' % (int(df.metadata['Content-Length']),
                                          os.path.getsize(df.data_file)))
+            if self.fasttrack_zero_byte_files and \
+                bool(self.zero_byte_file_worker) == bool(obj_size):
+                return
             etag = md5()
             for chunk in df:
                 self.bytes_running_time = ratelimit_sleep(
@@ -150,3 +163,34 @@ class ObjectAuditor(Daemon):
             self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1
+
+
+class ObjectAuditor(Daemon):
+    """Audit objects."""
+
+    def __init__(self, conf, **options):
+        self.conf = conf
+        self.logger = get_logger(conf, 'object-auditor')
+        self.fasttrack_zero_byte_files = conf.get(
+                'fasttrack_zero_byte_files', 'False').lower() in TRUE_VALUES
+
+    def run_forever(self, zero_byte_only=False, zero_byte_fps=None):
+        """Run the object audit until stopped."""
+        zero_byte_pid = 1
+        if zero_byte_only or self.fasttrack_zero_byte_files:
+            zero_byte_pid = os.fork()
+        if zero_byte_pid == 0:
+            while True:
+                self.run_once(mode='forever', zero_byte_only=True,
+                              zero_byte_fps=zero_byte_fps)
+                time.sleep(30)
+        else:
+            while not zero_byte_only:
+                self.run_once(mode='forever')
+                time.sleep(30)
+
+    def run_once(self, mode='once', zero_byte_only=False, zero_byte_fps=None):
+        """Run the object audit once."""
+        worker = AuditorWorker(self.conf, zero_byte_file_worker=zero_byte_only,
+                               zero_byte_fps=zero_byte_fps)
+        worker.audit_all_objects(mode=mode)

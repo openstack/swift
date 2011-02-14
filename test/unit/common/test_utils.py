@@ -274,26 +274,16 @@ class TestUtils(unittest.TestCase):
         stde = StringIO()
         utils.sys.stdout = stdo
         utils.sys.stderr = stde
-        err_msg = """Usage: test usage
-
-Error: missing config file argument
-"""
-        test_args = []
-        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
-                          test_args)
-        self.assertEquals(stdo.getvalue(), err_msg)
+        self.assertRaises(SystemExit, utils.parse_options, once=True,
+                          test_args=[])
+        self.assert_(stdo.getvalue().find('missing config file') >= 0)
 
         # verify conf file must exist, context manager will delete temp file
         with NamedTemporaryFile() as f:
             conf_file = f.name
-        err_msg += """Usage: test usage
-
-Error: unable to locate %s
-""" % conf_file
-        test_args = [conf_file]
-        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
-                          test_args)
-        self.assertEquals(stdo.getvalue(), err_msg)
+        self.assertRaises(SystemExit, utils.parse_options, once=True,
+                          test_args=[conf_file])
+        self.assert_(stdo.getvalue().find('unable to locate') >= 0)
 
         # reset stdio
         utils.sys.stdout = orig_stdout
