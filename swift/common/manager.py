@@ -55,8 +55,8 @@ def setup_env():
         resource.setrlimit(resource.RLIMIT_DATA,
                 (MAX_MEMORY, MAX_MEMORY))
     except ValueError:
-        print "WARNING: Unable to increase file descriptor limit." \
-                "  Running as non-root?"
+        print _("WARNING: Unable to increase file descriptor limit.  "
+                "Running as non-root?")
 
     os.environ['PYTHON_EGG_CACHE'] = '/tmp'
 
@@ -168,7 +168,7 @@ class Manager():
                 try:
                     status += server.interact(**kwargs)
                 except KeyboardInterrupt:
-                    print '\nuser quit'
+                    print _('\nuser quit')
                     self.stop(**kwargs)
                     break
         elif kwargs.get('wait', False):
@@ -205,7 +205,7 @@ class Manager():
         for server in self.servers:
             signaled_pids = server.stop(**kwargs)
             if not signaled_pids:
-                print 'No %s running' % server
+                print _('No %s running') % server
             else:
                 server_pids[server] = signaled_pids
 
@@ -216,7 +216,7 @@ class Manager():
         killed_pids = set()
         for server, killed_pid in watch_server_pids(server_pids,
                                                 interval=KILL_WAIT, **kwargs):
-            print "%s (%s) appears to have stopped" % (server, killed_pid)
+            print _("%s (%s) appears to have stopped") % (server, killed_pid)
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
                 # all proccesses have been stopped
@@ -226,7 +226,7 @@ class Manager():
         for server, pids in server_pids.items():
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
-                print 'Waited %s seconds for %s to die; giving up' % (
+                print _('Waited %s seconds for %s to die; giving up') % (
                     KILL_WAIT, server)
         return 1
 
@@ -379,13 +379,13 @@ class Server():
         if not conf_files:
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
-                print('Unable to locate config %sfor %s' % (
-                    ('number %s ' % number if number else ''), self.server))
+                print _('Unable to locate config %sfor %s') % (
+                    ('number %s ' % number if number else ''), self.server)
             if kwargs.get('verbose') and not kwargs.get('quiet'):
                 if found_conf_files:
-                    print('Found configs:')
+                    print _('Found configs:')
                 for i, conf_file in enumerate(found_conf_files):
-                    print('  %d) %s' % (i + 1, conf_file))
+                    print '  %d) %s' % (i + 1, conf_file)
 
         return conf_files
 
@@ -422,15 +422,14 @@ class Server():
         for pid_file, pid in self.iter_pid_files(**kwargs):
             try:
                 if sig != signal.SIG_DFL:
-                    print 'Signal %s  pid: %s  signal: %s' % (
-                        self.server, pid, sig)
+                    print _('Signal %s  pid: %s  signal: %s') % (self.server,
+                                                                 pid, sig)
                 os.kill(pid, sig)
             except OSError, e:
-                #print '%s sig err: %s' % (pid, e)
                 if e.errno == errno.ESRCH:
                     # pid does not exist
                     if kwargs.get('verbose'):
-                        print "Removing stale pid file %s" % pid_file
+                        print _("Removing stale pid file %s") % pid_file
                     remove_file(pid_file)
             else:
                 # process exists
@@ -476,14 +475,14 @@ class Server():
                 kwargs['quiet'] = True
                 conf_files = self.conf_files(**kwargs)
                 if conf_files:
-                    print "%s #%d not running (%s)" % (self.server, number,
-                                                       conf_files[0])
+                    print _("%s #%d not running (%s)") % (self.server, number,
+                                                          conf_files[0])
             else:
-                print "No %s running" % self.server
+                print _("No %s running") % self.server
             return 1
         for pid, pid_file in pids.items():
             conf_file = self.get_conf_file_name(pid_file)
-            print "%s running (%s - %s)" % (self.server, pid, conf_file)
+            print _("%s running (%s - %s)") % (self.server, pid, conf_file)
         return 0
 
     def spawn(self, conf_file, once=False, wait=False, daemon=True, **kwargs):
@@ -567,14 +566,13 @@ class Server():
             # any unstarted instances
             if conf_file in conf_files:
                 already_started = True
-                print "%s running (%s - %s)" % (self.server, pid, conf_file)
+                print _("%s running (%s - %s)") % (self.server, pid, conf_file)
             elif not kwargs.get('number', 0):
                 already_started = True
-                print "%s running (%s - %s)" % (self.server, pid, pid_file)
+                print _("%s running (%s - %s)") % (self.server, pid, pid_file)
 
         if already_started:
-            print "%s already started..." % self.server
-            #self.status(pids)
+            print _("%s already started...") % self.server
             return []
 
         if self.server not in START_ONCE_SERVERS:
@@ -583,16 +581,16 @@ class Server():
         pids = {}
         for conf_file in conf_files:
             if kwargs.get('once'):
-                msg = 'Running %s once' % self.server
+                msg = _('Running %s once') % self.server
             else:
-                msg = 'Starting %s' % self.server
+                msg = _('Starting %s') % self.server
             print '%s...(%s)' % (msg, conf_file)
             try:
                 pid = self.spawn(conf_file, **kwargs)
             except OSError, e:
                 if e.errno == errno.ENOENT:
                     # TODO: should I check if self.cmd exists earlier?
-                    print "%s does not exist" % self.cmd
+                    print _("%s does not exist") % self.cmd
                     break
             pids[pid] = conf_file
 
