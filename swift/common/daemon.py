@@ -41,6 +41,7 @@ class Daemon(object):
         utils.validate_configuration()
         utils.capture_stdio(self.logger, **kwargs)
         utils.drop_privileges(self.conf.get('user', 'swift'))
+
         def kill_children(*args):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             os.killpg(0, signal.SIGTERM)

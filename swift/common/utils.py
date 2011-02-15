@@ -369,6 +369,7 @@ class TxnFormatter(logging.Formatter):
     Custom logging.Formatter will append txn_id to a log message if the record
     has one and the message does not.
     """
+
     def format(self, record):
         msg = logging.Formatter.format(self, record)
         if (record.txn_id and record.levelno != logging.INFO and

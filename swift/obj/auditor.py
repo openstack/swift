@@ -28,6 +28,7 @@ from swift.common.daemon import Daemon
 
 class AuditorWorker(object):
     """Walk through file system to audit object"""
+
     def __init__(self, conf, zero_byte_file_worker=False, zero_byte_fps=None):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
