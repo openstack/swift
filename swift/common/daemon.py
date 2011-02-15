@@ -64,7 +64,6 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     :param conf_file: Path to configuration file
     :param section_name: Section name from conf file to load config from
     :param once: Passed to daemon run method
-    :param kwargs: Passed to daemon run method
     """
     # very often the config section_name is based on the class name
     # the None singleton will be passed through to readconf as is
