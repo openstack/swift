@@ -215,13 +215,13 @@ Optional: Setting up rsyslog for individual logging
       local5.notice           /var/log/swift/storage4.error
       local5.*                ~
 
-  #. Edit /var/log/rsyslog.conf and make the following change::
+  #. Edit /etc/rsyslog.conf and make the following change::
       
       $PrivDropToGroup adm
 
   #. `mkdir -p /var/log/swift/hourly`
   #. `chown -R syslog.adm /var/log/swift`
-  #. `restart rsyslog`
+  #. `service rsyslog restart`
 
 ------------------------------------------------
 Getting the code and setting up test environment

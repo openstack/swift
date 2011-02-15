@@ -101,13 +101,13 @@ Running the stats system on SAIO
     local1.notice           /var/log/swift/proxy.error
     local1.*                ~
 
-#. Edit /var/log/rsyslog.conf and make the following change::
+#. Edit /etc/rsyslog.conf and make the following change::
       
     $PrivDropToGroup adm
 
 #. `mkdir -p /var/log/swift/hourly`
 #. `chown -R syslog.adm /var/log/swift`
-#. `restart rsyslog`
+#. `service rsyslog restart`
 #. Create `/etc/swift/log-processor.conf`::
 
 		[log-processor]
