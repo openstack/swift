@@ -174,8 +174,10 @@ class ObjectAuditor(Daemon):
         self.fasttrack_zero_byte_files = conf.get(
                 'fasttrack_zero_byte_files', 'False').lower() in TRUE_VALUES
 
-    def run_forever(self, zero_byte_only=False, zero_byte_fps=None):
+    def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
+        zero_byte_only = kwargs.get('zero_byte_only', False)
+        zero_byte_fps = kwargs.get('zero_byte_fps', None)
         zero_byte_pid = 1
         if zero_byte_only or self.fasttrack_zero_byte_files:
             zero_byte_pid = os.fork()
@@ -189,8 +191,11 @@ class ObjectAuditor(Daemon):
                 self.run_once(mode='forever')
                 time.sleep(30)
 
-    def run_once(self, mode='once', zero_byte_only=False, zero_byte_fps=None):
+    def run_once(self, *args, **kwargs):
         """Run the object audit once."""
+        mode = kwargs.get('mode', 'once')
+        zero_byte_only = kwargs.get('zero_byte_only', False)
+        zero_byte_fps = kwargs.get('zero_byte_fps', None)
         worker = AuditorWorker(self.conf, zero_byte_file_worker=zero_byte_only,
                                zero_byte_fps=zero_byte_fps)
         worker.audit_all_objects(mode=mode)

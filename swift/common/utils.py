@@ -471,7 +471,10 @@ def capture_stdio(logger, **kwargs):
     stdio_fds = [0, 1, 2]
     for _junk, handler in getattr(get_logger,
                                   'console_handler4logger', {}).items():
-        stdio_fds.remove(handler.stream.fileno())
+        try:
+            stdio_fds.remove(handler.stream.fileno())
+        except ValueError:
+            pass # fd not in list
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)

@@ -98,7 +98,7 @@ class ContainerUpdater(Daemon):
         finally:
             os.unlink(filename)
 
-    def run_forever(self):   # pragma: no cover
+    def run_forever(self, *args, **kwargs):
         """
         Run the updator continuously.
         """
@@ -156,7 +156,7 @@ class ContainerUpdater(Daemon):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """
         Run the updater once.
         """

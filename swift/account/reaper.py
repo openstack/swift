@@ -97,7 +97,7 @@ class AccountReaper(Daemon):
             self.object_ring = Ring(self.object_ring_path)
         return self.object_ring
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """
         Main entry point when running the reaper in its normal daemon mode.
         This repeatedly calls :func:`reap_once` no quicker than the
@@ -112,7 +112,7 @@ class AccountReaper(Daemon):
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """
         Main entry point when running the reaper in 'once' mode, where it will
         do a single pass over all accounts on the server. This is called

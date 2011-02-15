@@ -236,7 +236,7 @@ class LogProcessorDaemon(Daemon):
                                              'log_processing_data')
         self.worker_count = int(c.get('worker_count', '1'))
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         self.logger.info(_("Beginning log processing"))
         start = time.time()
         if self.lookback_hours == 0:

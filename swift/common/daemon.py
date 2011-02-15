@@ -28,11 +28,11 @@ class Daemon(object):
         self.conf = conf
         self.logger = utils.get_logger(conf, log_route='daemon')
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Override this to run the script once"""
         raise NotImplementedError('run_once not implemented')
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """Override this to run forever"""
         raise NotImplementedError('run_forever not implemented')
 
@@ -64,6 +64,7 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     :param conf_file: Path to configuration file
     :param section_name: Section name from conf file to load config from
     :param once: Passed to daemon run method
+    :param kwargs: Passed to daemon run method
     """
     # very often the config section_name is based on the class name
     # the None singleton will be passed through to readconf as is
