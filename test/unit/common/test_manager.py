@@ -807,10 +807,8 @@ class TestServer(unittest.TestCase):
                         conf_file,
                     ]
                     self.assertEquals(proc.args, expected_args)
-                    # assert stdout is /dev/null
-                    self.assert_(isinstance(proc.stdout, file))
-                    self.assertEquals(proc.stdout.name, os.devnull)
-                    self.assertEquals(proc.stdout.mode, 'w+b')
+                    # assert stdout is piped
+                    self.assertEquals(proc.stdout, MockProcess.PIPE)
                     self.assertEquals(proc.stderr, proc.stdout)
                     # test multi server process calls spawn multiple times
                     manager.subprocess = MockProcess([11, 12, 13, 14])
@@ -825,11 +823,8 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(len(server.procs), 1)
                     proc = server.procs[0]
                     expected_args = ['swift-test-server', conf1, 'once']
-                    self.assertEquals(proc.args, expected_args)
-                    # assert stdout is /dev/null
-                    self.assert_(isinstance(proc.stdout, file))
-                    self.assertEquals(proc.stdout.name, os.devnull)
-                    self.assertEquals(proc.stdout.mode, 'w+b')
+                    # assert stdout is piped
+                    self.assertEquals(proc.stdout, MockProcess.PIPE)
                     self.assertEquals(proc.stderr, proc.stdout)
                     # test server not daemon
                     server.spawn(conf2, daemon=False)
@@ -842,15 +837,17 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(proc.stdout, None)
                     self.assertEquals(proc.stderr, None)
                     # test server wait
-                    server.spawn(conf3, wait=True)
+                    server.spawn(conf3, wait=False)
                     self.assert_(server.procs)
                     self.assertEquals(len(server.procs), 3)
                     proc = server.procs[2]
-                    # assert stdout is piped
-                    self.assertEquals(proc.stdout, MockProcess.PIPE)
+                    # assert stdout is /dev/null
+                    self.assert_(isinstance(proc.stdout, file))
+                    self.assertEquals(proc.stdout.name, os.devnull)
+                    self.assertEquals(proc.stdout.mode, 'w+b')
                     self.assertEquals(proc.stderr, proc.stdout)
                     # test not daemon over-rides wait
-                    server.spawn(conf4, wait=True, daemon=False, once=True)
+                    server.spawn(conf4, wait=False, daemon=False, once=True)
                     self.assert_(server.procs)
                     self.assertEquals(len(server.procs), 4)
                     proc = server.procs[3]
@@ -1275,10 +1272,7 @@ class TestManager(unittest.TestCase):
 
             def wait(self, **kwargs):
                 self.called['wait'].append(kwargs)
-                if 'error' in self.server:
-                    return 1
-                else:
-                    return 0
+                return int('error' in self.server)
 
             def stop(self, **kwargs):
                 self.called['stop'].append(kwargs)
@@ -1299,20 +1293,19 @@ class TestManager(unittest.TestCase):
             manager.Server = MockServer
 
             # test no errors on launch
-            m = manager.Manager(['proxy', 'error'])
+            m = manager.Manager(['proxy'])
             status = m.start()
             self.assertEquals(status, 0)
             for server in m.servers:
                 self.assertEquals(server.called['launch'], [{}])
 
-            # test error on wait
+            # test error on launch
             m = manager.Manager(['proxy', 'error'])
-            kwargs = {'wait': True}
-            status = m.start(**kwargs)
+            status = m.start()
             self.assertEquals(status, 1)
             for server in m.servers:
-                self.assertEquals(server.called['launch'], [kwargs])
-                self.assertEquals(server.called['wait'], [kwargs])
+                self.assertEquals(server.called['launch'], [{}])
+                self.assertEquals(server.called['wait'], [{}])
 
             # test interact
             m = manager.Manager(['proxy', 'error'])
@@ -1330,7 +1323,7 @@ class TestManager(unittest.TestCase):
             manager.setup_env = old_setup_env
             manager.Server = old_swift_server
 
-    def test_wait(self):
+    def test_no_wait(self):
         class MockServer():
             def __init__(self, server):
                 self.server = server
@@ -1348,47 +1341,35 @@ class TestManager(unittest.TestCase):
             manager.Server = MockServer
             # test success
             init = manager.Manager(['proxy'])
-            status = init.wait()
+            status = init.no_wait()
+            self.assertEquals(status, 0)
+            for server in init.servers:
+                self.assertEquals(len(server.called['launch']), 1)
+                called_kwargs = server.called['launch'][0]
+                self.assertFalse(called_kwargs['wait'])
+                self.assertFalse(server.called['wait'])
+            # test no errocode status even on error
+            init = manager.Manager(['error'])
+            status = init.no_wait()
             self.assertEquals(status, 0)
             for server in init.servers:
                 self.assertEquals(len(server.called['launch']), 1)
                 called_kwargs = server.called['launch'][0]
                 self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
-                self.assertEquals(len(server.called['wait']), 1)
-                called_kwargs = server.called['wait'][0]
-                self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
-            # test error
-            init = manager.Manager(['error'])
-            status = init.wait()
-            self.assertEquals(status, 1)
-            for server in init.servers:
-                self.assertEquals(len(server.called['launch']), 1)
-                called_kwargs = server.called['launch'][0]
-                self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
-                self.assertEquals(len(server.called['wait']), 1)
-                called_kwargs = server.called['wait'][0]
-                self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
+                self.assertFalse(called_kwargs['wait'])
+                self.assertFalse(server.called['wait'])
             # test wait with once option
             init = manager.Manager(['updater', 'replicator-error'])
-            status = init.wait(once=True)
-            self.assertEquals(status, 1)
+            status = init.no_wait(once=True)
+            self.assertEquals(status, 0)
             for server in init.servers:
                 self.assertEquals(len(server.called['launch']), 1)
                 called_kwargs = server.called['launch'][0]
                 self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
+                self.assertFalse(called_kwargs['wait'])
                 self.assert_('once' in called_kwargs)
                 self.assert_(called_kwargs['once'])
-                self.assertEquals(len(server.called['wait']), 1)
-                called_kwargs = server.called['wait'][0]
-                self.assert_('wait' in called_kwargs)
-                self.assert_(called_kwargs['wait'])
-                self.assert_('once' in called_kwargs)
-                self.assert_(called_kwargs['once'])
+                self.assertFalse(server.called['wait'])
         finally:
             manager.Server = orig_swift_server
 
@@ -1434,6 +1415,13 @@ class TestManager(unittest.TestCase):
                 self.server = server
                 self.called = defaultdict(list)
 
+            def wait(self, **kwargs):
+                self.called['wait'].append(kwargs)
+                if 'error' in self.server:
+                    return 1
+                else:
+                    return 0
+
             def launch(self, **kwargs):
                 return self.called['launch'].append(kwargs)
 
@@ -1444,15 +1432,15 @@ class TestManager(unittest.TestCase):
             init = manager.Manager(['account-reaper'])
             status = init.once()
             self.assertEquals(status, 0)
-            # test no error code on error
+            # test error code on error
             init = manager.Manager(['error-reaper'])
             status = init.once()
-            self.assertEquals(status, 0)
+            self.assertEquals(status, 1)
             for server in init.servers:
                 self.assertEquals(len(server.called['launch']), 1)
                 called_kwargs = server.called['launch'][0]
                 self.assertEquals(called_kwargs, {'once': True})
-                self.assertEquals(len(server.called['wait']), 0)
+                self.assertEquals(len(server.called['wait']), 1)
                 self.assertEquals(len(server.called['interact']), 0)
         finally:
             manager.Server = orig_swift_server

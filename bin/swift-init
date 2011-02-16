@@ -29,8 +29,9 @@ def main():
     parser = OptionParser(USAGE)
     parser.add_option('-v', '--verbose', action="store_true",
                       default=False, help="display verbose output")
-    parser.add_option('-w', '--wait', action="store_true", default=False,
-                      help="wait for server to start before returning")
+    parser.add_option('-w', '--no-wait', action="store_false", dest="wait",
+                      default=True, help="won't wait for server to start "
+                      "before returning")
     parser.add_option('-o', '--once', action="store_true",
                       default=False, help="only run one pass of daemon")
     # this is a negative option, default is options.daemon = True

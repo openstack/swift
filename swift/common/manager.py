@@ -171,21 +171,21 @@ class Manager():
                     print _('\nuser quit')
                     self.stop(**kwargs)
                     break
-        elif kwargs.get('wait', False):
+        elif kwargs.get('wait', True):
             for server in self.servers:
                 status += server.wait(**kwargs)
         return status
 
     @command
-    def wait(self, **kwargs):
-        """spawn server and wait for it to start
+    def no_wait(self, **kwargs):
+        """spawn server and return immediately
         """
-        kwargs['wait'] = True
+        kwargs['wait'] = False
         return self.start(**kwargs)
 
     @command
     def no_daemon(self, **kwargs):
-        """start a server interactivly
+        """start a server interactively
         """
         kwargs['daemon'] = False
         return self.start(**kwargs)
@@ -485,7 +485,7 @@ class Server():
             print _("%s running (%s - %s)") % (self.server, pid, conf_file)
         return 0
 
-    def spawn(self, conf_file, once=False, wait=False, daemon=True, **kwargs):
+    def spawn(self, conf_file, once=False, wait=True, daemon=True, **kwargs):
         """Launch a subprocess for this server.
 
         :param conf_file: path to conf_file to use as first arg
@@ -542,7 +542,7 @@ class Server():
         status = 0
         for proc in self.procs:
             # wait for process to terminate
-            proc.communicate()[0]
+            proc.communicate()
             if proc.returncode:
                 status += 1
         return status
