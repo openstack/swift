@@ -34,6 +34,7 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
+import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 
 import eventlet
@@ -471,7 +472,10 @@ def capture_stdio(logger, **kwargs):
     stdio_fds = [0, 1, 2]
     for _junk, handler in getattr(get_logger,
                                   'console_handler4logger', {}).items():
-        stdio_fds.remove(handler.stream.fileno())
+        try:
+            stdio_fds.remove(handler.stream.fileno())
+        except ValueError:
+            pass  # fd not in list
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)
@@ -784,6 +788,60 @@ def write_pickle(obj, dest, tmp):
         fo.flush()
         os.fsync(fd)
         renamer(tmppath, dest)
+
+
+def search_tree(root, glob_match, ext):
+    """Look in root, for any files/dirs matching glob, recurively traversing
+    any found directories looking for files ending with ext
+
+    :param root: start of search path
+    :param glob_match: glob to match in root, matching dirs are traversed with
+                       os.walk
+    :param ext: only files that end in ext will be returned
+
+    :returns: list of full paths to matching files, sorted
+
+    """
+    found_files = []
+    for path in glob.glob(os.path.join(root, glob_match)):
+        if path.endswith(ext):
+            found_files.append(path)
+        else:
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    if file.endswith(ext):
+                        found_files.append(os.path.join(root, file))
+    return sorted(found_files)
+
+
+def write_file(path, contents):
+    """Write contents to file at path
+
+    :param path: any path, subdirs will be created as needed
+    :param contents: data to write to file, will be converted to string
+
+    """
+    dirname, name = os.path.split(path)
+    if not os.path.exists(dirname):
+        try:
+            os.makedirs(dirname)
+        except OSError, err:
+            if err.errno == errno.EACCES:
+                sys.exit('Unable to create %s.  Running as '
+                         'non-root?' % dirname)
+    with open(path, 'w') as f:
+        f.write('%s' % contents)
+
+
+def remove_file(path):
+    """Quiet wrapper for os.unlink, OSErrors are suppressed
+
+    :param path: first and only argument passed to os.unlink
+    """
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 def audit_location_generator(devices, datadir, mount_check=True, logger=None):

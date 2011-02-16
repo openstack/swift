@@ -531,7 +531,6 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init all stop
-        sleep 5
         sudo umount /mnt/sdb1
         sudo mkfs.xfs -f -i size=1024 /dev/sdb1
         sudo mount /mnt/sdb1
@@ -573,12 +572,9 @@ Setting up scripts for running Swift
 
         #!/bin/bash
 
+        swift-init main start
         # The auth-server line is only needed for DevAuth:
         swift-init auth-server start
-        swift-init proxy-server start
-        swift-init account-server start
-        swift-init container-server start
-        swift-init object-server start
 
   #. For Swauth (not needed for DevAuth), create `~/bin/recreateaccounts`::
   
@@ -600,15 +596,7 @@ Setting up scripts for running Swift
         # /etc/swift/auth-server.conf). This swift-auth-recreate-accounts line
         # is only needed for DevAuth:
         swift-auth-recreate-accounts -K devauth
-        swift-init object-updater start
-        swift-init container-updater start
-        swift-init object-replicator start
-        swift-init container-replicator start
-        swift-init account-replicator start
-        swift-init object-auditor start
-        swift-init container-auditor start
-        swift-init account-auditor start
-        swift-init account-reaper start
+        swift-init rest start
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
