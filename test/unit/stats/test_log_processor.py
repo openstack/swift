@@ -339,9 +339,11 @@ use = egg:swift#proxy
             log_processor.LogProcessor.get_object_data = orig_get_object_data
 
     def test_collate_worker_error(self):
+        def get_object_data(*a,**kw):
+            raise log_processor.BadFileDownload()
+        orig_get_object_data = log_processor.LogProcessor.get_object_data
         try:
-            log_processor.LogProcessor._internal_proxy = \
-                                                    DumbInternalProxy(code=500)
+            log_processor.LogProcessor.get_object_data = get_object_data
             proxy_config = self.proxy_config.copy()
             proxy_config.update({
                     'log-processor-access': {
@@ -363,7 +365,7 @@ use = egg:swift#proxy
             self.assertTrue(isinstance(ret, log_processor.BadFileDownload),
                             type(ret))
         finally:
-            log_processor.LogProcessor._internal_proxy = None
+            log_processor.LogProcessor.get_object_data = orig_get_object_data
 
     def test_multiprocess_collate(self):
         try:
@@ -401,9 +403,11 @@ use = egg:swift#proxy
             log_processor.LogProcessor.get_object_data = orig_get_object_data
 
     def test_multiprocess_collate_errors(self):
+        def get_object_data(*a,**kw):
+            raise log_processor.BadFileDownload()
+        orig_get_object_data = log_processor.LogProcessor.get_object_data
         try:
-            log_processor.LogProcessor._internal_proxy = \
-                                                    DumbInternalProxy(code=500)
+            log_processor.LogProcessor.get_object_data = get_object_data
             proxy_config = self.proxy_config.copy()
             proxy_config.update({
                     'log-processor-access': {
