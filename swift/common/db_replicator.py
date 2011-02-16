@@ -92,7 +92,7 @@ class Replicator(Daemon):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='replicator')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
@@ -180,7 +180,9 @@ class Replicator(Daemon):
             return False
         # perform block-level sync if the db was modified during the first sync
         if os.path.exists(broker.db_file + '-journal') or \
-                    os.path.getmtime(broker.db_file) > mtime:
+                os.path.exists(broker.db_file + '-wal') or \
+                os.path.exists(broker.db_file + '-shm') or \
+                os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
                 if not self._rsync_file(broker.db_file, remote_file, False):
@@ -316,7 +318,7 @@ class Replicator(Daemon):
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         try:
-            broker = self.brokerclass(object_file, pending_timeout=30)
+            broker = self.brokerclass(object_file)
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()

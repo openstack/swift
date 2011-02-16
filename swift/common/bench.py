@@ -16,13 +16,12 @@
 import uuid
 import time
 import random
-from urlparse import urlparse
 from contextlib import contextmanager
 
 import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest
 
-from swift.common.utils import TRUE_VALUES
+from swift.common.utils import TRUE_VALUES, urlparse
 from swift.common import client
 from swift.common import direct_client
 

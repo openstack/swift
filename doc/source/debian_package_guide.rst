@@ -107,6 +107,7 @@ Instructions for Deploying Debian Packages for Swift
  
        apt-get install rsync python-openssl python-setuptools python-webob
        python-simplejson python-xattr python-greenlet python-eventlet
+       python-netifaces
 
   #. Install base packages::
 

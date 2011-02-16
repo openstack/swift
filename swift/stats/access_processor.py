@@ -34,7 +34,7 @@ class AccessLogProcessor(object):
                             conf.get('service_ips', '').split(',')\
                             if x.strip()]
         self.warn_percent = float(conf.get('warn_percent', '0.8'))
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='access-processor')
 
     def log_line_parser(self, raw_log):
         '''given a raw access log line, return a dict of the good parts'''

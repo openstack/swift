@@ -34,7 +34,7 @@ if __name__ == '__main__':
     uploader_conf.update(plugin_conf)
 
     # pre-configure logger
-    logger = utils.get_logger(uploader_conf, plugin,
+    logger = utils.get_logger(uploader_conf, log_route='log-uploader',
                               log_to_console=options.get('verbose', False))
     # currently LogUploader only supports run_once
     options['once'] = True

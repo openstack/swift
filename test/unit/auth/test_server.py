@@ -456,7 +456,7 @@ class TestAuthServer(unittest.TestCase):
     def test_basic_logging(self):
         log = StringIO()
         log_handler = StreamHandler(log)
-        logger = get_logger(self.conf, 'auth')
+        logger = get_logger(self.conf, 'auth-server', log_route='auth-server')
         logger.logger.addHandler(log_handler)
         try:
             auth_server.http_connect = fake_http_connect(201)
@@ -534,7 +534,7 @@ class TestAuthServer(unittest.TestCase):
         orig_Request = auth_server.Request
         log = StringIO()
         log_handler = StreamHandler(log)
-        logger = get_logger(self.conf, 'auth')
+        logger = get_logger(self.conf, 'auth-server', log_route='auth-server')
         logger.logger.addHandler(log_handler)
         try:
             auth_server.Request = request_causing_exception

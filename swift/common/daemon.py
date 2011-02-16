@@ -26,7 +26,7 @@ class Daemon(object):
 
     def __init__(self, conf):
         self.conf = conf
-        self.logger = utils.get_logger(conf, 'swift-daemon')
+        self.logger = utils.get_logger(conf, log_route='daemon')
 
     def run_once(self):
         """Override this to run the script once"""
@@ -84,7 +84,7 @@ def run_daemon(klass, conf_file, section_name='',
         logger = kwargs.pop('logger')
     else:
         logger = utils.get_logger(conf, conf.get('log_name', section_name),
-                                  log_to_console=kwargs.pop('verbose', False))
+           log_to_console=kwargs.pop('verbose', False), log_route=section_name)
     try:
         klass(conf).run(once=once, **kwargs)
     except KeyboardInterrupt:
