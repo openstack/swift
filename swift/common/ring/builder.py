@@ -69,6 +69,49 @@ class RingBuilder(object):
         self._remove_devs = []
         self._ring = None
 
+    def copy_from(self, builder):
+        if hasattr(builder, 'devs'):
+            self.part_power = builder.part_power
+            self.replicas = builder.replicas
+            self.min_part_hours = builder.min_part_hours
+            self.parts = builder.parts
+            self.devs = builder.devs
+            self.devs_changed = builder.devs_changed
+            self.version = builder.version
+            self._replica2part2dev = builder._replica2part2dev
+            self._last_part_moves_epoch = builder._last_part_moves_epoch
+            self._last_part_moves = builder._last_part_moves
+            self._last_part_gather_start = builder._last_part_gather_start
+            self._remove_devs = builder._remove_devs
+        else:
+            self.part_power = builder['part_power']
+            self.replicas = builder['replicas']
+            self.min_part_hours = builder['min_part_hours']
+            self.parts = builder['parts']
+            self.devs = builder['devs']
+            self.devs_changed = builder['devs_changed']
+            self.version = builder['version']
+            self._replica2part2dev = builder['_replica2part2dev']
+            self._last_part_moves_epoch = builder['_last_part_moves_epoch']
+            self._last_part_moves = builder['_last_part_moves']
+            self._last_part_gather_start = builder['_last_part_gather_start']
+            self._remove_devs = builder['_remove_devs']
+        self._ring = None
+
+    def to_dict(self):
+        return {'part_power': self.part_power,
+                'replicas': self.replicas,
+                'min_part_hours': self.min_part_hours,
+                'parts': self.parts,
+                'devs': self.devs,
+                'devs_changed': self.devs_changed,
+                'version': self.version,
+                '_replica2part2dev': self._replica2part2dev,
+                '_last_part_moves_epoch': self._last_part_moves_epoch,
+                '_last_part_moves': self._last_part_moves,
+                '_last_part_gather_start': self._last_part_gather_start,
+                '_remove_devs': self._remove_devs}
+
     def change_min_part_hours(self, min_part_hours):
         """
         Changes the value used to decide if a given partition can be moved
