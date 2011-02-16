@@ -69,6 +69,13 @@ class TestRing(unittest.TestCase):
         self.assertEquals(self.ring.devs, self.intended_devs)
         self.assertEquals(self.ring.reload_time, self.intended_reload_time)
         self.assertEquals(self.ring.pickle_gz_path, self.testgz)
+        # test invalid endcap
+        _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
+        try:
+            utils.HASH_PATH_SUFFIX = ''
+            self.assertRaises(SystemExit, ring.Ring, self.testgz)
+        finally:
+            utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
 
     def test_has_changed(self):
         self.assertEquals(self.ring.has_changed(), False)
