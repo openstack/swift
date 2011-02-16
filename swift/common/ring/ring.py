@@ -18,7 +18,7 @@ from gzip import GzipFile
 from os.path import getmtime
 from struct import unpack_from
 from time import time
-from swift.common.utils import hash_path
+from swift.common.utils import hash_path, validate_configuration
 
 
 class RingData(object):
@@ -39,6 +39,8 @@ class Ring(object):
     """
 
     def __init__(self, pickle_gz_path, reload_time=15):
+        # can't use the ring unless HASH_PATH_SUFFIX is set
+        validate_configuration()
         self.pickle_gz_path = pickle_gz_path
         self.reload_time = reload_time
         self._reload(force=True)
