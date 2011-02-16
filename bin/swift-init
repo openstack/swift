@@ -19,7 +19,7 @@ from optparse import OptionParser
 
 from swift.common.manager import Server, Manager, UnknownCommandError
 
-USAGE = """%prog <server> [<server> ...] <command>
+USAGE = """%prog <server> [<server> ...] <command> [options]
 
 Commands:
 """ + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
