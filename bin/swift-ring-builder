@@ -19,7 +19,7 @@ from errno import EEXIST
 from gzip import GzipFile
 from os import mkdir
 from os.path import basename, dirname, exists, join as pathjoin
-from sys import argv, exit
+from sys import argv, exit, modules
 from textwrap import wrap
 from time import time
 
@@ -153,9 +153,9 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         except OSError, err:
             if err.errno != EEXIST:
                 raise
-        pickle.dump(builder, open(pathjoin(backup_dir,
+        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % time() + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def default():
@@ -312,7 +312,7 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
         else:
             print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
                   (zone, ip, port, device_name, meta, weight, next_dev_id)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_weight():
@@ -345,7 +345,7 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
             builder.set_dev_weight(dev['id'], weight)
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'weight set to %(weight)s' % dev
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_info():
@@ -427,7 +427,7 @@ swift-ring-builder <builder_file> set_info <search-value>
             for key, value in change:
                 dev[key] = value
             print 'Device %s is now %s' % (orig_dev_string, format_device(dev))
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def remove():
@@ -463,7 +463,7 @@ swift-ring-builder <builder_file> remove <search-value>
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'marked for removal and will be removed next rebalance.' \
                   % dev
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def rebalance():
@@ -495,13 +495,14 @@ swift-ring-builder <builder_file> rebalance
                   % builder.min_part_hours
             print '-' * 79
         ts = time()
-        pickle.dump(builder.get_ring(),
+        pickle.dump(builder.get_ring().to_dict(),
                     GzipFile(pathjoin(backup_dir, '%d.' % ts +
                         basename(ring_file)), 'wb'), protocol=2)
-        pickle.dump(builder, open(pathjoin(backup_dir,
+        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % ts + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder.get_ring(), GzipFile(ring_file, 'wb'), protocol=2)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.get_ring().to_dict(), GzipFile(ring_file, 'wb'),
+                    protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def validate():
@@ -528,15 +529,15 @@ swift-ring-builder <builder_file> write_ring
                       '"rebalance"?'
             else:
                 print 'Warning: Writing an empty ring'
-        pickle.dump(ring_data,
+        pickle.dump(ring_data.to_dict(),
                     GzipFile(pathjoin(backup_dir, '%d.' % time() +
                         basename(ring_file)), 'wb'), protocol=2)
-        pickle.dump(ring_data, GzipFile(ring_file, 'wb'), protocol=2)
+        pickle.dump(ring_data.to_dict(), GzipFile(ring_file, 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_min_part_hours():
@@ -552,7 +553,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         builder.change_min_part_hours(int(argv[3]))
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is now set to %s' % argv[3]
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
 
@@ -578,7 +579,17 @@ if __name__ == '__main__':
         exit(EXIT_RING_UNCHANGED)
 
     if exists(argv[1]):
-        builder = pickle.load(open(argv[1], 'rb'))
+        try:
+            builder = pickle.load(open(argv[1], 'rb'))
+            if not hasattr(builder, 'devs'):
+                builder_dict = builder
+                builder = RingBuilder(1, 1, 1)
+                builder.copy_from(builder_dict)
+        except ImportError:  # Happens with really old builder pickles
+            modules['swift.ring_builder'] = \
+                modules['swift.common.ring.builder']
+            builder = RingBuilder(1, 1, 1)
+            builder.copy_from(pickle.load(open(argv[1], 'rb')))
         for dev in builder.devs:
             if dev and 'meta' not in dev:
                 dev['meta'] = ''
