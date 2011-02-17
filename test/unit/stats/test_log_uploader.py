@@ -29,6 +29,7 @@ LOGGER = logging.getLogger()
 
 DEFAULT_GLOB = '%Y%m%d%H'
 
+
 class TestLogUploader(unittest.TestCase):
 
     def test_upload_all_logs(self):
@@ -42,13 +43,14 @@ class TestLogUploader(unittest.TestCase):
 
             def __init__(self, conf, logger=LOGGER):
                 self.log_dir = conf['log_dir']
-                self.filename_format = conf.get('filename_format', DEFAULT_GLOB)
+                self.filename_format = conf.get('filename_format',
+                                                DEFAULT_GLOB)
                 self.new_log_cutoff = 0
                 self.logger = logger
                 self.internal_proxy = MockInternalProxy()
                 self.swift_account = ''
                 self.container_name = ''
-                
+
                 self.uploaded_files = []
 
             def upload_one_log(self, filename, year, month, day, hour):
@@ -77,7 +79,8 @@ class TestLogUploader(unittest.TestCase):
                 d = {'year': year, 'month': month, 'day': day, 'hour': i}
                 for k, v in d.items():
                     d[k] = '%0.2d' % v
-                expected = (os.path.join(tmpdir, '%s%0.2d' % (today_str, i)), d)
+                expected = (os.path.join(tmpdir, '%s%0.2d' %
+                                         (today_str, i)), d)
                 self.assertEquals(file_date, expected)
         finally:
             rmtree(tmpdir)
@@ -94,11 +97,15 @@ class TestLogUploader(unittest.TestCase):
             for i in range(24):
                 time_strs.append('%s-%0.2d00' % (today_str, i))
             for ts in time_strs:
-                open(os.path.join(tmpdir, 'swift-blah_98764.%s-2400.tar.gz' % ts), 'w').close()
+                open(os.path.join(tmpdir, 'swift-blah_98764.%s-2400.tar.gz' %
+                                  ts), 'w').close()
 
-            open(os.path.join(tmpdir, 'swift.blah_98764.%s-2400.tar.gz' % ts), 'w').close()
-            open(os.path.join(tmpdir, 'swift-blah_98764.%s-2400.tar.g' % ts), 'w').close()
-            open(os.path.join(tmpdir, 'swift-blah_201102160100.%s-2400.tar.gz' %
+            open(os.path.join(tmpdir, 'swift.blah_98764.%s-2400.tar.gz' % ts),
+                 'w').close()
+            open(os.path.join(tmpdir, 'swift-blah_98764.%s-2400.tar.g' % ts),
+                 'w').close()
+            open(os.path.join(tmpdir,
+                              'swift-blah_201102160100.%s-2400.tar.gz' %
                               '201102160100'), 'w').close()
 
             conf = {
@@ -146,7 +153,7 @@ class TestLogUploader(unittest.TestCase):
                 d = {'year': year, 'month': month, 'day': day, 'hour': i}
                 for k, v in d.items():
                     d[k] = '%0.2d' % v
-                expected = (os.path.join(tmpdir, '%s.%s%0.2d.log' % 
+                expected = (os.path.join(tmpdir, '%s.%s%0.2d.log' %
                                          (i, today_str, i)), d)
                 # TODO: support wildcards before the date pattern
                 # (i.e. relative offsets)
