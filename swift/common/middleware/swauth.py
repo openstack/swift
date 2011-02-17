@@ -268,7 +268,7 @@ class Swauth(object):
         user_groups = (req.remote_user or '').split(',')
         if '.reseller_admin' in user_groups and \
                 account != self.reseller_prefix and \
-                account[len(self.reseller_prefix)].isalnum():
+                account[len(self.reseller_prefix)] != '.':
             return None
         if account in user_groups and \
                 (req.method not in ('DELETE', 'PUT') or container):
@@ -474,7 +474,7 @@ class Swauth(object):
                   explained above.
         """
         account = req.path_info_pop()
-        if req.path_info or not account.isalnum():
+        if req.path_info or not account or account[0] == '.':
             return HTTPBadRequest(request=req)
         if not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
@@ -550,7 +550,7 @@ class Swauth(object):
         if not self.is_reseller_admin(req):
             return HTTPForbidden(request=req)
         account = req.path_info_pop()
-        if req.path_info != '/.services' or not account.isalnum():
+        if req.path_info != '/.services' or not account or account[0] == '.':
             return HTTPBadRequest(request=req)
         try:
             new_services = json.loads(req.body)
@@ -596,7 +596,7 @@ class Swauth(object):
         if not self.is_reseller_admin(req):
             return HTTPForbidden(request=req)
         account = req.path_info_pop()
-        if req.path_info or not account.isalnum():
+        if req.path_info or not account or account[0] == '.':
             return HTTPBadRequest(request=req)
         # Ensure the container in the main auth account exists (this
         # container represents the new account)
@@ -678,7 +678,7 @@ class Swauth(object):
         if not self.is_reseller_admin(req):
             return HTTPForbidden(request=req)
         account = req.path_info_pop()
-        if req.path_info or not account.isalnum():
+        if req.path_info or not account or account[0] == '.':
             return HTTPBadRequest(request=req)
         # Make sure the account has no users and get the account_id
         marker = ''
@@ -798,8 +798,8 @@ class Swauth(object):
         """
         account = req.path_info_pop()
         user = req.path_info_pop()
-        if req.path_info or not account.isalnum() or \
-                (not user.isalnum() and user != '.groups'):
+        if req.path_info or not account or account[0] == '.' or not user or \
+                (user[0] == '.' and user != '.groups'):
             return HTTPBadRequest(request=req)
         if not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
@@ -873,8 +873,8 @@ class Swauth(object):
             req.headers.get('x-auth-user-reseller-admin') == 'true'
         if reseller_admin:
             admin = True
-        if req.path_info or not account.isalnum() or not user.isalnum() or \
-                not key:
+        if req.path_info or not account or account[0] == '.' or not user or \
+                user[0] == '.' or not key:
             return HTTPBadRequest(request=req)
         if reseller_admin:
             if not self.is_super_admin(req):
@@ -922,7 +922,8 @@ class Swauth(object):
         # Validate path info
         account = req.path_info_pop()
         user = req.path_info_pop()
-        if req.path_info or not account.isalnum() or not user.isalnum():
+        if req.path_info or not account or account[0] == '.' or not user or \
+                user[0] == '.':
             return HTTPBadRequest(request=req)
         if not self.is_account_admin(req, account):
             return HTTPForbidden(request=req)
