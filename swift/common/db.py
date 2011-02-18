@@ -1025,7 +1025,7 @@ class ContainerBroker(DatabaseBroker):
                 if self.get_db_version(conn) >= 1:
                     query += ' AND deleted IN (0, 1)'
                 conn.execute(query, (rec['name'], rec['created_at']))
-                query = 'SELECT name FROM object WHERE name = ?'
+                query = 'SELECT 1 FROM object WHERE name = ?'
                 if self.get_db_version(conn) >= 1:
                     query += ' AND deleted IN (0, 1)'
                 if not conn.execute(query, (rec['name'],)).fetchall():
