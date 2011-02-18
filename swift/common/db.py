@@ -679,7 +679,7 @@ class ContainerBroker(DatabaseBroker):
         ''', (self.account, self.container, normalize_timestamp(time.time()),
               str(uuid4()), put_timestamp))
 
-    def _get_db_version(self, conn):
+    def get_db_version(self, conn):
         if self._db_version == -1:
             self._db_version = 0
             for row in conn.execute('''
@@ -920,32 +920,6 @@ class ContainerBroker(DatabaseBroker):
             ''', (put_timestamp, delete_timestamp, object_count, bytes_used))
             conn.commit()
 
-    def get_random_objects(self, max_count=100):
-        """
-        Get random objects from the DB.  This is used by the container_auditor
-        when testing random objects for existence.
-
-        :param max_count: maximum number of objects to get
-
-        :returns: list of object names
-        """
-        rv = []
-        with self.get() as conn:
-            row = conn.execute('''
-                SELECT ROWID FROM object ORDER BY ROWID DESC LIMIT 1
-            ''').fetchone()
-            if not row:
-                return []
-            max_rowid = row['ROWID']
-            for _junk in xrange(min(max_count, max_rowid)):
-                row = conn.execute('''
-                    SELECT name FROM object WHERE ROWID >= ? AND +deleted = 0
-                    LIMIT 1
-                ''', (randint(0, max_rowid),)).fetchone()
-                if row:
-                    rv.append(row['name'])
-        return list(set(rv))
-
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, format=None):
         """
@@ -993,10 +967,11 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self._get_db_version(conn) < 1:
-                    query += ' +deleted = 0 ORDER BY name LIMIT ?'
+                if self.get_db_version(conn) < 1:
+                    query += ' +deleted = 0'
                 else:
-                    query += ' deleted = 0 ORDER BY name LIMIT ?'
+                    query += ' deleted = 0'
+                query += ' ORDER BY name LIMIT ?'
                 query_args.append(limit - len(results))
                 curs = conn.execute(query, query_args)
                 curs.row_factory = None
@@ -1043,14 +1018,17 @@ class ContainerBroker(DatabaseBroker):
         with self.get() as conn:
             max_rowid = -1
             for rec in item_list:
-                conn.execute('''
-                    DELETE FROM object WHERE name = ? AND created_at < ? AND
-                                             deleted IN (0, 1)
-                ''', (rec['name'], rec['created_at']))
-                if not conn.execute('''
-                    SELECT name FROM object WHERE name = ? AND
-                                                  deleted IN (0, 1)
-                ''', (rec['name'],)).fetchall():
+                query = '''
+                    DELETE FROM object
+                    WHERE name = ? AND (created_at < ?)
+                '''
+                if self.get_db_version(conn) >= 1:
+                    query += ' AND deleted IN (0, 1)'
+                conn.execute(query, (rec['name'], rec['created_at']))
+                query = 'SELECT name FROM object WHERE name = ?'
+                if self.get_db_version(conn) >= 1:
+                    query += ' AND deleted IN (0, 1)'
+                if not conn.execute(query, (rec['name'],)).fetchall():
                     conn.execute('''
                         INSERT INTO object (name, created_at, size,
                             content_type, etag, deleted)
@@ -1174,7 +1152,7 @@ class AccountBroker(DatabaseBroker):
             ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
             put_timestamp))
 
-    def _get_db_version(self, conn):
+    def get_db_version(self, conn):
         if self._db_version == -1:
             self._db_version = 0
             for row in conn.execute('''
@@ -1432,38 +1410,6 @@ class AccountBroker(DatabaseBroker):
                 FROM account_stat
             ''').fetchone()
 
-    def get_random_containers(self, max_count=100):
-        """
-        Get random containers from the DB.  This is used by the
-        account_auditor when testing random containerss for existence.
-
-        :param max_count: maximum number of containers to get
-
-        :returns: list of container names
-        """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
-        rv = []
-        with self.get() as conn:
-            row = conn.execute('''
-                SELECT ROWID FROM container ORDER BY ROWID DESC LIMIT 1
-            ''').fetchone()
-            if not row:
-                return []
-            max_rowid = row['ROWID']
-            for _junk in xrange(min(max_count, max_rowid)):
-                row = conn.execute('''
-                    SELECT name FROM container WHERE
-                    ROWID >= ? AND +deleted = 0
-                    LIMIT 1
-                ''', (randint(0, max_rowid),)).fetchone()
-                if row:
-                    rv.append(row['name'])
-        return list(set(rv))
-
     def list_containers_iter(self, limit, marker, end_marker, prefix,
                              delimiter):
         """
@@ -1504,10 +1450,11 @@ class AccountBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self._get_db_version(conn) < 1:
-                    query += ' +deleted = 0 ORDER BY name LIMIT ?'
+                if self.get_db_version(conn) < 1:
+                    query += ' +deleted = 0'
                 else:
-                    query += ' deleted = 0 ORDER BY name LIMIT ?'
+                    query += ' deleted = 0'
+                query += ' ORDER BY name LIMIT ?'
                 query_args.append(limit - len(results))
                 curs = conn.execute(query, query_args)
                 curs.row_factory = None
@@ -1551,12 +1498,14 @@ class AccountBroker(DatabaseBroker):
                 record = [rec['name'], rec['put_timestamp'],
                           rec['delete_timestamp'], rec['object_count'],
                           rec['bytes_used'], rec['deleted']]
-                curs = conn.execute('''
+                query = '''
                     SELECT name, put_timestamp, delete_timestamp,
                            object_count, bytes_used, deleted
-                    FROM container WHERE name = ? AND
-                        deleted IN (0, 1)
-                ''', (rec['name'],))
+                    FROM container WHERE name = ?
+                '''
+                if self.get_db_version(conn) >= 1:
+                    query += ' AND deleted IN (0, 1)'
+                curs = conn.execute(query, (rec['name'],))
                 curs.row_factory = None
                 row = curs.fetchone()
                 if row:
