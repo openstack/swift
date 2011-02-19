@@ -48,6 +48,7 @@ from swift.common.utils import split_path, TRUE_VALUES
 #   want to use it with authenticated requests, set the X-Web-Mode:
 #   true header.
 #
+# TODO: Make new headers instead of using user metadata.
 # TODO: Tests.
 # TODO: Docs.
 # TODO: get_container_info can be memcached.
