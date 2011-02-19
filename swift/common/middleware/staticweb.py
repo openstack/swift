@@ -44,8 +44,13 @@ from swift.common.utils import split_path
 
 # TODO: Tests
 # TODO: Docs
+# TODO: Make a disallow_listings to restrict direct container listings. These
+#       have to stay on by default because of swauth and any other similar
+#       middleware. The lower level indirect listings can stay disabled by
+#       default.
 # TODO: Accept header negotiation: make static web work with authed as well
 # TODO: get_container_info can be memcached
+# TODO: Blueprint
 
 class StaticWeb(object):
 
@@ -148,8 +153,7 @@ class StaticWeb(object):
     def handle_container(self, env, start_response):
         self.get_container_info(env, start_response)
         if not self.index and not self.index_allow_listings:
-            resp = HTTPNotFound()(env, self.start_response)
-            return self.error_response(resp, env, start_response)
+            return self.app(env, start_response)
         if env['PATH_INFO'][-1] != '/':
             return HTTPMovedPermanently(
                 location=env['PATH_INFO'] + '/')(env, start_response)
