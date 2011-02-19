@@ -277,6 +277,8 @@ class Swauth(object):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
+            if not obj and '.rnolisting' in groups:
+                return HTTPUnauthorized(request=req)
             return None
         if not req.remote_user:
             return self.denied_response(req)
@@ -1179,7 +1181,7 @@ class Swauth(object):
 
         :returns: webob.Request object
         """
-        newenv = {'REQUEST_METHOD': method}
+        newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': 'Swauth'}
         for name in ('swift.cache', 'HTTP_X_CF_TRANS_ID'):
             if name in env:
                 newenv[name] = env[name]

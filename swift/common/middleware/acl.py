@@ -58,6 +58,10 @@ def clean_acl(name, value):
         .r:
         .r:-
 
+    By default, allowing read access via .r will allow listing objects in the
+    container as well as retrieving objects from the container. To turn off
+    listings, use the .rnolisting directive.
+
     Also, .r designations aren't allowed in headers whose names include the
     word 'write'.
 
@@ -71,6 +75,7 @@ def clean_acl(name, value):
     ``bob,,,sue``           ``bob,sue``
     ``.referrer : *``       ``.r:*``
     ``.ref:*.example.com``  ``.r:.example.com``
+    ``.r:*, .rnolisting``   ``.r:*,.rnolisting``
     ======================  ======================
 
     :param name: The name of the header being cleaned, such as X-Container-Read
