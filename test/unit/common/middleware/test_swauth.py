@@ -2576,6 +2576,23 @@ class TestAuth(unittest.TestCase):
             {"groups": [{"name": "act:usr"}, {"name": "act"}],
              "auth": "plaintext:key"})
 
+    def test_put_user_special_chars_success(self):
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),
+            # PUT of user object
+            ('201 Created', {}, '')]))
+        resp = Request.blank('/auth/v2/act/u_s-r',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest',
+                     'X-Auth-User-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(self.test_auth.app.calls, 2)
+        self.assertEquals(json.loads(self.test_auth.app.request.body),
+            {"groups": [{"name": "act:u_s-r"}, {"name": "act"}],
+             "auth": "plaintext:key"})
+
     def test_put_user_account_admin_success(self):
         self.test_auth.app = FakeApp(iter([
             ('200 Ok', {'X-Container-Meta-Account-Id': 'AUTH_cfa'}, ''),

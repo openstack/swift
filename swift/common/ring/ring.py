@@ -18,7 +18,7 @@ from gzip import GzipFile
 from os.path import getmtime
 from struct import unpack_from
 from time import time
-from swift.common.utils import hash_path
+from swift.common.utils import hash_path, validate_configuration
 
 
 class RingData(object):
@@ -28,6 +28,11 @@ class RingData(object):
         self.devs = devs
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
+
+    def to_dict(self):
+        return {'devs': self.devs,
+                'replica2part2dev_id': self._replica2part2dev_id,
+                'part_shift': self._part_shift}
 
 
 class Ring(object):
@@ -39,6 +44,8 @@ class Ring(object):
     """
 
     def __init__(self, pickle_gz_path, reload_time=15):
+        # can't use the ring unless HASH_PATH_SUFFIX is set
+        validate_configuration()
         self.pickle_gz_path = pickle_gz_path
         self.reload_time = reload_time
         self._reload(force=True)
@@ -47,6 +54,9 @@ class Ring(object):
         self._rtime = time() + self.reload_time
         if force or self.has_changed():
             ring_data = pickle.load(GzipFile(self.pickle_gz_path, 'rb'))
+            if not hasattr(ring_data, 'devs'):
+                ring_data = RingData(ring_data['replica2part2dev_id'],
+                    ring_data['devs'], ring_data['part_shift'])
             self._mtime = getmtime(self.pickle_gz_path)
             self.devs = ring_data.devs
             self.zone2devs = {}
