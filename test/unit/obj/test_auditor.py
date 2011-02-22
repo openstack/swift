@@ -234,7 +234,6 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_run_fast_track_non_zero(self):
-        self.conf['fasttrack_zero_byte_files'] = 'yes'
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
         cur_part = '0'
@@ -259,13 +258,12 @@ class TestAuditor(unittest.TestCase):
 
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
-        self.auditor.run_once(zero_byte_only=True)
+        self.auditor.run_once(zero_byte_fps=50)
         self.assertFalse(os.path.isdir(quarantine_path))
         self.auditor.run_once()
         self.assertTrue(os.path.isdir(quarantine_path))
 
-    def test_object_run_fast_track_zero(self):
-        self.conf['fasttrack_zero_byte_files'] = 'yes'
+    def setup_bad_zero_byte(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
         cur_part = '0'
@@ -283,11 +281,20 @@ class TestAuditor(unittest.TestCase):
             etag = etag.hexdigest()
             metadata['ETag'] = etag
             write_metadata(fd, metadata)
+
+    def test_object_run_fast_track_all(self):
+        self.setup_bad_zero_byte()
+        self.auditor.run_once()
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
-        self.auditor.run_once()
         self.assertTrue(os.path.isdir(quarantine_path))
 
+    def test_object_run_fast_track_zero(self):
+        self.setup_bad_zero_byte()
+        self.auditor.run_once(zero_byte_fps=50)
+        quarantine_path = os.path.join(self.devices,
+                                       'sda', 'quarantined', 'objects')
+        self.assertTrue(os.path.isdir(quarantine_path))
 
 if __name__ == '__main__':
     unittest.main()

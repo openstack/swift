@@ -297,7 +297,6 @@ trying to write and produce zero byte files. The object-auditor will catch
 these problems but in the case of a system crash it would be advisable to run
 an extra, less rate limited sweep to check for these specific files. You can
 run this command as follows:
-`swift-object-auditor /path/to/object-server/config/file.conf once -z -f 1000`
-"-z" will check for only zero-byte files and "-f" overrides the
-zero_byte_files_per_second to a 1000 from the config file, which by default is
-only 50.
+`swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
+"-z" means to only check for zero-byte files at 1000 files per second.
+

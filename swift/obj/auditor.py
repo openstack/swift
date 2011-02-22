@@ -29,7 +29,7 @@ from swift.common.daemon import Daemon
 class AuditorWorker(object):
     """Walk through file system to audit object"""
 
-    def __init__(self, conf, zero_byte_file_worker=False, zero_byte_fps=None):
+    def __init__(self, conf, zero_byte_only_at_fps=0):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
@@ -39,16 +39,9 @@ class AuditorWorker(object):
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
         self.auditor_type = 'ALL'
-        self.fasttrack_zero_byte_files = conf.get(
-                'fasttrack_zero_byte_files', 'False').lower() in TRUE_VALUES
-        self.zero_byte_file_worker = zero_byte_file_worker
-        if self.zero_byte_file_worker:
-            self.fasttrack_zero_byte_files = True
-            if zero_byte_fps:
-                self.max_files_per_second = float(zero_byte_fps)
-            else:
-                self.max_files_per_second = float(
-                    conf.get('zero_byte_files_per_second', 50))
+        self.zero_byte_only_at_fps = zero_byte_only_at_fps
+        if self.zero_byte_only_at_fps:
+            self.max_files_per_second = float(self.zero_byte_only_at_fps)
             self.auditor_type = 'ZBF'
         self.log_time = int(conf.get('log_time', 3600))
         self.files_running_time = 0
@@ -135,8 +128,7 @@ class AuditorWorker(object):
                 raise AuditException('Content-Length of %s does not match '
                     'file size of %s' % (int(df.metadata['Content-Length']),
                                          os.path.getsize(df.data_file)))
-            if self.fasttrack_zero_byte_files and \
-                bool(self.zero_byte_file_worker) == bool(obj_size):
+            if self.zero_byte_only_at_fps and obj_size:
                 return
             etag = md5()
             for chunk in df:
@@ -172,31 +164,30 @@ class ObjectAuditor(Daemon):
     def __init__(self, conf, **options):
         self.conf = conf
         self.logger = get_logger(conf, 'object-auditor')
-        self.fasttrack_zero_byte_files = conf.get(
-                'fasttrack_zero_byte_files', 'False').lower() in TRUE_VALUES
+        self.conf_zero_byte_fps = int(conf.get(
+                'zero_byte_files_per_second', 50))
 
     def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
-        zero_byte_only = kwargs.get('zero_byte_only', False)
-        zero_byte_fps = kwargs.get('zero_byte_fps', None)
+        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0) or \
+                                self.conf_zero_byte_fps
         zero_byte_pid = 1
-        if zero_byte_only or self.fasttrack_zero_byte_files:
+        if zero_byte_only_at_fps:
             zero_byte_pid = os.fork()
         if zero_byte_pid == 0:
             while True:
-                self.run_once(mode='forever', zero_byte_only=True,
-                              zero_byte_fps=zero_byte_fps)
+                self.run_once(mode='forever',
+                              zero_byte_fps=zero_byte_only_at_fps)
                 time.sleep(30)
         else:
-            while not zero_byte_only:
+            while not zero_byte_only_at_fps:
                 self.run_once(mode='forever')
                 time.sleep(30)
 
     def run_once(self, *args, **kwargs):
         """Run the object audit once."""
         mode = kwargs.get('mode', 'once')
-        zero_byte_only = kwargs.get('zero_byte_only', False)
-        zero_byte_fps = kwargs.get('zero_byte_fps', None)
-        worker = AuditorWorker(self.conf, zero_byte_file_worker=zero_byte_only,
-                               zero_byte_fps=zero_byte_fps)
+        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
+        worker = AuditorWorker(self.conf,
+                               zero_byte_only_at_fps=zero_byte_only_at_fps)
         worker.audit_all_objects(mode=mode)
