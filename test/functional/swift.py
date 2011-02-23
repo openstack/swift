@@ -80,7 +80,7 @@ def listing_items(method):
 
 class Connection(object):
     def __init__(self, config):
-        for key in 'auth_host auth_port auth_ssl account username password'.split():
+        for key in 'auth_host auth_port auth_ssl username password'.split():
             if not config.has_key(key):
                 raise SkipTest
 
@@ -89,7 +89,7 @@ class Connection(object):
         self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
         self.auth_prefix = config.get('auth_prefix', '/')
 
-        self.account = config['account']
+        self.account = config.get('account')
         self.username = config['username']
         self.password = config['password']
 
@@ -110,8 +110,12 @@ class Connection(object):
             self.storage_token = clone_conn.storage_token
             return
 
+        if self.account:
+            auth_user = '%s:%s' % (self.account, self.username)
+        else:
+            auth_user = self.username
         headers = {
-            'x-auth-user': '%s:%s' % (self.account, self.username),
+            'x-auth-user': auth_user,
             'x-auth-key': self.password,
         }
 
