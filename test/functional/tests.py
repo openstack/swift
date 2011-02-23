@@ -37,6 +37,7 @@ config = get_func_test_config()
 
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
+
 class Base:
     pass
 

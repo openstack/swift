@@ -2,6 +2,7 @@
 # The code below enables nosetests to work with i18n _() blocks
 
 import __builtin__
+import sys
 import os
 from ConfigParser import MissingSectionHeaderError
 

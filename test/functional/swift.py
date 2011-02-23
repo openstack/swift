@@ -78,6 +78,7 @@ def listing_items(method):
         else:
             items = []
 
+
 class Connection(object):
     def __init__(self, config):
         for key in 'auth_host auth_port auth_ssl username password'.split():
