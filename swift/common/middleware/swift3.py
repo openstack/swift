@@ -55,6 +55,7 @@ import rfc822
 import hmac
 import base64
 import errno
+import boto.utils
 from xml.sax.saxutils import escape as xml_escape
 import cgi
 
@@ -378,31 +379,18 @@ class Swift3Middleware(object):
         return ServiceController, d
 
     def get_account_info(self, env, req):
-        if req.headers.get("content-md5"):
-            md5 = req.headers.get("content-md5")
-        else:
-            md5 = ""
-
-        if req.headers.get("content-type"):
-            content_type = req.headers.get("content-type")
-        else:
-            content_type = ""
-
-        if req.headers.get("date"):
-            date = req.headers.get("date")
-        else:
-            date = ""
-
-        h = req.method + "\n" + md5 + "\n" + content_type + "\n" + date + "\n"
-        for header in req.headers:
-            if header.startswith("X-Amz-"):
-                h += header.lower() + ":" + str(req.headers[header]) + "\n"
-        h += req.path
         try:
             account, user, _junk = \
                 req.headers['Authorization'].split(' ')[-1].split(':')
         except Exception:
             return None, None
+
+        headers = {}
+        for key in req.headers:
+            if type(req.headers[key]) == str:
+                headers[key] = req.headers[key]
+
+        h = boto.utils.canonical_string(req.method, req.path_qs, headers)
         token = base64.urlsafe_b64encode(h)
         return '%s:%s' % (account, user), token
 
