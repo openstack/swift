@@ -10,7 +10,7 @@ from swift.common.utils import readconf
 
 setattr(__builtin__, '_', lambda x: x)
 
-def get_func_test_config():
+def get_config():
     config_file = os.environ.get('SWIFT_TEST_CONFIG_FILE',
                                  '/etc/swift/func_test.conf')
     config = {}

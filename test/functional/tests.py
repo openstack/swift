@@ -28,12 +28,12 @@ import uuid
 import unittest
 import urllib
 
-from test import get_func_test_config
+from test import get_config
 
 from swift import Account, AuthenticationFailed, Connection, Container, \
      File, ResponseError
 
-config = get_func_test_config()
+config = get_config()
 
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 

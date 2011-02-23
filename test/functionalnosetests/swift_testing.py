@@ -2,9 +2,12 @@ import errno
 import os
 import socket
 import sys
-from ConfigParser import ConfigParser
 from httplib import HTTPException
 from time import sleep
+from nose import SkipTest
+from ConfigParser import MissingSectionHeaderError
+
+from test import get_config
 
 from swift.common.client import get_auth, http_connection
 
@@ -15,41 +18,32 @@ swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
 
 # If no environment set, fall back to old school conf file
 if not all([swift_test_auth, swift_test_user[0], swift_test_key[0]]):
-    conf = ConfigParser()
-    class Sectionizer(object):
-        def __init__(self, fp):
-            self.sent_section = False
-            self.fp = fp
-        def readline(self):
-            if self.sent_section:
-                return self.fp.readline()
-            self.sent_section = True
-            return '[func_test]\n'
-    try:
-        conf.readfp(Sectionizer(open('/etc/swift/func_test.conf')))
-        conf = dict(conf.items('func_test'))
-        swift_test_auth = 'http'
-        if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
-            swift_test_auth = 'https'
-        if 'auth_prefix' not in conf:
-            conf['auth_prefix'] = '/'
-        swift_test_auth += \
-            '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
+    conf = get_config()
+
+    swift_test_auth = 'http'
+    if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
+        swift_test_auth = 'https'
+    if 'auth_prefix' not in conf:
+        conf['auth_prefix'] = '/'
+    swift_test_auth += \
+        '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
+    if 'account' in conf:
         swift_test_user[0] = '%(account)s:%(username)s' % conf
-        swift_test_key[0] = conf['password']
-        try:
-            swift_test_user[1] = '%(account2)s:%(username2)s' % conf
-            swift_test_key[1] = conf['password2']
-        except KeyError, err:
-            pass # old conf, no second account tests can be run
-        try:
-            swift_test_user[2] = '%(account)s:%(username3)s' % conf
-            swift_test_key[2] = conf['password3']
-        except KeyError, err:
-            pass # old conf, no third account tests can be run
-    except IOError, err:
-        if err.errno != errno.ENOENT:
-            raise
+    else:
+        swift_test_user[0] = '%(username)s' % conf
+    swift_test_key[0] = conf['password']
+    try:
+        swift_test_user[1] = '%s%s' % ('%s:' % conf['account2'] if 'account2'
+                                       in conf else '', conf['username2'])
+        swift_test_key[1] = conf['password2']
+    except KeyError, err:
+        pass # old conf, no second account tests can be run
+    try:
+        swift_test_user[2] = '%s%s' % ('%s:' % conf['account'] if 'account'
+                                       in conf else '', conf['username3'])
+        swift_test_key[2] = conf['password3']
+    except KeyError, err:
+        pass # old conf, no third account tests can be run
 
 skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
 if skip:
