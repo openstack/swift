@@ -25,6 +25,8 @@ from swift.common.utils import get_logger, renamer, audit_location_generator, \
 from swift.common.exceptions import AuditException
 from swift.common.daemon import Daemon
 
+SLEEP_BETWEEN_AUDITS = 30
+
 
 class AuditorWorker(object):
     """Walk through file system to audit object"""
@@ -167,22 +169,27 @@ class ObjectAuditor(Daemon):
         self.conf_zero_byte_fps = int(conf.get(
                 'zero_byte_files_per_second', 50))
 
+    def _sleep(self):
+        time.sleep(SLEEP_BETWEEN_AUDITS)
+
     def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
-        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0) or \
-                                self.conf_zero_byte_fps
+        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
         zero_byte_pid = 1
-        if zero_byte_only_at_fps:
+        if not zero_byte_only_at_fps:
             zero_byte_pid = os.fork()
         if zero_byte_pid == 0:
+            # child process runs the 'all'
+            while True:
+                self.run_once(mode='forever')
+                self._sleep()
+        else:
+            # no fork or forked parent path
             while True:
                 self.run_once(mode='forever',
-                              zero_byte_fps=zero_byte_only_at_fps)
-                time.sleep(30)
-        else:
-            while not zero_byte_only_at_fps:
-                self.run_once(mode='forever')
-                time.sleep(30)
+                              zero_byte_fps=zero_byte_only_at_fps or
+                                            self.conf_zero_byte_fps)
+                self._sleep()
 
     def run_once(self, *args, **kwargs):
         """Run the object audit once."""
