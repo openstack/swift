@@ -266,6 +266,7 @@ class SegmentedIterable(object):
 
 class Controller(object):
     """Base WSGI controller class for the proxy"""
+    server_type = _('Base')
 
     def __init__(self, app):
         self.account_name = None
@@ -508,7 +509,7 @@ class Controller(object):
                         self.error_limit(node)
             except Exception:
                 self.error_limit(node)
-                self.exception_occurred(node, _('Object'), # TODO FIX LOGGIN'
+                self.exception_occurred(node, self.server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': method, 'path': path})
 
@@ -529,7 +530,7 @@ class Controller(object):
             response.append((503, '', ''))
         statuses, reasons, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
-                                  _('Container POST')) # TODO fix loggin'
+                  '%s %s' % (self.server_type, req.method))
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
                       etag=None):
@@ -669,6 +670,7 @@ class Controller(object):
 
 class ObjectController(Controller):
     """WSGI controller for object requests."""
+    server_type = _('Object')
 
     def __init__(self, app, account_name, container_name, object_name,
                  **kwargs):
@@ -1141,6 +1143,7 @@ class ObjectController(Controller):
 
 class ContainerController(Controller):
     """WSGI controller for container requests"""
+    server_type = _('Container')
 
     # Ensure these are all lowercase
     pass_through_headers = ['x-container-read', 'x-container-write']
@@ -1289,6 +1292,7 @@ class ContainerController(Controller):
 
 class AccountController(Controller):
     """WSGI controller for account requests"""
+    server_type = _('Container')
 
     def __init__(self, app, account_name, **kwargs):
         Controller.__init__(self, app)
