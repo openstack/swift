@@ -487,29 +487,36 @@ foo = bar
 
 [section2]
 log_name = yarr'''
-        f = open('/tmp/test', 'wb')
-        f.write(conf)
-        f.close()
-        result = utils.readconf('/tmp/test')
-        expected = {'log_name': None,
-                    'section1': {'foo': 'bar'},
-                    'section2': {'log_name': 'yarr'}}
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1')
-        expected = {'log_name': 'section1', 'foo': 'bar'}
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section2').get('log_name')
-        expected = 'yarr'
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1',
-                                log_name='foo').get('log_name')
-        expected = 'foo'
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1',
-                                defaults={'bar': 'baz'})
-        expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
-        self.assertEquals(result, expected)
+        # setup a real file
+        with open('/tmp/test', 'wb') as f:
+            f.write(conf)
+        make_filename = lambda: '/tmp/test'
+        # setup a file stream
+        make_fp = lambda: StringIO(conf)
+        for conf_object_maker in (make_filename, make_fp):
+            result = utils.readconf(conf_object_maker())
+            expected = {'log_name': None,
+                        'section1': {'foo': 'bar'},
+                        'section2': {'log_name': 'yarr'}}
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1')
+            expected = {'log_name': 'section1', 'foo': 'bar'}
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(),
+                                    'section2').get('log_name')
+            expected = 'yarr'
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1',
+                                    log_name='foo').get('log_name')
+            expected = 'foo'
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1',
+                                    defaults={'bar': 'baz'})
+            expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
+            self.assertEquals(result, expected)
+        self.assertRaises(SystemExit, utils.readconf, '/tmp/test', 'section3')
         os.unlink('/tmp/test')
+        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
 
     def test_drop_privileges(self):
         user = getuser()

@@ -13,12 +13,12 @@ from swift.common.client import get_auth, http_connection
 
 conf = get_config()
 
-if not conf:
-    # If no conf was read, fall back to old school env
-    swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-    swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
-    swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
-else:
+# If no conf was read, we will fall back to old school env vars
+swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
+swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
+swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
+
+if conf:
     swift_test_auth = 'http'
     if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
         swift_test_auth = 'https'

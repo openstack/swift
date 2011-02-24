@@ -5,6 +5,7 @@ import __builtin__
 import sys
 import os
 from ConfigParser import MissingSectionHeaderError
+from StringIO import StringIO
 
 from swift.common.utils import readconf
 
@@ -15,13 +16,12 @@ def get_config():
                                  '/etc/swift/func_test.conf')
     config = {}
     try:
-        config = readconf(config_file, 'func_test')
+        try:
+            config = readconf(config_file, 'func_test')
+        except MissingSectionHeaderError:
+            config_fp = StringIO('[func_test]\n' + open(config_file).read())
+            config = readconf(config_fp, 'func_test')
     except SystemExit:
         print >>sys.stderr, 'UNABLE TO READ FUNCTIONAL TESTS CONFIG FILE'
-    except MissingSectionHeaderError:
-        # rather than mock the stream to spoof a section header, display an
-        # error to the user and let them fix it.
-        print >>sys.stderr, 'UNABLE TO READ FUNCTIONAL TESTS CONFIG FILE ' \
-                'DUE TO NO [func_test] SECTION'
     return config
 
