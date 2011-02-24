@@ -45,6 +45,7 @@ Overview and Concepts
     overview_stats
     ratelimit
     overview_large_objects
+    overview_container_sync
 
 Developer Documentation
 =======================

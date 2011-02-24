@@ -215,7 +215,7 @@ class TestObject(unittest.TestCase):
             conn.request('PUT', '%s/%s/%s' % (parsed.path,
                                               shared_container,
                                               'private_object'),
-                         '', {'User-Agent': 'GLHUA', 'X-Auth-Token': token,
+                         '', {'X-Auth-Token': token,
                               'Content-Length': '0',
                               'X-Copy-From': '%s/%s' % (self.container,
                                                         self.obj)})

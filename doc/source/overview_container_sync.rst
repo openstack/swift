@@ -1,0 +1,178 @@
+======================================
+Container to Container Synchronization
+======================================
+
+--------
+Overview
+--------
+
+Swift has a feature where all the contents of a container can be mirrored to
+another container through background synchronization. Swift cluster operators
+configure their cluster to allow/accept sync requests to/from other clusters,
+and the user specifies where to sync their container to along with a secret
+synchronization key.
+
+.. note::
+
+    This does not sync standard object POSTs, as those do not cause container
+    updates. A workaround is to do X-Copy-From POSTs. We're considering
+    solutions to this limitation but leaving it as is for now since POSTs are
+    fairly uncommon.
+
+--------------------------------------------
+Configuring a Cluster's Allowable Sync Hosts
+--------------------------------------------
+
+The Swift cluster operator must allow synchronization with a set of hosts
+before the user can enable container synchronization. First, the backend
+container server needs to be given this list of hosts in the
+container-server.conf file::
+
+    [DEFAULT]
+    # This is a comma separated list of hosts allowed in the
+    # X-Container-Sync-To field for containers.
+    # allowed_sync_hosts = 127.0.0.1
+    allowed_sync_hosts = host1,host2,etc.
+    ...
+
+    [container-sync]
+    # You can override the default log routing for this app here (don't
+    # use set!):
+    # log_name = container-sync
+    # log_facility = LOG_LOCAL0
+    # log_level = INFO
+    # Will sync, at most, each container once per interval
+    # interval = 300
+    # Maximum amount of time to spend syncing each container
+    # container_time = 60
+
+The authentication system also needs to be configured to allow synchronization
+requests. Here are examples with DevAuth and Swauth::
+
+    [filter:auth]
+    # This is a comma separated list of hosts allowed to send
+    # X-Container-Sync-Key requests.
+    # allowed_sync_hosts = 127.0.0.1
+    allowed_sync_hosts = host1,host2,etc.
+
+    [filter:swauth]
+    # This is a comma separated list of hosts allowed to send
+    # X-Container-Sync-Key requests.
+    # allowed_sync_hosts = 127.0.0.1
+    allowed_sync_hosts = host1,host2,etc.
+
+The default of 127.0.0.1 is just so no configuration is required for SAIO
+setups -- for testing.
+
+----------------------------------------------
+Using ``st`` to set up synchronized containers
+----------------------------------------------
+
+.. note::
+
+    You must be the account admin on the account to set synchronization targets
+    and keys.
+
+You simply tell each container where to sync to and give it a secret
+synchronization key. First, let's get the account details for our two cluster
+accounts::
+
+    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing stat -v
+    StorageURL: http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e
+    Auth Token: AUTH_tkd5359e46ff9e419fa193dbd367f3cd19
+       Account: AUTH_208d1854-e475-4500-b315-81de645d060e
+    Containers: 0
+       Objects: 0
+         Bytes: 0
+
+    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 stat -v
+    StorageURL: http://cluster2/v1/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c
+    Auth Token: AUTH_tk816a1aaf403c49adb92ecfca2f88e430
+       Account: AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c
+    Containers: 0
+       Objects: 0
+         Bytes: 0
+
+Now, let's make our first container and tell it to synchronize to a second
+we'll make next::
+
+    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing post \
+      -t 'http://cluster2/v1/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
+      -k 'secret' container1
+
+The ``-t`` indicates the URL to sync to, which is the ``StorageURL`` from
+cluster2 we retrieved above plus the container name. The ``-k`` specifies the
+secret key the two containers will share for synchronization. Now, we'll do
+something similar for the second cluster's container::
+
+    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 post \
+      -t 'http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e/container1' \
+      -k 'secret' container2
+
+That's it. Now we can upload a bunch of stuff to the first container and watch
+as it gets synchronized over to the second::
+
+    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing \
+      upload container1 .
+    photo002.png
+    photo004.png
+    photo001.png
+    photo003.png
+
+    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
+      list container2
+
+    [Nothing there yet, so we wait a bit...]
+    [If you're an operator running SAIO and just testing, you may need to
+     run 'swift-init container-sync once' to perform a sync scan.]
+
+    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
+      list container2
+    photo001.png
+    photo002.png
+    photo003.png
+    photo004.png
+
+You can also set up a chain of synced containers if you want more than two.
+You'd point 1 -> 2, then 2 -> 3, and finally 3 -> 1 for three containers.
+They'd all need to share the same secret synchronization key.
+
+-----------------------------------
+Using curl (or other tools) instead
+-----------------------------------
+
+So what's ``st`` doing behind the scenes? Nothing overly complicated. It
+translates the ``-t <value>`` option into an ``X-Container-Sync-To: <value>``
+header and the ``-k <value>`` option into an ``X-Container-Sync-Key: <value>``
+header.
+
+For instance, when we created the first container above and told it to
+synchronize to the second, we could have used this curl command::
+
+    $ curl -i -X POST -H 'X-Auth-Token: AUTH_tkd5359e46ff9e419fa193dbd367f3cd19' \
+      -H 'X-Container-Sync-To: http://cluster2/v1/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
+      -H 'X-Container-Sync-Key: secret' \
+      'http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e/container1'
+    HTTP/1.1 204 No Content
+    Content-Length: 0
+    Content-Type: text/plain; charset=UTF-8
+    Date: Thu, 24 Feb 2011 22:39:14 GMT
+
+--------------------------------------------------
+What's going on behind the scenes, in the cluster?
+--------------------------------------------------
+
+The swift-container-sync does the job of sending updates to the remote
+container.
+
+This is done by scanning the local devices for container databases and checking
+for x-container-sync-to and x-container-sync-key metadata values. If they
+exist, the last known synced ROWID is retreived and all newer rows trigger PUTs
+or DELETEs to the other container.
+
+.. note::
+
+    This does not sync standard object POSTs, as those do not cause container
+    row updates. A workaround is to do X-Copy-From POSTs. We're considering
+    solutions to this limitation but leaving it as is for now since POSTs are
+    fairly uncommon.
