@@ -101,6 +101,9 @@ class Swauth(object):
         self.timeout = int(conf.get('node_timeout', 10))
         self.itoken = None
         self.itoken_expires = None
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
 
     def __call__(self, env, start_response):
         """
@@ -277,12 +280,11 @@ class Swauth(object):
             # account DELETE or PUT...
             req.environ['swift_owner'] = True
             return None
-        # TODO: Restrict this further to only authenticated folks in the .sync
-        # group. Currently, anybody with the x-container-sync-key can do a
-        # sync.
-        if 'swift_sync_key' in req.environ and \
-                req.environ['swift_sync_key'] == \
-                    req.headers.get('x-container-sync-key', None):
+        if ('swift_sync_key' in req.environ and
+             req.environ['swift_sync_key'] ==
+                req.headers.get('x-container-sync-key', None) and
+             (req.remote_addr in self.allowed_sync_hosts or
+              get_remote_client(req) in self.allowed_sync_hosts)):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):

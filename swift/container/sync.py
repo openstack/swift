@@ -22,7 +22,7 @@ from swift.common import client, direct_client
 from swift.common.ring import Ring
 from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
-                               normalize_timestamp, TRUE_VALUES
+    normalize_timestamp, TRUE_VALUES, validate_sync_to
 from swift.common.daemon import Daemon
 
 
@@ -59,13 +59,16 @@ class ContainerSync(Daemon):
             conf.get('mount_check', 'true').lower() in TRUE_VALUES
         self.interval = int(conf.get('interval', 300))
         self.container_time = int(conf.get('container_time', 60))
-        swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
         self.container_syncs = 0
         self.container_deletes = 0
         self.container_puts = 0
         self.container_skips = 0
         self.container_failures = 0
         self.reported = time.time()
+        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.object_ring = object_ring or \
             Ring(os.path.join(swift_dir, 'object.ring.gz'))
 
@@ -151,6 +154,14 @@ class ContainerSync(Daemon):
                     self.container_skips += 1
                     return
                 sync_to = sync_to.rstrip('/')
+                err = validate_sync_to(sync_to, self.allowed_sync_hosts)
+                if err:
+                    self.logger.info(
+                        _('ERROR %(db_file)s: %(validate_sync_to_err)s'),
+                        {'db_file': broker.db_file,
+                         'validate_sync_to_err': err})
+                    self.container_failures += 1
+                    return
                 stop_at = time.time() + self.container_time
                 while time.time() < stop_at:
                     rows = broker.get_items_since(sync_row, 1)

@@ -42,7 +42,7 @@ from webob import Request, Response
 
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, normalize_timestamp, split_path, \
-    cache_from_env
+    cache_from_env, get_remote_client
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -1834,11 +1834,7 @@ class Application(BaseApplication):
         the_request = quote(unquote(req.path))
         if req.query_string:
             the_request = the_request + '?' + req.query_string
-        # remote user for zeus
-        client = req.headers.get('x-cluster-client-ip')
-        if not client and 'x-forwarded-for' in req.headers:
-            # remote user for other lbs
-            client = req.headers['x-forwarded-for'].split(',')[0].strip()
+        client = get_remote_client(req)
         logged_headers = None
         if self.log_headers:
             logged_headers = '\n'.join('%s: %s' % (k, v)

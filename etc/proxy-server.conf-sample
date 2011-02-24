@@ -63,6 +63,9 @@ use = egg:swift#auth
 # ssl = false
 # prefix = /
 # node_timeout = 10
+# This is a comma separated list of hosts allowed to send X-Container-Sync-Key
+# requests.
+# allowed_sync_hosts = 127.0.0.1
 
 # Only needed for Swauth
 [filter:swauth]
@@ -91,6 +94,9 @@ use = egg:swift#swauth
 # default_swift_cluster = local#https://public.com:8080/v1#http://private.com:8080/v1
 # token_life = 86400
 # node_timeout = 10
+# This is a comma separated list of hosts allowed to send X-Container-Sync-Key
+# requests.
+# allowed_sync_hosts = 127.0.0.1
 # Highly recommended to change this.
 super_admin_key = swauthkey
 

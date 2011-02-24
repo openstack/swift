@@ -32,7 +32,8 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, storage_directory, split_path
+    normalize_timestamp, storage_directory, split_path, urlparse, \
+    validate_sync_to
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -56,6 +57,9 @@ class ContainerController(object):
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
                                             ContainerBroker, self.mount_check)
 
@@ -175,6 +179,11 @@ class ContainerController(object):
                     not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=req,
                         content_type='text/plain')
+        if 'x-container-sync-to' in req.headers:
+            err = validate_sync_to(req.headers['x-container-sync-to'],
+                                   self.allowed_sync_hosts)
+            if err:
+                return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
@@ -370,6 +379,11 @@ class ContainerController(object):
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing or bad timestamp',
                 request=req, content_type='text/plain')
+        if 'x-container-sync-to' in req.headers:
+            err = validate_sync_to(req.headers['x-container-sync-to'],
+                                   self.allowed_sync_hosts)
+            if err:
+                return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_container_broker(drive, part, account, container)

@@ -952,3 +952,26 @@ def urlparse(url):
     :param url: URL to parse.
     """
     return ModifiedParseResult(*stdlib_urlparse(url))
+
+
+def validate_sync_to(value, allowed_sync_hosts):
+    p = urlparse(value)
+    if p.scheme not in ('http', 'https'):
+        return _('Invalid scheme %r in X-Container-Sync-To, must be "http" '
+                 'or "https".') % p.scheme
+    if not p.path:
+        return _('Path required in X-Container-Sync-To')
+    if p.params or p.query or p.fragment:
+        return _('Params, queries, and fragments not allowed in '
+                 'X-Container-Sync-To')
+    if p.hostname not in allowed_sync_hosts:
+        return _('Invalid host %r in X-Container-Sync-To') % p.hostname
+
+
+def get_remote_client(req):
+    # remote host for zeus
+    client = req.headers.get('x-cluster-client-ip')
+    if not client and 'x-forwarded-for' in req.headers:
+        # remote host for other lbs
+        client = req.headers['x-forwarded-for'].split(',')[0].strip()
+    return client

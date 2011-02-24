@@ -7,6 +7,9 @@
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
+# This is a comma separated list of hosts allowed in the X-Container-Sync-To
+# field for containers.
+# allowed_sync_hosts = 127.0.0.1
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0
