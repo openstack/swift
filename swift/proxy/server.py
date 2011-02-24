@@ -521,11 +521,12 @@ class Controller(object):
         handoff nodes as needed.
         """
         nodes = self.iter_nodes(part, ring.get_part_nodes(part), ring)
-        pool = GreenPile(ring.replica_count)
-        for head in headers:
-            pool.spawn(self._make_request, nodes, part, method, path,
-                    head, query_string)
-        response = [resp for resp in pool if resp]
+        with ContextPool(ring.replica_count) as pool:
+            pile = GreenPile(pool)
+            for head in headers:
+                pile.spawn(self._make_request, nodes, part, method, path,
+                        head, query_string)
+            response = [resp for resp in pile if resp]
         while len(response) < ring.replica_count:
             response.append((503, '', ''))
         statuses, reasons, bodies = zip(*response)
@@ -919,15 +920,12 @@ class ObjectController(Controller):
         content_type_manually_set = True
         if not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            if not guessed_type:
-                req.headers['Content-Type'] = 'application/octet-stream'
-            else:
-                req.headers['Content-Type'] = guessed_type
+            req.headers['Content-Type'] = guessed_type or \
+                                                'application/octet-stream'
             content_type_manually_set = False
         error_response = check_object_creation(req, self.object_name)
         if error_response:
             return error_response
-        conns = []
         data_source = \
             iter(lambda: req.body_file.read(self.app.client_chunk_size), '')
         source_header = req.headers.get('X-Copy-From')
@@ -1017,7 +1015,7 @@ class ObjectController(Controller):
                     for conn in list(conns):
                         if not conn.failed:
                             conn.queue.put('%x\r\n%s\r\n' % (len(chunk), chunk)
-                                        if chunked else chunk)
+                                            if chunked else chunk)
                         else:
                             conns.remove(conn)
                     if len(conns) <= len(nodes) / 2:
