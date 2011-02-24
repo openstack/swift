@@ -521,12 +521,11 @@ class Controller(object):
         handoff nodes as needed.
         """
         nodes = self.iter_nodes(part, ring.get_part_nodes(part), ring)
-        with ContextPool(ring.replica_count) as pool:
-            pile = GreenPile(pool)
-            for head in headers:
-                pile.spawn(self._make_request, nodes, part, method, path,
-                        head, query_string)
-            response = [resp for resp in pile if resp]
+        pile = GreenPile(ring.replica_count)
+        for head in headers:
+            pile.spawn(self._make_request, nodes, part, method, path,
+                    head, query_string)
+        response = [resp for resp in pile if resp]
         while len(response) < ring.replica_count:
             response.append((503, '', ''))
         statuses, reasons, bodies = zip(*response)
@@ -1290,7 +1289,7 @@ class ContainerController(Controller):
 
 class AccountController(Controller):
     """WSGI controller for account requests"""
-    server_type = _('Container')
+    server_type = _('Account')
 
     def __init__(self, app, account_name, **kwargs):
         Controller.__init__(self, app)
