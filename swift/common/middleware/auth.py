@@ -176,11 +176,20 @@ class DevAuth(object):
             return self.denied_response(req)
         user_groups = (req.remote_user or '').split(',')
         if '.reseller_admin' in user_groups:
+            req.environ['swift_owner'] = True
             return None
         if account in user_groups and \
                 (req.method not in ('DELETE', 'PUT') or container):
             # If the user is admin for the account and is not trying to do an
             # account DELETE or PUT...
+            req.environ['swift_owner'] = True
+            return None
+        # TODO: Restrict this further to only authenticated folks in the .sync
+        # group. Currently, anybody with the x-container-sync-key can do a
+        # sync.
+        if 'swift_sync_key' in req.environ and \
+                req.environ['swift_sync_key'] == \
+                    req.headers.get('x-container-sync-key', None):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):

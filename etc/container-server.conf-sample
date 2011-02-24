@@ -60,3 +60,13 @@ use = egg:swift#container
 # log_level = INFO
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
+
+[container-sync]
+# You can override the default log routing for this app here (don't use set!):
+# log_name = container-sync
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# Will sync, at most, each container once per interval
+# interval = 300
+# Maximum amount of time to spend syncing each container
+# container_time = 60

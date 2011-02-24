@@ -30,22 +30,30 @@ from time import sleep
 
 import socket
 from cStringIO import StringIO
-from httplib import HTTPException, HTTPSConnection
+from httplib import HTTPException
 from re import compile, DOTALL
 from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote, unquote
 from urlparse import urlparse, urlunparse
 
 try:
+    from eventlet.green.httplib import HTTPSConnection
+except ImportError:
+    from httplib import HTTPSConnection
+
+try:
     from eventlet import sleep
-except Exception:
+except ImportError:
     from time import sleep
 
 try:
     from swift.common.bufferedhttp \
         import BufferedHTTPConnection as HTTPConnection
-except Exception:
-    from httplib import HTTPConnection
+except ImportError:
+    try:
+        from eventlet.green.httplib import HTTPConnection
+    except ImportError:
+        from httplib import HTTPConnection
 
 
 def quote(value, safe='/'):
@@ -226,7 +234,7 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
             listing = \
                 get_account(url, token, marker, limit, prefix, http_conn)[1]
             if listing:
-                rv.extend(listing)
+                rv[1].extend(listing)
         return rv
     parsed, conn = http_conn
     qs = 'format=json'
@@ -570,9 +578,9 @@ def head_object(url, token, container, name, http_conn=None):
     return resp_headers
 
 
-def put_object(url, token, container, name, contents, content_length=None,
-               etag=None, chunk_size=65536, content_type=None, headers=None,
-               http_conn=None):
+def put_object(url, token=None, container=None, name=None, contents=None,
+               content_length=None, etag=None, chunk_size=65536,
+               content_type=None, headers=None, http_conn=None):
     """
     Put an object
 
@@ -596,10 +604,17 @@ def put_object(url, token, container, name, contents, content_length=None,
         parsed, conn = http_conn
     else:
         parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    if not headers:
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
         headers = {}
-    headers['X-Auth-Token'] = token
+    if token:
+        headers['X-Auth-Token'] = token
     if etag:
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
@@ -638,7 +653,7 @@ def put_object(url, token, container, name, contents, content_length=None,
         raise ClientException('Object PUT failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    return resp.getheader('etag').strip('"')
+    return resp.getheader('etag', '').strip('"')
 
 
 def post_object(url, token, container, name, headers, http_conn=None):
@@ -669,7 +684,8 @@ def post_object(url, token, container, name, headers, http_conn=None):
                 http_status=resp.status, http_reason=resp.reason)
 
 
-def delete_object(url, token, container, name, http_conn=None):
+def delete_object(url, token=None, container=None, name=None, http_conn=None,
+                  headers=None):
     """
     Delete object
 
@@ -685,8 +701,18 @@ def delete_object(url, token, container, name, http_conn=None):
         parsed, conn = http_conn
     else:
         parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    conn.request('DELETE', path, '', {'X-Auth-Token': token})
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
+        headers = {}
+    if token:
+        headers['X-Auth-Token'] = token
+    conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
     resp.read()
     if resp.status < 200 or resp.status >= 300:
@@ -700,7 +726,7 @@ class Connection(object):
     """Convenience class to make requests that will also retry the request"""
 
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
-                 preauthtoken=None, snet=False):
+                 preauthtoken=None, snet=False, starting_backoff=1):
         """
         :param authurl: authenitcation URL
         :param user: user name to authenticate as
@@ -720,6 +746,7 @@ class Connection(object):
         self.token = preauthtoken
         self.attempts = 0
         self.snet = snet
+        self.starting_backoff = starting_backoff
 
     def get_auth(self):
         return get_auth(self.authurl, self.user, self.key, snet=self.snet)
@@ -727,9 +754,9 @@ class Connection(object):
     def http_connection(self):
         return http_connection(self.url)
 
-    def _retry(self, func, *args, **kwargs):
+    def _retry(self, reset_func, func, *args, **kwargs):
         self.attempts = 0
-        backoff = 1
+        backoff = self.starting_backoff
         while self.attempts <= self.retries:
             self.attempts += 1
             try:
@@ -758,10 +785,12 @@ class Connection(object):
                     raise
             sleep(backoff)
             backoff *= 2
+            if reset_func:
+                reset_func(func, *args, **kwargs)
 
     def head_account(self):
         """Wrapper for :func:`head_account`"""
-        return self._retry(head_account)
+        return self._retry(None, head_account)
 
     def get_account(self, marker=None, limit=None, prefix=None,
                     full_listing=False):
@@ -769,16 +798,16 @@ class Connection(object):
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
-        return self._retry(get_account, marker=marker, limit=limit,
+        return self._retry(None, get_account, marker=marker, limit=limit,
                            prefix=prefix, full_listing=full_listing)
 
     def post_account(self, headers):
         """Wrapper for :func:`post_account`"""
-        return self._retry(post_account, headers)
+        return self._retry(None, post_account, headers)
 
     def head_container(self, container):
         """Wrapper for :func:`head_container`"""
-        return self._retry(head_container, container)
+        return self._retry(None, head_container, container)
 
     def get_container(self, container, marker=None, limit=None, prefix=None,
                       delimiter=None, full_listing=False):
@@ -786,46 +815,58 @@ class Connection(object):
         # TODO(unknown): With full_listing=True this will restart the entire
         # listing with each retry. Need to make a better version that just
         # retries where it left off.
-        return self._retry(get_container, container, marker=marker,
+        return self._retry(None, get_container, container, marker=marker,
                            limit=limit, prefix=prefix, delimiter=delimiter,
                            full_listing=full_listing)
 
     def put_container(self, container, headers=None):
         """Wrapper for :func:`put_container`"""
-        return self._retry(put_container, container, headers=headers)
+        return self._retry(None, put_container, container, headers=headers)
 
     def post_container(self, container, headers):
         """Wrapper for :func:`post_container`"""
-        return self._retry(post_container, container, headers)
+        return self._retry(None, post_container, container, headers)
 
     def delete_container(self, container):
         """Wrapper for :func:`delete_container`"""
-        return self._retry(delete_container, container)
+        return self._retry(None, delete_container, container)
 
     def head_object(self, container, obj):
         """Wrapper for :func:`head_object`"""
-        return self._retry(head_object, container, obj)
+        return self._retry(None, head_object, container, obj)
 
     def get_object(self, container, obj, resp_chunk_size=None):
         """Wrapper for :func:`get_object`"""
-        return self._retry(get_object, container, obj,
+        return self._retry(None, get_object, container, obj,
                            resp_chunk_size=resp_chunk_size)
 
     def put_object(self, container, obj, contents, content_length=None,
                    etag=None, chunk_size=65536, content_type=None,
                    headers=None):
         """Wrapper for :func:`put_object`"""
-        return self._retry(put_object, container, obj, contents,
+
+        def _default_reset(*args, **kwargs):
+            raise ClientException('put_object(%r, %r, ...) failure and no '
+                'ability to reset contents for reupload.' % (container, obj))
+
+        reset_func = _default_reset
+        tell = getattr(contents, 'tell', None)
+        seek = getattr(contents, 'seek', None)
+        if tell and seek:
+            orig_pos = tell()
+            reset_func = lambda *a, **k: seek(orig_pos)
+
+        return self._retry(reset_func, put_object, container, obj, contents,
             content_length=content_length, etag=etag, chunk_size=chunk_size,
             content_type=content_type, headers=headers)
 
     def post_object(self, container, obj, headers):
         """Wrapper for :func:`post_object`"""
-        return self._retry(post_object, container, obj, headers)
+        return self._retry(None, post_object, container, obj, headers)
 
     def delete_object(self, container, obj):
         """Wrapper for :func:`delete_object`"""
-        return self._retry(delete_object, container, obj)
+        return self._retry(None, delete_object, container, obj)
 
 # End inclusion of swift.common.client
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1297,10 +1338,14 @@ Container: %s
   Objects: %d
     Bytes: %d
  Read ACL: %s
-Write ACL: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
+Write ACL: %s
+  Sync To: %s
+ Sync Key: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
                                 object_count, bytes_used,
                                 headers.get('x-container-read', ''),
-                                headers.get('x-container-write', '')))
+                                headers.get('x-container-write', ''),
+                                headers.get('x-container-sync-to', ''),
+                                headers.get('x-container-sync-key', '')))
             for key, value in headers.items():
                 if key.startswith('x-container-meta-'):
                     print_queue.put('%9s: %s' % ('Meta %s' %
@@ -1309,7 +1354,8 @@ Write ACL: %s'''.strip('\n') % (conn.url.rsplit('/', 1)[-1], args[0],
                 if not key.startswith('x-container-meta-') and key not in (
                         'content-length', 'date', 'x-container-object-count',
                         'x-container-bytes-used', 'x-container-read',
-                        'x-container-write'):
+                        'x-container-write', 'x-container-sync-to',
+                        'x-container-sync-key'):
                     print_queue.put(
                         '%9s: %s' % (key.title(), value))
         except ClientException, err:
@@ -1374,13 +1420,18 @@ def st_post(options, args, print_queue, error_queue):
     parser.add_option('-w', '--write-acl', dest='write_acl', help='Sets the '
         'Write ACL for containers. Quick summary of ACL syntax: account1, '
         'account2:user2')
+    parser.add_option('-t', '--sync-to', dest='sync_to', help='Sets the '
+        'Sync To for containers, for multi-cluster replication.')
+    parser.add_option('-k', '--sync-key', dest='sync_key', help='Sets the '
+        'Sync Key for containers, for multi-cluster replication.')
     parser.add_option('-m', '--meta', action='append', dest='meta', default=[],
         help='Sets a meta data item with the syntax name:value. This option '
         'may be repeated. Example: -m Color:Blue -m Size:Large')
     (options, args) = parse_args(parser, args)
     args = args[1:]
-    if (options.read_acl or options.write_acl) and not args:
-        exit('-r and -w options only allowed for containers')
+    if (options.read_acl or options.write_acl or options.sync_to or
+        options.sync_key) and not args:
+        exit('-r, -w, -t, and -k options only allowed for containers')
     conn = Connection(options.auth, options.user, options.key)
     if not args:
         headers = {}
@@ -1408,6 +1459,10 @@ def st_post(options, args, print_queue, error_queue):
             headers['X-Container-Read'] = options.read_acl
         if options.write_acl is not None:
             headers['X-Container-Write'] = options.write_acl
+        if options.sync_to is not None:
+            headers['X-Container-Sync-To'] = options.sync_to
+        if options.sync_key is not None:
+            headers['X-Container-Sync-Key'] = options.sync_key
         try:
             conn.post_container(args[0], headers=headers)
         except ClientException, err:

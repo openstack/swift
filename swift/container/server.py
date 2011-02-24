@@ -46,7 +46,8 @@ class ContainerController(object):
     """WSGI Controller for the container server."""
 
     # Ensure these are all lowercase
-    save_headers = ['x-container-read', 'x-container-write']
+    save_headers = ['x-container-read', 'x-container-write',
+                    'x-container-sync-key', 'x-container-sync-to']
 
     def __init__(self, conf):
         self.logger = get_logger(conf, log_route='container-server')
@@ -232,7 +233,8 @@ class ContainerController(object):
         }
         headers.update((key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
-            if value != '')
+            if value != '' and (key.lower() in self.save_headers or
+                                key.lower().startswith('x-container-meta-')))
         return HTTPNoContent(request=req, headers=headers)
 
     def GET(self, req):
@@ -259,7 +261,8 @@ class ContainerController(object):
         }
         resp_headers.update((key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
-            if value != '')
+            if value != '' and (key.lower() in self.save_headers or
+                                key.lower().startswith('x-container-meta-')))
         try:
             path = get_param(req, 'path')
             prefix = get_param(req, 'prefix')

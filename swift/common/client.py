@@ -566,9 +566,9 @@ def head_object(url, token, container, name, http_conn=None):
     return resp_headers
 
 
-def put_object(url, token, container, name, contents, content_length=None,
-               etag=None, chunk_size=65536, content_type=None, headers=None,
-               http_conn=None):
+def put_object(url, token=None, container=None, name=None, contents=None,
+               content_length=None, etag=None, chunk_size=65536,
+               content_type=None, headers=None, http_conn=None):
     """
     Put an object
 
@@ -592,10 +592,17 @@ def put_object(url, token, container, name, contents, content_length=None,
         parsed, conn = http_conn
     else:
         parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    if not headers:
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
         headers = {}
-    headers['X-Auth-Token'] = token
+    if token:
+        headers['X-Auth-Token'] = token
     if etag:
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
@@ -634,7 +641,7 @@ def put_object(url, token, container, name, contents, content_length=None,
         raise ClientException('Object PUT failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    return resp.getheader('etag').strip('"')
+    return resp.getheader('etag', '').strip('"')
 
 
 def post_object(url, token, container, name, headers, http_conn=None):
@@ -665,7 +672,8 @@ def post_object(url, token, container, name, headers, http_conn=None):
                 http_status=resp.status, http_reason=resp.reason)
 
 
-def delete_object(url, token, container, name, http_conn=None):
+def delete_object(url, token=None, container=None, name=None, http_conn=None,
+                  headers=None):
     """
     Delete object
 
@@ -681,8 +689,18 @@ def delete_object(url, token, container, name, http_conn=None):
         parsed, conn = http_conn
     else:
         parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    conn.request('DELETE', path, '', {'X-Auth-Token': token})
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
+        headers = {}
+    if token:
+        headers['X-Auth-Token'] = token
+    conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
     resp.read()
     if resp.status < 200 or resp.status >= 300:

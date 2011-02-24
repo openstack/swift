@@ -31,9 +31,10 @@ RUN_DIR = '/var/run/swift'
 
 # auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
-    'container-replicator', 'container-server', 'container-updater',
-    'object-auditor', 'object-server', 'object-replicator', 'object-updater',
-    'proxy-server', 'account-replicator', 'account-reaper']
+    'container-replicator', 'container-server', 'container-sync',
+    'container-updater', 'object-auditor', 'object-server',
+    'object-replicator', 'object-updater', 'proxy-server',
+    'account-replicator', 'account-reaper']
 MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
                 'object-server']
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
