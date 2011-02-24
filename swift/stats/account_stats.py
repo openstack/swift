@@ -21,7 +21,6 @@ import hashlib
 
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.common.db import AccountBroker
-from swift.common.internal_proxy import InternalProxy
 from swift.common.utils import renamer, get_logger, readconf, mkdirs
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
@@ -49,7 +48,8 @@ class AccountStat(Daemon):
         self.devices = server_conf.get('devices', '/srv/node')
         self.mount_check = server_conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.logger = get_logger(stats_conf, 'swift-account-stats-logger')
+        self.logger = \
+            get_logger(stats_conf, log_route='account-stats')
 
     def run_once(self):
         self.logger.info(_("Gathering account stats"))

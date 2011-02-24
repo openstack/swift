@@ -634,7 +634,7 @@ class Controller(object):
                             res.bytes_transferred += len(chunk)
                     except GeneratorExit:
                         res.client_disconnect = True
-                        self.app.logger.info(_('Client disconnected on read'))
+                        self.app.logger.warn(_('Client disconnected on read'))
                     except (Exception, TimeoutError):
                         self.exception_occurred(node, _('Object'),
                             _('Trying to read during GET of %s') % req.path)
@@ -1028,7 +1028,7 @@ class ObjectController(Controller):
                         conn.queue.join()
             conns = [conn for conn in conns if not conn.failed]
         except ChunkReadTimeout, err:
-            self.app.logger.info(
+            self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
         except Exception:
@@ -1038,7 +1038,7 @@ class ObjectController(Controller):
             return Response(status='499 Client Disconnect')
         if req.content_length and req.bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.info(
+            self.app.logger.warn(
                 _('Client disconnected without sending enough data'))
             return Response(status='499 Client Disconnect')
         statuses = []
@@ -1361,12 +1361,20 @@ class BaseApplication(object):
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
-        if logger is None:
-            self.logger = get_logger(conf)
-        else:
-            self.logger = logger
         if conf is None:
             conf = {}
+        if logger is None:
+            self.logger = get_logger(conf, log_route='proxy-server')
+            access_log_conf = {}
+            for key in ('log_facility', 'log_name', 'log_level'):
+                value = conf.get('access_' + key, conf.get(key, None))
+                if value:
+                    access_log_conf[key] = value
+            self.access_logger = get_logger(access_log_conf,
+                                            log_route='proxy-access')
+        else:
+            self.logger = self.access_logger = logger
+
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
@@ -1546,7 +1554,7 @@ class Application(BaseApplication):
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
             status_int = 499
-        self.logger.info(' '.join(quote(str(x)) for x in (
+        self.access_logger.info(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',
                 time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),

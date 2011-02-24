@@ -19,7 +19,7 @@ from errno import EEXIST
 from gzip import GzipFile
 from os import mkdir
 from os.path import basename, dirname, exists, join as pathjoin
-from sys import argv, exit
+from sys import argv, exit, modules
 from textwrap import wrap
 from time import time
 
@@ -48,6 +48,8 @@ The <search-value> can be of the form:
         /sdb1            Matches devices with the device name sdb1
         _shiny           Matches devices with shiny in the meta data
         _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
+        [::1]            Matches devices in any zone with the ip ::1
+        z1-[::1]:5678    Matches devices in zone 1 with the ip ::1 and port 5678
     Most specific example:
         d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
     Nerd explanation:
@@ -75,6 +77,13 @@ The <search-value> can be of the form:
         while i < len(search_value) and search_value[i] in '0123456789.':
             i += 1
         match.append(('ip', search_value[:i]))
+        search_value = search_value[i:]
+    elif len(search_value) and search_value[0] == '[':
+        i = 1
+        while i < len(search_value) and search_value[i] != ']':
+            i += 1
+        i += 1
+        match.append(('ip', search_value[:i].lstrip('[').rstrip(']')))
         search_value = search_value[i:]
     if search_value.startswith(':'):
         i = 1
@@ -110,6 +119,16 @@ The <search-value> can be of the form:
     return devs
 
 
+def format_device(dev):
+    """
+    Format a device for display.
+    """
+    if ':' in dev['ip']:
+        return 'd%(id)sz%(zone)s-[%(ip)s]:%(port)s/%(device)s_"%(meta)s"' % dev
+    else:
+        return 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s"' % dev
+
+
 class Commands:
 
     def unknown():
@@ -134,9 +153,9 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         except OSError, err:
             if err.errno != EEXIST:
                 raise
-        pickle.dump(builder, open(pathjoin(backup_dir,
+        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % time() + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def default():
@@ -235,10 +254,18 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
             print 'Invalid add value: %s' % argv[3]
             exit(EXIT_ERROR)
         i = 1
-        while i < len(rest) and rest[i] in '0123456789.':
+        if rest[i] == '[':
             i += 1
-        ip = rest[1:i]
-        rest = rest[i:]
+            while i < len(rest) and rest[i] != ']':
+                i += 1
+            i += 1
+            ip = rest[1:i].lstrip('[').rstrip(']')
+            rest = rest[i:]
+        else:
+            while i < len(rest) and rest[i] in '0123456789.':
+                i += 1
+            ip = rest[1:i]
+            rest = rest[i:]
 
         if not rest.startswith(':'):
             print 'Invalid add value: %s' % argv[3]
@@ -279,9 +306,13 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
         builder.add_dev({'id': next_dev_id, 'zone': zone, 'ip': ip,
                          'port': port, 'device': device_name, 'weight': weight,
                          'meta': meta})
-        print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
-              (zone, ip, port, device_name, meta, weight, next_dev_id)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        if ':' in ip:
+            print 'Device z%s-[%s]:%s/%s_"%s" with %s weight got id %s' % \
+                  (zone, ip, port, device_name, meta, weight, next_dev_id)
+        else:
+            print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
+                  (zone, ip, port, device_name, meta, weight, next_dev_id)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_weight():
@@ -314,7 +345,7 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
             builder.set_dev_weight(dev['id'], weight)
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'weight set to %(weight)s' % dev
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_info():
@@ -342,6 +373,13 @@ swift-ring-builder <builder_file> set_info <search-value>
                 i += 1
             change.append(('ip', change_value[:i]))
             change_value = change_value[i:]
+        elif len(change_value) and change_value[0] == '[':
+            i = 1
+            while i < len(change_value) and change_value[i] != ']':
+                i += 1
+            i += 1
+            change.append(('ip', change_value[:i].lstrip('[').rstrip(']')))
+            change_value = change_value[i:]
         if change_value.startswith(':'):
             i = 1
             while i < len(change_value) and change_value[i].isdigit():
@@ -366,15 +404,13 @@ swift-ring-builder <builder_file> set_info <search-value>
         if len(devs) > 1:
             print 'Matched more than one device:'
             for dev in devs:
-                print '    d%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_' \
-                      '"%(meta)s"' % dev
+                print '    %s' % format_device(dev)
             if raw_input('Are you sure you want to update the info for '
                          'these %s devices? (y/N) ' % len(devs)) != 'y':
                 print 'Aborting device modifications'
                 exit(EXIT_ERROR)
         for dev in devs:
-            orig_dev_string = \
-                'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s"' % dev
+            orig_dev_string = format_device(dev)
             test_dev = dict(dev)
             for key, value in change:
                 test_dev[key] = value
@@ -390,10 +426,8 @@ swift-ring-builder <builder_file> set_info <search-value>
                     exit(EXIT_ERROR)
             for key, value in change:
                 dev[key] = value
-            new_dev_string = \
-                'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s"' % dev
-            print 'Device %s is now %s' % (orig_dev_string, new_dev_string)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+            print 'Device %s is now %s' % (orig_dev_string, format_device(dev))
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def remove():
@@ -429,7 +463,7 @@ swift-ring-builder <builder_file> remove <search-value>
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'marked for removal and will be removed next rebalance.' \
                   % dev
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def rebalance():
@@ -461,13 +495,14 @@ swift-ring-builder <builder_file> rebalance
                   % builder.min_part_hours
             print '-' * 79
         ts = time()
-        pickle.dump(builder.get_ring(),
+        pickle.dump(builder.get_ring().to_dict(),
                     GzipFile(pathjoin(backup_dir, '%d.' % ts +
                         basename(ring_file)), 'wb'), protocol=2)
-        pickle.dump(builder, open(pathjoin(backup_dir,
+        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % ts + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder.get_ring(), GzipFile(ring_file, 'wb'), protocol=2)
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.get_ring().to_dict(), GzipFile(ring_file, 'wb'),
+                    protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def validate():
@@ -494,15 +529,15 @@ swift-ring-builder <builder_file> write_ring
                       '"rebalance"?'
             else:
                 print 'Warning: Writing an empty ring'
-        pickle.dump(ring_data,
+        pickle.dump(ring_data.to_dict(),
                     GzipFile(pathjoin(backup_dir, '%d.' % time() +
                         basename(ring_file)), 'wb'), protocol=2)
-        pickle.dump(ring_data, GzipFile(ring_file, 'wb'), protocol=2)
+        pickle.dump(ring_data.to_dict(), GzipFile(ring_file, 'wb'), protocol=2)
         exit(EXIT_RING_CHANGED)
 
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
     def set_min_part_hours():
@@ -518,7 +553,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         builder.change_min_part_hours(int(argv[3]))
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is now set to %s' % argv[3]
-        pickle.dump(builder, open(argv[1], 'wb'), protocol=2)
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_RING_UNCHANGED)
 
 
@@ -544,7 +579,17 @@ if __name__ == '__main__':
         exit(EXIT_RING_UNCHANGED)
 
     if exists(argv[1]):
-        builder = pickle.load(open(argv[1], 'rb'))
+        try:
+            builder = pickle.load(open(argv[1], 'rb'))
+            if not hasattr(builder, 'devs'):
+                builder_dict = builder
+                builder = RingBuilder(1, 1, 1)
+                builder.copy_from(builder_dict)
+        except ImportError:  # Happens with really old builder pickles
+            modules['swift.ring_builder'] = \
+                modules['swift.common.ring.builder']
+            builder = RingBuilder(1, 1, 1)
+            builder.copy_from(pickle.load(open(argv[1], 'rb')))
         for dev in builder.devs:
             if dev and 'meta' not in dev:
                 dev['meta'] = ''

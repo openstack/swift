@@ -20,7 +20,7 @@ class StatsLogProcessor(object):
     """Transform account storage stat logs"""
 
     def __init__(self, conf):
-        self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='stats-processor')
 
     def process(self, obj_stream, data_object_account, data_object_container,
                 data_object_name):

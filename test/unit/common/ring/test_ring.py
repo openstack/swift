@@ -50,7 +50,8 @@ class TestRing(unittest.TestCase):
         os.mkdir(self.testdir)
         self.testgz = os.path.join(self.testdir, 'ring.gz')
         self.intended_replica2part2dev_id = [[0, 2, 0, 2], [2, 0, 2, 0]]
-        self.intended_devs = [{'id': 0, 'zone': 0}, None, {'id': 2, 'zone': 2}]
+        self.intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0}, None,
+                              {'id': 2, 'zone': 2, 'weight': 1.0}]
         self.intended_part_shift = 30
         self.intended_reload_time = 15
         pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
@@ -69,10 +70,17 @@ class TestRing(unittest.TestCase):
         self.assertEquals(self.ring.devs, self.intended_devs)
         self.assertEquals(self.ring.reload_time, self.intended_reload_time)
         self.assertEquals(self.ring.pickle_gz_path, self.testgz)
+        # test invalid endcap
+        _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
+        try:
+            utils.HASH_PATH_SUFFIX = ''
+            self.assertRaises(SystemExit, ring.Ring, self.testgz)
+        finally:
+            utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
 
     def test_has_changed(self):
         self.assertEquals(self.ring.has_changed(), False)
-        os.utime(self.testgz, (time()+60, time()+60))
+        os.utime(self.testgz, (time() + 60, time() + 60))
         self.assertEquals(self.ring.has_changed(), True)
 
     def test_reload(self):
@@ -80,7 +88,7 @@ class TestRing(unittest.TestCase):
         self.ring = ring.Ring(self.testgz, reload_time=0.001)
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 3)
-        self.intended_devs.append({'id': 3, 'zone': 3})
+        self.intended_devs.append({'id': 3, 'zone': 3, 'weight': 1.0})
         pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift),
             GzipFile(self.testgz, 'wb'))
@@ -93,7 +101,7 @@ class TestRing(unittest.TestCase):
         self.ring = ring.Ring(self.testgz, reload_time=0.001)
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 4)
-        self.intended_devs.append({'id': 4, 'zone': 4})
+        self.intended_devs.append({'id': 4, 'zone': 4, 'weight': 1.0})
         pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift),
             GzipFile(self.testgz, 'wb'))
@@ -108,7 +116,7 @@ class TestRing(unittest.TestCase):
         orig_mtime = self.ring._mtime
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 5)
-        self.intended_devs.append({'id': 5, 'zone': 5})
+        self.intended_devs.append({'id': 5, 'zone': 5, 'weight': 1.0})
         pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift),
             GzipFile(self.testgz, 'wb'))
@@ -127,57 +135,71 @@ class TestRing(unittest.TestCase):
         self.assertRaises(TypeError, self.ring.get_nodes)
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a1')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a4')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [{'id': 2, 'zone': 2}, {'id': 0, 'zone': 0}])
+        self.assertEquals(nodes, [{'id': 2, 'zone': 2, 'weight': 1.0},
+                                  {'id': 0, 'zone': 0, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('aa')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [{'id': 2, 'zone': 2}, {'id': 0, 'zone': 0}])
+        self.assertEquals(nodes, [{'id': 2, 'zone': 2, 'weight': 1.0},
+                                  {'id': 0, 'zone': 0, 'weight': 1.0}])
 
         part, nodes = self.ring.get_nodes('a', 'c1')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c0')
         self.assertEquals(part, 3)
-        self.assertEquals(nodes, [{'id': 2, 'zone': 2}, {'id': 0, 'zone': 0}])
+        self.assertEquals(nodes, [{'id': 2, 'zone': 2, 'weight': 1.0},
+                                  {'id': 0, 'zone': 0, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c3')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o1')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [{'id': 2, 'zone': 2}, {'id': 0, 'zone': 0}])
+        self.assertEquals(nodes, [{'id': 2, 'zone': 2, 'weight': 1.0},
+                                  {'id': 0, 'zone': 0, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c', 'o5')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c', 'o0')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
 
     def test_get_more_nodes(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someone changes the results the ring produces, they know it.
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         nodes = list(self.ring.get_more_nodes(part))
         self.assertEquals(nodes, [])
 
-        self.ring.devs.append({'id': 3, 'zone': 0})
+        self.ring.devs.append({'id': 3, 'zone': 0, 'weight': 1.0})
         self.ring.zone2devs[0].append(self.ring.devs[3])
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         nodes = list(self.ring.get_more_nodes(part))
         self.assertEquals(nodes, [])
 
@@ -186,18 +208,36 @@ class TestRing(unittest.TestCase):
         self.ring.zone2devs[3] = [self.ring.devs[3]]
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         nodes = list(self.ring.get_more_nodes(part))
-        self.assertEquals(nodes, [{'id': 3, 'zone': 3}])
+        self.assertEquals(nodes, [{'id': 3, 'zone': 3, 'weight': 1.0}])
 
         self.ring.devs.append(None)
-        self.ring.devs.append({'id': 5, 'zone': 5})
+        self.ring.devs.append({'id': 5, 'zone': 5, 'weight': 1.0})
         self.ring.zone2devs[5] = [self.ring.devs[5]]
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [{'id': 0, 'zone': 0}, {'id': 2, 'zone': 2}])
+        self.assertEquals(nodes, [{'id': 0, 'zone': 0, 'weight': 1.0},
+                                  {'id': 2, 'zone': 2, 'weight': 1.0}])
         nodes = list(self.ring.get_more_nodes(part))
-        self.assertEquals(nodes, [{'id': 3, 'zone': 3}, {'id': 5, 'zone': 5}])
+        self.assertEquals(nodes, [{'id': 3, 'zone': 3, 'weight': 1.0},
+                                  {'id': 5, 'zone': 5, 'weight': 1.0}])
+
+        self.ring.devs.append({'id': 6, 'zone': 5, 'weight': 1.0})
+        self.ring.zone2devs[5].append(self.ring.devs[6])
+        nodes = list(self.ring.get_more_nodes(part))
+        self.assertEquals(nodes, [{'id': 3, 'zone': 3, 'weight': 1.0},
+                                  {'id': 5, 'zone': 5, 'weight': 1.0}])
+        self.ring.devs[5]['weight'] = 0
+        nodes = list(self.ring.get_more_nodes(part))
+        self.assertEquals(nodes, [{'id': 3, 'zone': 3, 'weight': 1.0},
+                                  {'id': 6, 'zone': 5, 'weight': 1.0}])
+        self.ring.devs[3]['weight'] = 0
+        self.ring.devs.append({'id': 7, 'zone': 6, 'weight': 0.0})
+        self.ring.zone2devs[6] = [self.ring.devs[7]]
+        nodes = list(self.ring.get_more_nodes(part))
+        self.assertEquals(nodes, [{'id': 6, 'zone': 5, 'weight': 1.0}])
 
 
 if __name__ == '__main__':

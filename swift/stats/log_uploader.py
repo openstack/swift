@@ -64,8 +64,9 @@ class LogUploader(Daemon):
         self.container_name = container_name
         self.filename_format = source_filename_format
         self.internal_proxy = InternalProxy(proxy_server_conf)
-        log_name = 'swift-log-uploader-%s' % plugin_name
-        self.logger = utils.get_logger(uploader_conf, plugin_name)
+        log_name = '%s-log-uploader' % plugin_name
+        self.logger = utils.get_logger(uploader_conf, log_name,
+                                       log_route=plugin_name)
 
     def run_once(self):
         self.logger.info(_("Uploading logs"))
@@ -78,7 +79,7 @@ class LogUploader(Daemon):
         i = [(self.filename_format.index(c), c) for c in '%Y %m %d %H'.split()]
         i.sort()
         year_offset = month_offset = day_offset = hour_offset = None
-        base_offset = len(self.log_dir)
+        base_offset = len(self.log_dir.rstrip('/')) + 1
         for start, c in i:
             offset = base_offset + start
             if c == '%Y':

@@ -14,180 +14,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
-import errno
-import glob
-import os
-import resource
-import signal
 import sys
-import time
+from optparse import OptionParser
 
-ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
-    'container-replicator', 'container-server', 'container-updater',
-    'object-auditor', 'object-server', 'object-replicator', 'object-updater',
-    'proxy-server', 'account-replicator', 'auth-server', 'account-reaper']
-GRACEFUL_SHUTDOWN_SERVERS = ['account-server', 'container-server',
-    'object-server', 'proxy-server', 'auth-server']
-MAX_DESCRIPTORS = 32768
-MAX_MEMORY = (1024 * 1024 * 1024) * 2 # 2 GB
+from swift.common.manager import Server, Manager, UnknownCommandError
 
-_junk, server, command = sys.argv
-if server == 'all':
-    servers = ALL_SERVERS
-else:
-    if '-' not in server:
-        server = '%s-server' % server
-    servers = [server]
-command = command.lower()
+USAGE = """%prog <server> [<server> ...] <command> [options]
 
-def pid_files(server):
-    if os.path.exists('/var/run/swift/%s.pid' % server):
-        pid_files = ['/var/run/swift/%s.pid' % server]
-    else:
-        pid_files = glob.glob('/var/run/swift/%s/*.pid' % server)
-    for pid_file in pid_files:
-        pid = int(open(pid_file).read().strip())
-        yield pid_file, pid
+Commands:
+""" + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
 
-def do_start(server, once=False):
-    server_type = '-'.join(server.split('-')[:-1])
 
-    for pid_file, pid in pid_files(server):
-        if os.path.exists('/proc/%s' % pid):
-            print "%s appears to already be running: %s" % (server, pid_file)
-            return
-        else:
-            print "Removing stale pid file %s" % pid_file
-            os.unlink(pid_file)
+def main():
+    parser = OptionParser(USAGE)
+    parser.add_option('-v', '--verbose', action="store_true",
+                      default=False, help="display verbose output")
+    parser.add_option('-w', '--no-wait', action="store_false", dest="wait",
+                      default=True, help="won't wait for server to start "
+                      "before returning")
+    parser.add_option('-o', '--once', action="store_true",
+                      default=False, help="only run one pass of daemon")
+    # this is a negative option, default is options.daemon = True
+    parser.add_option('-n', '--no-daemon', action="store_false", dest="daemon",
+                      default=True, help="start server interactively")
+    parser.add_option('-g', '--graceful', action="store_true",
+                      default=False, help="send SIGHUP to supporting servers")
+    parser.add_option('-c', '--config-num', metavar="N", type="int",
+                      dest="number", default=0,
+                      help="send command to the Nth server only")
+    options, args = parser.parse_args()
 
+    if len(args) < 2:
+        parser.print_help()
+        print 'ERROR: specify server(s) and command'
+        return 1
+
+    command = args[-1]
+    servers = args[:-1]
+
+    # this is just a silly swap for me cause I always try to "start main"
+    commands = dict(Manager.list_commands()).keys()
+    if command not in commands and servers[0] in commands:
+        servers.append(command)
+        command = servers.pop(0)
+
+    manager = Manager(servers)
     try:
-        resource.setrlimit(resource.RLIMIT_NOFILE,
-                (MAX_DESCRIPTORS, MAX_DESCRIPTORS))
-        resource.setrlimit(resource.RLIMIT_DATA,
-                (MAX_MEMORY, MAX_MEMORY))
-    except ValueError:
-        print "Unable to increase file descriptor limit.  Running as non-root?"
-    os.environ['PYTHON_EGG_CACHE'] = '/tmp'
+        status = manager.run_command(command, **options.__dict__)
+    except UnknownCommandError:
+        parser.print_help()
+        print 'ERROR: unknown command, %s' % command
+        status = 1
 
-    def write_pid_file(pid_file, pid):
-        dir, file = os.path.split(pid_file)
-        if not os.path.exists(dir):
-            try:
-                os.makedirs(dir)
-            except OSError, err:
-                if err.errno == errno.EACCES:
-                    sys.exit('Unable to create %s.  Running as non-root?' % dir)
-        fp = open(pid_file, 'w')
-        fp.write('%d\n' % pid)
-        fp.close()
+    return 1 if status else 0
 
-    def launch(ini_file, pid_file):
-        cmd = 'swift-%s' % server
-        args = [server, ini_file]
-        if once:
-            print 'Running %s once' % server
-            args.append('once')
-        else:
-            print 'Starting %s' % server
 
-        pid = os.fork()
-        if pid == 0:
-            os.setsid()
-            with open(os.devnull, 'r+b') as nullfile:
-                for desc in (0, 1, 2): # close stdio
-                    try:
-                        os.dup2(nullfile.fileno(), desc)
-                    except OSError:
-                        pass
-            try:
-                if once:
-                    os.execlp('swift-%s' % server, server,
-                        ini_file, 'once')
-                else:
-                    os.execlp('swift-%s' % server, server, ini_file)
-            except OSError:
-                print 'unable to launch %s' % server
-            sys.exit(0)
-        else:
-            write_pid_file(pid_file, pid)
-
-    ini_file = '/etc/swift/%s-server.conf' % server_type
-    if os.path.exists(ini_file):
-        # single config file over-rides config dirs
-        pid_file = '/var/run/swift/%s.pid' % server
-        launch_args = [(ini_file, pid_file)]
-    elif os.path.exists('/etc/swift/%s-server/' % server_type):
-        # found config directory, searching for config file(s)
-        launch_args = []
-        for num, ini_file in enumerate(glob.glob('/etc/swift/%s-server/*.conf' \
-                        % server_type)):
-            pid_file = '/var/run/swift/%s/%d.pid' % (server, num)
-            # start a server for each ini_file found
-            launch_args.append((ini_file, pid_file))
-    else:
-        # maybe there's a config file(s) out there, but I couldn't find it!
-        print 'Unable to locate config file for %s. %s does not exist?' % \
-                    (server, ini_file)
-        return
-
-    # start all servers
-    for ini_file, pid_file in launch_args:
-        launch(ini_file, pid_file)
-
-def do_stop(server, graceful=False):
-    if graceful and server in GRACEFUL_SHUTDOWN_SERVERS:
-        sig = signal.SIGHUP
-    else:
-        sig = signal.SIGTERM
-
-    did_anything = False
-    pfiles = pid_files(server)
-    for pid_file, pid in pfiles:
-        did_anything = True
-        try:
-            print 'Stopping %s  pid: %s  signal: %s' % (server, pid, sig)
-            os.kill(pid, sig)
-        except OSError:
-            print "Process %d not running" % pid
-        try:
-            os.unlink(pid_file)
-        except OSError:
-            pass
-    for pid_file, pid in pfiles:
-        for _junk in xrange(150):  # 15 seconds
-            if not os.path.exists('/proc/%s' % pid):
-                break
-            time.sleep(0.1)
-        else:
-            print 'Waited 15 seconds for pid %s (%s) to die; giving up' % \
-                  (pid, pid_file)
-    if not did_anything:
-        print 'No %s running' % server
-
-if command == 'start':
-    for server in servers:
-        do_start(server)
-
-if command == 'stop':
-    for server in servers:
-        do_stop(server)
-
-if command == 'shutdown':
-    for server in servers:
-        do_stop(server, graceful=True)
-
-if command == 'restart':
-    for server in servers:
-        do_stop(server)
-    for server in servers:
-        do_start(server)
-
-if command == 'reload' or command == 'force-reload':
-    for server in servers:
-        do_stop(server, graceful=True)
-        do_start(server)
-
-if command == 'once':
-    for server in servers:
-        do_start(server, once=True)
+if __name__ == "__main__":
+    sys.exit(main())

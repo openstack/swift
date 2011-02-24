@@ -116,6 +116,13 @@ MemCacheD
     :members:
     :show-inheritance:
 
+Manager
+=========
+
+.. automodule:: swift.common.manager
+    :members:
+    :show-inheritance:
+
 Ratelimit
 =========
 
