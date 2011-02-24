@@ -11,22 +11,24 @@ from test import get_config
 
 from swift.common.client import get_auth, http_connection
 
+conf = get_config()
 
-swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
-swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
-
-# If no environment set, fall back to old school conf file
-if not all([swift_test_auth, swift_test_user[0], swift_test_key[0]]):
-    conf = get_config()
-
+if not conf:
+    # If no conf was read, fall back to old school env
+    swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
+    swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
+    swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
+else:
     swift_test_auth = 'http'
     if conf.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
         swift_test_auth = 'https'
     if 'auth_prefix' not in conf:
         conf['auth_prefix'] = '/'
-    swift_test_auth += \
-        '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
+    try:
+        swift_test_auth += \
+                '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
+    except KeyError:
+        pass # skip
     if 'account' in conf:
         swift_test_user[0] = '%(account)s:%(username)s' % conf
     else:
