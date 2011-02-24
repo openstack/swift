@@ -667,7 +667,6 @@ log_name = yarr'''
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
-
     def test_search_tree(self):
         # file match & ext miss
         with temptree(['asdf.conf', 'blarg.conf', 'asdf.cfg']) as t:

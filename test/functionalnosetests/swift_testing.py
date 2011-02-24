@@ -28,7 +28,7 @@ if conf:
         swift_test_auth += \
                 '://%(auth_host)s:%(auth_port)s%(auth_prefix)sv1.0' % conf
     except KeyError:
-        pass # skip
+        pass  # skip
     if 'account' in conf:
         swift_test_user[0] = '%(account)s:%(username)s' % conf
     else:
@@ -39,13 +39,13 @@ if conf:
                                        in conf else '', conf['username2'])
         swift_test_key[1] = conf['password2']
     except KeyError, err:
-        pass # old conf, no second account tests can be run
+        pass  # old conf, no second account tests can be run
     try:
         swift_test_user[2] = '%s%s' % ('%s:' % conf['account'] if 'account'
                                        in conf else '', conf['username3'])
         swift_test_key[2] = conf['password3']
     except KeyError, err:
-        pass # old conf, no third account tests can be run
+        pass  # old conf, no third account tests can be run
 
 skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
 if skip:
@@ -73,7 +73,8 @@ class InternalServerError(Exception):
 url = [None, None, None]
 token = [None, None, None]
 parsed = [None, None, None]
-conn  = [None, None, None]
+conn = [None, None, None]
+
 
 def retry(func, *args, **kwargs):
     """

@@ -29,7 +29,6 @@ import unittest
 import urllib
 
 from test import get_config
-
 from swift import Account, AuthenticationFailed, Connection, Container, \
      File, ResponseError
 

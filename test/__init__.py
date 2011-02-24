@@ -11,7 +11,11 @@ from swift.common.utils import readconf
 
 setattr(__builtin__, '_', lambda x: x)
 
+
 def get_config():
+    """
+    Attempt to get a functional config dictionary.
+    """
     config_file = os.environ.get('SWIFT_TEST_CONFIG_FILE',
                                  '/etc/swift/func_test.conf')
     config = {}
@@ -24,4 +28,3 @@ def get_config():
     except SystemExit:
         print >>sys.stderr, 'UNABLE TO READ FUNCTIONAL TESTS CONFIG FILE'
     return config
-
