@@ -187,7 +187,7 @@ class DevAuth(object):
             # account DELETE or PUT...
             req.environ['swift_owner'] = True
             return None
-        if ('swift_sync_key' in req.environ and
+        if (req.environ.get('swift_sync_key') and
              req.environ['swift_sync_key'] ==
                 req.headers.get('x-container-sync-key', None) and
              (req.remote_addr in self.allowed_sync_hosts or

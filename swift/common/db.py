@@ -665,7 +665,8 @@ class ContainerBroker(DatabaseBroker):
                 id TEXT,
                 status TEXT DEFAULT '',
                 status_changed_at TEXT DEFAULT '0',
-                metadata TEXT DEFAULT ''
+                metadata TEXT DEFAULT '',
+                x_container_sync_row INTEGER DEFAULT -1
             );
 
             INSERT INTO container_stat (object_count, bytes_used)
@@ -873,10 +874,11 @@ class ContainerBroker(DatabaseBroker):
         """
         Get global data for the container.
 
-        :returns: a tuple of (account, container, created_at, put_timestamp,
-                  delete_timestamp, object_count, bytes_used,
-                  reported_put_timestamp, reported_delete_timestamp,
-                  reported_object_count, reported_bytes_used, hash, id)
+        :returns: a dict with at least the following keys: account, container,
+                  created_at, put_timestamp, delete_timestamp, object_count,
+                  bytes_used, reported_put_timestamp,
+                  reported_delete_timestamp, reported_object_count,
+                  reported_bytes_used, hash, id, and x_container_sync_row
         """
         try:
             self._commit_puts()
@@ -884,13 +886,46 @@ class ContainerBroker(DatabaseBroker):
             if not self.stale_reads_ok:
                 raise
         with self.get() as conn:
-            return conn.execute('''
-                SELECT account, container, created_at, put_timestamp,
-                    delete_timestamp, object_count, bytes_used,
-                    reported_put_timestamp, reported_delete_timestamp,
-                    reported_object_count, reported_bytes_used, hash, id
-                FROM container_stat
-            ''').fetchone()
+            try:
+                return conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id,
+                        x_container_sync_row
+                    FROM container_stat
+                ''').fetchone()
+            except sqlite3.OperationalError, err:
+                if 'no such column: x_container_sync_row' not in str(err):
+                    raise
+                return conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id,
+                        -1 AS x_container_sync_row
+                    FROM container_stat
+                ''').fetchone()
+
+    def set_x_container_sync_row(self, value):
+        with self.get() as conn:
+            try:
+                conn.execute('''
+                    UPDATE container_stat
+                    SET x_container_sync_row = ?
+                ''', (value,))
+            except sqlite3.OperationalError, err:
+                if 'no such column: x_container_sync_row' not in str(err):
+                    raise
+                conn.execute('''
+                    ALTER TABLE container_stat
+                    ADD COLUMN x_container_sync_row INTEGER DEFAULT -1
+                ''')
+                conn.execute('''
+                    UPDATE container_stat
+                    SET x_container_sync_row = ?
+                ''', (value,))
+            conn.commit()
 
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):
@@ -1397,9 +1432,9 @@ class AccountBroker(DatabaseBroker):
         """
         Get global data for the account.
 
-        :returns: a tuple of (account, created_at, put_timestamp,
-                  delete_timestamp, container_count, object_count,
-                  bytes_used, hash, id)
+        :returns: a dict with at least the following keys: account, created_at,
+                  put_timestamp, delete_timestamp, container_count,
+                  object_count, bytes_used, hash, id
         """
         try:
             self._commit_puts()

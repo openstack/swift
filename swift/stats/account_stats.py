@@ -87,15 +87,10 @@ class AccountStat(Daemon):
                             db_path = os.path.join(root, filename)
                             broker = AccountBroker(db_path)
                             if not broker.is_deleted():
-                                (account_name,
-                                _junk, _junk, _junk,
-                                container_count,
-                                object_count,
-                                bytes_used,
-                                _junk, _junk) = broker.get_info()
+                                info = broker.get_info()
                                 line_data = '"%s",%d,%d,%d\n' % (
-                                    account_name, container_count,
-                                    object_count, bytes_used)
+                                    info['account'], info['container_count'],
+                                    info['object_count'], info['bytes_used'])
                                 statfile.write(line_data)
                                 hasher.update(line_data)
         file_hash = hasher.hexdigest()

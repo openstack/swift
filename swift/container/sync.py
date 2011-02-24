@@ -137,19 +137,12 @@ class ContainerSync(Daemon):
             if not broker.is_deleted():
                 sync_to = None
                 sync_key = None
-                sync_row = -1
+                sync_row = info['x_container_sync_row']
                 for key, (value, timestamp) in broker.metadata.iteritems():
                     if key.lower() == 'x-container-sync-to':
                         sync_to = value
                     elif key.lower() == 'x-container-sync-key':
                         sync_key = value
-                    # TODO: Make this a separate column, not a metadata item.
-                    # Each db should track what it has synced separately and
-                    # these metadata get ovewritten by newer values from other
-                    # dbs. Also, once a new column, it'll need special
-                    # attention when doing a fresh db copy.
-                    elif key.lower() == 'x-container-sync-row':
-                        sync_row = int(value)
                 if not sync_to or not sync_key:
                     self.container_skips += 1
                     return
@@ -171,8 +164,7 @@ class ContainerSync(Daemon):
                                                    broker, info):
                         return
                     sync_row = rows[0]['ROWID']
-                    broker.update_metadata({'X-Container-Sync-Row':
-                        (str(sync_row), normalize_timestamp(time.time()))})
+                    broker.set_x_container_sync_row(sync_row)
                 self.container_syncs += 1
         except Exception:
             self.container_failures += 1
