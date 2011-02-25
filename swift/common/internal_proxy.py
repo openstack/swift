@@ -59,6 +59,19 @@ class InternalProxy(object):
                                           logger=logger)
         self.retries = retries
 
+    def _handle_request(self, req):
+        req_copy = req.copy()
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req_copy))
+        tries = 1
+        while (resp.status_int < 200 or resp.status_int > 299) \
+                and tries <= self.retries:
+            req_copy = req.copy()
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req_copy))
+            tries += 1
+        return resp
+
     def upload_file(self, source_file, account, container, object_name,
                     compress=True, content_type='application/x-gzip',
                     etag=None):
@@ -100,14 +113,7 @@ class InternalProxy(object):
         req.content_length = None   # to make sure we send chunked data
         if etag:
             req.etag = etag
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-        tries = 1
-        while (resp.status_int < 200 or resp.status_int > 299) \
-                and tries <= self.retries:
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-            tries += 1
+        resp = self._handle_request(req)
         if not (200 <= resp.status_int < 300):
             return False
         return True
@@ -125,14 +131,7 @@ class InternalProxy(object):
                             (account, container, object_name),
                             environ={'REQUEST_METHOD': 'GET'})
         req.account = account
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-        tries = 1
-        while (resp.status_int < 200 or resp.status_int > 299) \
-                and tries <= self.retries:
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-            tries += 1
+        resp = self._handle_request(req)
         return resp.status_int, resp.app_iter
 
     def create_container(self, account, container):
@@ -146,14 +145,7 @@ class InternalProxy(object):
         req = webob.Request.blank('/v1/%s/%s' % (account, container),
                             environ={'REQUEST_METHOD': 'PUT'})
         req.account = account
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-        tries = 1
-        while (resp.status_int < 200 or resp.status_int > 299) \
-                and tries <= self.retries:
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-            tries += 1
+        resp = self._handle_request(req)
         return 200 <= resp.status_int < 300
 
     def get_container_list(self, account, container, marker=None,
@@ -200,14 +192,7 @@ class InternalProxy(object):
         path += '?%s' % qs
         req = webob.Request.blank(path, environ={'REQUEST_METHOD': 'GET'})
         req.account = account
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-        tries = 1
-        while (resp.status_int < 200 or resp.status_int > 299) \
-                and tries <= self.retries:
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req))
-            tries += 1
+        resp = self._handle_request(req)
         if resp.status_int == 204:
             return []
         if 200 <= resp.status_int < 300:
