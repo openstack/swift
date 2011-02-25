@@ -32,8 +32,7 @@ from swift.common.daemon import Daemon
 
 
 class BadFileDownload(Exception):
-    def __init__(self, status_code=None):
-        self.status_code = status_code
+    pass
 
 
 class LogProcessor(object):
@@ -163,7 +162,7 @@ class LogProcessor(object):
         code, o = self.internal_proxy.get_object(swift_account, container_name,
                                                  object_name)
         if code < 200 or code >= 300:
-            raise BadFileDownload(code)
+            raise BadFileDownload()
         last_part = ''
         last_compressed_part = ''
         # magic in the following zlib.decompressobj argument is courtesy of
@@ -273,13 +272,8 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except BadFileDownload, e:
-            if e.status_code == 404:
-                already_processed_files = set()
-            else:
-                self.logger.debug(_('Log processing was unable to download '
-                    'processed files list'))
-                return
+        except BadFileDownload:
+            already_processed_files = set()
         self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,
