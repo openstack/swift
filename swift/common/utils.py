@@ -748,7 +748,7 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     if defaults is None:
         defaults = {}
     c = ConfigParser(defaults)
-    if hasattr(conf, 'read'):
+    if hasattr(conf, 'readline'):
         c.readfp(conf)
     else:
         if not c.read(conf):
