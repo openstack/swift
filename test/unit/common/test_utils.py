@@ -277,14 +277,14 @@ class TestUtils(unittest.TestCase):
         utils.sys.stderr = stde
         self.assertRaises(SystemExit, utils.parse_options, once=True,
                           test_args=[])
-        self.assert_(stdo.getvalue().find('missing config file') >= 0)
+        self.assert_('missing config file' in stdo.getvalue())
 
         # verify conf file must exist, context manager will delete temp file
         with NamedTemporaryFile() as f:
             conf_file = f.name
         self.assertRaises(SystemExit, utils.parse_options, once=True,
                           test_args=[conf_file])
-        self.assert_(stdo.getvalue().find('unable to locate') >= 0)
+        self.assert_('unable to locate' in stdo.getvalue())
 
         # reset stdio
         utils.sys.stdout = orig_stdout

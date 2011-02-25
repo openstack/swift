@@ -174,22 +174,19 @@ class ObjectAuditor(Daemon):
 
     def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
-        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
-        zero_byte_pid = 1
-        if not zero_byte_only_at_fps:
-            zero_byte_pid = os.fork()
-        if zero_byte_pid == 0:
-            # child process runs the 'all'
-            while True:
-                self.run_once(mode='forever')
-                self._sleep()
+        # zero byte only command line option
+        zbo_fps = kwargs.get('zero_byte_fps', 0)
+        if zbo_fps:
+            # only start parent
+            parent = True
         else:
-            # no fork or forked parent path
-            while True:
-                self.run_once(mode='forever',
-                              zero_byte_fps=zero_byte_only_at_fps or
-                                            self.conf_zero_byte_fps)
-                self._sleep()
+            parent = os.fork()  # child gets parent = 0
+        kwargs = {'mode': 'forever'}
+        if parent:
+            kwargs['zero_byte_fps'] = zbo_fps or self.conf_zero_byte_fps
+        while True:
+            self.run_once(**kwargs)
+            self._sleep()
 
     def run_once(self, *args, **kwargs):
         """Run the object audit once."""
