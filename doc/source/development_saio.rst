@@ -374,6 +374,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [container-auditor]
 
+        [container-sync]
+
   #. Create `/etc/swift/container-server/2.conf`::
 
         [DEFAULT]
@@ -394,6 +396,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [container-updater]
 
         [container-auditor]
+
+        [container-sync]
 
   #. Create `/etc/swift/container-server/3.conf`::
 
@@ -416,6 +420,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [container-auditor]
 
+        [container-sync]
+
   #. Create `/etc/swift/container-server/4.conf`::
 
         [DEFAULT]
@@ -436,6 +442,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [container-updater]
 
         [container-auditor]
+
+        [container-sync]
 
 
   #. Create `/etc/swift/object-server/1.conf`::
