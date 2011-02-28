@@ -41,6 +41,12 @@ class MemcacheStub(object):
     def get_multi(self, *a, **kw):
         return []
 
+def webob_request_copy(orig_req):
+    # this should be as simple as return orig_req.copy(), but webob is buggy
+    req_copy = webob.Request.blank('', environ=orig_req.environ)
+    req_copy.body_file = orig_req.body_file
+    return orig_req
+
 
 class InternalProxy(object):
     """
@@ -60,13 +66,13 @@ class InternalProxy(object):
         self.retries = retries
 
     def _handle_request(self, req):
-        req_copy = req.copy()
+        req_copy = webob_request_copy(req)
         resp = self.upload_app.handle_request(
                                 self.upload_app.update_request(req_copy))
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries <= self.retries:
-            req_copy = req.copy()
+            req_copy = webob_request_copy(req)
             resp = self.upload_app.handle_request(
                                 self.upload_app.update_request(req_copy))
             tries += 1
@@ -97,23 +103,36 @@ class InternalProxy(object):
         req = webob.Request.blank(target_name,
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Transfer-Encoding': 'chunked'})
-        if compress:
-            if hasattr(source_file, 'read'):
-                compressed_file = CompressingFileReader(source_file)
-            else:
-                compressed_file = CompressingFileReader(
-                                    open(source_file, 'rb'))
-            req.body_file = compressed_file
-        else:
+
+        def make_request_body_file():
             if not hasattr(source_file, 'read'):
-                source_file = open(source_file, 'rb')
-            req.body_file = source_file
+                _source_file = open(source_file, 'rb')
+            else:
+                _source_file = open(source_file.name, 'rb')
+            _source_file.seek(0)
+            if compress:
+                compressed_file = CompressingFileReader(_source_file)
+                return compressed_file
+            return _source_file
+
+        req.body_file = make_request_body_file()
         req.account = account
         req.content_type = content_type
         req.content_length = None   # to make sure we send chunked data
         if etag:
             req.etag = etag
-        resp = self._handle_request(req)
+        req_copy = webob_request_copy(req)
+        req_copy.body_file = make_request_body_file()  # reset the read pointer
+        resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req_copy))
+        tries = 1
+        while (resp.status_int < 200 or resp.status_int > 299) \
+                and tries <= self.retries:
+            req_copy = webob_request_copy(req)
+            req_copy.body_file = make_request_body_file()
+            resp = self.upload_app.handle_request(
+                                self.upload_app.update_request(req_copy))
+            tries += 1
         if not (200 <= resp.status_int < 300):
             return False
         return True
