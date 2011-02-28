@@ -38,7 +38,7 @@ TRY_COUNT = 3
 # will be considered failed for ERROR_LIMIT_DURATION seconds.
 ERROR_LIMIT_COUNT = 10
 ERROR_LIMIT_TIME = 60
-ERROR_LIMIT_DURATION = 300
+ERROR_LIMIT_DURATION = 60
 
 
 def md5hash(key):
