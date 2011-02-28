@@ -165,7 +165,6 @@ class ObjectAuditor(Daemon):
 
     def __init__(self, conf, **options):
         self.conf = conf
-        self.logger = get_logger(conf, 'object-auditor')
         self.conf_zero_byte_fps = int(conf.get(
                 'zero_byte_files_per_second', 50))
 
