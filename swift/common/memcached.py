@@ -45,6 +45,10 @@ def md5hash(key):
     return md5(key).hexdigest()
 
 
+class MemcacheConnectionError(Exception):
+    pass
+
+
 class MemcacheRing(object):
     """
     Simple, consistent-hashed memcache client.
@@ -180,6 +184,7 @@ class MemcacheRing(object):
         :param delta: amount to add to the value of key (or set as the value
                       if the key is not found) will be cast to an int
         :param timeout: ttl in memcache
+        :raises MemcacheConnectionError:
         """
         key = md5hash(key)
         command = 'incr'
@@ -209,6 +214,7 @@ class MemcacheRing(object):
                 return ret
             except Exception, e:
                 self._exception_occurred(server, e)
+        raise MemcacheConnectionError("No Memcached connections succeeded.")
 
     def decr(self, key, delta=1, timeout=0):
         """
@@ -220,6 +226,7 @@ class MemcacheRing(object):
                       value to 0 if the key is not found) will be cast to
                       an int
         :param timeout: ttl in memcache
+        :raises MemcacheConnectionError:
         """
         self.incr(key, delta=-delta, timeout=timeout)
 
