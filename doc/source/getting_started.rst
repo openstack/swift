@@ -22,7 +22,6 @@ And the following python libraries:
 * Nose
 * Sphinx
 * netifaces
-* boto
 
 -----------
 Development

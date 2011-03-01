@@ -16,6 +16,9 @@
 """
 The swift3 middleware will emulate the S3 REST api on top of swift.
 
+The boto python library is necessary to use this middleware (install
+the python-boto package if you use Ubuntu).
+
 The following opperations are currently supported:
 
     * GET Service
