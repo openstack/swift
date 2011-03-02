@@ -666,7 +666,8 @@ class ContainerBroker(DatabaseBroker):
                 status TEXT DEFAULT '',
                 status_changed_at TEXT DEFAULT '0',
                 metadata TEXT DEFAULT '',
-                x_container_sync_row INTEGER DEFAULT -1
+                x_container_sync_point1 INTEGER DEFAULT -1,
+                x_container_sync_point2 INTEGER DEFAULT -1
             );
 
             INSERT INTO container_stat (object_count, bytes_used)
@@ -878,7 +879,8 @@ class ContainerBroker(DatabaseBroker):
                   created_at, put_timestamp, delete_timestamp, object_count,
                   bytes_used, reported_put_timestamp,
                   reported_delete_timestamp, reported_object_count,
-                  reported_bytes_used, hash, id, and x_container_sync_row
+                  reported_bytes_used, hash, id, x_container_sync_point1, and
+                  x_container_sync_point2
         """
         try:
             self._commit_puts()
@@ -892,40 +894,59 @@ class ContainerBroker(DatabaseBroker):
                         delete_timestamp, object_count, bytes_used,
                         reported_put_timestamp, reported_delete_timestamp,
                         reported_object_count, reported_bytes_used, hash, id,
-                        x_container_sync_row
+                        x_container_sync_point1, x_container_sync_point2
                     FROM container_stat
                 ''').fetchone()
             except sqlite3.OperationalError, err:
-                if 'no such column: x_container_sync_row' not in str(err):
+                if 'no such column: x_container_sync_point' not in str(err):
                     raise
                 return conn.execute('''
                     SELECT account, container, created_at, put_timestamp,
                         delete_timestamp, object_count, bytes_used,
                         reported_put_timestamp, reported_delete_timestamp,
                         reported_object_count, reported_bytes_used, hash, id,
-                        -1 AS x_container_sync_row
+                        -1 AS x_container_sync_point1,
+                        -1 AS x_container_sync_point2
                     FROM container_stat
                 ''').fetchone()
 
-    def set_x_container_sync_row(self, value):
+    def set_x_container_sync_points(self, sync_point1, sync_point2):
         with self.get() as conn:
             try:
-                conn.execute('''
-                    UPDATE container_stat
-                    SET x_container_sync_row = ?
-                ''', (value,))
+                self._set_x_container_sync_points(conn, sync_point1,
+                                                  sync_point2)
             except sqlite3.OperationalError, err:
-                if 'no such column: x_container_sync_row' not in str(err):
+                if 'no such column: x_container_sync_point' not in str(err):
                     raise
                 conn.execute('''
                     ALTER TABLE container_stat
-                    ADD COLUMN x_container_sync_row INTEGER DEFAULT -1
+                    ADD COLUMN x_container_sync_point1 INTEGER DEFAULT -1
                 ''')
                 conn.execute('''
-                    UPDATE container_stat
-                    SET x_container_sync_row = ?
-                ''', (value,))
+                    ALTER TABLE container_stat
+                    ADD COLUMN x_container_sync_point2 INTEGER DEFAULT -1
+                ''')
+                self._set_x_container_sync_points(conn, sync_point1,
+                                                  sync_point2)
             conn.commit()
+
+    def _set_x_container_sync_points(self, conn, sync_point1, sync_point2):
+        if sync_point1 is not None and sync_point2 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point1 = ?,
+                    x_container_sync_point2 = ?
+            ''', (sync_point1, sync_point2))
+        elif sync_point1 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point1 = ?
+            ''', (sync_point1,))
+        elif sync_point2 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point2 = ?
+            ''', (sync_point2,))
 
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):

@@ -1274,7 +1274,7 @@ class ContainerController(Controller):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not req.environ.get('owner', False):
+        if not req.environ.get('swift_owner', False):
             for key in ('x-container-read', 'x-container-write',
                         'x-container-sync-key', 'x-container-sync-to'):
                 if key in resp.headers:

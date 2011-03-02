@@ -16,13 +16,14 @@
 import os
 import time
 import random
+from struct import unpack_from
 
 from swift.container import server as container_server
 from swift.common import client, direct_client
 from swift.common.ring import Ring
 from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
-    normalize_timestamp, TRUE_VALUES, validate_sync_to
+    hash_path, normalize_timestamp, TRUE_VALUES, validate_sync_to, whataremyips
 from swift.common.daemon import Daemon
 
 
@@ -65,9 +66,8 @@ class ContainerSync(Daemon):
 
     This is done by scanning the local devices for container databases and
     checking for x-container-sync-to and x-container-sync-key metadata values.
-    If they exist, the last known synced ROWID is retreived from the container
-    broker via get_info()['x_container_sync_row']. All newer rows trigger PUTs
-    or DELETEs to the other container.
+    If they exist, newer rows since the last sync trigger PUTs or DELETEs to
+    the other container.
 
     .. note::
 
@@ -76,13 +76,57 @@ class ContainerSync(Daemon):
         considering solutions to this limitation but leaving it as is for now
         since POSTs are fairly uncommon.
 
+    The actual syncing is slightly more complicated to make use of the three
+    (or number-of-replicas) main nodes for a container without each trying to
+    do the exact same work but also without missing work if one node happens to
+    be down.
+
+    Two sync points are kept per container database. All rows between the two
+    sync points trigger updates. Any rows newer than both sync points cause
+    updates depending on the node's position for the container (primary nodes
+    do one third, etc. depending on the replica count of course). After a sync
+    run, the first sync point is set to the newest ROWID known and the second
+    sync point is set to newest ROWID for which all updates have been sent.
+
+    An example may help. Assume replica count is 3 and perfectly matching
+    ROWIDs starting at 1.
+
+        First sync run, database has 6 rows:
+
+            * SyncPoint1 starts as -1.
+            * SyncPoint2 starts as -1.
+            * No rows between points, so no "all updates" rows.
+            * Six rows newer than SyncPoint1, so a third of the rows are sent
+              by node 1, another third by node 2, remaining third by node 3.
+            * SyncPoint1 is set as 6 (the newest ROWID known).
+            * SyncPoint2 is left as -1 since no "all updates" rows were synced.
+
+        Next sync run, database has 12 rows:
+
+            * SyncPoint1 starts as 6.
+            * SyncPoint2 starts as -1.
+            * The rows between -1 and 6 all trigger updates (most of which
+              should short-circuit on the remote end as having already been
+              done).
+            * Six more rows newer than SyncPoint1, so a third of the rows are
+              sent by node 1, another third by node 2, remaining third by node
+              3.
+            * SyncPoint1 is set as 12 (the newest ROWID known).
+            * SyncPoint2 is set as 6 (the newest "all updates" ROWID).
+
+    In this way, under normal circumstances each node sends its share of
+    updates each run and just sends a batch of older updates to ensure nothing
+    was missed.
+
     :param conf: The dict of configuration values from the [container-sync]
                  section of the container-server.conf
+    :param container_ring: If None, the <swift_dir>/container.ring.gz will be
+                           loaded. This is overridden by unit tests.
     :param object_ring: If None, the <swift_dir>/object.ring.gz will be loaded.
                         This is overridden by unit tests.
     """
 
-    def __init__(self, conf, object_ring=None):
+    def __init__(self, conf, container_ring=None, object_ring=None):
         #: The dict of configuration values from the [container-sync] section
         #: of the container-server.conf.
         self.conf = conf
@@ -119,9 +163,14 @@ class ContainerSync(Daemon):
         #: Time of last stats report.
         self.reported = time.time()
         swift_dir = conf.get('swift_dir', '/etc/swift')
+        #: swift.common.ring.Ring for locating containers.
+        self.container_ring = container_ring or \
+            Ring(os.path.join(swift_dir, 'container.ring.gz'))
         #: swift.common.ring.Ring for locating objects.
         self.object_ring = object_ring or \
             Ring(os.path.join(swift_dir, 'object.ring.gz'))
+        self._myips = whataremyips()
+        self._myport = int(conf.get('bind_port', 6001))
 
     def run_forever(self):
         """
@@ -195,10 +244,18 @@ class ContainerSync(Daemon):
                 return
             broker = ContainerBroker(path)
             info = broker.get_info()
+            x, nodes = self.container_ring.get_nodes(info['account'],
+                                                     info['container'])
+            for ordinal, node in enumerate(nodes):
+                if node['ip'] in self._myips and node['port'] == self._myport:
+                    break
+            else:
+                return
             if not broker.is_deleted():
                 sync_to = None
                 sync_key = None
-                sync_row = info['x_container_sync_row']
+                sync_point1 = info['x_container_sync_point1']
+                sync_point2 = info['x_container_sync_point2']
                 for key, (value, timestamp) in broker.metadata.iteritems():
                     if key.lower() == 'x-container-sync-to':
                         sync_to = value
@@ -217,15 +274,37 @@ class ContainerSync(Daemon):
                     self.container_failures += 1
                     return
                 stop_at = time.time() + self.container_time
-                while time.time() < stop_at:
-                    rows = broker.get_items_since(sync_row, 1)
+                while time.time() < stop_at and sync_point2 < sync_point1:
+                    rows = broker.get_items_since(sync_point2, 1)
                     if not rows:
                         break
-                    if not self.container_sync_row(rows[0], sync_to, sync_key,
+                    row = rows[0]
+                    if row['ROWID'] >= sync_point1:
+                        break
+                    if not self.container_sync_row(row, sync_to, sync_key,
                                                    broker, info):
                         return
-                    sync_row = rows[0]['ROWID']
-                    broker.set_x_container_sync_row(sync_row)
+                    sync_point2 = row['ROWID']
+                    broker.set_x_container_sync_points(None, sync_point2)
+                while time.time() < stop_at:
+                    rows = broker.get_items_since(sync_point1, 1)
+                    if not rows:
+                        break
+                    row = rows[0]
+                    key = hash_path(info['account'], info['container'],
+                                    row['name'], raw_digest=True)
+                    # This node will only intially sync out one third of the
+                    # objects (if 3 replicas, 1/4 if 4, etc.). It'll come back
+                    # around to the section above and attempt to sync
+                    # previously skipped rows in case the other nodes didn't
+                    # succeed.
+                    if unpack_from('>I', key)[0] % \
+                            self.container_ring.replica_count == ordinal:
+                        if not self.container_sync_row(row, sync_to, sync_key,
+                                                       broker, info):
+                            return
+                    sync_point1 = row['ROWID']
+                    broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
         except Exception:
             self.container_failures += 1

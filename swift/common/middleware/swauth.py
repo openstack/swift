@@ -35,7 +35,8 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, get_logger, split_path, urlparse
+from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
+                               split_path, urlparse
 
 
 class Swauth(object):

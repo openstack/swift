@@ -20,7 +20,8 @@ from webob.exc import HTTPForbidden, HTTPUnauthorized, HTTPNotFound
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, split_path, TRUE_VALUES
+from swift.common.utils import cache_from_env, get_remote_client, split_path, \
+                               TRUE_VALUES
 
 
 class DevAuth(object):
