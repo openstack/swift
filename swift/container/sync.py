@@ -66,8 +66,8 @@ class ContainerSync(Daemon):
 
     This is done by scanning the local devices for container databases and
     checking for x-container-sync-to and x-container-sync-key metadata values.
-    If they exist, newer rows since the last sync trigger PUTs or DELETEs to
-    the other container.
+    If they exist, newer rows since the last sync will trigger PUTs or DELETEs
+    to the other container.
 
     .. note::
 

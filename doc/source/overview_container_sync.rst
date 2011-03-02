@@ -165,14 +165,56 @@ What's going on behind the scenes, in the cluster?
 The swift-container-sync does the job of sending updates to the remote
 container.
 
-This is done by scanning the local devices for container databases and checking
-for x-container-sync-to and x-container-sync-key metadata values. If they
-exist, the last known synced ROWID is retreived and all newer rows trigger PUTs
-or DELETEs to the other container.
+This is done by scanning the local devices for container databases and
+checking for x-container-sync-to and x-container-sync-key metadata values.
+If they exist, newer rows since the last sync will trigger PUTs or DELETEs
+to the other container.
 
 .. note::
 
-    This does not sync standard object POSTs, as those do not cause container
-    row updates. A workaround is to do X-Copy-From POSTs. We're considering
-    solutions to this limitation but leaving it as is for now since POSTs are
-    fairly uncommon.
+    This does not sync standard object POSTs, as those do not cause
+    container row updates. A workaround is to do X-Copy-From POSTs. We're
+    considering solutions to this limitation but leaving it as is for now
+    since POSTs are fairly uncommon.
+
+The actual syncing is slightly more complicated to make use of the three
+(or number-of-replicas) main nodes for a container without each trying to
+do the exact same work but also without missing work if one node happens to
+be down.
+
+Two sync points are kept per container database. All rows between the two
+sync points trigger updates. Any rows newer than both sync points cause
+updates depending on the node's position for the container (primary nodes
+do one third, etc. depending on the replica count of course). After a sync
+run, the first sync point is set to the newest ROWID known and the second
+sync point is set to newest ROWID for which all updates have been sent.
+
+An example may help. Assume replica count is 3 and perfectly matching
+ROWIDs starting at 1.
+
+    First sync run, database has 6 rows:
+
+        * SyncPoint1 starts as -1.
+        * SyncPoint2 starts as -1.
+        * No rows between points, so no "all updates" rows.
+        * Six rows newer than SyncPoint1, so a third of the rows are sent
+          by node 1, another third by node 2, remaining third by node 3.
+        * SyncPoint1 is set as 6 (the newest ROWID known).
+        * SyncPoint2 is left as -1 since no "all updates" rows were synced.
+
+    Next sync run, database has 12 rows:
+
+        * SyncPoint1 starts as 6.
+        * SyncPoint2 starts as -1.
+        * The rows between -1 and 6 all trigger updates (most of which
+          should short-circuit on the remote end as having already been
+          done).
+        * Six more rows newer than SyncPoint1, so a third of the rows are
+          sent by node 1, another third by node 2, remaining third by node
+          3.
+        * SyncPoint1 is set as 12 (the newest ROWID known).
+        * SyncPoint2 is set as 6 (the newest "all updates" ROWID).
+
+In this way, under normal circumstances each node sends its share of
+updates each run and just sends a batch of older updates to ensure nothing
+was missed.
