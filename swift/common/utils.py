@@ -740,7 +740,7 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     """
     Read config file and return config items as a dict
 
-    :param conf: path to config file
+    :param conf: path to config file, or a file-like object (hasattr readline)
     :param section_name: config section to read (will return all sections if
                      not defined)
     :param log_name: name to be used with logging (will use section_name if
@@ -751,9 +751,12 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     if defaults is None:
         defaults = {}
     c = ConfigParser(defaults)
-    if not c.read(conf):
-        print _("Unable to read config file %s") % conf
-        sys.exit(1)
+    if hasattr(conf, 'readline'):
+        c.readfp(conf)
+    else:
+        if not c.read(conf):
+            print _("Unable to read config file %s") % conf
+            sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))

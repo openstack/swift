@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import array
-import configobj
 from datetime import datetime
 import locale
 import os
@@ -29,21 +28,14 @@ import uuid
 import unittest
 import urllib
 
+from test import get_config
 from swift import Account, AuthenticationFailed, Connection, Container, \
      File, ResponseError
 
-config_file_env_var = 'SWIFT_TEST_CONFIG_FILE'
-default_config_file = '/etc/swift/func_test.conf'
+config = get_config()
 
-if os.environ.has_key(config_file_env_var):
-    config_file = os.environ[config_file_env_var]
-elif os.path.isfile(default_config_file):
-    config_file = default_config_file
-else:
-    print >>sys.stderr, 'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG'
-
-config = configobj.ConfigObj(config_file)
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
+
 
 class Base:
     pass
@@ -136,7 +128,8 @@ class TestAccountEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
         cls.containers = []
@@ -314,7 +307,8 @@ class TestAccountNoContainersEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
 class TestAccountNoContainers(Base):
@@ -339,7 +333,8 @@ class TestContainerEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -624,7 +619,8 @@ class TestContainerPathsEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
         cls.file_size = 8
@@ -784,7 +780,8 @@ class TestFileEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1430,7 +1427,8 @@ class TestFileComparisonEnv:
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config['account'])
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
