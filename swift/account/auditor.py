@@ -36,7 +36,7 @@ class AccountAuditor(Daemon):
         self.account_passes = 0
         self.account_failures = 0
 
-    def run_forever(self):  # pragma: no cover
+    def run_forever(self, *args, **kwargs):
         """Run the account audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
@@ -61,7 +61,7 @@ class AccountAuditor(Daemon):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Run the account audit once."""
         self.logger.info('Begin account audit "once" mode')
         begin = reported = time.time()

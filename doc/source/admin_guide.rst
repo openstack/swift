@@ -288,3 +288,15 @@ A graceful shutdown or reload will finish any current requests before
 completely stopping the old service.  There is also a special case of 
 `swift-init all <command>`, which will run the command for all swift services.
 
+--------------
+Object Auditor
+--------------
+
+On system failures, the XFS file system can sometimes truncate files it's
+trying to write and produce zero byte files. The object-auditor will catch
+these problems but in the case of a system crash it would be advisable to run
+an extra, less rate limited sweep to check for these specific files. You can
+run this command as follows:
+`swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
+"-z" means to only check for zero-byte files at 1000 files per second.
+

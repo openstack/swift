@@ -68,7 +68,7 @@ class LogUploader(Daemon):
         self.logger = utils.get_logger(uploader_conf, log_name,
                                        log_route=plugin_name)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         self.logger.info(_("Uploading logs"))
         start = time.time()
         self.upload_all_logs()

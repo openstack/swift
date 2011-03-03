@@ -58,7 +58,7 @@ class ObjectUpdater(Daemon):
             self.container_ring = Ring(self.container_ring_path)
         return self.container_ring
 
-    def run_forever(self):   # pragma: no cover
+    def run_forever(self, *args, **kwargs):
         """Run the updater continuously."""
         time.sleep(random() * self.interval)
         while True:
@@ -100,7 +100,7 @@ class ObjectUpdater(Daemon):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Run the updater once"""
         self.logger.info(_('Begin object update single threaded sweep'))
         begin = time.time()
