@@ -22,9 +22,14 @@ from webob.exc import HTTPUnauthorized, HTTPCreated, HTTPNoContent,\
      HTTPAccepted, HTTPBadRequest, HTTPNotFound, HTTPConflict
 import xml.dom.minidom
 import simplejson
+from nose.plugins.skip import SkipTest
 
-from swift.common.middleware import swift3
-
+try:
+    from swift.common.middleware import swift3
+    skip = False
+except Exception:
+    # Skip the swift3 tests if boto is not installed 
+    skip = True
 
 class FakeApp(object):
     def __init__(self):
@@ -190,6 +195,8 @@ def start_response(*args):
 
 class TestSwift3(unittest.TestCase):
     def setUp(self):
+        if skip:
+            raise SkipTest
         self.app = swift3.filter_factory({})(FakeApp())
 
     def test_non_s3_request_passthrough(self):
