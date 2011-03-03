@@ -925,6 +925,17 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     return running_time + time_per_request
 
 
+class ContextPool(GreenPool):
+    "GreenPool subclassed to kill its coros when it gets gc'ed"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        for coro in list(self.coroutines_running):
+            coro.kill()
+
+
 class ModifiedParseResult(ParseResult):
     "Parse results class for urlparse."
 

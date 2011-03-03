@@ -21,12 +21,14 @@ from webob import Request
 
 from swift.common.middleware import ratelimit
 from swift.proxy.server import get_container_memcache_key
+from swift.common.memcached import MemcacheConnectionError
 
 
 class FakeMemcache(object):
 
     def __init__(self):
         self.store = {}
+        self.error_on_incr = False
 
     def get(self, key):
         return self.store.get(key)
@@ -36,6 +38,8 @@ class FakeMemcache(object):
         return True
 
     def incr(self, key, delta=1, timeout=0):
+        if self.error_on_incr:
+            raise MemcacheConnectionError('Memcache restarting')
         self.store[key] = int(self.store.setdefault(key, 0)) + int(delta)
         if self.store[key] < 0:
             self.store[key] = 0
@@ -403,6 +407,21 @@ class TestRateLimit(unittest.TestCase):
                                                     start_response)
         self._run(make_app_call, num_calls, current_rate)
 
+    def test_restarting_memcache(self):
+        current_rate = 2
+        num_calls = 5
+        conf_dict = {'account_ratelimit': current_rate}
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        ratelimit.http_connect = mock_http_connect(204)
+        req = Request.blank('/v/a')
+        req.environ['swift.cache'] = FakeMemcache()
+        req.environ['swift.cache'].error_on_incr = True
+        make_app_call = lambda: self.test_ratelimit(req.environ,
+                                                    start_response)
+        begin = time.time()
+        self._run(make_app_call, num_calls, current_rate, check_time=False)
+        time_took = time.time() - begin
+        self.assert_(round(time_took, 1) == 0) # no memcache, no limiting
 
 if __name__ == '__main__':
     unittest.main()

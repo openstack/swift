@@ -159,11 +159,10 @@ class LogProcessor(object):
     def get_object_data(self, swift_account, container_name, object_name,
                         compressed=False):
         '''reads an object and yields its lines'''
-        code, o = self.internal_proxy.get_object(swift_account,
-                                           container_name,
-                                           object_name)
+        code, o = self.internal_proxy.get_object(swift_account, container_name,
+                                                 object_name)
         if code < 200 or code >= 300:
-            return
+            raise BadFileDownload()
         last_part = ''
         last_compressed_part = ''
         # magic in the following zlib.decompressobj argument is courtesy of
@@ -273,7 +272,7 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except Exception:
+        except BadFileDownload:
             already_processed_files = set()
         self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))
@@ -362,7 +361,11 @@ class LogProcessorDaemon(Daemon):
 
 
 def multiprocess_collate(processor_args, logs_to_process, worker_count):
-    '''yield hourly data from logs_to_process'''
+    '''
+    yield hourly data from logs_to_process
+    Every item that this function yields will be added to the processed files
+    list.
+    '''
     results = []
     in_queue = multiprocessing.Queue()
     out_queue = multiprocessing.Queue()
@@ -376,33 +379,30 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
     for x in logs_to_process:
         in_queue.put(x)
     for _junk in range(worker_count):
-        in_queue.put(None)
-    count = 0
+        in_queue.put(None)  # tell the worker to end
     while True:
         try:
             item, data = out_queue.get_nowait()
-            count += 1
-            if data:
-                yield item, data
-            if count >= len(logs_to_process):
-                # this implies that one result will come from every request
-                break
         except Queue.Empty:
-            time.sleep(.1)
-    for r in results:
-        r.join()
+            time.sleep(.01)
+        else:
+            if not isinstance(data, BadFileDownload):
+                yield item, data
+        if not any(r.is_alive() for r in results) and out_queue.empty():
+            # all the workers are done and nothing is in the queue
+            break
 
 
 def collate_worker(processor_args, in_queue, out_queue):
     '''worker process for multiprocess_collate'''
     p = LogProcessor(*processor_args)
     while True:
+        item = in_queue.get()
+        if item is None:
+            # no more work to process
+            break
         try:
-            item = in_queue.get_nowait()
-            if item is None:
-                break
-        except Queue.Empty:
-            time.sleep(.1)
-        else:
             ret = p.process_one_file(*item)
-            out_queue.put((item, ret))
+        except BadFileDownload, err:
+            ret = err
+        out_queue.put((item, ret))

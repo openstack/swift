@@ -27,14 +27,13 @@ import cPickle as pickle
 import errno
 from random import randint
 from tempfile import mkstemp
-import traceback
 
 from eventlet import sleep
 import simplejson as json
 import sqlite3
 
 from swift.common.utils import normalize_timestamp, renamer, \
-        mkdirs, lock_parent_directory
+        mkdirs, lock_parent_directory, fallocate
 from swift.common.exceptions import LockTimeout
 
 
@@ -42,9 +41,8 @@ from swift.common.exceptions import LockTimeout
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
 PICKLE_PROTOCOL = 2
-CONNECT_ATTEMPTS = 4
-PENDING_COMMIT_TIMEOUT = 900
-AUTOCHECKPOINT = 8192
+#: Max number of pending entries
+PENDING_CAP = 131072
 
 
 class DatabaseConnectionError(sqlite3.DatabaseError):
@@ -125,48 +123,48 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
     :param okay_to_create: if True, create the DB if it doesn't exist
     :returns: DB connection object
     """
-    # retry logic to address:
-    # http://www.mail-archive.com/sqlite-users@sqlite.org/msg57092.html
-    for attempt in xrange(CONNECT_ATTEMPTS):
-        try:
-            connect_time = time.time()
-            conn = sqlite3.connect(path, check_same_thread=False,
-                        factory=GreenDBConnection, timeout=timeout)
+    try:
+        connect_time = time.time()
+        conn = sqlite3.connect(path, check_same_thread=False,
+                    factory=GreenDBConnection, timeout=timeout)
+        if path != ':memory:' and not okay_to_create:
             # attempt to detect and fail when connect creates the db file
-            if path != ':memory:' and not okay_to_create:
-                stat = os.stat(path)
-                if stat.st_size == 0 and stat.st_ctime >= connect_time:
-                    os.unlink(path)
-                    raise DatabaseConnectionError(path,
-                        'DB file created by connect?')
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA synchronous = NORMAL')
-            conn.execute('PRAGMA wal_autocheckpoint = %s' % AUTOCHECKPOINT)
-            conn.execute('PRAGMA count_changes = OFF')
-            conn.execute('PRAGMA temp_store = MEMORY')
-            conn.create_function('chexor', 3, chexor)
-            conn.row_factory = sqlite3.Row
-            conn.text_factory = str
-            return conn
-        except sqlite3.DatabaseError, e:
-            errstr = traceback.format_exc()
-    raise DatabaseConnectionError(path, errstr, timeout=timeout)
+            stat = os.stat(path)
+            if stat.st_size == 0 and stat.st_ctime >= connect_time:
+                os.unlink(path)
+                raise DatabaseConnectionError(path,
+                    'DB file created by connect?')
+        conn.row_factory = sqlite3.Row
+        conn.text_factory = str
+        conn.execute('PRAGMA synchronous = NORMAL')
+        conn.execute('PRAGMA count_changes = OFF')
+        conn.execute('PRAGMA temp_store = MEMORY')
+        conn.execute('PRAGMA journal_mode = DELETE')
+        conn.create_function('chexor', 3, chexor)
+    except sqlite3.DatabaseError:
+        import traceback
+        raise DatabaseConnectionError(path, traceback.format_exc(),
+                timeout=timeout)
+    return conn
 
 
 class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
-                 account=None, container=None):
+                 account=None, container=None, pending_timeout=10,
+                 stale_reads_ok=False):
         """ Encapsulates working with a database. """
         self.conn = None
         self.db_file = db_file
+        self.pending_file = self.db_file + '.pending'
+        self.pending_timeout = pending_timeout
+        self.stale_reads_ok = stale_reads_ok
         self.db_dir = os.path.dirname(db_file)
         self.timeout = timeout
         self.logger = logger or logging.getLogger()
         self.account = account
         self.container = container
-        self._db_version = -1
 
     def initialize(self, put_timestamp=None):
         """
@@ -235,7 +233,7 @@ class DatabaseBroker(object):
             conn.close()
             with open(tmp_db_file, 'r+b') as fp:
                 os.fsync(fp.fileno())
-            with lock_parent_directory(self.db_file, self.timeout):
+            with lock_parent_directory(self.db_file, self.pending_timeout):
                 if os.path.exists(self.db_file):
                     # It's as if there was a "condition" where different parts
                     # of the system were "racing" each other.
@@ -287,7 +285,6 @@ class DatabaseBroker(object):
         self.conn = None
         orig_isolation_level = conn.isolation_level
         conn.isolation_level = None
-        conn.execute('PRAGMA journal_mode = DELETE')  # remove journal files
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
@@ -295,7 +292,6 @@ class DatabaseBroker(object):
             pass
         try:
             conn.execute('ROLLBACK')
-            conn.execute('PRAGMA journal_mode = WAL')  # back to WAL mode
             conn.isolation_level = orig_isolation_level
             self.conn = conn
         except Exception:
@@ -352,6 +348,11 @@ class DatabaseBroker(object):
         :param count: number to get
         :returns: list of objects between start and end
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             curs = conn.execute('''
                 SELECT * FROM %s WHERE ROWID > ? ORDER BY ROWID ASC LIMIT ?
@@ -400,7 +401,11 @@ class DatabaseBroker(object):
         :returns: dict containing keys: hash, id, created_at, put_timestamp,
             delete_timestamp, count, max_row, and metadata
         """
-        self._commit_puts()
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         query_part1 = '''
             SELECT hash, id, created_at, put_timestamp, delete_timestamp,
                 %s_count AS count,
@@ -449,6 +454,34 @@ class DatabaseBroker(object):
                     ''' % ('incoming' if incoming else 'outgoing'),
                     (rec['sync_point'], rec['remote_id']))
             conn.commit()
+
+    def _preallocate(self):
+        """
+        The idea is to allocate space in front of an expanding db.  If it gets
+        within 512k of a boundary, it allocates to the next boundary.
+        Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
+        """
+        if self.db_file == ':memory:':
+            return
+        MB = (1024 * 1024)
+
+        def prealloc_points():
+            for pm in (1, 2, 5, 10, 25, 50):
+                yield pm * MB
+            while True:
+                pm += 50
+                yield pm * MB
+
+        stat = os.stat(self.db_file)
+        file_size = stat.st_size
+        allocated_size = stat.st_blocks * 512
+        for point in prealloc_points():
+            if file_size <= point - MB / 2:
+                prealloc_size = point
+                break
+        if allocated_size < prealloc_size:
+            with open(self.db_file, 'rb+') as fp:
+                fallocate(fp.fileno(), int(prealloc_size))
 
     @property
     def metadata(self):
@@ -574,7 +607,7 @@ class ContainerBroker(DatabaseBroker):
         conn.executescript("""
             CREATE TABLE object (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
+                name TEXT UNIQUE,
                 created_at TEXT,
                 size INTEGER,
                 content_type TEXT,
@@ -582,7 +615,7 @@ class ContainerBroker(DatabaseBroker):
                 deleted INTEGER DEFAULT 0
             );
 
-            CREATE INDEX ix_object_deleted_name ON object (deleted, name);
+            CREATE INDEX ix_object_deleted ON object (deleted);
 
             CREATE TRIGGER object_insert AFTER INSERT ON object
             BEGIN
@@ -645,15 +678,6 @@ class ContainerBroker(DatabaseBroker):
         ''', (self.account, self.container, normalize_timestamp(time.time()),
               str(uuid4()), put_timestamp))
 
-    def _get_db_version(self, conn):
-        if self._db_version == -1:
-            self._db_version = 0
-            for row in conn.execute('''
-                    SELECT name FROM sqlite_master
-                    WHERE name = 'ix_object_deleted_name' '''):
-                self._db_version = 1
-        return self._db_version
-
     def _newid(self, conn):
         conn.execute('''
             UPDATE container_stat
@@ -693,6 +717,11 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: True if the database has no active objects, False otherwise
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             row = conn.execute(
                     'SELECT object_count from container_stat').fetchone()
@@ -700,16 +729,17 @@ class ContainerBroker(DatabaseBroker):
 
     def _commit_puts(self, item_list=None):
         """Handles commiting rows in .pending files."""
-        pending_file = self.db_file + '.pending'
-        if self.db_file == ':memory:' or not os.path.exists(pending_file):
-            return
-        if not os.path.getsize(pending_file):
-            os.unlink(pending_file)
+        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
             return
         if item_list is None:
             item_list = []
-        with lock_parent_directory(pending_file, PENDING_COMMIT_TIMEOUT):
-            with open(pending_file, 'r+b') as fp:
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            self._preallocate()
+            if not os.path.getsize(self.pending_file):
+                if item_list:
+                    self.merge_items(item_list)
+                return
+            with open(self.pending_file, 'r+b') as fp:
                 for entry in fp.read().split(':'):
                     if entry:
                         try:
@@ -722,11 +752,11 @@ class ContainerBroker(DatabaseBroker):
                         except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
-                                {'file': pending_file, 'entry': entry})
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
-                    os.unlink(pending_file)
+                    os.ftruncate(fp.fileno(), 0)
                 except OSError, err:
                     if err.errno != errno.ENOENT:
                         raise
@@ -744,6 +774,7 @@ class ContainerBroker(DatabaseBroker):
                                  delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
+        self._commit_puts()
         with self.get() as conn:
             conn.execute("""
                     DELETE FROM object
@@ -787,9 +818,30 @@ class ContainerBroker(DatabaseBroker):
         record = {'name': name, 'created_at': timestamp, 'size': size,
                   'content_type': content_type, 'etag': etag,
                   'deleted': deleted}
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+        if self.db_file == ':memory:':
+            self.merge_items([record])
+            return
+        if not os.path.exists(self.db_file):
             raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
-        self.merge_items([record])
+        pending_size = 0
+        try:
+            pending_size = os.path.getsize(self.pending_file)
+        except OSError, err:
+            if err.errno != errno.ENOENT:
+                raise
+        if pending_size > PENDING_CAP:
+            self._commit_puts([record])
+        else:
+            with lock_parent_directory(
+                    self.pending_file, self.pending_timeout):
+                with open(self.pending_file, 'a+b') as fp:
+                    # Colons aren't used in base64 encoding; so they are our
+                    # delimiter
+                    fp.write(':')
+                    fp.write(pickle.dumps(
+                        (name, timestamp, size, content_type, etag, deleted),
+                        protocol=PICKLE_PROTOCOL).encode('base64'))
+                    fp.flush()
 
     def is_deleted(self, timestamp=None):
         """
@@ -799,6 +851,11 @@ class ContainerBroker(DatabaseBroker):
         """
         if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             return True
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             row = conn.execute('''
                 SELECT put_timestamp, delete_timestamp, object_count
@@ -821,6 +878,11 @@ class ContainerBroker(DatabaseBroker):
                   reported_put_timestamp, reported_delete_timestamp,
                   reported_object_count, reported_bytes_used, hash, id)
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             return conn.execute('''
                 SELECT account, container, created_at, put_timestamp,
@@ -857,6 +919,11 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: list of object names
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         rv = []
         with self.get() as conn:
             row = conn.execute('''
@@ -893,6 +960,11 @@ class ContainerBroker(DatabaseBroker):
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag)
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         if path is not None:
             prefix = path
             if path:
@@ -916,10 +988,7 @@ class ContainerBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self._get_db_version(conn) < 1:
-                    query += ' +deleted = 0 ORDER BY name LIMIT ?'
-                else:
-                    query += ' deleted = 0 ORDER BY name LIMIT ?'
+                query += ' +deleted = 0 ORDER BY name LIMIT ?'
                 query_args.append(limit - len(results))
                 curs = conn.execute(query, query_args)
                 curs.row_factory = None
@@ -967,19 +1036,18 @@ class ContainerBroker(DatabaseBroker):
             max_rowid = -1
             for rec in item_list:
                 conn.execute('''
-                    DELETE FROM object WHERE name = ? AND created_at < ? AND
-                                             deleted IN (0, 1)
+                    DELETE FROM object WHERE name = ? AND
+                        (created_at < ?)
                 ''', (rec['name'], rec['created_at']))
-                if not conn.execute('''
-                    SELECT name FROM object WHERE name = ? AND
-                                                  deleted IN (0, 1)
-                ''', (rec['name'],)).fetchall():
+                try:
                     conn.execute('''
                         INSERT INTO object (name, created_at, size,
                             content_type, etag, deleted)
                         VALUES (?, ?, ?, ?, ?, ?)
                     ''', ([rec['name'], rec['created_at'], rec['size'],
                           rec['content_type'], rec['etag'], rec['deleted']]))
+                except sqlite3.IntegrityError:
+                    pass
                 if source:
                     max_rowid = max(max_rowid, rec['ROWID'])
             if source:
@@ -1023,7 +1091,7 @@ class AccountBroker(DatabaseBroker):
         conn.executescript("""
             CREATE TABLE container (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
+                name TEXT UNIQUE,
                 put_timestamp TEXT,
                 delete_timestamp TEXT,
                 object_count INTEGER,
@@ -1031,9 +1099,8 @@ class AccountBroker(DatabaseBroker):
                 deleted INTEGER DEFAULT 0
             );
 
-            CREATE INDEX ix_container_deleted_name ON
-                container (deleted, name);
-
+            CREATE INDEX ix_container_deleted ON container (deleted);
+            CREATE INDEX ix_container_name ON container (name);
             CREATE TRIGGER container_insert AFTER INSERT ON container
             BEGIN
                 UPDATE account_stat
@@ -1097,15 +1164,6 @@ class AccountBroker(DatabaseBroker):
             ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
             put_timestamp))
 
-    def _get_db_version(self, conn):
-        if self._db_version == -1:
-            self._db_version = 0
-            for row in conn.execute('''
-                    SELECT name FROM sqlite_master
-                    WHERE name = 'ix_container_deleted_name' '''):
-                self._db_version = 1
-        return self._db_version
-
     def update_put_timestamp(self, timestamp):
         """
         Update the put_timestamp.  Only modifies it if it is greater than
@@ -1135,16 +1193,17 @@ class AccountBroker(DatabaseBroker):
 
     def _commit_puts(self, item_list=None):
         """Handles commiting rows in .pending files."""
-        pending_file = self.db_file + '.pending'
-        if self.db_file == ':memory:' or not os.path.exists(pending_file):
-            return
-        if not os.path.getsize(pending_file):
-            os.unlink(pending_file)
+        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
             return
         if item_list is None:
             item_list = []
-        with lock_parent_directory(pending_file, PENDING_COMMIT_TIMEOUT):
-            with open(pending_file, 'r+b') as fp:
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            self._preallocate()
+            if not os.path.getsize(self.pending_file):
+                if item_list:
+                    self.merge_items(item_list)
+                return
+            with open(self.pending_file, 'r+b') as fp:
                 for entry in fp.read().split(':'):
                     if entry:
                         try:
@@ -1160,11 +1219,11 @@ class AccountBroker(DatabaseBroker):
                         except Exception:
                             self.logger.exception(
                                 _('Invalid pending entry %(file)s: %(entry)s'),
-                                {'file': pending_file, 'entry': entry})
+                                {'file': self.pending_file, 'entry': entry})
                 if item_list:
                     self.merge_items(item_list)
                 try:
-                    os.unlink(pending_file)
+                    os.ftruncate(fp.fileno(), 0)
                 except OSError, err:
                     if err.errno != errno.ENOENT:
                         raise
@@ -1175,6 +1234,11 @@ class AccountBroker(DatabaseBroker):
 
         :returns: True if the database has no active containers.
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             row = conn.execute(
                     'SELECT container_count from account_stat').fetchone()
@@ -1194,6 +1258,7 @@ class AccountBroker(DatabaseBroker):
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
 
+        self._commit_puts()
         with self.get() as conn:
             conn.execute('''
                 DELETE FROM container WHERE
@@ -1221,6 +1286,11 @@ class AccountBroker(DatabaseBroker):
 
         :returns: put_timestamp of the container
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             ret = conn.execute('''
                 SELECT put_timestamp FROM container
@@ -1241,8 +1311,6 @@ class AccountBroker(DatabaseBroker):
         :param object_count: number of objects in the container
         :param bytes_used: number of bytes used by the container
         """
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
-            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         if delete_timestamp > put_timestamp and \
                 object_count in (None, '', 0, '0'):
             deleted = 1
@@ -1253,7 +1321,24 @@ class AccountBroker(DatabaseBroker):
                   'object_count': object_count,
                   'bytes_used': bytes_used,
                   'deleted': deleted}
-        self.merge_items([record])
+        if self.db_file == ':memory:':
+            self.merge_items([record])
+            return
+        commit = False
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            with open(self.pending_file, 'a+b') as fp:
+                # Colons aren't used in base64 encoding; so they are our
+                # delimiter
+                fp.write(':')
+                fp.write(pickle.dumps(
+                    (name, put_timestamp, delete_timestamp, object_count,
+                     bytes_used, deleted),
+                    protocol=PICKLE_PROTOCOL).encode('base64'))
+                fp.flush()
+                if fp.tell() > PENDING_CAP:
+                    commit = True
+        if commit:
+            self._commit_puts()
 
     def can_delete_db(self, cutoff):
         """
@@ -1261,6 +1346,7 @@ class AccountBroker(DatabaseBroker):
 
         :returns: True if the account can be deleted, False otherwise
         """
+        self._commit_puts()
         with self.get() as conn:
             row = conn.execute('''
                 SELECT status, put_timestamp, delete_timestamp, container_count
@@ -1286,6 +1372,11 @@ class AccountBroker(DatabaseBroker):
         """
         if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             return True
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             row = conn.execute('''
                 SELECT put_timestamp, delete_timestamp, container_count, status
@@ -1310,6 +1401,11 @@ class AccountBroker(DatabaseBroker):
                   delete_timestamp, container_count, object_count,
                   bytes_used, hash, id)
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         with self.get() as conn:
             return conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
@@ -1326,6 +1422,11 @@ class AccountBroker(DatabaseBroker):
 
         :returns: list of container names
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         rv = []
         with self.get() as conn:
             row = conn.execute('''
@@ -1359,6 +1460,11 @@ class AccountBroker(DatabaseBroker):
 
         :returns: list of tuples of (name, object_count, bytes_used, 0)
         """
+        try:
+            self._commit_puts()
+        except LockTimeout:
+            if not self.stale_reads_ok:
+                raise
         if delimiter and not prefix:
             prefix = ''
         orig_marker = marker
@@ -1379,10 +1485,7 @@ class AccountBroker(DatabaseBroker):
                 elif prefix:
                     query += ' name >= ? AND'
                     query_args.append(prefix)
-                if self._get_db_version(conn) < 1:
-                    query += ' +deleted = 0 ORDER BY name LIMIT ?'
-                else:
-                    query += ' deleted = 0 ORDER BY name LIMIT ?'
+                query += ' +deleted = 0 ORDER BY name LIMIT ?'
                 query_args.append(limit - len(results))
                 curs = conn.execute(query, query_args)
                 curs.row_factory = None
@@ -1426,39 +1529,51 @@ class AccountBroker(DatabaseBroker):
                 record = [rec['name'], rec['put_timestamp'],
                           rec['delete_timestamp'], rec['object_count'],
                           rec['bytes_used'], rec['deleted']]
-                curs = conn.execute('''
-                    SELECT name, put_timestamp, delete_timestamp,
-                           object_count, bytes_used, deleted
-                    FROM container WHERE name = ? AND
-                        deleted IN (0, 1)
-                ''', (rec['name'],))
-                curs.row_factory = None
-                row = curs.fetchone()
-                if row:
-                    row = list(row)
-                    for i in xrange(5):
-                        if record[i] is None and row[i] is not None:
-                            record[i] = row[i]
-                    if row[1] > record[1]:  # Keep newest put_timestamp
-                        record[1] = row[1]
-                    if row[2] > record[2]:  # Keep newest delete_timestamp
-                        record[2] = row[2]
-                    # If deleted, mark as such
-                    if record[2] > record[1] and \
-                            record[3] in (None, '', 0, '0'):
-                        record[5] = 1
-                    else:
-                        record[5] = 0
-                conn.execute('''
-                    DELETE FROM container WHERE name = ? AND
-                                                deleted IN (0, 1)
-                ''', (record[0],))
-                conn.execute('''
-                    INSERT INTO container (name, put_timestamp,
-                        delete_timestamp, object_count, bytes_used,
-                        deleted)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', record)
+                try:
+                    conn.execute('''
+                        INSERT INTO container (name, put_timestamp,
+                            delete_timestamp, object_count, bytes_used,
+                            deleted)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', record)
+                except sqlite3.IntegrityError:
+                    curs = conn.execute('''
+                        SELECT name, put_timestamp, delete_timestamp,
+                               object_count, bytes_used, deleted
+                        FROM container WHERE name = ? AND
+                             (put_timestamp < ? OR delete_timestamp < ? OR
+                              object_count != ? OR bytes_used != ?)''',
+                        (rec['name'], rec['put_timestamp'],
+                         rec['delete_timestamp'], rec['object_count'],
+                         rec['bytes_used']))
+                    curs.row_factory = None
+                    row = curs.fetchone()
+                    if row:
+                        row = list(row)
+                        for i in xrange(5):
+                            if record[i] is None and row[i] is not None:
+                                record[i] = row[i]
+                        if row[1] > record[1]:  # Keep newest put_timestamp
+                            record[1] = row[1]
+                        if row[2] > record[2]:  # Keep newest delete_timestamp
+                            record[2] = row[2]
+                        conn.execute('DELETE FROM container WHERE name = ?',
+                                     (record[0],))
+                        # If deleted, mark as such
+                        if record[2] > record[1] and \
+                                record[3] in (None, '', 0, '0'):
+                            record[5] = 1
+                        else:
+                            record[5] = 0
+                        try:
+                            conn.execute('''
+                                INSERT INTO container (name, put_timestamp,
+                                    delete_timestamp, object_count, bytes_used,
+                                    deleted)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', record)
+                        except sqlite3.IntegrityError:
+                            continue
                 if source:
                     max_rowid = max(max_rowid, rec['ROWID'])
             if source:
