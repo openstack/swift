@@ -164,4 +164,4 @@ earlier. This file will have one entry per account per hour for each account
 with activity in that hour. One .csv file should be produced per hour. Note
 that the stats will be delayed by at least two hours by default. This can be
 changed with the new_log_cutoff variable in the config file. See
-`log-processing.conf-sample` for more details.
+`log-processor.conf-sample` for more details.

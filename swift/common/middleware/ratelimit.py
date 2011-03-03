@@ -18,6 +18,7 @@ from webob.exc import HTTPNotFound
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.server import get_container_memcache_key
+from swift.common.memcached import MemcacheConnectionError
 
 
 class MaxSleepTimeHitError(Exception):
@@ -39,7 +40,7 @@ class RateLimitMiddleware(object):
         if logger:
             self.logger = logger
         else:
-            self.logger = get_logger(conf)
+            self.logger = get_logger(conf, log_route='ratelimit')
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = \
             float(conf.get('max_sleep_time_seconds', 60))
@@ -136,28 +137,31 @@ class RateLimitMiddleware(object):
         :param max_rate: maximum rate allowed in requests per second
         :raises: MaxSleepTimeHitError if max sleep time is exceeded.
         '''
-        now_m = int(round(time.time() * self.clock_accuracy))
-        time_per_request_m = int(round(self.clock_accuracy / max_rate))
-        running_time_m = self.memcache_client.incr(key,
-                                                   delta=time_per_request_m)
-        need_to_sleep_m = 0
-        if (now_m - running_time_m >
-                self.rate_buffer_seconds * self.clock_accuracy):
-            next_avail_time = int(now_m + time_per_request_m)
-            self.memcache_client.set(key, str(next_avail_time),
-                                     serialize=False)
-        else:
-            need_to_sleep_m = \
-                max(running_time_m - now_m - time_per_request_m, 0)
+        try:
+            now_m = int(round(time.time() * self.clock_accuracy))
+            time_per_request_m = int(round(self.clock_accuracy / max_rate))
+            running_time_m = self.memcache_client.incr(key,
+                             delta=time_per_request_m)
+            need_to_sleep_m = 0
+            if (now_m - running_time_m >
+                    self.rate_buffer_seconds * self.clock_accuracy):
+                next_avail_time = int(now_m + time_per_request_m)
+                self.memcache_client.set(key, str(next_avail_time),
+                                         serialize=False)
+            else:
+                need_to_sleep_m = \
+                    max(running_time_m - now_m - time_per_request_m, 0)
 
-        max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
-        if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
-            # treat as no-op decrement time
-            self.memcache_client.decr(key, delta=time_per_request_m)
-            raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %s" %
-                                       need_to_sleep_m)
+            max_sleep_m = self.max_sleep_time_seconds * self.clock_accuracy
+            if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
+                # treat as no-op decrement time
+                self.memcache_client.decr(key, delta=time_per_request_m)
+                raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %s" %
+                                           need_to_sleep_m)
 
-        return float(need_to_sleep_m) / self.clock_accuracy
+            return float(need_to_sleep_m) / self.clock_accuracy
+        except MemcacheConnectionError:
+            return 0
 
     def handle_ratelimit(self, req, account_name, container_name, obj_name):
         '''

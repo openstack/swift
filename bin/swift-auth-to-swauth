@@ -23,16 +23,18 @@ import sqlite3
 
 if __name__ == '__main__':
     gettext.install('swift', unicode=1)
-    if len(argv) != 4 or argv[1] != '-K':
-        exit('Syntax: %s -K <super_admin_key> <path to auth.db>' % argv[0])
-    _junk, _junk, super_admin_key, auth_db = argv
-    # This version will not attempt to prep swauth
-    # call(['swauth-prep', '-K', super_admin_key])
+    if len(argv) != 2:
+        exit('Syntax: %s <path_to_auth.db>' % argv[0])
+    _junk, auth_db = argv
     conn = sqlite3.connect(auth_db)
-    for account, cfaccount, user, password, admin, reseller_admin in \
-            conn.execute('SELECT account, cfaccount, user, password, admin, '
-                         'reseller_admin FROM account'):
-        cmd = ['swauth-add-user', '-K', super_admin_key, '-s',
+    try:
+        listing = conn.execute('SELECT account, cfaccount, user, password, '
+                               'admin, reseller_admin FROM account')
+    except sqlite3.OperationalError, err:
+        listing = conn.execute('SELECT account, cfaccount, user, password, '
+                               '"f", "f" FROM account')
+    for account, cfaccount, user, password, admin, reseller_admin in listing:
+        cmd = ['swauth-add-user', '-K', '<your_swauth_key>', '-s',
                cfaccount.split('_', 1)[1]]
         if admin == 't':
             cmd.append('-a')
@@ -40,9 +42,3 @@ if __name__ == '__main__':
             cmd.append('-r')
         cmd.extend([account, user, password])
         print ' '.join(cmd)
-	# For this version, the script will only print out the commands
-        # call(cmd)
-    print '----------------------------------------------------------------'
-    print ' Assuming the above worked perfectly, you should copy and paste '
-    print ' those lines into your ~/bin/recreateaccounts script.'
-    print '----------------------------------------------------------------'

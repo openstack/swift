@@ -26,11 +26,7 @@ class CatchErrorMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        # if the application already has a logger we should use that one
-        self.logger = getattr(app, 'logger', None)
-        if not self.logger:
-            # and only call get_logger if we have to
-            self.logger = get_logger(conf)
+        self.logger = get_logger(conf, log_route='catch-errors')
 
     def __call__(self, env, start_response):
         try:

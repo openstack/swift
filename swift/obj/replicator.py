@@ -207,7 +207,7 @@ class ObjectReplicator(Daemon):
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = get_logger(conf, 'object-replicator')
+        self.logger = get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')

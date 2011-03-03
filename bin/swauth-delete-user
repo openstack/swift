@@ -18,9 +18,9 @@ import gettext
 from optparse import OptionParser
 from os.path import basename
 from sys import argv, exit
-from urlparse import urlparse
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
+from swift.common.utils import urlparse
 
 
 if __name__ == '__main__':
