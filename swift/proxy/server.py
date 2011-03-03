@@ -519,6 +519,10 @@ class Controller(object):
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
         handoff nodes as needed.
+
+        :param headers: a list of dicts, where each dict represents one
+                        backend request that should be made.
+        :returns: a webob Response object
         """
         nodes = self.iter_nodes(part, ring.get_part_nodes(part), ring)
         pile = GreenPile(ring.replica_count)

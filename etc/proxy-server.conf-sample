@@ -43,7 +43,6 @@ use = egg:swift#proxy
 # If set to 'true' any authorized user may create and delete accounts; if
 # 'false' no one, even authorized, can.
 # allow_account_management = false
-# put_queue_depth = 10
 
 # Only needed for DevAuth
 [filter:auth]
