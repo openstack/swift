@@ -149,4 +149,12 @@ class Ring(object):
             zones.remove(self.devs[part2dev_id[part]]['zone'])
         while zones:
             zone = zones.pop(part % len(zones))
-            yield self.zone2devs[zone][part % len(self.zone2devs[zone])]
+            weighted_node = None
+            for i in xrange(len(self.zone2devs[zone])):
+                node = self.zone2devs[zone][(part + i) %
+                                            len(self.zone2devs[zone])]
+                if node.get('weight'):
+                    weighted_node = node
+                    break
+            if weighted_node:
+                yield weighted_node

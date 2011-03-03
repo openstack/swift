@@ -50,6 +50,7 @@ class MockMemcached(object):
         self.cache = {}
         self.down = False
         self.exc_on_delete = False
+        self.read_return_none = False
 
     def sendall(self, string):
         if self.down:
@@ -110,6 +111,8 @@ class MockMemcached(object):
                 else:
                     self.outbuf += 'NOT_FOUND\r\n'
     def readline(self):
+        if self.read_return_none:
+            return None
         if self.down:
             raise Exception('mock is down')
         if '\n' in self.outbuf:
@@ -166,6 +169,9 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get('some_key'), '6')
         memcache_client.incr('some_key', delta=-15)
         self.assertEquals(memcache_client.get('some_key'), '0')
+        mock.read_return_none = True
+        self.assertRaises(memcached.MemcacheConnectionError,
+                          memcache_client.incr, 'some_key', delta=-15)
 
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -179,6 +185,10 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get('some_key'), '11')
         memcache_client.decr('some_key', delta=15)
         self.assertEquals(memcache_client.get('some_key'), '0')
+        mock.read_return_none = True
+        self.assertRaises(memcached.MemcacheConnectionError,
+                          memcache_client.decr, 'some_key', delta=15)
+
 
     def test_retry(self):
         logging.getLogger().addHandler(NullLoggingHandler())
