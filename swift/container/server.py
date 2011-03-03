@@ -160,7 +160,7 @@ class ContainerController(object):
                 return resp
             if existed:
                 return HTTPNoContent(request=req)
-            return HTTPAccepted(request=req)
+            return HTTPNotFound()
 
     def PUT(self, req):
         """Handle HTTP PUT request."""

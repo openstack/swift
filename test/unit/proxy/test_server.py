@@ -249,6 +249,9 @@ class FakeRing(object):
                     {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
         return 1, devs
 
+    def get_part_nodes(self, part):
+        return self.get_nodes('blah')[1]
+
     def get_more_nodes(self, nodes):
         # 9 is the true cap
         for x in xrange(3, min(3 + self.max_more_nodes, 9)):
@@ -2735,7 +2738,7 @@ class TestContainerController(unittest.TestCase):
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 204, 204), 204)
             self.assert_status_map(controller.DELETE,
-                                   (200, 204, 204, 503), 503)
+                                   (200, 204, 204, 503), 204)
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 503, 503), 503)
             self.assert_status_map(controller.DELETE,

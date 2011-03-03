@@ -396,7 +396,7 @@ class Replicator(Daemon):
                 except StopIteration:
                     its.remove(it)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
         self._zero_stats()
         dirs = []
@@ -425,7 +425,7 @@ class Replicator(Daemon):
         self.logger.info(_('Replication run OVER'))
         self._report_stats()
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """
         Replicate dbs under the given root in an infinite loop.
         """
