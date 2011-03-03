@@ -107,7 +107,10 @@ Running the stats system on SAIO
 
 #. `mkdir -p /var/log/swift/hourly`
 #. `chown -R syslog.adm /var/log/swift`
+#. `chmod 775 /var/log/swift /var/log/swift/hourly`
 #. `service rsyslog restart`
+#. `usermod -a -G adm <your-user-name>`
+#. Relogin to let the group change take effect.
 #. Create `/etc/swift/log-processor.conf`::
 
 		[log-processor]
