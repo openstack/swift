@@ -275,26 +275,16 @@ class TestUtils(unittest.TestCase):
         stde = StringIO()
         utils.sys.stdout = stdo
         utils.sys.stderr = stde
-        err_msg = """Usage: test usage
-
-Error: missing config file argument
-"""
-        test_args = []
-        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
-                          test_args)
-        self.assertEquals(stdo.getvalue(), err_msg)
+        self.assertRaises(SystemExit, utils.parse_options, once=True,
+                          test_args=[])
+        self.assert_('missing config file' in stdo.getvalue())
 
         # verify conf file must exist, context manager will delete temp file
         with NamedTemporaryFile() as f:
             conf_file = f.name
-        err_msg += """Usage: test usage
-
-Error: unable to locate %s
-""" % conf_file
-        test_args = [conf_file]
-        self.assertRaises(SystemExit, utils.parse_options, 'test usage', True,
-                          test_args)
-        self.assertEquals(stdo.getvalue(), err_msg)
+        self.assertRaises(SystemExit, utils.parse_options, once=True,
+                          test_args=[conf_file])
+        self.assert_('unable to locate' in stdo.getvalue())
 
         # reset stdio
         utils.sys.stdout = orig_stdout
@@ -487,29 +477,36 @@ foo = bar
 
 [section2]
 log_name = yarr'''
-        f = open('/tmp/test', 'wb')
-        f.write(conf)
-        f.close()
-        result = utils.readconf('/tmp/test')
-        expected = {'log_name': None,
-                    'section1': {'foo': 'bar'},
-                    'section2': {'log_name': 'yarr'}}
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1')
-        expected = {'log_name': 'section1', 'foo': 'bar'}
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section2').get('log_name')
-        expected = 'yarr'
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1',
-                                log_name='foo').get('log_name')
-        expected = 'foo'
-        self.assertEquals(result, expected)
-        result = utils.readconf('/tmp/test', 'section1',
-                                defaults={'bar': 'baz'})
-        expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
-        self.assertEquals(result, expected)
+        # setup a real file
+        with open('/tmp/test', 'wb') as f:
+            f.write(conf)
+        make_filename = lambda: '/tmp/test'
+        # setup a file stream
+        make_fp = lambda: StringIO(conf)
+        for conf_object_maker in (make_filename, make_fp):
+            result = utils.readconf(conf_object_maker())
+            expected = {'log_name': None,
+                        'section1': {'foo': 'bar'},
+                        'section2': {'log_name': 'yarr'}}
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1')
+            expected = {'log_name': 'section1', 'foo': 'bar'}
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(),
+                                    'section2').get('log_name')
+            expected = 'yarr'
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1',
+                                    log_name='foo').get('log_name')
+            expected = 'foo'
+            self.assertEquals(result, expected)
+            result = utils.readconf(conf_object_maker(), 'section1',
+                                    defaults={'bar': 'baz'})
+            expected = {'log_name': 'section1', 'foo': 'bar', 'bar': 'baz'}
+            self.assertEquals(result, expected)
+        self.assertRaises(SystemExit, utils.readconf, '/tmp/test', 'section3')
         os.unlink('/tmp/test')
+        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
 
     def test_drop_privileges(self):
         user = getuser()
@@ -659,7 +656,6 @@ log_name = yarr'''
             time.sleep(i)
         # make sure its accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
-
 
     def test_search_tree(self):
         # file match & ext miss

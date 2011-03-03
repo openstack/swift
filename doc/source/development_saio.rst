@@ -215,7 +215,7 @@ Configuring each node
 
 Sample configuration files are provided with all defaults in line-by-line comments.
   
-  #. If your going to use the DevAuth (the default swift-auth-server), create
+  #. If you're going to use the DevAuth (the default swift-auth-server), create
      `/etc/swift/auth-server.conf` (you can skip this if you're going to use
      Swauth)::
 

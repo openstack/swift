@@ -51,7 +51,7 @@ class AccountStat(Daemon):
         self.logger = \
             get_logger(stats_conf, log_route='account-stats')
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         self.logger.info(_("Gathering account stats"))
         start = time.time()
         self.find_and_process()

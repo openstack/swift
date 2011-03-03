@@ -547,7 +547,7 @@ class ObjectReplicator(Daemon):
             lockup_detector.kill()
             self.stats_line()
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Running object replicator in script mode."))
         self.replicate()
@@ -555,7 +555,7 @@ class ObjectReplicator(Daemon):
         self.logger.info(
             _("Object replication complete. (%.02f minutes)"), total)
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         self.logger.info("Starting object replicator in daemon mode.")
         # Run the replicator continually
         while True:

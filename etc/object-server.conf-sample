@@ -72,3 +72,5 @@ use = egg:swift#object
 # files_per_second = 20
 # bytes_per_second = 10000000
 # log_time = 3600
+# zero_byte_files_per_second = 50
+
