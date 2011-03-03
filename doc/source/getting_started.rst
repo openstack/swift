@@ -23,6 +23,21 @@ And the following python libraries:
 * Sphinx
 * netifaces
 
+-------------
+Getting Swift
+-------------
+
+Swift's source code is hosted on launchpad and managed with bazaar.  The current trunk can be checked out with its launchpad alias:
+
+    ``bzr branch lp:swift``
+
+A source tarball for the latest release of Swift is available on the `launchpad project page <https://launchpad.net/swift>`_.
+
+Prebuilt packages for Ubuntu are available starting with Natty, or from PPAs for earlier releases.
+
+* `Swift Latest Release PPA <https://launchpad.net/~swift-core/+archive/ppa>`_
+* `Swift Current Trunk PPA <https://launchpad.net/~swift-core/+archive/trunk>`_
+
 -----------
 Development
 -----------
