@@ -24,10 +24,8 @@ import xml.dom.minidom
 import simplejson
 from nose.plugins.skip import SkipTest
 
-from swift.common.middleware import swift3
-
 try:
-    import boto.s3
+    from swift.common.middleware import swift3
     skip = False
 except Exception:
     # Skip the swift3 tests if boto is not installed 
