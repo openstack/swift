@@ -141,11 +141,14 @@ class LogProcessor(object):
                 # one to the hour should be all-inclusive.
                 hour = '%02d' % (parsed_date.tm_hour + 1)
                 end_key = '/'.join([year, month, day, hour])
-        container_listing = self.internal_proxy.get_container_list(
-                                    swift_account,
-                                    container_name,
-                                    marker=search_key,
-                                    end_marker=end_key)
+        try:
+            container_listing = self.internal_proxy.get_container_list(
+                                        swift_account,
+                                        container_name,
+                                        marker=search_key,
+                                        end_marker=end_key)
+        except Exception:
+            self.logger.exception(_('error getting a listing of the container'))
         results = []
         if container_listing is not None:
             if listing_filter is None:
