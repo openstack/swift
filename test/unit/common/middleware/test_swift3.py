@@ -501,7 +501,7 @@ class TestSwift3(unittest.TestCase):
         self.assertEquals(app.req.headers['ETag'],
                     '7dfa07a8e59ddbcd1dc84d4c4f82aea1')
         self.assertEquals(app.req.headers['X-Object-Meta-Something'], 'oh hai')
-        self.assertEquals(app.req.headers['X-Object-Copy'], '/some/source')
+        self.assertEquals(app.req.headers['X-Copy-From'], '/some/source')
 
     def test_object_DELETE_error(self):
         code = self._test_method_error(FakeAppObject, 'DELETE',
