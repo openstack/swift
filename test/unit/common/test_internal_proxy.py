@@ -18,6 +18,7 @@
 import unittest
 import webob
 import tempfile
+import json
 
 from swift.common import internal_proxy
 
@@ -48,7 +49,14 @@ class DumbBaseApplication(object):
     def handle_request(self, req):
         self.call_count += 1
         req.path_info_pop()
-        resp = webob.Response(request=req, body=self.body,
+        if isinstance(self.body, list):
+            try:
+                body = self.body.pop(0)
+            except IndexError:
+                body = ''
+        else:
+            body = self.body
+        resp = webob.Response(request=req, body=body,
                               conditional_response=True)
         try:
             resp.status_int = self.status_codes.pop(0)
@@ -136,6 +144,20 @@ class TestInternalProxy(unittest.TestCase):
         p = internal_proxy.InternalProxy()
         resp = p.get_container_list('a', 'c')
         self.assertEquals(resp, [])
+
+    def test_get_container_list_body(self):
+        status_codes = [200]
+        obj_a = dict(name='foo', hash='foo', bytes=3,
+                     content_type='text/plain', last_modified='2011/01/01')
+        obj_b = dict(name='bar', hash='bar', bytes=3,
+                     content_type='text/plain', last_modified='2011/01/01')
+        body = [json.dumps([obj_a]), json.dumps([obj_b]), json.dumps([])]
+        internal_proxy.BaseApplication = DumbBaseApplicationFactory(
+                                            status_codes, body=body)
+        p = internal_proxy.InternalProxy()
+        resp = p.get_container_list('a', 'c')
+        expected = ['foo', 'bar']
+        self.assertEquals([x['name'] for x in resp], expected)
 
     def test_get_container_list_full(self):
         status_codes = [204]

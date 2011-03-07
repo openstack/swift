@@ -23,22 +23,22 @@ from swift.proxy.server import BaseApplication
 
 class MemcacheStub(object):
 
-    def get(self, *a, **kw):
+    def get(self, *a, **kw):  # pragma: no cover
         return None
 
-    def set(self, *a, **kw):
+    def set(self, *a, **kw):  # pragma: no cover
         return None
 
-    def incr(self, *a, **kw):
+    def incr(self, *a, **kw):  # pragma: no cover
         return 0
 
-    def delete(self, *a, **kw):
+    def delete(self, *a, **kw):  # pragma: no cover
         return None
 
-    def set_multi(self, *a, **kw):
+    def set_multi(self, *a, **kw):  # pragma: no cover
         return None
 
-    def get_multi(self, *a, **kw):
+    def get_multi(self, *a, **kw):  # pragma: no cover
         return []
 
 
@@ -139,7 +139,6 @@ class InternalProxy(object):
         req = webob.Request.blank('/v1/%s/%s/%s' %
                             (account, container, object_name),
                             environ={'REQUEST_METHOD': 'GET'})
-        req.account = account
         resp = self._handle_request(req)
         return resp.status_int, resp.app_iter
 
@@ -153,7 +152,6 @@ class InternalProxy(object):
         """
         req = webob.Request.blank('/v1/%s/%s' % (account, container),
                             environ={'REQUEST_METHOD': 'PUT'})
-        req.account = account
         resp = self._handle_request(req)
         return 200 <= resp.status_int < 300
 
@@ -204,7 +202,6 @@ class InternalProxy(object):
             qs += '&delimiter=%s' % quote(delimiter)
         path += '?%s' % qs
         req = webob.Request.blank(path, environ={'REQUEST_METHOD': 'GET'})
-        req.account = account
         resp = self._handle_request(req)
         if resp.status_int < 200 or resp.status_int >= 300:
             raise Exception('Request: %s\nResponse: %s' % (req, resp))
