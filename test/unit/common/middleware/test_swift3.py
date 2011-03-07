@@ -421,6 +421,23 @@ class TestSwift3(unittest.TestCase):
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '204')
 
+    def _check_acl(self, owner, resp):
+        dom = xml.dom.minidom.parseString("".join(resp))
+        self.assertEquals(dom.firstChild.nodeName, 'AccessControlPolicy')
+        name = dom.getElementsByTagName('Permission')[0].childNodes[0].nodeValue
+        self.assertEquals(name, 'FULL_CONTROL')
+        name = dom.getElementsByTagName('ID')[0].childNodes[0].nodeValue
+        self.assertEquals(name, owner)
+
+    def test_bucket_acl_GET(self):
+        local_app = swift3.filter_factory({})(FakeAppBucket())
+        bucket_name = 'junk'
+        req = Request.blank('/%s?acl' % bucket_name,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac'})
+        resp = local_app(req.environ, local_app.app.do_start_response)
+        self._check_acl('test:tester', resp)
+
     def _test_object_GETorHEAD(self, method):
         local_app = swift3.filter_factory({})(FakeAppObject())
         req = Request.blank('/bucket/object',
@@ -529,6 +546,13 @@ class TestSwift3(unittest.TestCase):
         resp = local_app(req.environ, local_app.app.do_start_response)
         self.assertEquals(local_app.app.response_args[0].split()[0], '204')
 
+    def test_object_acl_GET(self):
+        local_app = swift3.filter_factory({})(FakeAppObject())
+        req = Request.blank('/bucket/object?acl',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac'})
+        resp = local_app(req.environ, local_app.app.do_start_response)
+        self._check_acl('test:tester', resp)
 
 if __name__ == '__main__':
     unittest.main()
