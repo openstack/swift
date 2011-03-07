@@ -41,10 +41,24 @@ class MemcacheStub(object):
     def get_multi(self, *a, **kw):
         return []
 
-def webob_request_copy(orig_req):
-    # this should be as simple as return orig_req.copy(), but webob is buggy
-    req_copy = webob.Request.blank(orig_req.path, environ=orig_req.environ)
-    req_copy.body_file = orig_req.body_file # TODO: can't do this
+
+def make_request_body_file(source_file, compress=True):
+    if hasattr(source_file, 'seek'):
+        source_file.seek(0)
+    else:
+        source_file = open(source_file, 'rb')
+    if compress:
+        compressed_file = CompressingFileReader(source_file)
+        return compressed_file
+    return source_file
+
+
+def webob_request_copy(orig_req, source_file=None, compress=True):
+    req_copy = orig_req.copy()
+    if source_file:
+        req_copy.body_file = make_request_body_file(source_file,
+                                                    compress=compress)
+    req_copy.content_length = orig_req.content_length
     return req_copy
 
 
@@ -65,16 +79,17 @@ class InternalProxy(object):
                                           logger=logger)
         self.retries = retries
 
-    def _handle_request(self, req):
-        req_copy = webob_request_copy(req)
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req_copy))
+    def _handle_request(self, req, source_file=None, compress=True):
+        req = self.upload_app.update_request(req)
+        req_copy = webob_request_copy(req, source_file=source_file,
+                                      compress=compress)
+        resp = self.upload_app.handle_request(req_copy)
         tries = 1
         while (resp.status_int < 200 or resp.status_int > 299) \
                 and tries < self.retries:
-            req_copy = webob_request_copy(req)
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req_copy))
+            req_copy = webob_request_copy(req, source_file=source_file,
+                                          compress=compress)
+            resp = self.upload_app.handle_request(req_copy)
             tries += 1
         return resp
 
@@ -100,39 +115,14 @@ class InternalProxy(object):
             return False
 
         # upload the file to the account
-        req = webob.Request.blank(target_name,
+        req = webob.Request.blank(target_name, content_type=content_type,
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Transfer-Encoding': 'chunked'})
-
-        def make_request_body_file():
-            if hasattr(source_file, 'read'):
-                _source_file = open(source_file.name, 'rb') #TODO: fix with stringIO
-            else:
-                _source_file = open(source_file, 'rb')
-            _source_file.seek(0)
-            if compress:
-                compressed_file = CompressingFileReader(_source_file)
-                return compressed_file
-            return _source_file
-
-        req.body_file = make_request_body_file()
-        req.account = account
-        req.content_type = content_type
         req.content_length = None   # to make sure we send chunked data
         if etag:
-            req.etag = etag
-        req_copy = webob_request_copy(req)
-        req_copy.body_file = make_request_body_file()  # reset the read pointer
-        resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req_copy))
-        tries = 1
-        while (resp.status_int < 200 or resp.status_int > 299) \
-                and tries < self.retries:
-            req_copy = webob_request_copy(req)
-            req_copy.body_file = make_request_body_file()
-            resp = self.upload_app.handle_request(
-                                self.upload_app.update_request(req_copy))
-            tries += 1
+            req.headers['etag'] = etag
+        resp = self._handle_request(req, source_file=source_file,
+                                    compress=compress)
         if not (200 <= resp.status_int < 300):
             return False
         return True
@@ -197,7 +187,8 @@ class InternalProxy(object):
                     marker = listing[-1].get('name', listing[-1].get('subdir'))
                 listing = self.get_container_list(account, container, marker,
                                                   end_marker, limit, prefix,
-                                                  delimiter, full_listing=False)
+                                                  delimiter,
+                                                  full_listing=False)
             return rv
         path = '/v1/%s/%s' % (account, quote(container))
         qs = 'format=json'
