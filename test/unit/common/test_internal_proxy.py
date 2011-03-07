@@ -145,8 +145,8 @@ class TestInternalProxy(unittest.TestCase):
         resp = p.get_container_list('a', 'c')
         self.assertEquals(resp, [])
 
-    def test_get_container_list_body(self):
-        status_codes = [200]
+    def test_get_container_list_full_listing(self):
+        status_codes = [200, 200]
         obj_a = dict(name='foo', hash='foo', bytes=3,
                      content_type='text/plain', last_modified='2011/01/01')
         obj_b = dict(name='bar', hash='bar', bytes=3,
