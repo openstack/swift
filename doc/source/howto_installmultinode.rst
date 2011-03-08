@@ -56,6 +56,9 @@ Network Setup Notes
 
 This document refers to two networks.  An external network for connecting to the Proxy server, and a storage network that is not accessibile from outside the cluster, to which all of the nodes are connected.  All of the Swift services, as well as the rsync daemon on the Storage nodes are configured to listen on their STORAGE_LOCAL_NET IP addresses.
 
+.. note::
+    Run all commands as the root user
+
 General OS configuration and partitioning for each node
 -------------------------------------------------------
 
@@ -73,16 +76,27 @@ General OS configuration and partitioning for each node
         mkdir -p /etc/swift
         chown -R swift:swift /etc/swift/
 
-#. Create /etc/swift/swift.conf::
+#. On the first node only, create /etc/swift/swift.conf::
 
+        cat >/etc/swift/swift.conf <<EOF
         [swift-hash]
         # random unique string that can never change (DO NOT LOSE)
-        swift_hash_path_suffix = changeme
+        swift_hash_path_suffix = `od -t x8 -N 8 -A n </dev/random`
+        EOF
+
+#. On the second and subsequent nodes: Copy that file over. It must be the same on every node in the cluster!::
+
+        scp firstnode.example.com:/etc/swift/swift.conf /etc/swift/  
+
+#. Publish the local network IP address for use by scripts found later in this documentation::
+
+        export STORAGE_LOCAL_NET_IP=10.1.2.3
+        export PROXY_LOCAL_NET_IP=10.1.2.4
+        export AUTH_LOCAL_NET_IP=10.1.2.5
 
 .. note::
-    /etc/swift/swift.conf should be set to some random string of text to be
-    used as a salt when hashing to determine mappings in the ring.  This
-    file should be the same on every node in the cluster!
+    The random string of text in /etc/swift/swift.conf is 
+    used as a salt when hashing to determine mappings in the ring. 
 
 .. _config-proxy:
 
@@ -101,11 +115,13 @@ Configure the Proxy node
         cd /etc/swift
         openssl req -new -x509 -nodes -out cert.crt -keyout cert.key
 
-#. Modify memcached to listen on the default interfaces.  Preferably this should be on a local, non-public network.  Edit the following line in /etc/memcached.conf, changing::
+.. note::
+	If you don't create the cert files, Swift silently uses http internally rather than https. This document assumes that you have created
+	these certs, so if you're following along step-by-step, create them.
 
-        -l 127.0.0.1
-        to
-        -l <PROXY_LOCAL_NET_IP>
+#. Modify memcached to listen on the default interfaces. Preferably this should be on a local, non-public network. Edit the IP address in /etc/memcached.conf, for example::
+
+        perl -pi -e "s/-l 127.0.0.1/-l $PROXY_LOCAL_NET_IP/" /etc/memcached.conf
 
 #. Restart the memcached server::
 
@@ -113,12 +129,16 @@ Configure the Proxy node
 
 #. Create /etc/swift/proxy-server.conf::
 
+        cat >/etc/swift/proxy-server.conf <<EOF
         [DEFAULT]
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
         bind_port = 8080
         workers = 8
         user = swift
+        # For non-local Auth server
+        ip = $AUTH_LOCAL_NET_IP
+        
         
         [pipeline:main]
         # For DevAuth:
@@ -138,7 +158,7 @@ Configure the Proxy node
         # Only needed for Swauth
         [filter:swauth]
         use = egg:swift#swauth
-        default_swift_cluster = local#https://<PROXY_LOCAL_NET_IP>:8080/v1
+        default_swift_cluster = local#https://$PROXY_LOCAL_NET_IP:8080/v1
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
         
@@ -148,6 +168,7 @@ Configure the Proxy node
         [filter:cache]
         use = egg:swift#memcache
         memcache_servers = <PROXY_LOCAL_NET_IP>:11211
+        EOF
 
    .. note::
 
@@ -166,11 +187,15 @@ Configure the Proxy node
 
     For more information on building rings, see :doc:`overview_ring`.
         
-#. For every storage device on each node add entries to each ring::
+#. For every storage device in /srv/node on each node add entries to each ring::
 
-    swift-ring-builder account.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP>:6002/<DEVICE> 100
-    swift-ring-builder container.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP_1>:6001/<DEVICE> 100
-    swift-ring-builder object.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP_1>:6000/<DEVICE> 100
+    export ZONE=                    # set the zone number for that storage device
+    export STORAGE_LOCAL_NET_IP=    # and the IP address
+    export WEIGHT=100               # relative weight (higher for bigger/faster disks)
+    export DEVICE=sdb1
+    swift-ring-builder account.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6002/$DEVICE $WEIGHT
+    swift-ring-builder container.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6001/$DEVICE $WEIGHT
+    swift-ring-builder object.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6000/$DEVICE $WEIGHT
 
    .. note::
     Assuming there are 5 zones with 1 node per zone, ZONE should start at
@@ -217,6 +242,7 @@ Configure the Auth node
 
 #. Create /etc/swift/auth-server.conf::
 
+        cat >/etc/swift/auth-server.conf <<EOF
         [DEFAULT]
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
@@ -230,7 +256,8 @@ Configure the Auth node
         default_cluster_url = https://<PROXY_HOSTNAME>:8080/v1
         # Highly recommended to change this key to something else!
         super_admin_key = devauth
-
+        EOF
+        
 #. Start Auth services::
 
         swift-init auth start
@@ -242,10 +269,11 @@ Configure the Storage nodes
 
 ..  note::
     Swift *should* work on any modern filesystem that supports
-    Extended Attributes (XATTRS).  We currently recommend XFS as it
+    Extended Attributes (XATTRS). We currently recommend XFS as it
     demonstrated the best overall performance for the swift use case after
-    considerable testing and benchmarking at Rackspace.  It is also the
-    only filesystem that has been thoroughly tested.
+    considerable testing and benchmarking at Rackspace. It is also the
+    only filesystem that has been thoroughly tested. These instructions 
+    assume that you are going to devote /dev/sdb1 to an XFS filesystem.
 
 #. Install Storage node packages::
 
@@ -263,11 +291,12 @@ Configure the Storage nodes
 
 #. Create /etc/rsyncd.conf::
 
+        cat >/etc/rsyncd.conf <<EOF
         uid = swift
         gid = swift
         log file = /var/log/rsyncd.log
         pid file = /var/run/rsyncd.pid
-        address = <STORAGE_LOCAL_NET_IP>
+        address = $STORAGE_LOCAL_NET_IP
         
         [account]
         max connections = 2
@@ -286,10 +315,11 @@ Configure the Storage nodes
         path = /srv/node/
         read only = false
         lock file = /var/lock/object.lock
+        EOF
 
-#. Edit the following line in /etc/default/rsync::
+#. Edit the RSYNC_ENABLE= line in /etc/default/rsync::
 
-        RSYNC_ENABLE=true
+        perl -pi -e 's/RSYNC_ENABLE=false/RSYNC_ENABLE=true/' /etc/default/rsync
 
 #. Start rsync daemon::
 
@@ -301,8 +331,9 @@ Configure the Storage nodes
 
 #. Create /etc/swift/account-server.conf::
 
+        cat >/etc/swift/account-server.conf <<EOF
         [DEFAULT]
-        bind_ip = <STORAGE_LOCAL_NET_IP>
+        bind_ip = $STORAGE_LOCAL_NET_IP
         workers = 2
         
         [pipeline:main]
@@ -316,9 +347,11 @@ Configure the Storage nodes
         [account-auditor]
         
         [account-reaper]
+        EOF
 
 #. Create /etc/swift/container-server.conf::
 
+        cat >/etc/swift/container-server.conf <<EOF
         [DEFAULT]
         bind_ip = <STORAGE_LOCAL_NET_IP>
         workers = 2
@@ -334,9 +367,11 @@ Configure the Storage nodes
         [container-updater]
         
         [container-auditor]
+        EOF
 
 #. Create /etc/swift/object-server.conf::
 
+        cat >/etc/swift/object-server.conf <<EOF
         [DEFAULT]
         bind_ip = <STORAGE_LOCAL_NET_IP>
         workers = 2
@@ -352,20 +387,33 @@ Configure the Storage nodes
         [object-updater]
         
         [object-auditor]
+        EOF
 
-#. Start the storage services::
+#. Start the storage services. If you use this command, it will try to start every
+service for which a configuration file exists, and throw a warning for any
+configuration files which don't exist::
 
-    swift-init object-server start
-    swift-init object-replicator start
-    swift-init object-updater start
-    swift-init object-auditor start
-    swift-init container-server start
-    swift-init container-replicator start
-    swift-init container-updater start
-    swift-init container-auditor start
-    swift-init account-server start
-    swift-init account-replicator start
-    swift-init account-auditor start
+         swift-init all start
+
+Or, if you want to start them one at a time, run them as below. Note that if the
+server program in question generates any output on its stdout or stderr, swift-init
+has already redirected the command's output to /dev/null. If you encounter any
+difficulty, stop the server and run it by hand from the command line. Any server
+may be started using "swift-$SERVER-$SERVICE /etc/swift/$SERVER-config", where
+$SERVER might be object, continer, or account, and $SERVICE might be server,
+replicator, updater, or auditor.::
+
+         swift-init object-server start
+         swift-init object-replicator start
+         swift-init object-updater start
+         swift-init object-auditor start
+         swift-init container-server start
+         swift-init container-replicator start
+         swift-init container-updater start
+         swift-init container-auditor start
+         swift-init account-server start
+         swift-init account-replicator start
+         swift-init account-auditor start
 
 Create Swift admin account and test
 -----------------------------------
@@ -395,7 +443,7 @@ You run these commands from the Auth node.
 
         curl -k -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>
 
-#. Check that ``st`` works::
+#. Check that ``st`` works  (at this point, expect zero containers, zero objects, and zero bytes)::
 
         st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass stat
 
@@ -407,6 +455,22 @@ You run these commands from the Auth node.
 #. Use ``st`` to download all files from the 'myfiles' container::
 
         st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass download myfiles
+
+#. Use ``st`` to save a backup of your builder files to a container named 'builders'. Very important not to lose your builders!::
+
+        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
+
+#. Use ``st`` to list your containers::
+
+        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass list
+
+#. Use ``st`` to list the contents of your 'builders' container::
+
+        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass list builders
+
+#. Use ``st`` to download all files from the 'builders' container::
+
+        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass download builders
 
 .. _add-proxy-server:
 

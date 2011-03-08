@@ -15,9 +15,10 @@
 
 import os
 import time
+import uuid
+import errno
 from hashlib import md5
 from random import random
-
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
 from swift.common.utils import get_logger, renamer, audit_location_generator, \
@@ -148,10 +149,17 @@ class AuditorWorker(object):
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                 'be quarantined: %(err)s'), {'obj': path, 'err': err})
-            invalidate_hash(os.path.dirname(path))
+            object_dir = os.path.dirname(path)
+            invalidate_hash(os.path.dirname(object_dir))
             renamer_path = os.path.dirname(path)
-            renamer(renamer_path, os.path.join(self.devices, device,
-                'quarantined', 'objects', os.path.basename(renamer_path)))
+            to_path = os.path.join(self.devices, device, 'quarantined',
+                                   'objects', os.path.basename(renamer_path))
+            try:
+                renamer(renamer_path, to_path)
+            except OSError, e:
+                if e.errno == errno.EEXIST:
+                    to_path = "%s-%s" % (to_path, uuid.uuid4().hex)
+                    renamer(renamer_path, to_path)
             return
         except Exception:
             self.errors += 1
@@ -165,6 +173,7 @@ class ObjectAuditor(Daemon):
 
     def __init__(self, conf, **options):
         self.conf = conf
+        self.logger = get_logger(conf, log_route='object-auditor')
         self.conf_zero_byte_fps = int(conf.get(
                 'zero_byte_files_per_second', 50))
 

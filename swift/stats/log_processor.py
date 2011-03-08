@@ -147,13 +147,12 @@ class LogProcessor(object):
                                     marker=search_key,
                                     end_marker=end_key)
         results = []
-        if container_listing is not None:
-            if listing_filter is None:
-                listing_filter = set()
-            for item in container_listing:
-                name = item['name']
-                if name not in listing_filter:
-                    results.append(name)
+        if listing_filter is None:
+            listing_filter = set()
+        for item in container_listing:
+            name = item['name']
+            if name not in listing_filter:
+                results.append(name)
         return results
 
     def get_object_data(self, swift_account, container_name, object_name,
