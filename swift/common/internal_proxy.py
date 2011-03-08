@@ -204,7 +204,7 @@ class InternalProxy(object):
         req = webob.Request.blank(path, environ={'REQUEST_METHOD': 'GET'})
         resp = self._handle_request(req)
         if resp.status_int < 200 or resp.status_int >= 300:
-            raise Exception('Request: %s\nResponse: %s' % (req, resp))
+            return []  # TODO: distinguish between 404 and empty container
         if resp.status_int == 204:
             return []
         return json_loads(resp.body)

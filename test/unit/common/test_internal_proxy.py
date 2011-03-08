@@ -174,7 +174,7 @@ class TestInternalProxy(unittest.TestCase):
                                             status_codes)
         p = internal_proxy.InternalProxy()
         with tempfile.NamedTemporaryFile() as file_obj:
-            resp = p.upload_file(file_obj, 'a', 'c', 'o')
+            resp = p.upload_file(file_obj.name, 'a', 'c', 'o')
         self.assertTrue(resp)
 
     def test_upload_file_with_retries(self):
