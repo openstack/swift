@@ -349,7 +349,7 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         try:
-            args = simplejson.load(req.body_file)
+            args = simplejson.load(req.environ['wsgi.input'])
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)

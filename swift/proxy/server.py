@@ -929,8 +929,8 @@ class ObjectController(Controller):
         error_response = check_object_creation(req, self.object_name)
         if error_response:
             return error_response
-        data_source = \
-            iter(lambda: req.body_file.read(self.app.client_chunk_size), '')
+        reader = req.environ['wsgi.input'].read
+        data_source = iter(lambda: reader(self.app.client_chunk_size), '')
         source_header = req.headers.get('X-Copy-From')
         if source_header:
             source_header = unquote(source_header)
