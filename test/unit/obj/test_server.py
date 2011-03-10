@@ -36,16 +36,97 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
 
 
+class TestDiskFile(unittest.TestCase):
+    """Test swift.obj.server.DiskFile"""
+
+    def setUp(self):
+        """ Set up for testing swift.object_server.ObjectController """
+        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
+        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+
+    def tearDown(self):
+        """ Tear down for testing swift.object_server.ObjectController """
+        rmtree(os.path.dirname(self.testdir))
+
+    def test_disk_file_app_iter_corners(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        f.write('1234567890')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        f.close()
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    keep_data_fp=True)
+        it = df.app_iter_range(0, None)
+        sio = StringIO()
+        for chunk in it:
+            sio.write(chunk)
+        self.assertEquals(sio.getvalue(), '1234567890')
+
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    keep_data_fp=True)
+        it = df.app_iter_range(5, None)
+        sio = StringIO()
+        for chunk in it:
+            sio.write(chunk)
+        self.assertEquals(sio.getvalue(), '67890')
+
+    def test_disk_file_mkstemp_creates_dir(self):
+        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
+        os.rmdir(tmpdir)
+        with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
+                'o').mkstemp():
+            self.assert_(os.path.exists(tmpdir))
+
+    def test_quarantine(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
+        object_server.DiskFile.quarantine(df.device_path, df.data_file)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
+                                'objects', os.path.basename(os.path.dirname(
+                                                            df.data_file)))
+        self.assert_(os.path.isdir(quar_dir))
+
+    def test_quarantine_double(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
+        new_dir = object_server.DiskFile.quarantine(df.device_path,
+                                                    df.data_file)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
+                                'objects', os.path.basename(os.path.dirname(
+                                                            df.data_file)))
+        self.assert_(os.path.isdir(quar_dir))
+        self.assertEquals(quar_dir, new_dir)
+        # have to remake the datadir
+        mkdirs(df.datadir)
+        double_uuid_path = df.quarantine(df.device_path, df.data_file)
+        self.assert_(os.path.isdir(double_uuid_path))
+        self.assert_('-' in os.path.basename(double_uuid_path))
+
+    def test_unlinkold(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'ob')
+        
+
+
 class TestObjectController(unittest.TestCase):
-    """ Test swift.object_server.ObjectController """
+    """ Test swift.obj.server.ObjectController """
 
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
         self.testdir = \
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
-        mkdirs(self.testdir)
-        rmtree(self.testdir)
-        mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(conf)
@@ -869,38 +950,6 @@ class TestObjectController(unittest.TestCase):
         req.body = 'DATA'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 400)
-
-    def test_disk_file_app_iter_corners(self):
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        f.write('1234567890')
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-        f.close()
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    keep_data_fp=True)
-        it = df.app_iter_range(0, None)
-        sio = StringIO()
-        for chunk in it:
-            sio.write(chunk)
-        self.assertEquals(sio.getvalue(), '1234567890')
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    keep_data_fp=True)
-        it = df.app_iter_range(5, None)
-        sio = StringIO()
-        for chunk in it:
-            sio.write(chunk)
-        self.assertEquals(sio.getvalue(), '67890')
-
-    def test_disk_file_mkstemp_creates_dir(self):
-        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
-        os.rmdir(tmpdir)
-        with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                'o').mkstemp():
-            self.assert_(os.path.exists(tmpdir))
 
     def test_max_upload_time(self):
 

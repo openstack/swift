@@ -21,6 +21,7 @@ import errno
 import os
 import time
 import traceback
+import uuid
 from datetime import datetime
 from hashlib import md5
 from tempfile import mkstemp
@@ -109,6 +110,7 @@ class DiskFile(object):
         name_hash = hash_path(account, container, obj)
         self.datadir = os.path.join(path, device,
                     storage_directory(DATADIR, partition, name_hash))
+        self.device_path = os.path.join(path, device)
         self.tmpdir = os.path.join(path, device, 'tmp')
         self.metadata = {}
         self.meta_file = None
@@ -254,6 +256,31 @@ class DiskFile(object):
         """Method for no-oping buffer cache drop method."""
         if not self.keep_cache:
             drop_buffer_cache(fd, offset, length)
+
+    @classmethod
+    def quarantine(cls, device_path, corrupted_file_path):
+        """
+        In the case that a file is corrupted, move it to a quarantined
+        area to allow replication to fix it.
+
+        :params device_path: The path to the device the corrupted file is on.
+        :params corrupted_file_path: The path to the file you want quarantined.
+
+        :returns: path (str) of directory the file was moved to
+        :raises OSError: re-raises non errno.EEXIST exceptions from rename
+        """
+        from_dir = os.path.dirname(corrupted_file_path)
+        to_dir = os.path.join(device_path, 'quarantined',
+                              'objects', os.path.basename(from_dir))
+        invalidate_hash(os.path.dirname(from_dir))
+        try:
+            renamer(from_dir, to_dir)
+        except OSError, e:
+            if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
+            renamer(from_dir, to_dir)
+        return to_dir
 
 
 class ObjectController(object):

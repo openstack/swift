@@ -149,17 +149,8 @@ class AuditorWorker(object):
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                 'be quarantined: %(err)s'), {'obj': path, 'err': err})
-            object_dir = os.path.dirname(path)
-            invalidate_hash(os.path.dirname(object_dir))
-            renamer_path = os.path.dirname(path)
-            to_path = os.path.join(self.devices, device, 'quarantined',
-                                   'objects', os.path.basename(renamer_path))
-            try:
-                renamer(renamer_path, to_path)
-            except OSError, e:
-                if e.errno == errno.EEXIST:
-                    to_path = "%s-%s" % (to_path, uuid.uuid4().hex)
-                    renamer(renamer_path, to_path)
+            object_server.DiskFile.quarantine(
+                os.path.join(self.devices, device), path)
             return
         except Exception:
             self.errors += 1

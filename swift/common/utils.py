@@ -179,9 +179,9 @@ def mkdirs(path):
                 raise
 
 
-def renamer(old, new):  # pragma: no cover
+def renamer(old, new):
     """
-    Attempt to fix^H^H^Hhide race conditions like empty object directories
+    Attempt to fix / hide race conditions like empty object directories
     being removed by backend processes during uploads, by retrying.
 
     :param old: old path to be renamed
