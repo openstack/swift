@@ -61,12 +61,13 @@ if __name__ == '__main__':
     if parsed.scheme not in ('http', 'https'):
         raise Exception('Cannot handle protocol scheme %s for url %s' %
                         (parsed.scheme, repr(options.admin_url)))
-    if not parsed.path:
-        parsed.path = '/'
-    elif parsed.path[-1] != '/':
-        parsed.path += '/'
+    parsed_path = parsed.path
+    if not parsed_path:
+        parsed_path = '/'
+    elif parsed_path[-1] != '/':
+        parsed_path += '/'
     # Ensure the account exists
-    path = '%sv2/%s' % (parsed.path, account)
+    path = '%sv2/%s' % (parsed_path, account)
     headers = {'X-Auth-Admin-User': options.admin_user,
                'X-Auth-Admin-Key': options.admin_key}
     if options.suffix:
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     if resp.status // 100 != 2:
         print 'Account creation failed: %s %s' % (resp.status, resp.reason)
     # Add the user
-    path = '%sv2/%s/%s' % (parsed.path, account, user)
+    path = '%sv2/%s/%s' % (parsed_path, account, user)
     headers = {'X-Auth-Admin-User': options.admin_user,
                'X-Auth-Admin-Key': options.admin_key,
                'X-Auth-User-Key': password}
