@@ -48,7 +48,7 @@ Talking to Swift with Cyberduck
 
 #.  Go to "Open Connection", select Rackspace Cloud Files, and connect.
 
-    .. image:: howto_cyberduck_config.png
+    .. image:: images/howto_cyberduck_config.png
 
 #.  If you get SSL errors, make sure your auth and proxy server are both setup
     for SSL. If you get certificate errors (specifically, 'unable to find valid

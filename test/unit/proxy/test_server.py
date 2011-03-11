@@ -835,9 +835,9 @@ class TestObjectController(unittest.TestCase):
             def test_status_map(statuses, expected):
                 self.app.memcache.store = {}
                 proxy_server.http_connect = mock_http_connect(*statuses)
-                req = Request.blank('/a/c/o.jpg', {})
+                req = Request.blank('/a/c/o.jpg',
+                    environ={'REQUEST_METHOD': 'PUT'}, body='some data')
                 self.app.update_request(req)
-                req.body_file = StringIO('some data')
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
