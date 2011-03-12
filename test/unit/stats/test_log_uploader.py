@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: More tests
-
 import unittest
 import os
 from datetime import datetime
