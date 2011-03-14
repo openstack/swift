@@ -104,12 +104,12 @@ class LogUploader(Daemon):
             '%d': ('day', '(?P<day>[0-3][0-9])'),
             '%H': ('hour', '(?P<hour>[0-2][0-9])'),
         }
-        for marker, (type, group) in markers.items():
+        for marker, (mtype, group) in markers.items():
             if marker not in self.pattern:
                 self.logger.error(_('source_filename_pattern much contain a '
                                     'marker %(marker)s to match the '
-                                    '%(type)s') % {'marker': marker,
-                                                   'type': type})
+                                    '%(mtype)s') % {'marker': marker,
+                                                   'mtype': mtype})
                 return
             pattern = pattern.replace(marker, group)
         return pattern
