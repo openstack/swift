@@ -584,6 +584,7 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init all stop
+        find /var/log/swift -type f -exec rm -f {} \;
         sudo umount /mnt/sdb1
         sudo mkfs.xfs -f -i size=1024 /dev/sdb1
         sudo mount /mnt/sdb1
