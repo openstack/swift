@@ -329,7 +329,7 @@ class ObjectController(Controller):
             elif key == 'HTTP_CONTENT_MD5':
                 env['HTTP_ETAG'] = value.decode('base64').encode('hex')
             elif key == 'HTTP_X_AMZ_COPY_SOURCE':
-                env['HTTP_X_OBJECT_COPY'] = value
+                env['HTTP_X_COPY_FROM'] = value
 
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
@@ -342,6 +342,12 @@ class ObjectController(Controller):
                 return get_err_response('InvalidBucketName')
             else:
                 return get_err_response('InvalidURI')
+
+        if 'HTTP_X_COPY_FROM' in env:
+            body = '<CopyObjectResult>' \
+                   '<ETag>"%s"</ETag>' \
+                   '</CopyObjectResult>' % headers['etag']
+            return Response(status=200, body=body)
 
         return Response(status=200, etag=headers['etag'])
 
