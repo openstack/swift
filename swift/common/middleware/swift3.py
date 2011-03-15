@@ -60,7 +60,7 @@ import base64
 import errno
 import boto.utils
 from xml.sax.saxutils import escape as xml_escape
-import cgi
+import urlparse
 
 from webob import Request, Response
 from webob.exc import HTTPNotFound
@@ -107,6 +107,25 @@ def get_err_response(code):
                 '<Code>%s</Code>\r\n  <Message>%s</Message>\r\n</Error>\r\n' \
                  % (code, error_table[code][1])
     return resp
+
+
+def get_acl(account_name):
+    body = ('<AccessControlPolicy>'
+            '<Owner>'
+            '<ID>%s</ID>'
+            '</Owner>'
+            '<AccessControlList>'
+            '<Grant>'
+            '<Grantee xmlns:xsi="http://www.w3.org/2001/'\
+            'XMLSchema-instance" xsi:type="CanonicalUser">'
+            '<ID>%s</ID>'
+            '</Grantee>'
+            '<Permission>FULL_CONTROL</Permission>'
+            '</Grant>'
+            '</AccessControlList>'
+            '</AccessControlPolicy>' %
+            (account_name, account_name))
+    return Response(body=body, content_type="text/plain")
 
 
 class Controller(object):
@@ -165,6 +184,7 @@ class BucketController(Controller):
                     **kwargs):
         Controller.__init__(self, app)
         self.container_name = unquote(container_name)
+        self.account_name = unquote(account_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
 
@@ -173,7 +193,7 @@ class BucketController(Controller):
         Handle GET Bucket (List Objects) request
         """
         if 'QUERY_STRING' in env:
-            args = dict(cgi.parse_qsl(env['QUERY_STRING']))
+            args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
         else:
             args = {}
         max_keys = min(int(args.get('max-keys', MAX_BUCKET_LISTING)),
@@ -197,6 +217,9 @@ class BucketController(Controller):
             else:
                 return get_err_response('InvalidURI')
 
+        if 'acl' in args:
+            return get_acl(self.account_name)
+        
         objects = loads(''.join(list(body_iter)))
         body = ('<?xml version="1.0" encoding="UTF-8"?>'
             '<ListBucketResult '
@@ -279,6 +302,7 @@ class ObjectController(Controller):
     def __init__(self, env, app, account_name, token, container_name,
                     object_name, **kwargs):
         Controller.__init__(self, app)
+        self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s/%s' % (account_name, container_name,
@@ -290,6 +314,13 @@ class ObjectController(Controller):
         headers = dict(self.response_args[1])
 
         if 200 <= status < 300:
+            if 'QUERY_STRING' in env:
+                args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
+            else:
+                args = {}
+            if 'acl' in args:
+                return get_acl(self.account_name)
+
             new_hdrs = {}
             for key, val in headers.iteritems():
                 _key = key.lower()
