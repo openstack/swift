@@ -26,8 +26,8 @@ import time
 import tempfile
 from contextlib import contextmanager
 from eventlet import tpool
-
 from eventlet.green import subprocess
+from test.unit import FakeLogger
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
@@ -164,7 +164,8 @@ class TestObjectReplicator(unittest.TestCase):
         was_connector = object_replicator.http_connect
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
-        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
+                      FakeLogger())
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
                               normalize_timestamp(time.time()) + '.data'),
@@ -189,7 +190,7 @@ class TestObjectReplicator(unittest.TestCase):
         object_replicator.http_connect = was_connector
 
     def test_hash_suffix_one_file(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
                      normalize_timestamp(time.time() - 100) + '.ts'),
@@ -206,7 +207,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEquals(len(os.listdir(self.parts['0'])), 0)
 
     def test_hash_suffix_multi_file_one(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         for tdiff in [1, 50, 100, 500]:
             for suff in ['.meta', '.data', '.ts']:
@@ -227,7 +228,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
 
     def test_hash_suffix_multi_file_two(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         for tdiff in [1, 50, 100, 500]:
             suffs = ['.meta', '.data']
@@ -257,7 +258,7 @@ class TestObjectReplicator(unittest.TestCase):
                 fdata = fp.read()
                 self.assertEquals(fdata, data)
 
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -312,7 +313,7 @@ class TestObjectReplicator(unittest.TestCase):
                               os.path.join(self.objects, part))
 
     def test_delete_partition(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -330,7 +331,8 @@ class TestObjectReplicator(unittest.TestCase):
         # Write some files into '1' and run replicate- they should be moved
         # to the other partitoins and then node should get deleted.
         cur_part = '1'
-        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o')
+        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
+                      FakeLogger())
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
                               normalize_timestamp(time.time()) + '.data'),

@@ -91,6 +91,22 @@ def temptree(files, contents=''):
         rmtree(tempdir)
 
 
+class FakeLogger(object):
+    # a thread safe logger
+
+    def __init__(self):
+        self.log_dict = dict(error=[], info=[], warning=[])
+
+    def error(self, *args, **kwargs):
+        self.log_dict['error'].append((args, kwargs))
+
+    def info(self, *args, **kwargs):
+        self.log_dict['info'].append((args, kwargs))
+
+    def warning(self, *args, **kwargs):
+        self.log_dict['warning'].append((args, kwargs))
+
+
 class MockTrue(object):
     """
     Instances of MockTrue evaluate like True

@@ -183,7 +183,7 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
 
 
 def direct_get_object(node, part, account, container, obj, conn_timeout=5,
-                      response_timeout=15, resp_chunk_size=None):
+                      response_timeout=15, resp_chunk_size=None, headers={}):
     """
     Get object directly from the object server.
 
@@ -195,13 +195,14 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
     :param resp_chunk_size: if defined, chunk size of data to read.
+    :param headers: dict to be passed into HTTPConnection headers
     :returns: a tuple of (response headers, the object's contents) The response
               headers will be a dict and all header names will be lowercase.
     """
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                'GET', path)
+                'GET', path, headers=headers)
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
