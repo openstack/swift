@@ -18,16 +18,15 @@ Cloud Files client library used internally
 """
 import socket
 from cStringIO import StringIO
-from httplib import HTTPException
 from re import compile, DOTALL
 from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote, unquote
 from urlparse import urlparse, urlunparse
 
 try:
-    from eventlet.green.httplib import HTTPSConnection
+    from eventlet.green.httplib import HTTPException, HTTPSConnection
 except ImportError:
-    from httplib import HTTPSConnection
+    from httplib import HTTPException, HTTPSConnection
 
 try:
     from eventlet import sleep

@@ -18,7 +18,7 @@ import os
 import hashlib
 import time
 import gzip
-import glob
+import re
 from paste.deploy import appconfig
 
 from swift.common.internal_proxy import InternalProxy
@@ -44,29 +44,30 @@ class LogUploader(Daemon):
 
     def __init__(self, uploader_conf, plugin_name):
         super(LogUploader, self).__init__(uploader_conf)
-        log_dir = uploader_conf.get('log_dir', '/var/log/swift/')
-        swift_account = uploader_conf['swift_account']
-        container_name = uploader_conf['container_name']
-        source_filename_format = uploader_conf['source_filename_format']
+        log_name = '%s-log-uploader' % plugin_name
+        self.logger = utils.get_logger(uploader_conf, log_name,
+                                       log_route=plugin_name)
+        self.log_dir = uploader_conf.get('log_dir', '/var/log/swift/')
+        self.swift_account = uploader_conf['swift_account']
+        self.container_name = uploader_conf['container_name']
         proxy_server_conf_loc = uploader_conf.get('proxy_server_conf',
                                             '/etc/swift/proxy-server.conf')
         proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
                                       name='proxy-server')
-        new_log_cutoff = int(uploader_conf.get('new_log_cutoff', '7200'))
-        unlink_log = uploader_conf.get('unlink_log', 'True').lower() in \
-                                                    ('true', 'on', '1', 'yes')
-        self.unlink_log = unlink_log
-        self.new_log_cutoff = new_log_cutoff
-        if not log_dir.endswith('/'):
-            log_dir = log_dir + '/'
-        self.log_dir = log_dir
-        self.swift_account = swift_account
-        self.container_name = container_name
-        self.filename_format = source_filename_format
         self.internal_proxy = InternalProxy(proxy_server_conf)
-        log_name = '%s-log-uploader' % plugin_name
-        self.logger = utils.get_logger(uploader_conf, log_name,
-                                       log_route=plugin_name)
+        self.new_log_cutoff = int(uploader_conf.get('new_log_cutoff', '7200'))
+        self.unlink_log = uploader_conf.get('unlink_log', 'True').lower() in \
+                utils.TRUE_VALUES
+
+        # source_filename_format is deprecated
+        source_filename_format = uploader_conf.get('source_filename_format')
+        source_filename_pattern = uploader_conf.get('source_filename_pattern')
+        if source_filename_format and not source_filename_pattern:
+            self.logger.warning(_('source_filename_format is unreliable and '
+                                  'deprecated; use source_filename_pattern'))
+            self.pattern = self.convert_glob_to_regex(source_filename_format)
+        else:
+            self.pattern = source_filename_pattern or '%Y%m%d%H'
 
     def run_once(self, *args, **kwargs):
         self.logger.info(_("Uploading logs"))
@@ -75,70 +76,114 @@ class LogUploader(Daemon):
         self.logger.info(_("Uploading logs complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
 
+    def convert_glob_to_regex(self, glob):
+        """
+        Make a best effort to support old style config globs
+
+        :param : old style config source_filename_format
+
+        :returns : new style config source_filename_pattern
+        """
+        pattern = glob
+        pattern = pattern.replace('.', r'\.')
+        pattern = pattern.replace('*', r'.*')
+        pattern = pattern.replace('?', r'.?')
+        return pattern
+
+    def validate_filename_pattern(self):
+        """
+        Validate source_filename_pattern
+
+        :returns : valid regex pattern based on soruce_filename_pattern with
+                   group matches substituded for date fmt markers
+        """
+        pattern = self.pattern
+        markers = {
+            '%Y': ('year', '(?P<year>[0-9]{4})'),
+            '%m': ('month', '(?P<month>[0-1][0-9])'),
+            '%d': ('day', '(?P<day>[0-3][0-9])'),
+            '%H': ('hour', '(?P<hour>[0-2][0-9])'),
+        }
+        for marker, (mtype, group) in markers.items():
+            if marker not in self.pattern:
+                self.logger.error(_('source_filename_pattern much contain a '
+                                    'marker %(marker)s to match the '
+                                    '%(mtype)s') % {'marker': marker,
+                                                   'mtype': mtype})
+                return
+            pattern = pattern.replace(marker, group)
+        return pattern
+
+    def get_relpath_to_files_under_log_dir(self):
+        """
+        Look under log_dir recursively and return all filenames as relpaths
+
+        :returns : list of strs, the relpath to all filenames under log_dir
+        """
+        all_files = []
+        for path, dirs, files in os.walk(self.log_dir):
+            all_files.extend(os.path.join(path, f) for f in files)
+        return [os.path.relpath(f, start=self.log_dir) for f in all_files]
+
+    def filter_files(self, all_files, pattern):
+        """
+        Filter files based on regex pattern
+
+        :param all_files: list of strs, relpath of the filenames under log_dir
+        :param pattern: regex pattern to match against filenames
+
+        :returns : dict mapping full path of file to match group dict
+        """
+        filename2match = {}
+        found_match = False
+        for filename in all_files:
+            match = re.match(pattern, filename)
+            if match:
+                found_match = True
+                full_path = os.path.join(self.log_dir, filename)
+                filename2match[full_path] = match.groupdict()
+            else:
+                self.logger.debug(_('%(filename)s does not match '
+                                    '%(pattern)s') % {'filename': filename,
+                                                      'pattern': pattern})
+        return filename2match
+
     def upload_all_logs(self):
-        i = [(self.filename_format.index(c), c) for c in '%Y %m %d %H'.split()]
-        i.sort()
-        year_offset = month_offset = day_offset = hour_offset = None
-        base_offset = len(self.log_dir.rstrip('/')) + 1
-        for start, c in i:
-            offset = base_offset + start
-            if c == '%Y':
-                year_offset = offset, offset + 4
-                # Add in the difference between len(%Y) and the expanded
-                # version of %Y (????). This makes sure the codes after this
-                # one will align properly in the final filename.
-                base_offset += 2
-            elif c == '%m':
-                month_offset = offset, offset + 2
-            elif c == '%d':
-                day_offset = offset, offset + 2
-            elif c == '%H':
-                hour_offset = offset, offset + 2
-        if not (year_offset and month_offset and day_offset and hour_offset):
-            # don't have all the parts, can't upload anything
+        """
+        Match files under log_dir to source_filename_pattern and upload to swift
+        """
+        pattern = self.validate_filename_pattern()
+        if not pattern:
+            self.logger.error(_('Invalid filename_format'))
             return
-        glob_pattern = self.filename_format
-        glob_pattern = glob_pattern.replace('%Y', '????', 1)
-        glob_pattern = glob_pattern.replace('%m', '??', 1)
-        glob_pattern = glob_pattern.replace('%d', '??', 1)
-        glob_pattern = glob_pattern.replace('%H', '??', 1)
-        filelist = glob.iglob(os.path.join(self.log_dir, glob_pattern))
-        current_hour = int(time.strftime('%H'))
-        today = int(time.strftime('%Y%m%d'))
-        self.internal_proxy.create_container(self.swift_account,
-                                            self.container_name)
-        for filename in filelist:
-            try:
-                # From the filename, we need to derive the year, month, day,
-                # and hour for the file. These values are used in the uploaded
-                # object's name, so they should be a reasonably accurate
-                # representation of the time for which the data in the file was
-                # collected. The file's last modified time is not a reliable
-                # representation of the data in the file. For example, an old
-                # log file (from hour A) may be uploaded or moved into the
-                # log_dir in hour Z. The file's modified time will be for hour
-                # Z, and therefore the object's name in the system will not
-                # represent the data in it.
-                # If the filename doesn't match the format, it shouldn't be
-                # uploaded.
-                year = filename[slice(*year_offset)]
-                month = filename[slice(*month_offset)]
-                day = filename[slice(*day_offset)]
-                hour = filename[slice(*hour_offset)]
-            except IndexError:
-                # unexpected filename format, move on
-                self.logger.error(_("Unexpected log: %s") % filename)
+        all_files = self.get_relpath_to_files_under_log_dir()
+        filename2match = self.filter_files(all_files, pattern)
+        if not filename2match:
+            self.logger.info(_('No files in %(log_dir)s match %(pattern)s') %
+                             {'log_dir': self.log_dir, 'pattern': pattern})
+            return
+        if not self.internal_proxy.create_container(self.swift_account,
+                                                    self.container_name):
+            self.logger.error(_('Unable to create container for '
+                                '%(account)s/%(container)s') % {
+                                    'account': self.swift_account,
+                                    'container': self.container_name})
+            return
+        for filename, match in filename2match.items():
+            # don't process very new logs
+            seconds_since_mtime = time.time() - os.stat(filename).st_mtime
+            if seconds_since_mtime < self.new_log_cutoff:
+                self.logger.debug(_("Skipping log: %(file)s "
+                                    "(< %(cutoff)d seconds old)") % {
+                                        'file': filename,
+                                        'cutoff': self.new_log_cutoff})
                 continue
-            if ((time.time() - os.stat(filename).st_mtime) <
-                                                        self.new_log_cutoff):
-                # don't process very new logs
-                self.logger.debug(
-                    _("Skipping log: %(file)s (< %(cutoff)d seconds old)") %
-                    {'file': filename, 'cutoff': self.new_log_cutoff})
-                continue
-            self.upload_one_log(filename, year, month, day, hour)
+            self.upload_one_log(filename, **match)
 
     def upload_one_log(self, filename, year, month, day, hour):
+        """
+        Upload one file to swift
+        """
         if os.path.getsize(filename) == 0:
             self.logger.debug(_("Log %s is 0 length, skipping") % filename)
             return

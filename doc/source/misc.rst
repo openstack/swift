@@ -33,15 +33,6 @@ Utils
     :members:
     :show-inheritance:
 
-.. _common_auth:
-
-Auth
-====
-
-.. automodule:: swift.common.middleware.auth
-    :members:
-    :show-inheritance:
-
 .. _common_swauth:
 
 Swauth

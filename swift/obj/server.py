@@ -503,8 +503,8 @@ class ObjectController(object):
         with file.mkstemp() as (fd, tmppath):
             if 'content-length' in request.headers:
                 fallocate(fd, int(request.headers['content-length']))
-            for chunk in iter(lambda: request.body_file.read(
-                    self.network_chunk_size), ''):
+            reader = request.environ['wsgi.input'].read
+            for chunk in iter(lambda: reader(self.network_chunk_size), ''):
                 upload_size += len(chunk)
                 if time.time() > upload_expiration:
                     return HTTPRequestTimeout(request=request)

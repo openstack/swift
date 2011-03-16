@@ -60,7 +60,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Swift'
-copyright = u'2010, OpenStack, LLC'
+copyright = u'2011, OpenStack, LLC'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -220,5 +220,6 @@ latex_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'python': ('http://docs.python.org/', None),
-                       'nova': ('http://nova.openstack.org', None)}
+                       'nova': ('http://nova.openstack.org', None),
+                       'glance': ('http://glance.openstack.org', None)}
 

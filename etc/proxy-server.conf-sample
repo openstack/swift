@@ -13,10 +13,7 @@
 # log_level = INFO
 
 [pipeline:main]
-# For DevAuth:
-pipeline = catch_errors healthcheck cache ratelimit auth proxy-server
-# For Swauth:
-# pipeline = catch_errors healthcheck cache ratelimit swauth proxy-server
+pipeline = catch_errors healthcheck cache ratelimit swauth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -44,27 +41,6 @@ use = egg:swift#proxy
 # 'false' no one, even authorized, can.
 # allow_account_management = false
 
-# Only needed for DevAuth
-[filter:auth]
-use = egg:swift#auth
-# You can override the default log routing for this filter here:
-# set log_name = auth-server
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_headers = False
-# The reseller prefix will verify a token begins with this prefix before even
-# attempting to validate it with the external authentication server. Also, with
-# authorization, only Swift storage accounts with this prefix will be
-# authorized by this middleware. Useful if multiple auth systems are in use for
-# one Swift cluster.
-# reseller_prefix = AUTH
-# ip = 127.0.0.1
-# port = 11000
-# ssl = false
-# prefix = /
-# node_timeout = 10
-
-# Only needed for Swauth
 [filter:swauth]
 use = egg:swift#swauth
 # You can override the default log routing for this filter here:
@@ -97,7 +73,7 @@ super_admin_key = swauthkey
 [filter:healthcheck]
 use = egg:swift#healthcheck
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = healthcheck
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
@@ -105,7 +81,7 @@ use = egg:swift#healthcheck
 [filter:cache]
 use = egg:swift#memcache
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = cache
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
@@ -116,7 +92,7 @@ use = egg:swift#memcache
 [filter:ratelimit]
 use = egg:swift#ratelimit
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = ratelimit
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
@@ -148,7 +124,7 @@ use = egg:swift#ratelimit
 [filter:domain_remap]
 use = egg:swift#domain_remap
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = domain_remap
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
@@ -159,7 +135,7 @@ use = egg:swift#domain_remap
 [filter:catch_errors]
 use = egg:swift#catch_errors
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = catch_errors
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
@@ -168,7 +144,7 @@ use = egg:swift#catch_errors
 # Note: this middleware requires python-dnspython
 use = egg:swift#cname_lookup
 # You can override the default log routing for this filter here:
-# set log_name = auth-server
+# set log_name = cname_lookup
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
