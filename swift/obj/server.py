@@ -231,7 +231,7 @@ class DiskFile(object):
             return
 
         if (self.iter_etag and self.started_at_0 and self.read_to_eof and
-            self.metadata.has_key('ETag') and
+            'ETag' in self.metadata and
             self.iter_etag.hexdigest() != self.metadata.get('ETag')):
                 self.quarantine()
 
@@ -351,7 +351,7 @@ class DiskFile(object):
             file_size = 0
             if self.data_file:
                 file_size = int(os.path.getsize(self.data_file))
-                if self.metadata.has_key('Content-Length'):
+                if 'Content-Length' in self.metadata:
                     metadata_size = int(self.metadata['Content-Length'])
                     if file_size != metadata_size:
                         raise DiskFileError('Content-Length of %s does not '

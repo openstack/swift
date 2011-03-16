@@ -27,6 +27,7 @@ from swift.obj.server import write_metadata, read_metadata
 from test.probe.common import kill_pids, reset_environment
 from test.unit import FakeLogger
 
+
 class TestObjectFailures(unittest.TestCase):
 
     def setUp(self):
@@ -62,7 +63,6 @@ class TestObjectFailures(unittest.TestCase):
         data_file = self._get_data_file_path(obj_dir)
         return onode, opart, data_file
 
-
     def run_quarantine(self):
         container = 'container-%s' % uuid4()
         obj = 'object-%s' % uuid4()
@@ -96,7 +96,7 @@ class TestObjectFailures(unittest.TestCase):
             write_metadata(fp, metadata)
         for header, result in [({'Range': 'bytes=0-2'}, 'RAN'),
                                ({'Range': 'bytes=1-11'}, 'ANGE'),
-                               ({'Range': 'bytes=0-11'}, 'RANGE'),]:
+                               ({'Range': 'bytes=0-11'}, 'RANGE')]:
             odata = direct_client.direct_get_object(onode, opart,
                                               self.account, container, obj,
                                               headers=header)[-1]
@@ -118,7 +118,7 @@ class TestObjectFailures(unittest.TestCase):
             metadata = read_metadata(fp)
         os.unlink(data_file)
 
-        with open(data_file,'w') as fp:
+        with open(data_file, 'w') as fp:
             write_metadata(fp, metadata)
         try:
             resp = direct_client.direct_get_object(onode, opart, self.account,
@@ -137,7 +137,7 @@ class TestObjectFailures(unittest.TestCase):
             metadata = read_metadata(fp)
         os.unlink(data_file)
 
-        with open(data_file,'w') as fp:
+        with open(data_file, 'w') as fp:
             write_metadata(fp, metadata)
         try:
             resp = direct_client.direct_head_object(onode, opart, self.account,
@@ -156,7 +156,7 @@ class TestObjectFailures(unittest.TestCase):
             metadata = read_metadata(fp)
         os.unlink(data_file)
 
-        with open(data_file,'w') as fp:
+        with open(data_file, 'w') as fp:
             write_metadata(fp, metadata)
         try:
             resp = direct_client.direct_post_object(

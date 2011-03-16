@@ -39,6 +39,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
 from swift.common.exceptions import DiskFileNotExist
 from eventlet import tpool
 
+
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.server.DiskFile"""
 
@@ -169,7 +170,7 @@ class TestDiskFile(unittest.TestCase):
                                     keep_data_fp=True, disk_chunk_size=csize)
         if invalid_type == 'Zero-Byte':
             os.remove(df.data_file)
-            fp = open(df.data_file,'w')
+            fp = open(df.data_file, 'w')
             fp.close()
         df.unit_test_len = fsize
         return df
@@ -201,7 +202,7 @@ class TestDiskFile(unittest.TestCase):
             pass
         self.assertTrue(df.quarantined_dir)
         df = self._get_data_file(invalid_type=invalid_type,
-                                 obj_name='3',csize=100000)
+                                 obj_name='3', csize=100000)
         for chunk in df:
             pass
         self.assertTrue(df.quarantined_dir)
@@ -254,7 +255,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_unlinkold(self):
         df1 = self._get_data_file()
-        future_time = str(normalize_timestamp(time()+100))
+        future_time = str(normalize_timestamp(time() + 100))
         df2 = self._get_data_file(ts=future_time)
         self.assertEquals(len(os.listdir(df1.datadir)), 2)
         df1.unlinkold(future_time)
@@ -262,9 +263,11 @@ class TestDiskFile(unittest.TestCase):
         self.assertEquals(os.listdir(df1.datadir)[0], "%s.data" % future_time)
 
     def test_close_error(self):
+
         def err():
             raise Exception("bad")
-        df = self._get_data_file(fsize=1024*1024*2)
+
+        df = self._get_data_file(fsize=1024 * 1024 * 2)
         df._handle_close_quarantine = err
         for chunk in df:
             pass
@@ -429,7 +432,7 @@ class TestObjectController(unittest.TestCase):
         with open(file.data_file) as fp:
             metadata = object_server.read_metadata(fp)
         os.unlink(file.data_file)
-        with open(file.data_file,'w') as fp:
+        with open(file.data_file, 'w') as fp:
             object_server.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
@@ -441,8 +444,6 @@ class TestObjectController(unittest.TestCase):
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                        os.path.basename(os.path.dirname(file.data_file)))
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
-
-
 
     def test_PUT_invalid_path(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'})
@@ -729,7 +730,7 @@ class TestObjectController(unittest.TestCase):
         with open(file.data_file) as fp:
             metadata = object_server.read_metadata(fp)
         os.unlink(file.data_file)
-        with open(file.data_file,'w') as fp:
+        with open(file.data_file, 'w') as fp:
             object_server.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
@@ -1048,7 +1049,7 @@ class TestObjectController(unittest.TestCase):
         with open(file.data_file) as fp:
             metadata = object_server.read_metadata(fp)
         os.unlink(file.data_file)
-        with open(file.data_file,'w') as fp:
+        with open(file.data_file, 'w') as fp:
             object_server.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
@@ -1059,7 +1060,6 @@ class TestObjectController(unittest.TestCase):
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                        os.path.basename(os.path.dirname(file.data_file)))
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
-
 
     def test_GET_quarantine_range(self):
         """ Test swift.object_server.ObjectController.GET """
