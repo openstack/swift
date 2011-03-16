@@ -104,7 +104,7 @@ class TestAuditor(unittest.TestCase):
             }
             self.disk_file.put(fd, tmppath, metadata)
             pre_quarantines = self.auditor.quarantines
-            # remake to it will have metadata
+            # remake so it will have metadata
             self.disk_file = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
                                       self.logger)
 

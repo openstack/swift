@@ -155,7 +155,6 @@ class AuditorWorker(object):
                 os.path.join(self.devices, device), path)
             return
         except Exception:
-            #raise
             self.errors += 1
             self.logger.exception(_('ERROR Trying to audit %s'), path)
             return

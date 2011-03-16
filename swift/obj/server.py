@@ -132,7 +132,6 @@ class DiskFile(object):
 
     def __init__(self, path, device, partition, account, container, obj,
                  logger, keep_data_fp=False, disk_chunk_size=65536):
-
         self.disk_chunk_size = disk_chunk_size
         self.name = '/' + '/'.join((account, container, obj))
         name_hash = hash_path(account, container, obj)
@@ -146,14 +145,13 @@ class DiskFile(object):
         self.data_file = None
         self.fp = None
         self.iter_etag = None
-        self.last_iter_pos = 0
+        self.started_at_0 = False
         self.read_to_eof = False
         self.quarantined_dir = None
         self.keep_cache = False
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
-
         for file in files:
             if file.endswith('.ts'):
                 self.data_file = self.meta_file = None
@@ -183,18 +181,14 @@ class DiskFile(object):
         try:
             dropped_cache = 0
             read = 0
-            self.last_iter_pos = 0
-            self.iter_etag = md5()
+            if self.fp.tell() == 0:
+                self.started_at_0 = True
+                self.iter_etag = md5()
             while True:
-                pre_read_pos = self.fp.tell()
                 chunk = self.fp.read(self.disk_chunk_size)
                 if chunk:
-                    if self.iter_etag and self.last_iter_pos == pre_read_pos:
+                    if self.iter_etag:
                         self.iter_etag.update(chunk)
-                        self.last_iter_pos += len(chunk)
-                    else:
-                        # file has not been read sequentially
-                        self.iter_etag = None
                     read += len(chunk)
                     if read - dropped_cache > (1024 * 1024):
                         self.drop_cache(self.fp.fileno(), dropped_cache,
@@ -228,7 +222,6 @@ class DiskFile(object):
 
     def _handle_close_quarantine(self):
         """Check if file needs to be quarantined"""
-        obj_size = None
         try:
             obj_size = self.get_data_file_size()
         except DiskFileError, e:
@@ -237,17 +230,17 @@ class DiskFile(object):
         except DiskFileNotExist:
             return
 
-        if (self.iter_etag and self.read_to_eof and self.metadata.get('ETag')
-            and obj_size == self.last_iter_pos and
-            self.iter_etag.hexdigest() != self.metadata['ETag']):
+        if (self.iter_etag and self.started_at_0 and self.read_to_eof and
+            self.metadata.has_key('ETag') and
+            self.iter_etag.hexdigest() != self.metadata.get('ETag')):
                 self.quarantine()
 
     def close(self, verify_file=True):
         """
-        Close the file.
+        Close the file. Will handle quarantining file if necessary.
 
-        :param verify_file: Defaults to True, will handle quarantining
-                            file if necessary.
+        :param verify_file: Defaults to True. If false, will not check
+                            file to see if it needs quarantining.
         """
         if self.fp:
             try:
@@ -463,13 +456,11 @@ class ObjectController(object):
             response_class = HTTPNotFound
         else:
             response_class = HTTPAccepted
-
         try:
             file_size = file.get_data_file_size()
         except (DiskFileError, DiskFileNotExist):
             file.quarantine()
             return HTTPNotFound(request=request)
-
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))

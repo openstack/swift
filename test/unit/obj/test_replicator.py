@@ -25,7 +25,6 @@ import fcntl
 import time
 import tempfile
 from contextlib import contextmanager
-from eventlet import tpool
 from eventlet.green import subprocess
 from test.unit import FakeLogger
 from swift.common import utils

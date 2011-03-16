@@ -37,7 +37,7 @@ from swift.obj import server as object_server
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
 from swift.common.exceptions import DiskFileNotExist
-
+from eventlet import tpool
 
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.server.DiskFile"""
@@ -46,6 +46,10 @@ class TestDiskFile(unittest.TestCase):
         """ Set up for testing swift.object_server.ObjectController """
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+
+        def fake_exe(*args, **kwargs):
+            pass
+        tpool.execute = fake_exe
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """

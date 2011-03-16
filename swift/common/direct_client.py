@@ -287,6 +287,40 @@ def direct_put_object(node, part, account, container, name, contents,
     return resp.getheader('etag').strip('"')
 
 
+def direct_post_object(node, part, account, container, name, headers,
+                       conn_timeout=5, response_timeout=15):
+    """
+    Put object directly from the object server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param account: account name
+    :param container: container name
+    :param name: object name
+    :param headers: headers to store as metadata
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :raises ClientException: HTTP POST request failed
+    """
+    path = '/%s/%s/%s' % (account, container, name)
+    headers['X-Timestamp'] = normalize_timestamp(time())
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                'POST', path, headers=headers)
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+        resp.read()
+    if resp.status < 200 or resp.status >= 300:
+        raise ClientException(
+                'Object server %s:%s direct POST %s gave status %s' %
+                (node['ip'], node['port'],
+                repr('/%s/%s%s' % (node['device'], part, path)),
+                resp.status),
+                http_host=node['ip'], http_port=node['port'],
+                http_device=node['device'], http_status=resp.status,
+                http_reason=resp.reason)
+
+
 def direct_delete_object(node, part, account, container, obj,
         conn_timeout=5, response_timeout=15, headers={}):
     """

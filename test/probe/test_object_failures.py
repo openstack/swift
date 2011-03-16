@@ -42,13 +42,11 @@ class TestObjectFailures(unittest.TestCase):
         for file in files:
             return os.path.join(obj_dir, file)
 
-    def run_quarantine(self):
-        container = 'container-%s' % uuid4()
-        obj = 'object-%s' % uuid4()
+    def _setup_data_file(self, container, obj, data):
         client.put_container(self.url, self.token, container)
-        client.put_object(self.url, self.token, container, obj, 'VERIFY')
+        client.put_object(self.url, self.token, container, obj, data)
         odata = client.get_object(self.url, self.token, container, obj)[-1]
-        self.assertEquals(odata, 'VERIFY')
+        self.assertEquals(odata, data)
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
@@ -62,7 +60,14 @@ class TestObjectFailures(unittest.TestCase):
                                                device, opart,
                                                hash_str[-3:], hash_str)
         data_file = self._get_data_file_path(obj_dir)
+        return onode, opart, data_file
 
+
+    def run_quarantine(self):
+        container = 'container-%s' % uuid4()
+        obj = 'object-%s' % uuid4()
+        onode, opart, data_file = self._setup_data_file(container, obj,
+                                                        'VERIFY')
         with open(data_file) as fp:
             metadata = read_metadata(fp)
         metadata['ETag'] = 'badetag'
@@ -82,25 +87,8 @@ class TestObjectFailures(unittest.TestCase):
     def run_quarantine_range_etag(self):
         container = 'container-range-%s' % uuid4()
         obj = 'object-range-%s' % uuid4()
-        client.put_container(self.url, self.token, container)
-        client.put_object(self.url, self.token, container, obj, 'RANGE')
-        odata = client.get_object(self.url, self.token, container, obj)[-1]
-        self.assertEquals(odata, 'RANGE')
-        opart, onodes = self.object_ring.get_nodes(
-            self.account, container, obj)
-
-        onode = onodes[0]
-        node_id = (onode['port'] - 6000) / 10
-        device = onode['device']
-        hash_str = hash_path(self.account, container, obj)
-
-        obj_server_conf = readconf('/etc/swift/object-server/%s.conf' %
-                                   node_id)
-        devices = obj_server_conf['app:object-server']['devices']
-        obj_dir = '%s/%s/objects/%s/%s/%s/' % (devices,
-                                               device, opart,
-                                               hash_str[-3:], hash_str)
-        data_file = self._get_data_file_path(obj_dir)
+        onode, opart, data_file = self._setup_data_file(container, obj,
+                                                        'RANGE')
         with open(data_file) as fp:
             metadata = read_metadata(fp)
         metadata['ETag'] = 'badetag'
@@ -122,32 +110,10 @@ class TestObjectFailures(unittest.TestCase):
         except client.ClientException, e:
             self.assertEquals(e.http_status, 404)
 
-
-
-
-
-
-    def run_quarantine_range_zero_byte(self):
+    def run_quarantine_zero_byte_get(self):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
-        client.put_container(self.url, self.token, container)
-        client.put_object(self.url, self.token, container, obj, 'ZBYTE')
-        odata = client.get_object(self.url, self.token, container, obj)[-1]
-        self.assertEquals(odata, 'ZBYTE')
-        opart, onodes = self.object_ring.get_nodes(
-            self.account, container, obj)
-        onode = onodes[0]
-        node_id = (onode['port'] - 6000) / 10
-        device = onode['device']
-        hash_str = hash_path(self.account, container, obj)
-        obj_server_conf = readconf('/etc/swift/object-server/%s.conf' %
-                                   node_id)
-        devices = obj_server_conf['app:object-server']['devices']
-        obj_dir = '%s/%s/objects/%s/%s/%s/' % (devices,
-                                               device, opart,
-                                               hash_str[-3:], hash_str)
-        data_file = self._get_data_file_path(obj_dir)
-
+        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
         with open(data_file) as fp:
             metadata = read_metadata(fp)
         os.unlink(data_file)
@@ -163,11 +129,52 @@ class TestObjectFailures(unittest.TestCase):
         except client.ClientException, e:
             self.assertEquals(e.http_status, 404)
 
+    def run_quarantine_zero_byte_head(self):
+        container = 'container-zbyte-%s' % uuid4()
+        obj = 'object-zbyte-%s' % uuid4()
+        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
+        with open(data_file) as fp:
+            metadata = read_metadata(fp)
+        os.unlink(data_file)
+
+        with open(data_file,'w') as fp:
+            write_metadata(fp, metadata)
+        try:
+            resp = direct_client.direct_head_object(onode, opart, self.account,
+                                                   container, obj,
+                                                   conn_timeout=1,
+                                                   response_timeout=1)
+            raise "Did not quarantine object"
+        except client.ClientException, e:
+            self.assertEquals(e.http_status, 404)
+
+    def run_quarantine_zero_byte_post(self):
+        container = 'container-zbyte-%s' % uuid4()
+        obj = 'object-zbyte-%s' % uuid4()
+        onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
+        with open(data_file) as fp:
+            metadata = read_metadata(fp)
+        os.unlink(data_file)
+
+        with open(data_file,'w') as fp:
+            write_metadata(fp, metadata)
+        try:
+            resp = direct_client.direct_post_object(
+                onode, opart, self.account,
+                container, obj,
+                {'X-Object-Meta-1': 'One', 'X-Object-Meta-Two': 'Two'},
+                conn_timeout=1,
+                response_timeout=1)
+            raise "Did not quarantine object"
+        except client.ClientException, e:
+            self.assertEquals(e.http_status, 404)
 
     def test_runner(self):
         self.run_quarantine()
         self.run_quarantine_range_etag()
-        self.run_quarantine_range_zero_byte()
+        self.run_quarantine_zero_byte_get()
+        self.run_quarantine_zero_byte_head()
+        self.run_quarantine_zero_byte_post()
 
 if __name__ == '__main__':
     unittest.main()
