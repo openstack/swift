@@ -649,6 +649,7 @@ class TestLogProcessorDaemon(unittest.TestCase):
 
     def test_store_output(self):
         try:
+            real_strftime = time.strftime
             mock_strftime_return = '2010/03/02/01/'
             def mock_strftime(format):
                 self.assertEquals('%Y/%m/%d/%H/', format)
@@ -700,7 +701,7 @@ class TestLogProcessorDaemon(unittest.TestCase):
             MockLogProcessorDaemon(self, expected_filename, expected_output).\
                 store_output(data_in)
         finally:
-            log_processor.time.strftime = time.strftime
+            log_processor.time.strftime = real_strftime
 
     def test_keylist_mapping(self):
         # Kind of lame test to see if the propery is both
