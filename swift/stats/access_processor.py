@@ -20,6 +20,8 @@ import copy
 from swift.common.utils import split_path, get_logger
 
 month_map = '_ Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split()
+LISTING_PARAMS = set(
+                'path limit format delimiter marker end_marker prefix'.split())
 
 
 class AccessLogProcessor(object):
@@ -95,7 +97,8 @@ class AccessLogProcessor(object):
                 # (format, path, delimiter, etc.). Save a "1" here
                 # to indicate that this request is 1 request for
                 # its respective key.
-                d[k] = 1
+                if k in LISTING_PARAMS:
+                    d[k] = 1
         d['client_ip'] = client_ip
         d['lb_ip'] = lb_ip
         d['method'] = method
