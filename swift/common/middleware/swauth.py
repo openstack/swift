@@ -282,10 +282,11 @@ class Swauth(object):
             req.environ['swift_owner'] = True
             return None
         if (req.environ.get('swift_sync_key') and
-             req.environ['swift_sync_key'] ==
+            req.environ['swift_sync_key'] ==
                 req.headers.get('x-container-sync-key', None) and
-             (req.remote_addr in self.allowed_sync_hosts or
-              get_remote_client(req) in self.allowed_sync_hosts)):
+            'x-timestamp' in req.headers and
+            (req.remote_addr in self.allowed_sync_hosts or
+             get_remote_client(req) in self.allowed_sync_hosts)):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
