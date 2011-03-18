@@ -55,11 +55,12 @@ Example: %prog -K swauthkey test storage local http://127.0.0.1:8080/v1/AUTH_018
     if parsed.scheme not in ('http', 'https'):
         raise Exception('Cannot handle protocol scheme %s for url %s' %
                         (parsed.scheme, repr(options.admin_url)))
-    if not parsed.path:
-        parsed.path = '/'
-    elif parsed.path[-1] != '/':
-        parsed.path += '/'
-    path = '%sv2/%s/.services' % (parsed.path, account)
+    parsed_path = parsed.path
+    if not parsed_path:
+        parsed_path = '/'
+    elif parsed_path[-1] != '/':
+        parsed_path += '/'
+    path = '%sv2/%s/.services' % (parsed_path, account)
     body = json.dumps({service: {name: url}})
     headers = {'Content-Length': str(len(body)),
                'X-Auth-Admin-User': options.admin_user,

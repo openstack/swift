@@ -6,13 +6,11 @@ Auth Server and Middleware
 Creating Your Own Auth Server and Middleware
 --------------------------------------------
 
-The included swift/auth/server.py and swift/common/middleware/auth.py are good
-minimal examples of how to create an external auth server and proxy server auth
-middleware. Also, see swift/common/middleware/swauth.py for
-a more complete implementation. The main points are that the auth middleware
-can reject requests up front, before they ever get to the Swift Proxy
-application, and afterwards when the proxy issues callbacks to verify
-authorization.
+The included swift/common/middleware/swauth.py is a good example of how to
+create an auth subsystem with proxy server auth middleware. The main points are
+that the auth middleware can reject requests up front, before they ever get to
+the Swift Proxy application, and afterwards when the proxy issues callbacks to
+verify authorization.
 
 It's generally good to separate the authentication and authorization
 procedures. Authentication verifies that a request actually comes from who it
@@ -29,7 +27,7 @@ specific information, it just passes it along. Convention has
 environ['REMOTE_USER'] set to the authenticated user string but often more
 information is needed than just that.
 
-The included DevAuth will set the REMOTE_USER to a comma separated list of
+The included Swauth will set the REMOTE_USER to a comma separated list of
 groups the user belongs to. The first group will be the "user's group", a group
 that only the user belongs to. The second group will be the "account's group",
 a group that includes all users for that auth account (different than the
@@ -39,7 +37,7 @@ will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
 tokens and Swift storage accounts they create with a configurable reseller
-prefix (`AUTH_` by default with the included DevAuth). This prefix will avoid
+prefix (`AUTH_` by default with the included Swauth). This prefix will avoid
 conflicts with other authentication servers that might be using the same
 Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
 until one validates a token or all fail.
@@ -48,22 +46,20 @@ A restriction with group names is that no group name should begin with a period
 '.' as that is reserved for internal Swift use (such as the .r for referrer
 designations as you'll see later).
 
-Example Authentication with DevAuth:
+Example Authentication with Swauth:
 
-    * Token AUTH_tkabcd is given to the DevAuth middleware in a request's
+    * Token AUTH_tkabcd is given to the Swauth middleware in a request's
       X-Auth-Token header.
-    * The DevAuth middleware makes a validate token AUTH_tkabcd call to the
-      external DevAuth server.
-    * The external DevAuth server validates the token AUTH_tkabcd and discovers
+    * The Swauth middleware validates the token AUTH_tkabcd and discovers
       it matches the "tester" user within the "test" account for the storage
       account "AUTH_storage_xyz".
-    * The external DevAuth server responds with "X-Auth-Groups:
-      test:tester,test,AUTH_storage_xyz"
+    * The Swauth server sets the REMOTE_USER to
+      "test:tester,test,AUTH_storage_xyz"
     * Now this user will have full access (via authorization procedures later)
       to the AUTH_storage_xyz Swift storage account and access to containers in
       other storage accounts, provided the storage account begins with the same
       `AUTH_` reseller prefix and the container has an ACL specifying at least
-      one of those three groups returned.
+      one of those three groups.
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize
@@ -283,11 +279,9 @@ sometimes that's less important than meeting certain ACL requirements.
 Integrating With repoze.what
 ----------------------------
 
-Here's an example of integration with repoze.what, though honestly it just does
-what the default swift/common/middleware/auth.py does in a slightly different
-way. I'm no repoze.what expert by any stretch; this is just included here to
-hopefully give folks a start on their own code if they want to use
-repoze.what::
+Here's an example of integration with repoze.what, though honestly I'm no
+repoze.what expert by any stretch; this is just included here to hopefully give
+folks a start on their own code if they want to use repoze.what::
 
     from time import time
 

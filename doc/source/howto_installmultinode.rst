@@ -13,8 +13,7 @@ Prerequisites
 Basic architecture and terms
 ----------------------------
 - *node* - a host machine running one or more Swift services
-- *Proxy node* - node that runs Proxy services; can also run Swauth
-- *Auth node* - node that runs the Auth service; only required for DevAuth
+- *Proxy node* - node that runs Proxy services; also runs Swauth
 - *Storage node* - node that runs Account, Container, and Object services
 - *ring* - a set of mappings of Swift data to physical devices
 
@@ -23,14 +22,8 @@ This document shows a cluster using the following types of nodes:
 - one Proxy node
 
   - Runs the swift-proxy-server processes which proxy requests to the
-    appropriate Storage nodes. For Swauth, the proxy server will also contain
+    appropriate Storage nodes. The proxy server will also contain
     the Swauth service as WSGI middleware.
-
-- one Auth node
-
-  - Runs the swift-auth-server which controls authentication and
-    authorization for all requests.  This can be on the same node as a
-    Proxy node. This is only required for DevAuth.
 
 - five Storage nodes
 
@@ -56,6 +49,9 @@ Network Setup Notes
 
 This document refers to two networks.  An external network for connecting to the Proxy server, and a storage network that is not accessibile from outside the cluster, to which all of the nodes are connected.  All of the Swift services, as well as the rsync daemon on the Storage nodes are configured to listen on their STORAGE_LOCAL_NET IP addresses.
 
+.. note::
+    Run all commands as the root user
+
 General OS configuration and partitioning for each node
 -------------------------------------------------------
 
@@ -73,16 +69,26 @@ General OS configuration and partitioning for each node
         mkdir -p /etc/swift
         chown -R swift:swift /etc/swift/
 
-#. Create /etc/swift/swift.conf::
+#. On the first node only, create /etc/swift/swift.conf::
 
+        cat >/etc/swift/swift.conf <<EOF
         [swift-hash]
         # random unique string that can never change (DO NOT LOSE)
-        swift_hash_path_suffix = changeme
+        swift_hash_path_suffix = `od -t x8 -N 8 -A n </dev/random`
+        EOF
+
+#. On the second and subsequent nodes: Copy that file over. It must be the same on every node in the cluster!::
+
+        scp firstnode.example.com:/etc/swift/swift.conf /etc/swift/  
+
+#. Publish the local network IP address for use by scripts found later in this documentation::
+
+        export STORAGE_LOCAL_NET_IP=10.1.2.3
+        export PROXY_LOCAL_NET_IP=10.1.2.4
 
 .. note::
-    /etc/swift/swift.conf should be set to some random string of text to be
-    used as a salt when hashing to determine mappings in the ring.  This
-    file should be the same on every node in the cluster!
+    The random string of text in /etc/swift/swift.conf is 
+    used as a salt when hashing to determine mappings in the ring. 
 
 .. _config-proxy:
 
@@ -101,11 +107,13 @@ Configure the Proxy node
         cd /etc/swift
         openssl req -new -x509 -nodes -out cert.crt -keyout cert.key
 
-#. Modify memcached to listen on the default interfaces.  Preferably this should be on a local, non-public network.  Edit the following line in /etc/memcached.conf, changing::
+.. note::
+	If you don't create the cert files, Swift silently uses http internally rather than https. This document assumes that you have created
+	these certs, so if you're following along step-by-step, create them.
 
-        -l 127.0.0.1
-        to
-        -l <PROXY_LOCAL_NET_IP>
+#. Modify memcached to listen on the default interfaces. Preferably this should be on a local, non-public network. Edit the IP address in /etc/memcached.conf, for example::
+
+        perl -pi -e "s/-l 127.0.0.1/-l $PROXY_LOCAL_NET_IP/" /etc/memcached.conf
 
 #. Restart the memcached server::
 
@@ -113,6 +121,7 @@ Configure the Proxy node
 
 #. Create /etc/swift/proxy-server.conf::
 
+        cat >/etc/swift/proxy-server.conf <<EOF
         [DEFAULT]
         cert_file = /etc/swift/cert.crt
         key_file = /etc/swift/cert.key
@@ -121,24 +130,15 @@ Configure the Proxy node
         user = swift
         
         [pipeline:main]
-        # For DevAuth:
-        pipeline = healthcheck cache auth proxy-server
-        # For Swauth:
-        # pipeline = healthcheck cache swauth proxy-server
+        pipeline = healthcheck cache swauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
         
-        # Only needed for DevAuth
-        [filter:auth]
-        use = egg:swift#auth
-        ssl = true
-        
-        # Only needed for Swauth
         [filter:swauth]
         use = egg:swift#swauth
-        default_swift_cluster = local#https://<PROXY_LOCAL_NET_IP>:8080/v1
+        default_swift_cluster = local#https://$PROXY_LOCAL_NET_IP:8080/v1
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
         
@@ -148,6 +148,7 @@ Configure the Proxy node
         [filter:cache]
         use = egg:swift#memcache
         memcache_servers = <PROXY_LOCAL_NET_IP>:11211
+        EOF
 
    .. note::
 
@@ -166,11 +167,15 @@ Configure the Proxy node
 
     For more information on building rings, see :doc:`overview_ring`.
         
-#. For every storage device on each node add entries to each ring::
+#. For every storage device in /srv/node on each node add entries to each ring::
 
-    swift-ring-builder account.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP>:6002/<DEVICE> 100
-    swift-ring-builder container.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP_1>:6001/<DEVICE> 100
-    swift-ring-builder object.builder add z<ZONE>-<STORAGE_LOCAL_NET_IP_1>:6000/<DEVICE> 100
+    export ZONE=                    # set the zone number for that storage device
+    export STORAGE_LOCAL_NET_IP=    # and the IP address
+    export WEIGHT=100               # relative weight (higher for bigger/faster disks)
+    export DEVICE=sdb1
+    swift-ring-builder account.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6002/$DEVICE $WEIGHT
+    swift-ring-builder container.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6001/$DEVICE $WEIGHT
+    swift-ring-builder object.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6000/$DEVICE $WEIGHT
 
    .. note::
     Assuming there are 5 zones with 1 node per zone, ZONE should start at
@@ -203,49 +208,16 @@ Configure the Proxy node
         swift-init proxy start
 
 
-Configure the Auth node
------------------------
-
-.. note:: Only required for DevAuth; you can skip this section for Swauth.
-
-#. If this node is not running on the same node as a proxy, create a
-   self-signed cert as you did for the Proxy node
-
-#. Install swift-auth service::
-
-        apt-get install swift-auth
-
-#. Create /etc/swift/auth-server.conf::
-
-        [DEFAULT]
-        cert_file = /etc/swift/cert.crt
-        key_file = /etc/swift/cert.key
-        user = swift
-        
-        [pipeline:main]
-        pipeline = auth-server
-        
-        [app:auth-server]
-        use = egg:swift#auth
-        default_cluster_url = https://<PROXY_HOSTNAME>:8080/v1
-        # Highly recommended to change this key to something else!
-        super_admin_key = devauth
-
-#. Start Auth services::
-
-        swift-init auth start
-        chown swift:swift /etc/swift/auth.db
-        swift-init auth restart            # 1.1.0 workaround because swift creates auth.db owned as root
-
 Configure the Storage nodes
 ---------------------------
 
 ..  note::
     Swift *should* work on any modern filesystem that supports
-    Extended Attributes (XATTRS).  We currently recommend XFS as it
+    Extended Attributes (XATTRS). We currently recommend XFS as it
     demonstrated the best overall performance for the swift use case after
-    considerable testing and benchmarking at Rackspace.  It is also the
-    only filesystem that has been thoroughly tested.
+    considerable testing and benchmarking at Rackspace. It is also the
+    only filesystem that has been thoroughly tested. These instructions 
+    assume that you are going to devote /dev/sdb1 to an XFS filesystem.
 
 #. Install Storage node packages::
 
@@ -263,11 +235,12 @@ Configure the Storage nodes
 
 #. Create /etc/rsyncd.conf::
 
+        cat >/etc/rsyncd.conf <<EOF
         uid = swift
         gid = swift
         log file = /var/log/rsyncd.log
         pid file = /var/run/rsyncd.pid
-        address = <STORAGE_LOCAL_NET_IP>
+        address = $STORAGE_LOCAL_NET_IP
         
         [account]
         max connections = 2
@@ -286,10 +259,11 @@ Configure the Storage nodes
         path = /srv/node/
         read only = false
         lock file = /var/lock/object.lock
+        EOF
 
-#. Edit the following line in /etc/default/rsync::
+#. Edit the RSYNC_ENABLE= line in /etc/default/rsync::
 
-        RSYNC_ENABLE=true
+        perl -pi -e 's/RSYNC_ENABLE=false/RSYNC_ENABLE=true/' /etc/default/rsync
 
 #. Start rsync daemon::
 
@@ -301,8 +275,9 @@ Configure the Storage nodes
 
 #. Create /etc/swift/account-server.conf::
 
+        cat >/etc/swift/account-server.conf <<EOF
         [DEFAULT]
-        bind_ip = <STORAGE_LOCAL_NET_IP>
+        bind_ip = $STORAGE_LOCAL_NET_IP
         workers = 2
         
         [pipeline:main]
@@ -316,9 +291,11 @@ Configure the Storage nodes
         [account-auditor]
         
         [account-reaper]
+        EOF
 
 #. Create /etc/swift/container-server.conf::
 
+        cat >/etc/swift/container-server.conf <<EOF
         [DEFAULT]
         bind_ip = <STORAGE_LOCAL_NET_IP>
         workers = 2
@@ -334,9 +311,11 @@ Configure the Storage nodes
         [container-updater]
         
         [container-auditor]
+        EOF
 
 #. Create /etc/swift/object-server.conf::
 
+        cat >/etc/swift/object-server.conf <<EOF
         [DEFAULT]
         bind_ip = <STORAGE_LOCAL_NET_IP>
         workers = 2
@@ -352,61 +331,85 @@ Configure the Storage nodes
         [object-updater]
         
         [object-auditor]
+        EOF
 
-#. Start the storage services::
+#. Start the storage services. If you use this command, it will try to start every
+service for which a configuration file exists, and throw a warning for any
+configuration files which don't exist::
 
-    swift-init object-server start
-    swift-init object-replicator start
-    swift-init object-updater start
-    swift-init object-auditor start
-    swift-init container-server start
-    swift-init container-replicator start
-    swift-init container-updater start
-    swift-init container-auditor start
-    swift-init account-server start
-    swift-init account-replicator start
-    swift-init account-auditor start
+         swift-init all start
+
+Or, if you want to start them one at a time, run them as below. Note that if the
+server program in question generates any output on its stdout or stderr, swift-init
+has already redirected the command's output to /dev/null. If you encounter any
+difficulty, stop the server and run it by hand from the command line. Any server
+may be started using "swift-$SERVER-$SERVICE /etc/swift/$SERVER-config", where
+$SERVER might be object, continer, or account, and $SERVICE might be server,
+replicator, updater, or auditor.::
+
+         swift-init object-server start
+         swift-init object-replicator start
+         swift-init object-updater start
+         swift-init object-auditor start
+         swift-init container-server start
+         swift-init container-replicator start
+         swift-init container-updater start
+         swift-init container-auditor start
+         swift-init account-server start
+         swift-init account-replicator start
+         swift-init account-auditor start
 
 Create Swift admin account and test
 -----------------------------------
 
-You run these commands from the Auth node.
-
-.. note:: For Swauth, replace the https://<AUTH_HOSTNAME>:11000/v1.0 with
-          https://<PROXY_HOSTNAME>:8080/auth/v1.0
+You run these commands from the Proxy node.
 
 #. Create a user with administrative privileges (account = system,
    username = root, password = testpass).  Make sure to replace 
-   ``devauth`` (or ``swauthkey``) with whatever super_admin key you assigned in
-   the auth-server.conf file (or proxy-server.conf file in the case of Swauth)
+   ``swauthkey`` with whatever super_admin key you assigned in
+   the proxy-server.conf file
    above.  *Note: None of the values of 
    account, username, or password are special - they can be anything.*::
 
-        # For DevAuth:
-        swift-auth-add-user -K devauth -a system root testpass
-        # For Swauth:
-        swauth-add-user -K swauthkey -a system root testpass
+        swauth-prep -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey
+        swauth-add-user -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey -a system root testpass
 
 #. Get an X-Storage-Url and X-Auth-Token::
 
-        curl -k -v -H 'X-Storage-User: system:root' -H 'X-Storage-Pass: testpass' https://<AUTH_HOSTNAME>:11000/v1.0
+        curl -k -v -H 'X-Storage-User: system:root' -H 'X-Storage-Pass: testpass' https://<PROXY_HOSTNAME>:8080/auth/v1.0
 
 #. Check that you can HEAD the account::
 
         curl -k -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>
 
-#. Check that ``st`` works::
+#. Check that ``st`` works  (at this point, expect zero containers, zero objects, and zero bytes)::
 
-        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass stat
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass stat
 
 #. Use ``st`` to upload a few files named 'bigfile[1-2].tgz' to a container named 'myfiles'::
 
-        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
-        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
 
 #. Use ``st`` to download all files from the 'myfiles' container::
 
-        st -A https://<AUTH_HOSTNAME>:11000/v1.0 -U system:root -K testpass download myfiles
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass download myfiles
+
+#. Use ``st`` to save a backup of your builder files to a container named 'builders'. Very important not to lose your builders!::
+
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
+
+#. Use ``st`` to list your containers::
+
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass list
+
+#. Use ``st`` to list the contents of your 'builders' container::
+
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass list builders
+
+#. Use ``st`` to download all files from the 'builders' container::
+
+        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass download builders
 
 .. _add-proxy-server:
 
@@ -425,31 +428,25 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
         use = egg:swift#memcache
         memcache_servers = <PROXY_LOCAL_NET_IP>:11211
 
-#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/auth-server.conf (for DevAuth) or in /etc/swift/proxy-server.conf (for Swauth)::
+#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/proxy-server.conf::
 
-        # For DevAuth, in /etc/swift/auth-server.conf
-        [app:auth-server]
-        use = egg:swift#auth
-        default_cluster_url = https://<LOAD_BALANCER_HOSTNAME>/v1
-        # Highly recommended to change this key to something else!
-        super_admin_key = devauth
-
-        # For Swauth, in /etc/swift/proxy-server.conf
         [filter:swauth]
         use = egg:swift#swauth
         default_swift_cluster = local#http://<LOAD_BALANCER_HOSTNAME>/v1
         # Highly recommended to change this key to something else!
         super_admin_key = swauthkey
 
-#. For DevAuth, after you change the default_cluster_url setting, you have to delete the auth database and recreate the Swift users, or manually update the auth database with the correct URL for each account.
+#. The above will make new accounts with the new default_swift_cluster URL, however it won't change any existing accounts. You can change a service URL for existing accounts with::
 
-   For Swauth, you can change a service URL with::
+    First retreve what the URL was::
 
-        swauth-set-account-service -K swauthkey <account> storage local <new_url_for_the_account>
+         swauth-list -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey <account>
 
-   You can obtain old service URLs with::
-    
-        swauth-list -K swauthkey <account>
+     And then update it with::
+
+         swauth-set-account-service -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey <account> storage local <new_url_for_the_account>
+
+    Make the <new_url_for_the_account> look just like it's original URL but with the host:port update you want.
 
 #. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 
 
@@ -458,15 +455,16 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
 Additional Cleanup Script for Swauth
 ------------------------------------
 
-If you decide to use Swauth, you'll want to install a cronjob to clean up any
+With Swauth, you'll want to install a cronjob to clean up any
 orphaned expired tokens. These orphaned tokens can occur when a "stampede"
 occurs where a single user authenticates several times concurrently. Generally,
 these orphaned tokens don't pose much of an issue, but it's good to clean them
 up once a "token life" period (default: 1 day or 86400 seconds).
 
-This should be as simple as adding `swauth-cleanup-tokens -K swauthkey >
-/dev/null` to a crontab entry on one of the proxies that is running Swauth; but
-run `swauth-cleanup-tokens` with no arguments for detailed help on the options
+This should be as simple as adding `swauth-cleanup-tokens -A
+https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey > /dev/null` to a crontab
+entry on one of the proxies that is running Swauth; but run
+`swauth-cleanup-tokens` with no arguments for detailed help on the options
 available.
 
 Troubleshooting Notes

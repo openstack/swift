@@ -32,7 +32,8 @@ from swift.common.daemon import Daemon
 
 
 class BadFileDownload(Exception):
-    pass
+    def __init__(self, status_code=None):
+        self.status_code = status_code
 
 
 class LogProcessor(object):
@@ -147,13 +148,12 @@ class LogProcessor(object):
                                     marker=search_key,
                                     end_marker=end_key)
         results = []
-        if container_listing is not None:
-            if listing_filter is None:
-                listing_filter = set()
-            for item in container_listing:
-                name = item['name']
-                if name not in listing_filter:
-                    results.append(name)
+        if listing_filter is None:
+            listing_filter = set()
+        for item in container_listing:
+            name = item['name']
+            if name not in listing_filter:
+                results.append(name)
         return results
 
     def get_object_data(self, swift_account, container_name, object_name,
@@ -162,7 +162,7 @@ class LogProcessor(object):
         code, o = self.internal_proxy.get_object(swift_account, container_name,
                                                  object_name)
         if code < 200 or code >= 300:
-            raise BadFileDownload()
+            raise BadFileDownload(code)
         last_part = ''
         last_compressed_part = ''
         # magic in the following zlib.decompressobj argument is courtesy of
@@ -272,8 +272,13 @@ class LogProcessorDaemon(Daemon):
                 already_processed_files = cPickle.loads(buf)
             else:
                 already_processed_files = set()
-        except BadFileDownload:
-            already_processed_files = set()
+        except BadFileDownload, err:
+            if err.status_code == 404:
+                already_processed_files = set()
+            else:
+                self.logger.error(_('Log processing unable to load list of '
+                    'already processed log files'))
+                return
         self.logger.debug(_('found %d processed files') % \
                           len(already_processed_files))
         logs_to_process = self.log_processor.get_data_list(lookback_start,

@@ -68,14 +68,6 @@ Administrator Documentation
     admin_guide
     debian_package_guide
 
-End User Guides
-===============
-
-.. toctree::
-    :maxdepth: 1
-
-    howto_cyberduck
-
 Source Documentation
 ====================
 
@@ -88,7 +80,6 @@ Source Documentation
     container
     db
     object
-    auth
     misc
 
 
