@@ -370,6 +370,7 @@ class TxnFormatter(logging.Formatter):
     Custom logging.Formatter will append txn_id to a log message if the record
     has one and the message does not.
     """
+
     def format(self, record):
         msg = logging.Formatter.format(self, record)
         if (record.txn_id and record.levelno != logging.INFO and
@@ -492,11 +493,11 @@ def capture_stdio(logger, **kwargs):
         sys.stderr = LoggerFileObject(logger)
 
 
-def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
+def parse_options(parser=None, once=False, test_args=None):
     """
     Parse standard swift server/daemon options with optparse.OptionParser.
 
-    :param usage: String describing usage
+    :param parser: OptionParser to use. If not sent one will be created.
     :param once: Boolean indicating the "once" option is available
     :param test_args: Override sys.argv; used in testing
 
@@ -505,7 +506,8 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
 
     :raises SystemExit: First arg (CONFIG) is required, file must exist
     """
-    parser = OptionParser(usage)
+    if not parser:
+        parser = OptionParser(usage="%prog CONFIG [options]")
     parser.add_option("-v", "--verbose", default=False, action="store_true",
                       help="log to console")
     if once:
@@ -534,7 +536,8 @@ def parse_options(usage="%prog CONFIG [options]", once=False, test_args=None):
             extra_args.append(arg)
 
     options = vars(options)
-    options['extra_args'] = extra_args
+    if extra_args:
+        options['extra_args'] = extra_args
     return config, options
 
 
@@ -737,7 +740,7 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     """
     Read config file and return config items as a dict
 
-    :param conf: path to config file
+    :param conf: path to config file, or a file-like object (hasattr readline)
     :param section_name: config section to read (will return all sections if
                      not defined)
     :param log_name: name to be used with logging (will use section_name if
@@ -748,9 +751,12 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     if defaults is None:
         defaults = {}
     c = ConfigParser(defaults)
-    if not c.read(conf):
-        print _("Unable to read config file %s") % conf
-        sys.exit(1)
+    if hasattr(conf, 'readline'):
+        c.readfp(conf)
+    else:
+        if not c.read(conf):
+            print _("Unable to read config file %s") % conf
+            sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
@@ -920,6 +926,17 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     elif running_time - now > time_per_request:
         eventlet.sleep((running_time - now) / clock_accuracy)
     return running_time + time_per_request
+
+
+class ContextPool(GreenPool):
+    "GreenPool subclassed to kill its coros when it gets gc'ed"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        for coro in list(self.coroutines_running):
+            coro.kill()
 
 
 class ModifiedParseResult(ParseResult):

@@ -28,6 +28,7 @@ from contextlib import contextmanager
 from eventlet import tpool
 
 from eventlet.green import subprocess
+from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import replicator as object_replicator
@@ -131,6 +132,7 @@ def _create_test_ring(path):
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
+        utils.HASH_PATH_SUFFIX = 'endcap'
         # Setup a test ring (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')

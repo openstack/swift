@@ -17,7 +17,11 @@
 from swift.obj.auditor import ObjectAuditor
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
+from optparse import OptionParser
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-z', '--zero_byte_fps',
+                      help='Audit only zero byte files at specified files/sec')
+    conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectAuditor, conf_file, **options)

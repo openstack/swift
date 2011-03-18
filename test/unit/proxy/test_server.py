@@ -249,6 +249,9 @@ class FakeRing(object):
                     {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
         return 1, devs
 
+    def get_part_nodes(self, part):
+        return self.get_nodes('blah')[1]
+
     def get_more_nodes(self, nodes):
         # 9 is the true cap
         for x in xrange(3, min(3 + self.max_more_nodes, 9)):
@@ -832,9 +835,9 @@ class TestObjectController(unittest.TestCase):
             def test_status_map(statuses, expected):
                 self.app.memcache.store = {}
                 proxy_server.http_connect = mock_http_connect(*statuses)
-                req = Request.blank('/a/c/o.jpg', {})
+                req = Request.blank('/a/c/o.jpg',
+                    environ={'REQUEST_METHOD': 'PUT'}, body='some data')
                 self.app.update_request(req)
-                req.body_file = StringIO('some data')
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
@@ -2735,7 +2738,7 @@ class TestContainerController(unittest.TestCase):
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 204, 204), 204)
             self.assert_status_map(controller.DELETE,
-                                   (200, 204, 204, 503), 503)
+                                   (200, 204, 204, 503), 204)
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 503, 503), 503)
             self.assert_status_map(controller.DELETE,

@@ -37,7 +37,7 @@ class ContainerAuditor(Daemon):
         self.container_passes = 0
         self.container_failures = 0
 
-    def run_forever(self):  # pragma: no cover
+    def run_forever(self, *args, **kwargs):
         """Run the container audit until stopped."""
         reported = time.time()
         time.sleep(random() * self.interval)
@@ -63,7 +63,7 @@ class ContainerAuditor(Daemon):
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Run the container audit once."""
         self.logger.info(_('Begin container audit "once" mode'))
         begin = reported = time.time()

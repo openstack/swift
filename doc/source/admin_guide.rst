@@ -159,15 +159,12 @@ of the cluster, we need to run the swift-stats-report tool to check the health
 of each of these containers and objects.
 
 These tools need direct access to the entire cluster and to the ring files
-(installing them on an auth server or a proxy server will probably do). Both
+(installing them on a proxy server will probably do). Both
 swift-stats-populate and swift-stats-report use the same configuration file,
 /etc/swift/stats.conf. Example conf file::
 
     [stats]
-    # For DevAuth:
-    auth_url = http://saio:11000/v1.0
-    # For Swauth:
-    # auth_url = http://saio:11000/auth/v1.0
+    auth_url = http://saio:11000/auth/v1.0
     auth_user = test:tester
     auth_key = testing
 
@@ -236,15 +233,16 @@ then be graphed to see how cluster performance is trending.
 Additional Cleanup Script for Swauth
 ------------------------------------
 
-If you decide to use Swauth, you'll want to install a cronjob to clean up any
+With Swauth, you'll want to install a cronjob to clean up any
 orphaned expired tokens. These orphaned tokens can occur when a "stampede"
 occurs where a single user authenticates several times concurrently. Generally,
 these orphaned tokens don't pose much of an issue, but it's good to clean them
 up once a "token life" period (default: 1 day or 86400 seconds).
 
-This should be as simple as adding `swauth-cleanup-tokens -K swauthkey >
-/dev/null` to a crontab entry on one of the proxies that is running Swauth; but
-run `swauth-cleanup-tokens` with no arguments for detailed help on the options
+This should be as simple as adding `swauth-cleanup-tokens -A
+https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey > /dev/null` to a crontab
+entry on one of the proxies that is running Swauth; but run
+`swauth-cleanup-tokens` with no arguments for detailed help on the options
 available.
 
 ------------------------
@@ -287,4 +285,16 @@ reload      Attempt to gracefully restart the service
 A graceful shutdown or reload will finish any current requests before 
 completely stopping the old service.  There is also a special case of 
 `swift-init all <command>`, which will run the command for all swift services.
+
+--------------
+Object Auditor
+--------------
+
+On system failures, the XFS file system can sometimes truncate files it's
+trying to write and produce zero byte files. The object-auditor will catch
+these problems but in the case of a system crash it would be advisable to run
+an extra, less rate limited sweep to check for these specific files. You can
+run this command as follows:
+`swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
+"-z" means to only check for zero-byte files at 1000 files per second.
 

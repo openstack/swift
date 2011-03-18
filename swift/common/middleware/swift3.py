@@ -16,6 +16,9 @@
 """
 The swift3 middleware will emulate the S3 REST api on top of swift.
 
+The boto python library is necessary to use this middleware (install
+the python-boto package if you use Ubuntu).
+
 The following opperations are currently supported:
 
     * GET Service
@@ -55,8 +58,9 @@ import rfc822
 import hmac
 import base64
 import errno
+import boto.utils
 from xml.sax.saxutils import escape as xml_escape
-import cgi
+import urlparse
 
 from webob import Request, Response
 from webob.exc import HTTPNotFound
@@ -103,6 +107,25 @@ def get_err_response(code):
                 '<Code>%s</Code>\r\n  <Message>%s</Message>\r\n</Error>\r\n' \
                  % (code, error_table[code][1])
     return resp
+
+
+def get_acl(account_name):
+    body = ('<AccessControlPolicy>'
+            '<Owner>'
+            '<ID>%s</ID>'
+            '</Owner>'
+            '<AccessControlList>'
+            '<Grant>'
+            '<Grantee xmlns:xsi="http://www.w3.org/2001/'\
+            'XMLSchema-instance" xsi:type="CanonicalUser">'
+            '<ID>%s</ID>'
+            '</Grantee>'
+            '<Permission>FULL_CONTROL</Permission>'
+            '</Grant>'
+            '</AccessControlList>'
+            '</AccessControlPolicy>' %
+            (account_name, account_name))
+    return Response(body=body, content_type="text/plain")
 
 
 class Controller(object):
@@ -161,6 +184,7 @@ class BucketController(Controller):
                     **kwargs):
         Controller.__init__(self, app)
         self.container_name = unquote(container_name)
+        self.account_name = unquote(account_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
 
@@ -169,7 +193,7 @@ class BucketController(Controller):
         Handle GET Bucket (List Objects) request
         """
         if 'QUERY_STRING' in env:
-            args = dict(cgi.parse_qsl(env['QUERY_STRING']))
+            args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
         else:
             args = {}
         max_keys = min(int(args.get('max-keys', MAX_BUCKET_LISTING)),
@@ -193,6 +217,9 @@ class BucketController(Controller):
             else:
                 return get_err_response('InvalidURI')
 
+        if 'acl' in args:
+            return get_acl(self.account_name)
+        
         objects = loads(''.join(list(body_iter)))
         body = ('<?xml version="1.0" encoding="UTF-8"?>'
             '<ListBucketResult '
@@ -275,6 +302,7 @@ class ObjectController(Controller):
     def __init__(self, env, app, account_name, token, container_name,
                     object_name, **kwargs):
         Controller.__init__(self, app)
+        self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s/%s' % (account_name, container_name,
@@ -286,6 +314,13 @@ class ObjectController(Controller):
         headers = dict(self.response_args[1])
 
         if 200 <= status < 300:
+            if 'QUERY_STRING' in env:
+                args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
+            else:
+                args = {}
+            if 'acl' in args:
+                return get_acl(self.account_name)
+
             new_hdrs = {}
             for key, val in headers.iteritems():
                 _key = key.lower()
@@ -325,7 +360,7 @@ class ObjectController(Controller):
             elif key == 'HTTP_CONTENT_MD5':
                 env['HTTP_ETAG'] = value.decode('base64').encode('hex')
             elif key == 'HTTP_X_AMZ_COPY_SOURCE':
-                env['HTTP_X_OBJECT_COPY'] = value
+                env['HTTP_X_COPY_FROM'] = value
 
         body_iter = self.app(env, self.do_start_response)
         status = int(self.response_args[0].split()[0])
@@ -338,6 +373,12 @@ class ObjectController(Controller):
                 return get_err_response('InvalidBucketName')
             else:
                 return get_err_response('InvalidURI')
+
+        if 'HTTP_X_COPY_FROM' in env:
+            body = '<CopyObjectResult>' \
+                   '<ETag>"%s"</ETag>' \
+                   '</CopyObjectResult>' % headers['etag']
+            return Response(status=200, body=body)
 
         return Response(status=200, etag=headers['etag'])
 
@@ -378,31 +419,18 @@ class Swift3Middleware(object):
         return ServiceController, d
 
     def get_account_info(self, env, req):
-        if req.headers.get("content-md5"):
-            md5 = req.headers.get("content-md5")
-        else:
-            md5 = ""
-
-        if req.headers.get("content-type"):
-            content_type = req.headers.get("content-type")
-        else:
-            content_type = ""
-
-        if req.headers.get("date"):
-            date = req.headers.get("date")
-        else:
-            date = ""
-
-        h = req.method + "\n" + md5 + "\n" + content_type + "\n" + date + "\n"
-        for header in req.headers:
-            if header.startswith("X-Amz-"):
-                h += header.lower() + ":" + str(req.headers[header]) + "\n"
-        h += req.path
         try:
             account, user, _junk = \
                 req.headers['Authorization'].split(' ')[-1].split(':')
         except Exception:
             return None, None
+
+        headers = {}
+        for key in req.headers:
+            if type(req.headers[key]) == str:
+                headers[key] = req.headers[key]
+
+        h = boto.utils.canonical_string(req.method, req.path_qs, headers)
         token = base64.urlsafe_b64encode(h)
         return '%s:%s' % (account, user), token
 

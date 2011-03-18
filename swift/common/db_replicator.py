@@ -180,9 +180,7 @@ class Replicator(Daemon):
             return False
         # perform block-level sync if the db was modified during the first sync
         if os.path.exists(broker.db_file + '-journal') or \
-                os.path.exists(broker.db_file + '-wal') or \
-                os.path.exists(broker.db_file + '-shm') or \
-                os.path.getmtime(broker.db_file) > mtime:
+                    os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
                 if not self._rsync_file(broker.db_file, remote_file, False):
@@ -318,7 +316,7 @@ class Replicator(Daemon):
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         try:
-            broker = self.brokerclass(object_file)
+            broker = self.brokerclass(object_file, pending_timeout=30)
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
@@ -398,7 +396,7 @@ class Replicator(Daemon):
                 except StopIteration:
                     its.remove(it)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Run a replication pass once."""
         self._zero_stats()
         dirs = []
@@ -427,7 +425,7 @@ class Replicator(Daemon):
         self.logger.info(_('Replication run OVER'))
         self._report_stats()
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """
         Replicate dbs under the given root in an infinite loop.
         """

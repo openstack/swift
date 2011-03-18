@@ -160,7 +160,7 @@ class ContainerController(object):
                 return resp
             if existed:
                 return HTTPNoContent(request=req)
-            return HTTPAccepted(request=req)
+            return HTTPNotFound()
 
     def PUT(self, req):
         """Handle HTTP PUT request."""
@@ -219,6 +219,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_container_broker(drive, part, account, container)
+        broker.pending_timeout = 0.1
+        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -244,6 +246,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_container_broker(drive, part, account, container)
+        broker.pending_timeout = 0.1
+        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -345,7 +349,7 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         try:
-            args = simplejson.load(req.body_file)
+            args = simplejson.load(req.environ['wsgi.input'])
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)

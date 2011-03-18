@@ -182,6 +182,46 @@ Setting up rsync
 
   #. `service rsync restart`
 
+---------------------------------------------------
+Optional: Setting up rsyslog for individual logging
+---------------------------------------------------
+
+  #. Create /etc/rsyslog.d/10-swift.conf::
+
+      # Uncomment the following to have a log containing all logs together
+      #local1,local2,local3,local4,local5.*   /var/log/swift/all.log
+
+      # Uncomment the following to have hourly proxy logs for stats processing
+      #$template HourlyProxyLog,"/var/log/swift/hourly/%$YEAR%%$MONTH%%$DAY%%$HOUR%"
+      #local1.*;local1.!notice ?HourlyProxyLog
+
+      local1.*;local1.!notice /var/log/swift/proxy.log
+      local1.notice           /var/log/swift/proxy.error
+      local1.*                ~
+
+      local2.*;local2.!notice /var/log/swift/storage1.log
+      local2.notice           /var/log/swift/storage1.error
+      local2.*                ~
+
+      local3.*;local3.!notice /var/log/swift/storage2.log
+      local3.notice           /var/log/swift/storage2.error
+      local3.*                ~
+
+      local4.*;local4.!notice /var/log/swift/storage3.log
+      local4.notice           /var/log/swift/storage3.error
+      local4.*                ~
+
+      local5.*;local5.!notice /var/log/swift/storage4.log
+      local5.notice           /var/log/swift/storage4.error
+      local5.*                ~
+
+  #. Edit /etc/rsyslog.conf and make the following change::
+      
+      $PrivDropToGroup adm
+
+  #. `mkdir -p /var/log/swift/hourly`
+  #. `chown -R syslog.adm /var/log/swift`
+  #. `service rsyslog restart`
 
 ------------------------------------------------
 Getting the code and setting up test environment
@@ -215,43 +255,20 @@ Configuring each node
 
 Sample configuration files are provided with all defaults in line-by-line comments.
   
-  #. If your going to use the DevAuth (the default swift-auth-server), create
-     `/etc/swift/auth-server.conf` (you can skip this if you're going to use
-     Swauth)::
-
-        [DEFAULT]
-        user = <your-user-name>
-
-        [pipeline:main]
-        pipeline = auth-server
-
-        [app:auth-server]
-        use = egg:swift#auth
-        default_cluster_url = http://127.0.0.1:8080/v1
-        # Highly recommended to change this.
-        super_admin_key = devauth
-
   #. Create `/etc/swift/proxy-server.conf`::
 
         [DEFAULT]
         bind_port = 8080
         user = <your-user-name>
+        log_facility = LOG_LOCAL1
 
         [pipeline:main]
-        # For DevAuth:
-        pipeline = healthcheck cache auth proxy-server
-        # For Swauth:
-        # pipeline = healthcheck cache swauth proxy-server
+        pipeline = healthcheck cache swauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
 
-        # Only needed for DevAuth
-        [filter:auth]
-        use = egg:swift#auth
-
-        # Only needed for Swauth
         [filter:swauth]
         use = egg:swift#swauth
         # Highly recommended to change this.
@@ -276,6 +293,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6012
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = account-server
@@ -297,6 +315,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6022
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = account-server
@@ -318,6 +337,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6032
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = account-server
@@ -339,6 +359,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6042
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = account-server
@@ -360,6 +381,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6011
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = container-server
@@ -381,6 +403,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6021
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = container-server
@@ -402,6 +425,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6031
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = container-server
@@ -423,6 +447,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6041
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = container-server
@@ -445,6 +470,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6010
         user = <your-user-name>
+        log_facility = LOG_LOCAL2
 
         [pipeline:main]
         pipeline = object-server
@@ -466,6 +492,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6020
         user = <your-user-name>
+        log_facility = LOG_LOCAL3
 
         [pipeline:main]
         pipeline = object-server
@@ -487,6 +514,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6030
         user = <your-user-name>
+        log_facility = LOG_LOCAL4
 
         [pipeline:main]
         pipeline = object-server
@@ -508,6 +536,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         bind_port = 6040
         user = <your-user-name>
+        log_facility = LOG_LOCAL5
 
         [pipeline:main]
         pipeline = object-server
@@ -531,6 +560,7 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init all stop
+        find /var/log/swift -type f -exec rm -f {} \;
         sudo umount /mnt/sdb1
         sudo mkfs.xfs -f -i size=1024 /dev/sdb1
         sudo mount /mnt/sdb1
@@ -573,14 +603,12 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init main start
-        # The auth-server line is only needed for DevAuth:
-        swift-init auth-server start
 
-  #. For Swauth (not needed for DevAuth), create `~/bin/recreateaccounts`::
+  #. Create `~/bin/recreateaccounts`::
   
         #!/bin/bash
 
-        # Replace devauth with whatever your super_admin key is (recorded in
+        # Replace swauthkey with whatever your super_admin key is (recorded in
         # /etc/swift/proxy-server.conf).
         swauth-prep -K swauthkey
         swauth-add-user -K swauthkey -a test tester testing
@@ -592,24 +620,17 @@ Setting up scripts for running Swift
 
         #!/bin/bash
 
-        # Replace devauth with whatever your super_admin key is (recorded in
-        # /etc/swift/auth-server.conf). This swift-auth-recreate-accounts line
-        # is only needed for DevAuth:
-        swift-auth-recreate-accounts -K devauth
         swift-init rest start
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
   #. `cd ~/swift/trunk; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
-  #. For Swauth: `recreateaccounts`
-  #. For DevAuth: `swift-auth-add-user -K devauth -a test tester testing` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:11000/v1.0`` # For Swauth, make the last URL `http://127.0.0.1:8080/auth/v1.0`
+  #. `recreateaccounts`
+  #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
-  #. Check that `st` works: `st -A http://127.0.0.1:11000/v1.0 -U test:tester -K testing stat` # For Swauth, make the URL `http://127.0.0.1:8080/auth/v1.0`
-  #. For DevAuth: `swift-auth-add-user -K devauth -a test2 tester2 testing2` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. For DevAuth: `swift-auth-add-user -K devauth test tester3 testing3` # Replace ``devauth`` with whatever your super_admin key is (recorded in /etc/swift/auth-server.conf).
-  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf` # For Swauth, add auth_prefix = /auth/ and change auth_port = 8080.
+  #. Check that `st` works: `st -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
+  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
   #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
   #. `cd ~/swift/trunk; ./.probetests` (Note: probe tests will reset your
@@ -634,7 +655,7 @@ If all doesn't go as planned, and tests fail, or you can't auth, or something do
 #. Everything is logged in /var/log/syslog, so that is a good first place to
    look for errors (most likely python tracebacks).
 #. Make sure all of the server processes are running.  For the base
-   functionality, the Proxy, Account, Container, Object and Auth servers
+   functionality, the Proxy, Account, Container, and Object servers
    should be running
 #. If one of the servers are not running, and no errors are logged to syslog,
    it may be useful to try to start the server manually, for example: 

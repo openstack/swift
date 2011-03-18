@@ -28,11 +28,11 @@ class Daemon(object):
         self.conf = conf
         self.logger = utils.get_logger(conf, log_route='daemon')
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """Override this to run the script once"""
         raise NotImplementedError('run_once not implemented')
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """Override this to run forever"""
         raise NotImplementedError('run_forever not implemented')
 
@@ -48,15 +48,13 @@ class Daemon(object):
             sys.exit()
 
         signal.signal(signal.SIGTERM, kill_children)
-
         if once:
-            self.run_once()
+            self.run_once(**kwargs)
         else:
-            self.run_forever()
+            self.run_forever(**kwargs)
 
 
-def run_daemon(klass, conf_file, section_name='',
-               once=False, **kwargs):
+def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     """
     Loads settings from conf, then instantiates daemon "klass" and runs the
     daemon with the specified once kwarg.  The section_name will be derived

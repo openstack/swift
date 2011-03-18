@@ -15,29 +15,37 @@
 
 import os
 import time
+import uuid
+import errno
 from hashlib import md5
 from random import random
-
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
 from swift.common.utils import get_logger, renamer, audit_location_generator, \
-    ratelimit_sleep
+    ratelimit_sleep, TRUE_VALUES
 from swift.common.exceptions import AuditException
 from swift.common.daemon import Daemon
 
+SLEEP_BETWEEN_AUDITS = 30
 
-class ObjectAuditor(Daemon):
-    """Audit objects."""
 
-    def __init__(self, conf):
+class AuditorWorker(object):
+    """Walk through file system to audit object"""
+
+    def __init__(self, conf, zero_byte_only_at_fps=0):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+            TRUE_VALUES
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
+        self.auditor_type = 'ALL'
+        self.zero_byte_only_at_fps = zero_byte_only_at_fps
+        if self.zero_byte_only_at_fps:
+            self.max_files_per_second = float(self.zero_byte_only_at_fps)
+            self.auditor_type = 'ZBF'
         self.log_time = int(conf.get('log_time', 3600))
         self.files_running_time = 0
         self.bytes_running_time = 0
@@ -48,18 +56,13 @@ class ObjectAuditor(Daemon):
         self.quarantines = 0
         self.errors = 0
 
-    def run_forever(self):
-        """Run the object audit until stopped."""
-        while True:
-            self.run_once('forever')
-            self.total_bytes_processed = 0
-            self.total_files_processed = 0
-            time.sleep(30)
-
-    def run_once(self, mode='once'):
-        """Run the object audit once."""
-        self.logger.info(_('Begin object audit "%s" mode' % mode))
+    def audit_all_objects(self, mode='once'):
+        self.logger.info(_('Begin object audit "%s" mode (%s)' %
+                           (mode, self.auditor_type)))
         begin = reported = time.time()
+        self.total_bytes_processed = 0
+        self.total_files_processed = 0
+        files_running_time = 0
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
                                             mount_check=self.mount_check,
@@ -71,9 +74,11 @@ class ObjectAuditor(Daemon):
             self.total_files_processed += 1
             if time.time() - reported >= self.log_time:
                 self.logger.info(_(
-                    'Since %(start_time)s: Locally: %(passes)d passed audit, '
+                    'Object audit (%(type)s). '
+                    'Since %(start_time)s: Locally: %(passes)d passed, '
                     '%(quars)d quarantined, %(errors)d errors '
                     'files/sec: %(frate).2f , bytes/sec: %(brate).2f') % {
+                            'type': self.auditor_type,
                             'start_time': time.ctime(reported),
                             'passes': self.passes,
                             'quars': self.quarantines,
@@ -88,9 +93,11 @@ class ObjectAuditor(Daemon):
                 self.bytes_processed = 0
         elapsed = time.time() - begin
         self.logger.info(_(
-                'Object audit "%(mode)s" mode completed: %(elapsed).02fs. '
+                'Object audit (%(type)s) "%(mode)s" mode '
+                'completed: %(elapsed).02fs. '
                 'Total files/sec: %(frate).2f , '
                 'Total bytes/sec: %(brate).2f ') % {
+                    'type': self.auditor_type,
                     'mode': mode,
                     'elapsed': elapsed,
                     'frate': self.total_files_processed / elapsed,
@@ -98,7 +105,7 @@ class ObjectAuditor(Daemon):
 
     def object_audit(self, path, device, partition):
         """
-        Audits the given object path
+        Audits the given object path.
 
         :param path: a path to an object
         :param device: the device the path is on
@@ -119,11 +126,13 @@ class ObjectAuditor(Daemon):
             if df.data_file is None:
                 # file is deleted, we found the tombstone
                 return
-            if os.path.getsize(df.data_file) != \
-                    int(df.metadata['Content-Length']):
+            obj_size = os.path.getsize(df.data_file)
+            if obj_size != int(df.metadata['Content-Length']):
                 raise AuditException('Content-Length of %s does not match '
                     'file size of %s' % (int(df.metadata['Content-Length']),
                                          os.path.getsize(df.data_file)))
+            if self.zero_byte_only_at_fps and obj_size:
+                return
             etag = md5()
             for chunk in df:
                 self.bytes_running_time = ratelimit_sleep(
@@ -140,13 +149,57 @@ class ObjectAuditor(Daemon):
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                 'be quarantined: %(err)s'), {'obj': path, 'err': err})
-            invalidate_hash(os.path.dirname(path))
+            object_dir = os.path.dirname(path)
+            invalidate_hash(os.path.dirname(object_dir))
             renamer_path = os.path.dirname(path)
-            renamer(renamer_path, os.path.join(self.devices, device,
-                'quarantined', 'objects', os.path.basename(renamer_path)))
+            to_path = os.path.join(self.devices, device, 'quarantined',
+                                   'objects', os.path.basename(renamer_path))
+            try:
+                renamer(renamer_path, to_path)
+            except OSError, e:
+                if e.errno == errno.EEXIST:
+                    to_path = "%s-%s" % (to_path, uuid.uuid4().hex)
+                    renamer(renamer_path, to_path)
             return
         except Exception:
             self.errors += 1
             self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1
+
+
+class ObjectAuditor(Daemon):
+    """Audit objects."""
+
+    def __init__(self, conf, **options):
+        self.conf = conf
+        self.logger = get_logger(conf, log_route='object-auditor')
+        self.conf_zero_byte_fps = int(conf.get(
+                'zero_byte_files_per_second', 50))
+
+    def _sleep(self):
+        time.sleep(SLEEP_BETWEEN_AUDITS)
+
+    def run_forever(self, *args, **kwargs):
+        """Run the object audit until stopped."""
+        # zero byte only command line option
+        zbo_fps = kwargs.get('zero_byte_fps', 0)
+        if zbo_fps:
+            # only start parent
+            parent = True
+        else:
+            parent = os.fork()  # child gets parent = 0
+        kwargs = {'mode': 'forever'}
+        if parent:
+            kwargs['zero_byte_fps'] = zbo_fps or self.conf_zero_byte_fps
+        while True:
+            self.run_once(**kwargs)
+            self._sleep()
+
+    def run_once(self, *args, **kwargs):
+        """Run the object audit once."""
+        mode = kwargs.get('mode', 'once')
+        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
+        worker = AuditorWorker(self.conf,
+                               zero_byte_only_at_fps=zero_byte_only_at_fps)
+        worker.audit_all_objects(mode=mode)

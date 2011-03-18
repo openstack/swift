@@ -79,9 +79,6 @@ setup(
         'bin/st', 'bin/swift-account-auditor',
         'bin/swift-account-audit', 'bin/swift-account-reaper',
         'bin/swift-account-replicator', 'bin/swift-account-server',
-        'bin/swift-auth-add-user',
-        'bin/swift-auth-recreate-accounts', 'bin/swift-auth-server',
-        'bin/swift-auth-update-reseller-prefixes',
         'bin/swift-container-auditor',
         'bin/swift-container-replicator',
         'bin/swift-container-server', 'bin/swift-container-updater',
@@ -100,7 +97,7 @@ setup(
         'bin/swauth-add-account', 'bin/swauth-add-user',
         'bin/swauth-cleanup-tokens', 'bin/swauth-delete-account',
         'bin/swauth-delete-user', 'bin/swauth-list', 'bin/swauth-prep',
-        'bin/swauth-set-account-service', 'bin/swift-auth-to-swauth',
+        'bin/swauth-set-account-service',
         ],
     entry_points={
         'paste.app_factory': [
@@ -108,10 +105,8 @@ setup(
             'object=swift.obj.server:app_factory',
             'container=swift.container.server:app_factory',
             'account=swift.account.server:app_factory',
-            'auth=swift.auth.server:app_factory',
             ],
         'paste.filter_factory': [
-            'auth=swift.common.middleware.auth:filter_factory',
             'swauth=swift.common.middleware.swauth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',

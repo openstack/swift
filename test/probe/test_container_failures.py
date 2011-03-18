@@ -70,17 +70,6 @@ class TestContainerFailures(unittest.TestCase):
         self.assert_(object1 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
 
-        # This fails because all three nodes have to indicate deletion before
-        # we tell the user it worked. Since the first node 409s (it hasn't got
-        # the update that the object was deleted yet), the whole must 503
-        # (until every is synced up, then the delete would work).
-        exc = None
-        try:
-            client.delete_container(self.url, self.token, container)
-        except client.ClientException, err:
-            exc = err
-        self.assert_(exc)
-        self.assert_(exc.http_status, 503)
         # Unfortunately, the following might pass or fail, depending on the
         # position of the account server associated with the first container
         # server we had killed. If the associated happens to be the first
@@ -144,17 +133,6 @@ class TestContainerFailures(unittest.TestCase):
         self.assert_(object1 not in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
 
-        # This fails because all three nodes have to indicate deletion before
-        # we tell the user it worked. Since the first node 409s (it hasn't got
-        # the update that the object was deleted yet), the whole must 503
-        # (until every is synced up, then the delete would work).
-        exc = None
-        try:
-            client.delete_container(self.url, self.token, container)
-        except client.ClientException, err:
-            exc = err
-        self.assert_(exc)
-        self.assert_(exc.http_status, 503)
         # Unfortunately, the following might pass or fail, depending on the
         # position of the account server associated with the first container
         # server we had killed. If the associated happens to be the first
