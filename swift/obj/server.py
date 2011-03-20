@@ -42,8 +42,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout
-from swift.obj.replicator import get_hashes, invalidate_hash, \
-    recalculate_hashes
+from swift.obj.replicator import get_hashes, invalidate_hash
 
 
 DATADIR = 'objects'
@@ -574,10 +573,8 @@ class ObjectController(object):
         path = os.path.join(self.devices, device, DATADIR, partition)
         if not os.path.exists(path):
             mkdirs(path)
-        if suffix:
-            recalculate_hashes(path, suffix.split('-'))
-            return Response()
-        _junk, hashes = get_hashes(path, do_listdir=False)
+        suffixes = suffix.split('-') if suffix else []
+        _junk, hashes = tpool.execute(get_hashes, path, recalculate=suffixes)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):
