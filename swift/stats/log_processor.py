@@ -373,7 +373,7 @@ class LogProcessorDaemon(Daemon):
         # output
         return self.get_output(final_info)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Beginning log processing"))
 
