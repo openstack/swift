@@ -137,7 +137,7 @@ class DiskFile(object):
         if self.meta_file:
             with open(self.meta_file) as mfp:
                 for key in self.metadata.keys():
-                    if key.lower() not in ('content-type', 'content-encoding',
+                    if key.lower() not in ('content-type',
                                 'deleted', 'content-length', 'etag'):
                         del self.metadata[key]
                 self.metadata.update(read_metadata(mfp))
