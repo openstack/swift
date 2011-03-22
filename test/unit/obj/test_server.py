@@ -73,6 +73,7 @@ class TestObjectController(unittest.TestCase):
                             headers={'X-Timestamp': timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'X-Object-Meta-4': 'Four',
+                                     'Content-Encoding': 'gzip',
                                      'Content-Type': 'application/x-test'})
         resp = self.object_controller.POST(req)
         self.assertEquals(resp.status_int, 202)
@@ -80,7 +81,24 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
         self.assert_("X-Object-Meta-1" not in resp.headers and \
-                     "X-Object-Meta-3" in resp.headers)
+                     "X-Object-Meta-Two" not in resp.headers and \
+                     "X-Object-Meta-3" in resp.headers and \
+                     "X-Object-Meta-4" in resp.headers and \
+                     "Content-Encoding" in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-3" not in resp.headers and \
+                     "X-Object-Meta-4" not in resp.headers and \
+                     "Content-Encoding" not in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
     def test_POST_not_exist(self):
@@ -988,9 +1006,9 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['content-encoding'], 'gzip')
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD':
             'HEAD'})
+        self.assertEquals(resp.headers['content-encoding'], 'gzip')
         resp = self.object_controller.HEAD(req)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['content-encoding'], 'gzip')
 
     def test_manifest_header(self):
         timestamp = normalize_timestamp(time())

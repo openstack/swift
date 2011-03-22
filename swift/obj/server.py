@@ -353,6 +353,9 @@ class ObjectController(object):
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))
+        if 'content-encoding' in request.headers:
+            metadata['Content-Encoding'] = \
+                request.headers['Content-Encoding']
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.meta')
         return response_class(request=request)
