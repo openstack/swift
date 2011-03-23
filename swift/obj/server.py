@@ -360,8 +360,7 @@ class ObjectController(object):
                 if val[0].lower().startswith('x-object-meta-'))
         for header_key in self.allowed_headers:
             if header_key in request.headers:
-                header_caps = \
-                    header_key.replace('-', ' ').title().replace(' ', '-')
+                header_caps = header_key.title()
                 metadata[header_caps] = request.headers[header_key]
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.meta')
@@ -429,8 +428,7 @@ class ObjectController(object):
                     len(val[0]) > 14)
             for header_key in self.allowed_headers:
                 if header_key in request.headers:
-                    header_caps = \
-                        header_key.replace('-', ' ').title().replace(' ', '-')
+                    header_caps = header_key.title()
                     metadata[header_caps] = request.headers[header_key]
             file.put(fd, tmppath, metadata)
         file.unlinkold(metadata['X-Timestamp'])
