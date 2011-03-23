@@ -282,7 +282,8 @@ class ObjectController(object):
         default_allowed_headers = 'content-encoding'
         self.allowed_headers = set(i.strip().lower() for i in \
                 conf.get('allowed_headers', \
-                default_allowed_headers).split(',') if i.strip())
+                default_allowed_headers).split(',') if i.strip() and \
+                i.strip().lower() not in DISALLOWED_HEADERS)
 
     def container_update(self, op, account, container, obj, headers_in,
                          headers_out, objdevice):
