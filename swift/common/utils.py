@@ -17,6 +17,7 @@
 
 import errno
 import fcntl
+import math
 import os
 import pwd
 import signal
@@ -969,3 +970,14 @@ def urlparse(url):
     :param url: URL to parse.
     """
     return ModifiedParseResult(*stdlib_urlparse(url))
+
+
+def human_readable(self, n):
+    """
+    Returns the number in a human readable format; for example 1000000 = "1m".
+    Idea from: http://stackoverflow.com/questions/3154460/
+    """
+    millnames = ['', 'k', 'm', 'g', 't', 'p', 'e']
+    millidx = max(0, min(len(millnames) - 1,
+                         int(math.floor(math.log10(abs(n)) / 3.0))))
+    return '%.0f%s' % (n / 10 ** (3 * millidx), millnames[millidx])

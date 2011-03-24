@@ -150,3 +150,10 @@ use = egg:swift#cname_lookup
 # set log_headers = False
 # storage_domain = example.com
 # lookup_depth = 1
+
+# Note: Put staticweb just after your auth filter(s) in the pipeline
+[filter:staticweb]
+use = egg:swift#staticweb
+# Seconds to cache container x-container-meta-index, x-container-meta-error,
+# and x-container-listing-css header values.
+# cache_timeout = 300
