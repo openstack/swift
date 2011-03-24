@@ -181,6 +181,8 @@ class DiskFile(object):
         try:
             dropped_cache = 0
             read = 0
+            self.started_at_0 = False
+            self.read_to_eof = False
             if self.fp.tell() == 0:
                 self.started_at_0 = True
                 self.iter_etag = md5()
