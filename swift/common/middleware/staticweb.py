@@ -111,8 +111,8 @@ import urllib
 from webob import Response, Request
 from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
-from swift.common.utils import cache_from_env, human_readable, split_path, \
-                               TRUE_VALUES
+from swift.common.utils import cache_from_env, get_logger, human_readable, \
+                               split_path, TRUE_VALUES
 
 
 class StaticWeb(object):
@@ -131,6 +131,8 @@ class StaticWeb(object):
         self.conf = conf
         #: The seconds to cache the x-container-meta-web-* headers.,
         self.cache_timeout = int(conf.get('cache_timeout', 300))
+        #: Logger for this filter.
+        self.logger = get_logger(conf, log_route='staticweb')
         # Results from the last call to self._start_response.
         self._response_status = None
         self._response_headers = None
@@ -333,11 +335,13 @@ class StaticWeb(object):
         :param start_response: The original WSGI start_response hook.
         """
         self._get_container_info(env, start_response)
-        if not self._index:
+        if not self._listings and not self._index:
             return self.app(env, start_response)
         if env['PATH_INFO'][-1] != '/':
             return HTTPMovedPermanently(
                 location=(env['PATH_INFO'] + '/'))(env, start_response)
+        if not self._index:
+            return self._listing(env, start_response)
         tmp_env = dict(env)
         tmp_env['PATH_INFO'] += self._index
         resp = self.app(tmp_env, self._start_response)
@@ -368,8 +372,10 @@ class StaticWeb(object):
         if status_int != 404:
             return self._error_response(resp, env, start_response)
         self._get_container_info(env, start_response)
-        if not self._index:
+        if not self._listings and not self._index:
             return self.app(env, start_response)
+        if not self._index:
+            return self._listing(env, start_response, self.obj)
         tmp_env = dict(env)
         if tmp_env['PATH_INFO'][-1] != '/':
             tmp_env['PATH_INFO'] += '/'
@@ -421,11 +427,11 @@ class StaticWeb(object):
                         (self.version, self.account, self.container)
                     memcache_client.delete(memcache_key)
                 return self.app(env, start_response)
-        if env['REQUEST_METHOD'] not in ('HEAD', 'GET') or \
-                (env.get('REMOTE_USER') and
-                 env.get('HTTP_X_WEB_MODE', 'f') not in TRUE_VALUES) or \
-                (not env.get('REMOTE_USER') and
-                 env.get('HTTP_X_WEB_MODE', 't') not in TRUE_VALUES):
+        if (env['REQUEST_METHOD'] not in ('HEAD', 'GET') or
+            (env.get('REMOTE_USER') and
+             env.get('HTTP_X_WEB_MODE', 'f').lower() not in TRUE_VALUES) or
+            (not env.get('REMOTE_USER') and
+             env.get('HTTP_X_WEB_MODE', 't').lower() not in TRUE_VALUES)):
             return self.app(env, start_response)
         if self.obj:
             return self._handle_object(env, start_response)
