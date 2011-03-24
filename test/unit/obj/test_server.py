@@ -57,6 +57,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_update_meta(self):
         """ Test swift.object_server.ObjectController.POST """
+        original_headers = self.object_controller.allowed_headers
         test_headers = 'content-encoding foo bar'.split()
         self.object_controller.allowed_headers = set(test_headers)
         timestamp = normalize_timestamp(time())
@@ -86,13 +87,13 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
-        self.assert_("X-Object-Meta-1" not in resp.headers and \
-                     "X-Object-Meta-Two" not in resp.headers and \
-                     "X-Object-Meta-3" in resp.headers and \
-                     "X-Object-Meta-4" in resp.headers and \
-                     "Foo" in resp.headers and \
-                     "Bar" in resp.headers and \
-                     "Baz" not in resp.headers and \
+        self.assert_("X-Object-Meta-1" not in resp.headers and
+                     "X-Object-Meta-Two" not in resp.headers and
+                     "X-Object-Meta-3" in resp.headers and
+                     "X-Object-Meta-4" in resp.headers and
+                     "Foo" in resp.headers and
+                     "Bar" in resp.headers and
+                     "Baz" not in resp.headers and
                      "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
@@ -105,11 +106,54 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
-        self.assert_("X-Object-Meta-3" not in resp.headers and \
-                     "X-Object-Meta-4" not in resp.headers and \
-                     "Foo" not in resp.headers and \
-                     "Bar" not in resp.headers and \
+        self.assert_("X-Object-Meta-3" not in resp.headers and
+                     "X-Object-Meta-4" not in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Bar" not in resp.headers and
                      "Content-Encoding" not in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        # test defaults
+        self.object_controller.allowed_headers = original_headers
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'Foo': 'fooheader',
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Manifest': 'c/bar',
+                                     'Content-Encoding': 'gzip',
+                                     'Content-Disposition': 'bar',
+                                     })
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-1" in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Content-Encoding" in resp.headers and
+                     "X-Object-Manifest" in resp.headers and
+                     "Content-Disposition" in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'X-Object-Meta-3': 'Three',
+                                     'Foo': 'fooheader',
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-1" not in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Content-Encoding" not in resp.headers and
+                     "X-Object-Manifest" not in resp.headers and
+                     "Content-Disposition" not in resp.headers and
+                     "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
     def test_POST_not_exist(self):
