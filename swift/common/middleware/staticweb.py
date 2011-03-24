@@ -34,20 +34,19 @@ added. For example::
 
     [filter:staticweb]
     use = egg:swift#staticweb
-    # Seconds to cache container x-container-meta-index,
-    # x-container-meta-error, and x-container-listing-css header values.
+    # Seconds to cache container x-container-meta-web-* header values.
     # cache_timeout = 300
 
 Any publicly readable containers (for example, ``X-Container-Read: .r:*``, see
 `acls`_ for more information on this) will be checked for
-X-Container-Meta-Index and X-Container-Meta-Error header values::
+X-Container-Meta-Web-Index and X-Container-Meta-Web-Error header values::
 
-    X-Container-Meta-Index  <index.name>
-    X-Container-Meta-Error  <error.name.suffix>
+    X-Container-Meta-Web-Index  <index.name>
+    X-Container-Meta-Web-Error  <error.name.suffix>
 
-If X-Container-Meta-Index is set, any <index.name> files will be served without
-having to specify the <index.name> part. For instance, setting
-``X-Container-Meta-Index: index.html`` will be able to serve the object
+If X-Container-Meta-Web-Index is set, any <index.name> files will be served
+without having to specify the <index.name> part. For instance, setting
+``X-Container-Meta-Web-Index: index.html`` will be able to serve the object
 .../pseudo/path/index.html with just .../pseudo/path or .../pseudo/path/
 
 If X-Container-Meta-Error is set, any errors (currently just 401 Unauthorized
@@ -55,17 +54,16 @@ and 404 Not Found) will instead serve the .../<status.code><error.name.suffix>
 object. For instance, setting ``X-Container-Meta-Error: error.html`` will serve
 .../404error.html for requests for paths not found.
 
-For psuedo paths that have no <index.name>, this middleware will serve HTML
-file listings by default. If you don't want to serve such listings, you can
-turn this off via the `acls`_ X-Container-Read setting of ``.rnolisting``. For
-example, instead of ``X-Container-Read: .r:*`` you would use
-``X-Container-Read: .r:*,.rnolisting``
+For psuedo paths that have no <index.name>, this middleware can serve HTML file
+listings if you set the ``X-Container-Meta-Web-Listings: true`` metadata item
+on the container.
 
 If listings are enabled, the listings can have a custom style sheet by setting
-the X-Container-Meta-Listing-CSS header. For instance, setting
-``X-Container-Meta-Listing-CSS: listing.css`` will make listings link to the
-.../listing.css style sheet. If you "view source" in your browser on a listing
-page, you will see the well defined document structure that can be styled.
+the X-Container-Meta-Web-Listings-CSS header. For instance, setting
+``X-Container-Meta-Web-Listings-CSS: listing.css`` will make listings link to
+the .../listing.css style sheet. If you "view source" in your browser on a
+listing page, you will see the well defined document structure that can be
+styled.
 
 Example usage of this middleware via ``st``:
 
@@ -73,33 +71,32 @@ Example usage of this middleware via ``st``:
 
         st post -r '.r:*' container
 
-    You should be able to get objects and do direct container listings now,
-    though they'll be in the REST API format.
+    You should be able to get objects directly, but no index.html resolution or
+    listings.
 
     Set an index file directive::
 
-        st post -m 'index:index.html' container
+        st post -m 'web-index:index.html' container
 
     You should be able to hit paths that have an index.html without needing to
-    type the index.html part and listings will now be HTML.
+    type the index.html part.
 
-    Turn off listings::
+    Turn on listings::
 
-        st post -r '.r:*,.rnolisting' container
+        st post -m 'web-listings: true' container
+
+    Now you should see object listings for paths and pseudo paths that have no
+    index.html.
+
+    Enable a custom listings style sheet::
+
+        st post -m 'web-listings-css:listings.css' container
 
     Set an error file::
 
-        st post -m 'error:error.html' container
+        st post -m 'web-error:error.html' container
 
     Now 401's should load 401error.html, 404's should load 404error.html, etc.
-
-    Turn listings back on::
-
-        st post -r '.r:*' container
-
-    Enable a custom listing style sheet::
-
-        st post -m 'listing-css:listing.css' container
 """
 
 
@@ -132,16 +129,14 @@ class StaticWeb(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
-        #: The seconds to cache the x-container-meta-index,
-        #: x-container-meta-error, and x-container-listing-css headers for a
-        #: container.
+        #: The seconds to cache the x-container-meta-web-* headers.,
         self.cache_timeout = int(conf.get('cache_timeout', 300))
         # Results from the last call to self._start_response.
         self._response_status = None
         self._response_headers = None
         self._response_exc_info = None
         # Results from the last call to self._get_container_info.
-        self._index = self._error = self._listing_css = None
+        self._index = self._error = self._listings = self._listings_css = None
 
     def _start_response(self, status, headers, exc_info=None):
         """
@@ -196,22 +191,23 @@ class StaticWeb(object):
 
     def _get_container_info(self, env, start_response):
         """
-        Retrieves x-container-meta-index, x-container-meta-error, and
-        x-container-meta-listing-css from memcache or from the cluster and
-        stores the result in memcache and in self._index, self._error, and
-        self._listing_css.
+        Retrieves x-container-meta-web-index, x-container-meta-web-error,
+        x-container-meta-web-listings, and x-container-meta-web-listings-css
+        from memcache or from the cluster and stores the result in memcache and
+        in self._index, self._error, self._listings, and self._listings_css.
 
         :param env: The WSGI environment dict.
         :param start_response: The WSGI start_response hook.
         """
-        self._index = self._error = self._listing_css = None
+        self._index = self._error = self._listings = self._listings_css = None
         memcache_client = cache_from_env(env)
         if memcache_client:
             memcache_key = '/staticweb/%s/%s/%s' % (self.version, self.account,
                                                     self.container)
             cached_data = memcache_client.get(memcache_key)
             if cached_data:
-                self._index, self._error, self._listing_css = cached_data
+                (self._index, self._error, self._listings,
+                 self._listings_css) = cached_data
                 return
         tmp_env = {'REQUEST_METHOD': 'HEAD', 'HTTP_USER_AGENT': 'StaticWeb'}
         for name in ('swift.cache', 'HTTP_X_CF_TRANS_ID'):
@@ -222,14 +218,18 @@ class StaticWeb(object):
         resp = req.get_response(self.app)
         if resp.status_int // 100 == 2:
             self._index = \
-                resp.headers.get('x-container-meta-index', '').strip()
-            self._listing_css = \
-                resp.headers.get('x-container-meta-listing-css', '').strip()
+                resp.headers.get('x-container-meta-web-index', '').strip()
             self._error = \
-                resp.headers.get('x-container-meta-error', '').strip()
+                resp.headers.get('x-container-meta-web-error', '').strip()
+            self._listings = \
+                resp.headers.get('x-container-meta-web-listings', '').strip()
+            self._listings_css = \
+                resp.headers.get('x-container-meta-web-listings-css',
+                                 '').strip()
             if memcache_client:
                 memcache_client.set(memcache_key,
-                    (self._index, self._error, self._listing_css),
+                    (self._index, self._error, self._listings,
+                     self._listings_css),
                     timeout=self.cache_timeout)
 
     def _listing(self, env, start_response, prefix=None):
@@ -240,6 +240,9 @@ class StaticWeb(object):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
+        if self._listings not in TRUE_VALUES:
+            resp = HTTPNotFound()(env, self._start_response)
+            return self._error_response(resp, env, start_response)
         tmp_env = dict(env)
         self._strip_ifs(tmp_env)
         tmp_env['REQUEST_METHOD'] = 'GET'
@@ -262,11 +265,11 @@ class StaticWeb(object):
                ' <head>\n' \
                '  <title>Listing of %s</title>\n' % \
                cgi.escape(env['PATH_INFO'])
-        if self._listing_css:
+        if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
                         'href="/%s/%s/%s/%s" />\n' % \
                     (self.version, self.account, self.container,
-                     urllib.quote(self._listing_css))
+                     urllib.quote(self._listings_css))
         else:
             body += '  <style type="text/css">\n' \
                     '   h1 {font-size: 1em; font-weight: bold;}\n' \
@@ -420,7 +423,9 @@ class StaticWeb(object):
                 return self.app(env, start_response)
         if env['REQUEST_METHOD'] not in ('HEAD', 'GET') or \
                 (env.get('REMOTE_USER') and
-                 env.get('HTTP_X_WEB_MODE', '') not in TRUE_VALUES):
+                 env.get('HTTP_X_WEB_MODE', 'f') not in TRUE_VALUES) or \
+                (not env.get('REMOTE_USER') and
+                 env.get('HTTP_X_WEB_MODE', 't') not in TRUE_VALUES):
             return self.app(env, start_response)
         if self.obj:
             return self._handle_object(env, start_response)

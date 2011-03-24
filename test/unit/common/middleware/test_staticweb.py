@@ -76,7 +76,8 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c3':
             return self.listing(env, start_response,
                                 {'x-container-read': '.r:*',
-                                 'x-container-meta-index': 'index.html'})
+                                 'x-container-meta-web-index': 'index.html',
+                                 'x-container-meta-web-listings': 't'})
         elif env['PATH_INFO'] == '/v1/a/c3/index.html':
             return Response(status='200 Ok', body='''
 <html>
@@ -122,10 +123,11 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c4':
             self.get_c4_called = True
             return self.listing(env, start_response,
-                               {'x-container-read': '.r:*',
-                                'x-container-meta-index': 'index.html',
-                                'x-container-meta-error': 'error.html',
-                                'x-container-meta-listing-css': 'listing.css'})
+                          {'x-container-read': '.r:*',
+                           'x-container-meta-web-index': 'index.html',
+                           'x-container-meta-web-error': 'error.html',
+                           'x-container-meta-web-listings': 't',
+                           'x-container-meta-web-listings-css': 'listing.css'})
         elif env['PATH_INFO'] == '/v1/a/c4/one.txt':
             return Response(status='200 Ok', body='1')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c4/two.txt':
@@ -152,8 +154,9 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c5':
             return self.listing(env, start_response,
                                 {'x-container-read': '.r:*',
-                                 'x-container-meta-index': 'index.html',
-                                 'x-container-meta-error': 'error.html'})
+                                 'x-container-meta-web-index': 'index.html',
+                                 'x-container-meta-listings': 't',
+                                 'x-container-meta-web-error': 'error.html'})
         elif env['PATH_INFO'] == '/v1/a/c5/index.html':
             return Response(status='503 Service Unavailable')(env,
                                                               start_response)
@@ -411,7 +414,8 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4': ('index.html', 'error.html', 'listing.css')})
+           {'/staticweb/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css')})
         self.assert_(self.test_staticweb.app.get_c4_called)
         self.test_staticweb.app.get_c4_called = False
         resp = Request.blank('/v1/a/c4',
@@ -420,7 +424,8 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.status_int, 301)
         self.assert_(not self.test_staticweb.app.get_c4_called)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4': ('index.html', 'error.html', 'listing.css')})
+           {'/staticweb/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css')})
         resp = Request.blank('/v1/a/c4',
             environ={'swift.cache': fake_memcache, 'REQUEST_METHOD': 'PUT'}
         ).get_response(self.test_staticweb)
@@ -431,7 +436,8 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4': ('index.html', 'error.html', 'listing.css')})
+           {'/staticweb/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css')})
         resp = Request.blank('/v1/a/c4',
             environ={'swift.cache': fake_memcache, 'REQUEST_METHOD': 'POST'}
         ).get_response(self.test_staticweb)
