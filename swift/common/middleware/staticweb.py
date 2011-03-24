@@ -33,7 +33,7 @@ added. For example::
     ...
 
     [filter:staticweb]
-    user = egg:swift#staticweb
+    use = egg:swift#staticweb
     # Seconds to cache container x-container-meta-index,
     # x-container-meta-error, and x-container-listing-css header values.
     # cache_timeout = 300
