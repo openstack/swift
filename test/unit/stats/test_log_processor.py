@@ -632,7 +632,7 @@ class TestLogProcessorDaemon(unittest.TestCase):
 
         expected_data_out = [
             ['data_ts', 'account', 'a', 'b', 'c'],
-            ['2010/10/10 10:00:00', 'acct1', '1', '2', '3'],
+            ['2010/01/01 00:00:00', 'acct1', '1', '2', '3'],
             ['2010/10/10 10:00:00', 'acct1', '10', '20', '30'],
             ['2008/03/06 09:00:00', 'acct2', '8', '9', '12'],
             ['2005/04/08 16:00:00', 'acct3', '1', '5', '25'],
@@ -642,10 +642,10 @@ class TestLogProcessorDaemon(unittest.TestCase):
         self.assertEquals(expected_data_out[0], data_out[0])
 
         for row in data_out[1:]:
-            self.assert_(row, expected_data_out)
+            self.assert_(row in expected_data_out)
 
         for row in expected_data_out[1:]:
-            self.assert_(row, data_out)
+            self.assert_(row in data_out)
 
     def test_store_output(self):
         try:

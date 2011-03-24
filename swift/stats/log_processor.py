@@ -32,6 +32,7 @@ from swift.common.daemon import Daemon
 
 now = datetime.datetime.now
 
+
 class BadFileDownload(Exception):
     def __init__(self, status_code=None):
         self.status_code = status_code
