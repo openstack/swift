@@ -17,7 +17,6 @@
 
 import errno
 import fcntl
-import math
 import os
 import pwd
 import signal
@@ -73,7 +72,7 @@ if hash_conf.read('/etc/swift/swift.conf'):
         pass
 
 # Used when reading config values
-TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
+TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On', 't', 'y'))
 
 
 def validate_configuration():
@@ -972,12 +971,16 @@ def urlparse(url):
     return ModifiedParseResult(*stdlib_urlparse(url))
 
 
-def human_readable(self, n):
+def human_readable(value):
     """
-    Returns the number in a human readable format; for example 1000000 = "1m".
-    Idea from: http://stackoverflow.com/questions/3154460/
+    Returns the number in a human readable format; for example 1048576 = "1Mi".
     """
-    millnames = ['', 'k', 'm', 'g', 't', 'p', 'e']
-    millidx = max(0, min(len(millnames) - 1,
-                         int(math.floor(math.log10(abs(n)) / 3.0))))
-    return '%.0f%s' % (n / 10 ** (3 * millidx), millnames[millidx])
+    value = float(value)
+    index = -1
+    suffixes = 'KMGTPEZY'
+    while value >= 1024 and index + 1 < len(suffixes):
+        index += 1
+        value = round(value / 1024)
+    if index == -1:
+        return '%d' % value
+    return '%d%si' % (round(value), suffixes[index])

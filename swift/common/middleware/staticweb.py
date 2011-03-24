@@ -82,7 +82,7 @@ Example usage of this middleware via ``st``:
 
     You should be able to hit paths that have an index.html without needing to
     type the index.html part and listings will now be HTML.
-    
+
     Turn off listings::
 
         st post -r '.r:*,.rnolisting' container
@@ -109,13 +109,12 @@ except ImportError:
     import json
 
 import cgi
-import os
 import urllib
 
 from webob import Response, Request
-from webob.exc import HTTPMovedPermanently, HTTPNotFound, HTTPUnauthorized
+from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
-from swift.common.utils import cache_from_env, get_logger, split_path, \
+from swift.common.utils import cache_from_env, human_readable, split_path, \
                                TRUE_VALUES
 
 
@@ -133,8 +132,6 @@ class StaticWeb(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
-        #: The logger to use with this filter.
-        self.logger = get_logger(conf, log_route='staticweb')
         #: The seconds to cache the x-container-meta-index,
         #: x-container-meta-error, and x-container-listing-css headers for a
         #: container.
@@ -317,7 +314,7 @@ class StaticWeb(object):
                         (' '.join('type-' + cgi.escape(t.lower(), quote=True)
                                   for t in item['content_type'].split('/')),
                          urllib.quote(name), cgi.escape(name),
-                         self.human_readable(item['bytes']),
+                         human_readable(item['bytes']),
                          cgi.escape(item['last_modified']).split('.')[0].
                             replace('T', ' '))
         body += '  </table>\n' \
@@ -408,8 +405,11 @@ class StaticWeb(object):
         :param env: The WSGI environment dict.
         :param start_response: The WSGI start_response hook.
         """
-        (self.version, self.account, self.container, self.obj) = \
-            split_path(env['PATH_INFO'], 2, 4, True)
+        try:
+            (self.version, self.account, self.container, self.obj) = \
+                split_path(env['PATH_INFO'], 2, 4, True)
+        except ValueError:
+            return self.app(env, start_response)
         memcache_client = cache_from_env(env)
         if memcache_client:
             if env['REQUEST_METHOD'] in ('PUT', 'POST'):
@@ -420,7 +420,7 @@ class StaticWeb(object):
                 return self.app(env, start_response)
         if env['REQUEST_METHOD'] not in ('HEAD', 'GET') or \
                 (env.get('REMOTE_USER') and
-                 not env.get('HTTP_X_WEB_MODE', '') in TRUE_VALUES):
+                 env.get('HTTP_X_WEB_MODE', '') not in TRUE_VALUES):
             return self.app(env, start_response)
         if self.obj:
             return self._handle_object(env, start_response)

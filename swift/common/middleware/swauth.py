@@ -278,7 +278,7 @@ class Swauth(object):
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
             if not obj and '.rnolisting' in groups:
-                return HTTPUnauthorized(request=req)
+                return self.denied_response(req)
             return None
         if not req.remote_user:
             return self.denied_response(req)
