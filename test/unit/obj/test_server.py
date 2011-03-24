@@ -1017,9 +1017,9 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['content-encoding'], 'gzip')
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD':
             'HEAD'})
-        self.assertEquals(resp.headers['content-encoding'], 'gzip')
         resp = self.object_controller.HEAD(req)
         self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-encoding'], 'gzip')
 
     def test_manifest_header(self):
         timestamp = normalize_timestamp(time())
