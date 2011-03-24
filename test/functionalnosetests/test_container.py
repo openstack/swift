@@ -338,7 +338,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Read': '.r:*'})
+                          'X-Container-Read': '.r:*,.rlistings'})
             return check_response(conn)
         resp = retry(post)
         resp.read()
@@ -430,7 +430,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Read': '.r:*'})
+                          'X-Container-Read': '.r:*,.rlistings'})
             return check_response(conn)
         resp = retry(post)
         resp.read()
