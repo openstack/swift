@@ -42,8 +42,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout
-from swift.obj.replicator import get_hashes, invalidate_hash, \
-    recalculate_hashes
+from swift.obj.replicator import get_hashes, invalidate_hash
 
 
 DATADIR = 'objects'
@@ -52,6 +51,8 @@ PICKLE_PROTOCOL = 2
 METADATA_KEY = 'user.swift.metadata'
 MAX_OBJECT_NAME_LENGTH = 1024
 KEEP_CACHE_SIZE = (5 * 1024 * 1024)
+# keep these lower-case
+DISALLOWED_HEADERS = set('content-length content-type deleted etag'.split())
 
 
 def read_metadata(fd):
@@ -137,8 +138,7 @@ class DiskFile(object):
         if self.meta_file:
             with open(self.meta_file) as mfp:
                 for key in self.metadata.keys():
-                    if key.lower() not in ('content-type', 'content-encoding',
-                                'deleted', 'content-length', 'etag'):
+                    if key.lower() not in DISALLOWED_HEADERS:
                         del self.metadata[key]
                 self.metadata.update(read_metadata(mfp))
 
@@ -278,6 +278,12 @@ class ObjectController(object):
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
+        default_allowed_headers = 'content-encoding, x-object-manifest, ' \
+                                  'content-disposition'
+        self.allowed_headers = set(i.strip().lower() for i in \
+                conf.get('allowed_headers', \
+                default_allowed_headers).split(',') if i.strip() and \
+                i.strip().lower() not in DISALLOWED_HEADERS)
 
     def container_update(self, op, account, container, obj, headers_in,
                          headers_out, objdevice):
@@ -353,6 +359,10 @@ class ObjectController(object):
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))
+        for header_key in self.allowed_headers:
+            if header_key in request.headers:
+                header_caps = header_key.title()
+                metadata[header_caps] = request.headers[header_key]
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.meta')
         return response_class(request=request)
@@ -411,15 +421,13 @@ class ObjectController(object):
                 'ETag': etag,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            if 'x-object-manifest' in request.headers:
-                metadata['X-Object-Manifest'] = \
-                    request.headers['x-object-manifest']
             metadata.update(val for val in request.headers.iteritems()
                     if val[0].lower().startswith('x-object-meta-') and
                     len(val[0]) > 14)
-            if 'content-encoding' in request.headers:
-                metadata['Content-Encoding'] = \
-                    request.headers['Content-Encoding']
+            for header_key in self.allowed_headers:
+                if header_key in request.headers:
+                    header_caps = header_key.title()
+                    metadata[header_caps] = request.headers[header_key]
             file.put(fd, tmppath, metadata)
         file.unlinkold(metadata['X-Timestamp'])
         self.container_update('PUT', account, container, obj, request.headers,
@@ -483,8 +491,8 @@ class ObjectController(object):
                         'application/octet-stream'), app_iter=file,
                         request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key == 'X-Object-Manifest' or \
-                    key.lower().startswith('x-object-meta-'):
+            if key.lower().startswith('x-object-meta-') or \
+                    key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -574,10 +582,8 @@ class ObjectController(object):
         path = os.path.join(self.devices, device, DATADIR, partition)
         if not os.path.exists(path):
             mkdirs(path)
-        if suffix:
-            recalculate_hashes(path, suffix.split('-'))
-            return Response()
-        _junk, hashes = get_hashes(path, do_listdir=False)
+        suffixes = suffix.split('-') if suffix else []
+        _junk, hashes = tpool.execute(get_hashes, path, recalculate=suffixes)
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):
