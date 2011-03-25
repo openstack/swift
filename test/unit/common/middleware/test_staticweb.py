@@ -473,22 +473,6 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         self.assert_("Chrome's 404 fancy-page sucks." not in resp.body)
 
-    def test_container5ensurestripifs(self):
-        orig_strip_ifs = self.test_staticweb._strip_ifs
-        called = [False]
-
-        def strip_ifs(env):
-            called[0] = True
-            return orig_strip_ifs(env)
-
-        self.test_staticweb._strip_ifs = strip_ifs
-        resp = Request.blank('/v1/a/c5/unknown',
-            headers={'If-None-Match': '73f1dd69bacbf0847cc9cffa3c6b23a1'}
-        ).get_response(self.test_staticweb)
-        self.assertEquals(resp.status_int, 404)
-        self.assert_("Chrome's 404 fancy-page sucks." not in resp.body)
-        self.assert_(called[0])
-
 
 if __name__ == '__main__':
     unittest.main()

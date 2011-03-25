@@ -106,7 +106,8 @@ except ImportError:
     import json
 
 import cgi
-import urllib
+import time
+from urllib import unquote, quote
 
 from webob import Response, Request
 from webob.exc import HTTPMovedPermanently, HTTPNotFound
@@ -133,6 +134,15 @@ class StaticWeb(object):
         self.cache_timeout = int(conf.get('cache_timeout', 300))
         #: Logger for this filter.
         self.logger = get_logger(conf, log_route='staticweb')
+        access_log_conf = {}
+        for key in ('log_facility', 'log_name', 'log_level'):
+            value = conf.get('access_' + key, conf.get(key, None))
+            if value:
+                access_log_conf[key] = value
+        self.access_logger = get_logger(access_log_conf,
+                                        log_route='staticweb-access')
+        #: Indicates whether full HTTP headers should be logged or not.
+        self.log_headers = conf.get('log_headers') == 'True'
         # Results from the last call to self._start_response.
         self._response_status = None
         self._response_headers = None
@@ -158,6 +168,7 @@ class StaticWeb(object):
         :param env: The original request WSGI environment.
         :param start_response: The WSGI start_response hook.
         """
+        self._log_response(env, self._get_status_int())
         if not self._error:
             start_response(self._response_status, self._response_headers,
                            self._response_exc_info)
@@ -165,11 +176,10 @@ class StaticWeb(object):
         save_response_status = self._response_status
         save_response_headers = self._response_headers
         save_response_exc_info = self._response_exc_info
-        tmp_env = dict(env)
-        self._strip_ifs(tmp_env)
+        tmp_env = self._get_escalated_env(env)
+        tmp_env['REQUEST_METHOD'] = 'GET'
         tmp_env['PATH_INFO'] = '/%s/%s/%s/%s%s' % (self.version, self.account,
             self.container, self._get_status_int(), self._error)
-        tmp_env['REQUEST_METHOD'] = 'GET'
         resp = self.app(tmp_env, self._start_response)
         if self._get_status_int() // 100 == 2:
             start_response(save_response_status, self._response_headers,
@@ -186,10 +196,20 @@ class StaticWeb(object):
         """
         return int(self._response_status.split(' ', 1)[0])
 
-    def _strip_ifs(self, env):
-        """ Strips any HTTP_IF_* keys from the env dict. """
-        for key in [k for k in env.keys() if k.startswith('HTTP_IF_')]:
-            del env[key]
+    def _get_escalated_env(self, env):
+        """
+        Returns a new fresh WSGI environment with escalated privileges to do
+        backend checks, listings, etc. that the remote user wouldn't be able to
+        accomplish directly.
+        """
+        new_env = {'REQUEST_METHOD': 'GET',
+            'HTTP_USER_AGENT': '%s StaticWeb' % env.get('HTTP_USER_AGENT')}
+        for name in ('eventlet.posthooks', 'HTTP_X_CF_TRANS_ID', 'REMOTE_USER',
+                     'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
+                     'SERVER_PROTOCOL', 'swift.cache'):
+            if name in env:
+                new_env[name] = env[name]
+        return new_env
 
     def _get_container_info(self, env, start_response):
         """
@@ -211,10 +231,8 @@ class StaticWeb(object):
                 (self._index, self._error, self._listings,
                  self._listings_css) = cached_data
                 return
-        tmp_env = {'REQUEST_METHOD': 'HEAD', 'HTTP_USER_AGENT': 'StaticWeb'}
-        for name in ('swift.cache', 'HTTP_X_CF_TRANS_ID'):
-            if name in env:
-                tmp_env[name] = env[name]
+        tmp_env = self._get_escalated_env(env)
+        tmp_env['REQUEST_METHOD'] = 'HEAD'
         req = Request.blank('/%s/%s/%s' % (self.version, self.account,
             self.container), environ=tmp_env)
         resp = req.get_response(self.app)
@@ -245,14 +263,13 @@ class StaticWeb(object):
         if self._listings not in TRUE_VALUES:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        tmp_env = dict(env)
-        self._strip_ifs(tmp_env)
+        tmp_env = self._get_escalated_env(env)
         tmp_env['REQUEST_METHOD'] = 'GET'
         tmp_env['PATH_INFO'] = \
             '/%s/%s/%s' % (self.version, self.account, self.container)
         tmp_env['QUERY_STRING'] = 'delimiter=/&format=json'
         if prefix:
-            tmp_env['QUERY_STRING'] += '&prefix=%s' % urllib.quote(prefix)
+            tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
         resp = self.app(tmp_env, self._start_response)
         if self._get_status_int() // 100 != 2:
             return self._error_response(resp, env, start_response)
@@ -271,7 +288,7 @@ class StaticWeb(object):
             body += '  <link rel="stylesheet" type="text/css" ' \
                         'href="/%s/%s/%s/%s" />\n' % \
                     (self.version, self.account, self.container,
-                     urllib.quote(self._listings_css))
+                     quote(self._listings_css))
         else:
             body += '  <style type="text/css">\n' \
                     '   h1 {font-size: 1em; font-weight: bold;}\n' \
@@ -305,7 +322,7 @@ class StaticWeb(object):
                         '    <td class="colsize">&nbsp;</td>\n' \
                         '    <td class="coldate">&nbsp;</td>\n' \
                         '   </tr>\n' % \
-                        (urllib.quote(subdir), cgi.escape(subdir))
+                        (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
                 name = item['name']
@@ -318,14 +335,16 @@ class StaticWeb(object):
                         '   </tr>\n' % \
                         (' '.join('type-' + cgi.escape(t.lower(), quote=True)
                                   for t in item['content_type'].split('/')),
-                         urllib.quote(name), cgi.escape(name),
+                         quote(name), cgi.escape(name),
                          human_readable(item['bytes']),
                          cgi.escape(item['last_modified']).split('.')[0].
                             replace('T', ' '))
         body += '  </table>\n' \
                 ' </body>\n' \
                 '</html>\n'
-        return Response(headers=headers, body=body)(env, start_response)
+        resp = Response(headers=headers, body=body)
+        self._log_response(env, resp.status_int)
+        return resp(env, start_response)
 
     def _handle_container(self, env, start_response):
         """
@@ -338,11 +357,15 @@ class StaticWeb(object):
         if not self._listings and not self._index:
             return self.app(env, start_response)
         if env['PATH_INFO'][-1] != '/':
-            return HTTPMovedPermanently(
-                location=(env['PATH_INFO'] + '/'))(env, start_response)
+            resp = HTTPMovedPermanently(
+                location=(env['PATH_INFO'] + '/'))
+            self._log_response(env, resp.status_int)
+            return resp(env, start_response)
         if not self._index:
             return self._listing(env, start_response)
         tmp_env = dict(env)
+        tmp_env['HTTP_USER_AGENT'] = \
+            '%s StaticWeb' % env.get('HTTP_USER_AGENT')
         tmp_env['PATH_INFO'] += self._index
         resp = self.app(tmp_env, self._start_response)
         status_int = self._get_status_int()
@@ -363,12 +386,12 @@ class StaticWeb(object):
         :param start_response: The original WSGI start_response hook.
         """
         tmp_env = dict(env)
+        tmp_env['HTTP_USER_AGENT'] = \
+            '%s StaticWeb' % env.get('HTTP_USER_AGENT')
         resp = self.app(tmp_env, self._start_response)
         status_int = self._get_status_int()
         if status_int // 100 in (2, 3):
-            start_response(self._response_status, self._response_headers,
-                           self._response_exc_info)
-            return resp
+            return self.app(env, start_response)
         if status_int != 404:
             return self._error_response(resp, env, start_response)
         self._get_container_info(env, start_response)
@@ -377,6 +400,8 @@ class StaticWeb(object):
         if not self._index:
             return self._listing(env, start_response, self.obj)
         tmp_env = dict(env)
+        tmp_env['HTTP_USER_AGENT'] = \
+            '%s StaticWeb' % env.get('HTTP_USER_AGENT')
         if tmp_env['PATH_INFO'][-1] != '/':
             tmp_env['PATH_INFO'] += '/'
         tmp_env['PATH_INFO'] += self._index
@@ -384,27 +409,30 @@ class StaticWeb(object):
         status_int = self._get_status_int()
         if status_int // 100 in (2, 3):
             if env['PATH_INFO'][-1] != '/':
-                return HTTPMovedPermanently(
-                    location=env['PATH_INFO'] + '/')(env, start_response)
+                resp = HTTPMovedPermanently(
+                    location=env['PATH_INFO'] + '/')
+                self._log_response(env, resp.status_int)
+                return resp(env, start_response)
             start_response(self._response_status, self._response_headers,
                            self._response_exc_info)
             return resp
         elif status_int == 404:
             if env['PATH_INFO'][-1] != '/':
-                tmp_env = dict(env)
-                self._strip_ifs(tmp_env)
+                tmp_env = self._get_escalated_env(env)
                 tmp_env['REQUEST_METHOD'] = 'GET'
                 tmp_env['PATH_INFO'] = '/%s/%s/%s' % (self.version,
                     self.account, self.container)
                 tmp_env['QUERY_STRING'] = 'limit=1&format=json&delimiter' \
-                    '=/&limit=1&prefix=%s' % urllib.quote(self.obj + '/')
+                    '=/&limit=1&prefix=%s' % quote(self.obj + '/')
                 resp = self.app(tmp_env, self._start_response)
                 if self._get_status_int() // 100 != 2 or \
                         not json.loads(''.join(resp)):
                     resp = HTTPNotFound()(env, self._start_response)
                     return self._error_response(resp, env, start_response)
-                return HTTPMovedPermanently(location=env['PATH_INFO'] +
-                    '/')(env, start_response)
+                resp = HTTPMovedPermanently(location=env['PATH_INFO'] +
+                    '/')
+                self._log_response(env, resp.status_int)
+                return resp(env, start_response)
             return self._listing(env, start_response, self.obj)
 
     def __call__(self, env, start_response):
@@ -414,6 +442,7 @@ class StaticWeb(object):
         :param env: The WSGI environment dict.
         :param start_response: The WSGI start_response hook.
         """
+        env['staticweb.start_time'] = time.time()
         try:
             (self.version, self.account, self.container, self.obj) = \
                 split_path(env['PATH_INFO'], 2, 4, True)
@@ -438,6 +467,62 @@ class StaticWeb(object):
         elif self.container:
             return self._handle_container(env, start_response)
         return self.app(env, start_response)
+
+    def _log_response(self, env, status_int):
+        """
+        Logs an access line for StaticWeb responses; use when the next app in
+        the pipeline will not be handling the final response to the remote
+        user.
+
+        Assumes that the request and response bodies are 0 bytes or very near 0
+        so no bytes transferred are tracked or logged.
+        
+        This does mean that the listings responses that actually do transfer
+        content will not be logged with any bytes transferred, but in counter
+        to that the full bytes for the underlying listing will be logged by the
+        proxy even if the client disconnects early for the StaticWeb listing.
+
+        I didn't think the extra complexity of getting the bytes transferred
+        exactly correct for these requests was worth it, but perhaps someone
+        else will think it is.
+
+        To get things exact, this filter would need to use an
+        eventlet.posthooks logger like the proxy does and any log processing
+        systems would need to ignore some (but not all) proxy requests made by
+        StaticWeb if they were just interested in the bytes transferred to the
+        remote client.
+        """
+        trans_time = '%.4f' % (time.time() -
+                               env.get('staticweb.start_time', time.time()))
+        the_request = quote(unquote(env['PATH_INFO']))
+        if env.get('QUERY_STRING'):
+            the_request = the_request + '?' + env['QUERY_STRING']
+        # remote user for zeus
+        client = env.get('HTTP_X_CLUSTER_CLIENT_IP')
+        if not client and 'HTTP_X_FORWARDED_FOR' in env:
+            # remote user for other lbs
+            client = env['HTTP_X_FORWARDED_FOR'].split(',')[0].strip()
+        logged_headers = None
+        if self.log_headers:
+            logged_headers = '\n'.join('%s: %s' % (k, v)
+                for k, v in req.headers.items())
+        self.access_logger.info(' '.join(quote(str(x)) for x in (
+            client or '-',
+            env.get('REMOTE_ADDR', '-'),
+            time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),
+            env['REQUEST_METHOD'],
+            the_request,
+            env['SERVER_PROTOCOL'],
+            status_int,
+            env.get('HTTP_REFERER', '-'),
+            env.get('HTTP_USER_AGENT', '-'),
+            env.get('HTTP_X_AUTH_TOKEN', '-'),
+            '-',
+            '-',
+            env.get('HTTP_ETAG', '-'),
+            env.get('HTTP_X_CF_TRANS_ID', '-'),
+            logged_headers or '-',
+            trans_time)))
 
 
 def filter_factory(global_conf, **local_conf):
