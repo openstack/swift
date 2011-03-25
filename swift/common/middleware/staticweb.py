@@ -408,26 +408,26 @@ class StaticWeb(object):
         self._get_container_info(env, start_response)
         if not self._listings and not self._index:
             return self.app(env, start_response)
-        if not self._index:
-            return self._listing(env, start_response, self.obj)
-        tmp_env = dict(env)
-        tmp_env['HTTP_USER_AGENT'] = \
-            '%s StaticWeb' % env.get('HTTP_USER_AGENT')
-        if tmp_env['PATH_INFO'][-1] != '/':
-            tmp_env['PATH_INFO'] += '/'
-        tmp_env['PATH_INFO'] += self._index
-        resp = self.app(tmp_env, self._start_response)
-        status_int = self._get_status_int()
-        if status_int // 100 in (2, 3):
-            if env['PATH_INFO'][-1] != '/':
-                resp = HTTPMovedPermanently(
-                    location=env['PATH_INFO'] + '/')
-                self._log_response(env, resp.status_int)
-                return resp(env, start_response)
-            start_response(self._response_status, self._response_headers,
-                           self._response_exc_info)
-            return resp
-        elif status_int == 404:
+        status_int = 404
+        if self._index:
+            tmp_env = dict(env)
+            tmp_env['HTTP_USER_AGENT'] = \
+                '%s StaticWeb' % env.get('HTTP_USER_AGENT')
+            if tmp_env['PATH_INFO'][-1] != '/':
+                tmp_env['PATH_INFO'] += '/'
+            tmp_env['PATH_INFO'] += self._index
+            resp = self.app(tmp_env, self._start_response)
+            status_int = self._get_status_int()
+            if status_int // 100 in (2, 3):
+                if env['PATH_INFO'][-1] != '/':
+                    resp = HTTPMovedPermanently(
+                        location=env['PATH_INFO'] + '/')
+                    self._log_response(env, resp.status_int)
+                    return resp(env, start_response)
+                start_response(self._response_status, self._response_headers,
+                               self._response_exc_info)
+                return resp
+        if status_int == 404:
             if env['PATH_INFO'][-1] != '/':
                 tmp_env = self._get_escalated_env(env)
                 tmp_env['REQUEST_METHOD'] = 'GET'
