@@ -280,6 +280,8 @@ class StaticWeb(object):
         tmp_env['QUERY_STRING'] = 'delimiter=/&format=json'
         if prefix:
             tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
+        else:
+            prefix = ''
         resp = self.app(tmp_env, self._start_response)
         if self._get_status_int() // 100 != 2:
             return self._error_response(resp, env, start_response)
@@ -296,9 +298,8 @@ class StaticWeb(object):
                cgi.escape(env['PATH_INFO'])
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
-                        'href="/%s/%s/%s/%s" />\n' % \
-                    (self.version, self.account, self.container,
-                     quote(self._listings_css))
+                        'href="%s%s" />\n' % \
+                    ('../' * prefix.count('/'), quote(self._listings_css))
         else:
             body += '  <style type="text/css">\n' \
                     '   h1 {font-size: 1em; font-weight: bold;}\n' \
