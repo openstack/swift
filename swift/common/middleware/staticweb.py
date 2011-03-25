@@ -36,6 +36,14 @@ added. For example::
     use = egg:swift#staticweb
     # Seconds to cache container x-container-meta-web-* header values.
     # cache_timeout = 300
+    # You can override the default log routing for this filter here:
+    # set log_name = staticweb
+    # set log_facility = LOG_LOCAL0
+    # set log_level = INFO
+    # set access_log_name = staticweb
+    # set access_log_facility = LOG_LOCAL0
+    # set access_log_level = INFO
+    # set log_headers = False
 
 Any publicly readable containers (for example, ``X-Container-Read: .r:*``, see
 `acls`_ for more information on this) will be checked for
@@ -49,10 +57,11 @@ without having to specify the <index.name> part. For instance, setting
 ``X-Container-Meta-Web-Index: index.html`` will be able to serve the object
 .../pseudo/path/index.html with just .../pseudo/path or .../pseudo/path/
 
-If X-Container-Meta-Error is set, any errors (currently just 401 Unauthorized
-and 404 Not Found) will instead serve the .../<status.code><error.name.suffix>
-object. For instance, setting ``X-Container-Meta-Error: error.html`` will serve
-.../404error.html for requests for paths not found.
+If X-Container-Meta-Web-Error is set, any errors (currently just 401
+Unauthorized and 404 Not Found) will instead serve the
+.../<status.code><error.name.suffix> object. For instance, setting
+``X-Container-Meta-Web-Error: error.html`` will serve .../404error.html for
+requests for paths not found.
 
 For psuedo paths that have no <index.name>, this middleware can serve HTML file
 listings if you set the ``X-Container-Meta-Web-Listings: true`` metadata item
@@ -139,6 +148,7 @@ class StaticWeb(object):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
+        #: Web access logger for this filter.
         self.access_logger = get_logger(access_log_conf,
                                         log_route='staticweb-access')
         #: Indicates whether full HTTP headers should be logged or not.
@@ -162,7 +172,7 @@ class StaticWeb(object):
     def _error_response(self, response, env, start_response):
         """
         Sends the error response to the remote client, possibly resolving a
-        custom error response body based on x-container-meta-error.
+        custom error response body based on x-container-meta-web-error.
 
         :param response: The error response we should default to sending.
         :param env: The original request WSGI environment.
@@ -476,11 +486,12 @@ class StaticWeb(object):
 
         Assumes that the request and response bodies are 0 bytes or very near 0
         so no bytes transferred are tracked or logged.
-        
+
         This does mean that the listings responses that actually do transfer
         content will not be logged with any bytes transferred, but in counter
         to that the full bytes for the underlying listing will be logged by the
-        proxy even if the client disconnects early for the StaticWeb listing.
+        proxy even if the remote client disconnects early for the StaticWeb
+        listing.
 
         I didn't think the extra complexity of getting the bytes transferred
         exactly correct for these requests was worth it, but perhaps someone
