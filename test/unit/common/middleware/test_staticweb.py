@@ -174,6 +174,10 @@ class FakeApp(object):
                                  'x-container-meta-web-listings': 't'})
         elif env['PATH_INFO'] == '/v1/a/c6/subdir':
             return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] in ('/v1/a/c7', '/v1/a/c7/'):
+            return self.listing(env, start_response,
+                                {'x-container-read': '.r:*',
+                                 'x-container-meta-web-listings': 'f'})
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
 
@@ -363,11 +367,6 @@ class TestStaticWeb(unittest.TestCase):
                 '/v1/a/c3/subdir').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
 
-    def test_container6subdir(self):
-        resp = Request.blank(
-                '/v1/a/c6/subdir').get_response(self.test_staticweb)
-        self.assertEquals(resp.status_int, 301)
-
     def test_container3subsubdir(self):
         resp = Request.blank(
                 '/v1/a/c3/subdir3/subsubdir').get_response(self.test_staticweb)
@@ -496,6 +495,15 @@ class TestStaticWeb(unittest.TestCase):
                 '/v1/a/c5/unknown').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
         self.assert_("Chrome's 404 fancy-page sucks." not in resp.body)
+
+    def test_container6subdir(self):
+        resp = Request.blank(
+                '/v1/a/c6/subdir').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 301)
+
+    def test_container7listing(self):
+        resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
 
 
 if __name__ == '__main__':
