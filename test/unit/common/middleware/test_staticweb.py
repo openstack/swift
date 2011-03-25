@@ -168,6 +168,12 @@ class FakeApp(object):
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c5/404error.html':
             return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c6':
+            return self.listing(env, start_response,
+                                {'x-container-read': '.r:*',
+                                 'x-container-meta-web-listings': 't'})
+        elif env['PATH_INFO'] == '/v1/a/c6/subdir':
+            return Response(status='404 Not Found')(env, start_response)
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
 
@@ -204,6 +210,19 @@ class FakeApp(object):
                             'Content-Type': 'application/json; charset=utf8'})
             body = '''
                 [{"name":"subdirz/1.txt",
+                  "hash":"5f595114a4b3077edfac792c61ca4fe4", "bytes":20,
+                  "content_type":"text/plain",
+                  "last_modified":"2011-03-24T04:27:52.709100"}]
+            '''.strip()
+        elif env['PATH_INFO'] == '/v1/a/c6' and env['QUERY_STRING'] == \
+                'limit=1&format=json&delimiter=/&limit=1&prefix=subdir/':
+            headers.update({'X-Container-Object-Count': '11',
+                            'X-Container-Bytes-Used': '73741',
+                            'X-Container-Read': '.r:*',
+                            'X-Container-Web-Listings': 't',
+                            'Content-Type': 'application/json; charset=utf8'})
+            body = '''
+                [{"name":"subdir/1.txt",
                   "hash":"5f595114a4b3077edfac792c61ca4fe4", "bytes":20,
                   "content_type":"text/plain",
                   "last_modified":"2011-03-24T04:27:52.709100"}]
@@ -342,6 +361,11 @@ class TestStaticWeb(unittest.TestCase):
     def test_container3subdir(self):
         resp = Request.blank(
                 '/v1/a/c3/subdir').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 301)
+
+    def test_container6subdir(self):
+        resp = Request.blank(
+                '/v1/a/c6/subdir').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
 
     def test_container3subsubdir(self):
