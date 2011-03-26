@@ -560,7 +560,7 @@ class Controller(object):
                     status_index = statuses.index(status)
                     resp.status = '%s %s' % (status, reasons[status_index])
                     resp.body = bodies[status_index]
-                    resp.content_type = 'text/plain'
+                    resp.content_type = 'text/html'
                     if etag:
                         resp.headers['etag'] = etag.strip('"')
                     return resp

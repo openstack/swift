@@ -737,6 +737,29 @@ log_name = yarr'''
             self.assertEquals(utils.remove_file(file_name), None)
             self.assertFalse(os.path.exists(file_name))
 
+    def test_human_readable(self):
+        self.assertEquals(utils.human_readable(0), '0')
+        self.assertEquals(utils.human_readable(1), '1')
+        self.assertEquals(utils.human_readable(10), '10')
+        self.assertEquals(utils.human_readable(100), '100')
+        self.assertEquals(utils.human_readable(999), '999')
+        self.assertEquals(utils.human_readable(1024), '1Ki')
+        self.assertEquals(utils.human_readable(1535), '1Ki')
+        self.assertEquals(utils.human_readable(1536), '2Ki')
+        self.assertEquals(utils.human_readable(1047552), '1023Ki')
+        self.assertEquals(utils.human_readable(1048063), '1023Ki')
+        self.assertEquals(utils.human_readable(1048064), '1Mi')
+        self.assertEquals(utils.human_readable(1048576), '1Mi')
+        self.assertEquals(utils.human_readable(1073741824), '1Gi')
+        self.assertEquals(utils.human_readable(1099511627776), '1Ti')
+        self.assertEquals(utils.human_readable(1125899906842624), '1Pi')
+        self.assertEquals(utils.human_readable(1152921504606846976), '1Ei')
+        self.assertEquals(utils.human_readable(1180591620717411303424), '1Zi')
+        self.assertEquals(utils.human_readable(1208925819614629174706176),
+                          '1Yi')
+        self.assertEquals(utils.human_readable(1237940039285380274899124224),
+                          '1024Yi')
+
 
 if __name__ == '__main__':
     unittest.main()

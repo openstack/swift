@@ -400,37 +400,46 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 403)
 
     def test_authorize_acl_referrer_access(self):
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
-        req.acl = '.r:*'
+        req.acl = '.r:*,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.remote_user = 'act:usr,act'
+        req.acl = '.r:.example.com,.rlistings'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:.example.com,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 401)
-        req = Request.blank('/v1/AUTH_cfa')
-        req.acl = '.r:*'
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:*,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
-        req.acl = '.r:.example.com'
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 401)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:.example.com,.rlistings'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 401)
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.referer = 'http://www.example.com/index.html'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:.example.com,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
 
     def test_account_put_permissions(self):

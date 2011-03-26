@@ -72,7 +72,7 @@ if hash_conf.read('/etc/swift/swift.conf'):
         pass
 
 # Used when reading config values
-TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
+TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On', 't', 'y'))
 
 
 def validate_configuration():
@@ -969,3 +969,18 @@ def urlparse(url):
     :param url: URL to parse.
     """
     return ModifiedParseResult(*stdlib_urlparse(url))
+
+
+def human_readable(value):
+    """
+    Returns the number in a human readable format; for example 1048576 = "1Mi".
+    """
+    value = float(value)
+    index = -1
+    suffixes = 'KMGTPEZY'
+    while value >= 1024 and index + 1 < len(suffixes):
+        index += 1
+        value = round(value / 1024)
+    if index == -1:
+        return '%d' % value
+    return '%d%si' % (round(value), suffixes[index])
