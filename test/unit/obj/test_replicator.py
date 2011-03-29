@@ -188,6 +188,23 @@ class TestObjectReplicator(unittest.TestCase):
 
         object_replicator.http_connect = was_connector
 
+    def test_get_hashes(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        with open(os.path.join(df.datadir, normalize_timestamp(
+                    time.time()) + '.ts'), 'wb') as f:
+            f.write('1234567890')
+        part = os.path.join(self.objects, '0')
+        hashed, hashes = object_replicator.get_hashes(part)
+        self.assertEquals(hashed, 1)
+        self.assert_('a83' in hashes)
+        hashed, hashes = object_replicator.get_hashes(part, do_listdir=True)
+        self.assertEquals(hashed, 0)
+        self.assert_('a83' in hashes)
+        hashed, hashes = object_replicator.get_hashes(part, recalculate=['a83'])
+        self.assertEquals(hashed, 1)
+        self.assert_('a83' in hashes)
+
     def test_hash_suffix_one_file(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)

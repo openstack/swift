@@ -30,6 +30,10 @@ use = egg:swift#object
 # slow = 1
 # on PUTs, sync data every n MB
 # mb_per_sync = 512
+# Comma separated list of headers that can be set in metadata on an object.
+# This list is in addition to X-Object-Meta-* headers and cannot include
+# Content-Type, etag, Content-Length, or deleted
+# allowed_headers = Content-Encoding, Content-Disposition, X-Object-Manifest
 
 [object-replicator]
 # You can override the default log routing for this app here (don't use set!):
