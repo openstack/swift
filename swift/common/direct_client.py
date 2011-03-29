@@ -290,7 +290,7 @@ def direct_put_object(node, part, account, container, name, contents,
 def direct_post_object(node, part, account, container, name, headers,
                        conn_timeout=5, response_timeout=15):
     """
-    Put object directly from the object server.
+    Direct update to object metadata on object server.
 
     :param node: node dictionary from the ring
     :param part: partition the container is on

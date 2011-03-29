@@ -331,6 +331,7 @@ class DiskFile(object):
         """
         In the case that a file is corrupted, move it to a quarantined
         area to allow replication to fix it.
+
         :returns: if quarantine is successful, path to quarantined
                   directory otherwise None
         """
@@ -352,7 +353,7 @@ class DiskFile(object):
         try:
             file_size = 0
             if self.data_file:
-                file_size = int(os.path.getsize(self.data_file))
+                file_size = os.path.getsize(self.data_file)
                 if 'Content-Length' in self.metadata:
                     metadata_size = int(self.metadata['Content-Length'])
                     if file_size != metadata_size:
