@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from threading import Thread
 from webob import Request
 
+from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
 from swift.proxy.server import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
@@ -94,19 +95,6 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         return ['204 No Content']
-
-
-class FakeLogger(object):
-    # a thread safe logger
-
-    def error(self, *args, **kwargs):
-        pass
-
-    def info(self, *args, **kwargs):
-        pass
-
-    def warning(self, *args, **kwargs):
-        pass
 
 
 def start_response(*args):

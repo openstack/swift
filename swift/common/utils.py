@@ -179,9 +179,9 @@ def mkdirs(path):
                 raise
 
 
-def renamer(old, new):  # pragma: no cover
+def renamer(old, new):
     """
-    Attempt to fix^H^H^Hhide race conditions like empty object directories
+    Attempt to fix / hide race conditions like empty object directories
     being removed by backend processes during uploads, by retrying.
 
     :param old: old path to be renamed
@@ -567,7 +567,7 @@ def storage_directory(datadir, partition, hash):
     :param hash: Account, container or object hash
     :returns: Storage directory
     """
-    return os.path.join(datadir, partition, hash[-3:], hash)
+    return os.path.join(datadir, str(partition), hash[-3:], hash)
 
 
 def hash_path(account, container=None, object=None, raw_digest=False):

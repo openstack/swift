@@ -21,6 +21,7 @@ import errno
 import os
 import time
 import traceback
+import uuid
 from datetime import datetime
 from hashlib import md5
 from tempfile import mkstemp
@@ -41,7 +42,8 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
-from swift.common.exceptions import ConnectionTimeout
+from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
+    DiskFileNotExist
 from swift.obj.replicator import get_hashes, invalidate_hash
 
 
@@ -89,6 +91,32 @@ def write_metadata(fd, metadata):
         key += 1
 
 
+def quarantine_renamer(device_path, corrupted_file_path):
+    """
+    In the case that a file is corrupted, move it to a quarantined
+    area to allow replication to fix it.
+
+    :params device_path: The path to the device the corrupted file is on.
+    :params corrupted_file_path: The path to the file you want quarantined.
+
+    :returns: path (str) of directory the file was moved to
+    :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
+                     exceptions from rename
+    """
+    from_dir = os.path.dirname(corrupted_file_path)
+    to_dir = os.path.join(device_path, 'quarantined',
+                          'objects', os.path.basename(from_dir))
+    invalidate_hash(os.path.dirname(from_dir))
+    try:
+        renamer(from_dir, to_dir)
+    except OSError, e:
+        if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+            raise
+        to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
+        renamer(from_dir, to_dir)
+    return to_dir
+
+
 class DiskFile(object):
     """
     Manage object files on disk.
@@ -104,17 +132,23 @@ class DiskFile(object):
     """
 
     def __init__(self, path, device, partition, account, container, obj,
-                    keep_data_fp=False, disk_chunk_size=65536):
+                 logger, keep_data_fp=False, disk_chunk_size=65536):
         self.disk_chunk_size = disk_chunk_size
         self.name = '/' + '/'.join((account, container, obj))
         name_hash = hash_path(account, container, obj)
         self.datadir = os.path.join(path, device,
                     storage_directory(DATADIR, partition, name_hash))
+        self.device_path = os.path.join(path, device)
         self.tmpdir = os.path.join(path, device, 'tmp')
+        self.logger = logger
         self.metadata = {}
         self.meta_file = None
         self.data_file = None
         self.fp = None
+        self.iter_etag = None
+        self.started_at_0 = False
+        self.read_to_eof = False
+        self.quarantined_dir = None
         self.keep_cache = False
         if not os.path.exists(self.datadir):
             return
@@ -134,7 +168,7 @@ class DiskFile(object):
         self.fp = open(self.data_file, 'rb')
         self.metadata = read_metadata(self.fp)
         if not keep_data_fp:
-            self.close()
+            self.close(verify_file=False)
         if self.meta_file:
             with open(self.meta_file) as mfp:
                 for key in self.metadata.keys():
@@ -147,9 +181,16 @@ class DiskFile(object):
         try:
             dropped_cache = 0
             read = 0
+            self.started_at_0 = False
+            self.read_to_eof = False
+            if self.fp.tell() == 0:
+                self.started_at_0 = True
+                self.iter_etag = md5()
             while True:
                 chunk = self.fp.read(self.disk_chunk_size)
                 if chunk:
+                    if self.iter_etag:
+                        self.iter_etag.update(chunk)
                     read += len(chunk)
                     if read - dropped_cache > (1024 * 1024):
                         self.drop_cache(self.fp.fileno(), dropped_cache,
@@ -157,6 +198,7 @@ class DiskFile(object):
                         dropped_cache = read
                     yield chunk
                 else:
+                    self.read_to_eof = True
                     self.drop_cache(self.fp.fileno(), dropped_cache,
                         read - dropped_cache)
                     break
@@ -180,11 +222,41 @@ class DiskFile(object):
                     break
             yield chunk
 
-    def close(self):
-        """Close the file."""
+    def _handle_close_quarantine(self):
+        """Check if file needs to be quarantined"""
+        try:
+            obj_size = self.get_data_file_size()
+        except DiskFileError, e:
+            self.quarantine()
+            return
+        except DiskFileNotExist:
+            return
+
+        if (self.iter_etag and self.started_at_0 and self.read_to_eof and
+            'ETag' in self.metadata and
+            self.iter_etag.hexdigest() != self.metadata.get('ETag')):
+                self.quarantine()
+
+    def close(self, verify_file=True):
+        """
+        Close the file. Will handle quarantining file if necessary.
+
+        :param verify_file: Defaults to True. If false, will not check
+                            file to see if it needs quarantining.
+        """
         if self.fp:
-            self.fp.close()
-            self.fp = None
+            try:
+                if verify_file:
+                    self._handle_close_quarantine()
+            except Exception, e:
+                import traceback
+                self.logger.error(_('ERROR DiskFile %(data_file)s in '
+                     '%(data_dir)s close failure: %(exc)s : %(stack)'),
+                     {'exc': e, 'stack': ''.join(traceback.format_stack()),
+                      'data_file': self.data_file, 'data_dir': self.datadir})
+            finally:
+                self.fp.close()
+                self.fp = None
 
     def is_deleted(self):
         """
@@ -254,6 +326,44 @@ class DiskFile(object):
         """Method for no-oping buffer cache drop method."""
         if not self.keep_cache:
             drop_buffer_cache(fd, offset, length)
+
+    def quarantine(self):
+        """
+        In the case that a file is corrupted, move it to a quarantined
+        area to allow replication to fix it.
+
+        :returns: if quarantine is successful, path to quarantined
+                  directory otherwise None
+        """
+        if not (self.is_deleted() or self.quarantined_dir):
+            self.quarantined_dir = quarantine_renamer(self.device_path,
+                                                      self.data_file)
+            return self.quarantined_dir
+
+    def get_data_file_size(self):
+        """
+        Returns the os.path.getsize for the file.  Raises an exception if this
+        file does not match the Content-Length stored in the metadata. Or if
+        self.data_file does not exist.
+
+        :returns: file size as an int
+        :raises DiskFileError: on file size mismatch.
+        :raises DiskFileNotExist: on file not existing (including deleted)
+        """
+        try:
+            file_size = 0
+            if self.data_file:
+                file_size = os.path.getsize(self.data_file)
+                if 'Content-Length' in self.metadata:
+                    metadata_size = int(self.metadata['Content-Length'])
+                    if file_size != metadata_size:
+                        raise DiskFileError('Content-Length of %s does not '
+                          'match file size of %s' % (metadata_size, file_size))
+                return file_size
+        except OSError, err:
+            if err.errno != errno.ENOENT:
+                raise
+        raise DiskFileNotExist('Data File does not exist.')
 
 
 class ObjectController(object):
@@ -349,13 +459,17 @@ class ObjectController(object):
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
-                        obj, disk_chunk_size=self.disk_chunk_size)
+                        obj, self.logger, disk_chunk_size=self.disk_chunk_size)
 
         if file.is_deleted():
             response_class = HTTPNotFound
         else:
             response_class = HTTPAccepted
-
+        try:
+            file_size = file.get_data_file_size()
+        except (DiskFileError, DiskFileNotExist):
+            file.quarantine()
+            return HTTPNotFound(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))
@@ -385,7 +499,7 @@ class ObjectController(object):
         if error_response:
             return error_response
         file = DiskFile(self.devices, device, partition, account, container,
-                        obj, disk_chunk_size=self.disk_chunk_size)
+                        obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
         upload_size = 0
@@ -451,12 +565,18 @@ class ObjectController(object):
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
-                obj, keep_data_fp=True, disk_chunk_size=self.disk_chunk_size)
+                        obj, self.logger, keep_data_fp=True,
+                        disk_chunk_size=self.disk_chunk_size)
         if file.is_deleted():
             if request.headers.get('if-match') == '*':
                 return HTTPPreconditionFailed(request=request)
             else:
                 return HTTPNotFound(request=request)
+        try:
+            file_size = file.get_data_file_size()
+        except (DiskFileError, DiskFileNotExist):
+            file.quarantine()
+            return HTTPNotFound(request=request)
         if request.headers.get('if-match') not in (None, '*') and \
                 file.metadata['ETag'] not in request.if_match:
             file.close()
@@ -496,7 +616,7 @@ class ObjectController(object):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
-        response.content_length = int(file.metadata['Content-Length'])
+        response.content_length = file_size
         if response.content_length < KEEP_CACHE_SIZE and \
                 'X-Auth-Token' not in request.headers and \
                 'X-Storage-Token' not in request.headers:
@@ -518,8 +638,13 @@ class ObjectController(object):
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
-                        obj, disk_chunk_size=self.disk_chunk_size)
+                        obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         if file.is_deleted():
+            return HTTPNotFound(request=request)
+        try:
+            file_size = file.get_data_file_size()
+        except (DiskFileError, DiskFileNotExist):
+            file.quarantine()
             return HTTPNotFound(request=request)
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
@@ -529,7 +654,7 @@ class ObjectController(object):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
-        response.content_length = int(file.metadata['Content-Length'])
+        response.content_length = file_size
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
         return response
@@ -550,7 +675,7 @@ class ObjectController(object):
             return Response(status='507 %s is not mounted' % device)
         response_class = HTTPNoContent
         file = DiskFile(self.devices, device, partition, account, container,
-                        obj, disk_chunk_size=self.disk_chunk_size)
+                        obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         if file.is_deleted():
             response_class = HTTPNotFound
         metadata = {
