@@ -58,7 +58,6 @@ import rfc822
 import hmac
 import base64
 import errno
-import re
 from xml.sax.saxutils import escape as xml_escape
 import urlparse
 
