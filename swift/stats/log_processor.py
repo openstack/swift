@@ -237,7 +237,7 @@ class LogProcessorDaemon(Daemon):
 
     def run_once(self, *args, **kwargs):
         for k in 'lookback_hours lookback_window'.split():
-            if kwargs[k] != None:
+            if kwargs[k] is not None:
                 setattr(self, k, kwargs[k])
 
         self.logger.info(_("Beginning log processing"))
