@@ -470,19 +470,17 @@ def capture_stdio(logger, **kwargs):
         logger.critical(_('UNCAUGHT EXCEPTION'), exc_info=exc_info)
 
     # collect stdio file desc not in use for logging
-    stdio_fds = [0, 1, 2]
-    for _junk, handler in getattr(get_logger,
-                                  'console_handler4logger', {}).items():
-        try:
-            stdio_fds.remove(handler.stream.fileno())
-        except ValueError:
-            pass  # fd not in list
+    stdio_files = [sys.stdin, sys.stdout, sys.stderr]
+    console_fds = [h.stream.fileno() for _junk, h in getattr(
+        get_logger, 'console_handler4logger', {}).items()]
+    stdio_files = [f for f in stdio_files if f.fileno() not in console_fds]
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)
-        for desc in stdio_fds:
+        for f in stdio_files:
+            f.flush()
             try:
-                os.dup2(nullfile.fileno(), desc)
+                os.dup2(nullfile.fileno(), f.fileno())
             except OSError:
                 pass
 

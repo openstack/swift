@@ -910,8 +910,9 @@ class TestServer(unittest.TestCase):
                 print >>self._stdout, 'mock process failed to start'
                 self.close_stdout()
 
-            def communicate(self):
+            def poll(self):
                 self.returncode = self._returncode
+                return self.returncode or None
 
             def run(self):
                 print >>self._stdout, 'mock process started'
@@ -922,9 +923,21 @@ class TestServer(unittest.TestCase):
                 print >>self._stdout, 'mock process finished'
                 self.finished = True
 
+        class MockTime():
+
+            def time(self):
+                return time()
+
+            def sleep(self, *args, **kwargs):
+                pass
+
         with temptree([]) as t:
             old_stdout = sys.stdout
+            old_wait = manager.WARNING_WAIT
+            old_time = manager.time
             try:
+                manager.WARNING_WAIT = 0.01
+                manager.time = MockTime()
                 with open(os.path.join(t, 'output'), 'w+') as f:
                     # acctually capture the read stdout (for prints)
                     sys.stdout = f
@@ -933,7 +946,7 @@ class TestServer(unittest.TestCase):
                         server.procs = [proc]
                         status = server.wait()
                         self.assertEquals(status, 0)
-                        # wait should return as soon as stdout is closed
+                        # wait should return before process exits
                         self.assert_(proc.isAlive())
                         self.assertFalse(proc.finished)
                     self.assert_(proc.finished)  # make sure it did finish...
@@ -965,6 +978,8 @@ class TestServer(unittest.TestCase):
                         proc.join()
             finally:
                 sys.stdout = old_stdout
+                manager.WARNING_WAIT = old_wait
+                manager.time = old_time
 
     def test_interact(self):
         class MockProcess():
