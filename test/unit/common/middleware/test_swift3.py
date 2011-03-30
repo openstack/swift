@@ -555,8 +555,8 @@ class TestSwift3(unittest.TestCase):
         """
         def verify(hash, path, headers):
             req = Request.blank(path, headers=headers)
-            self.assertEquals(hash, hashlib.md5(swift3.canonical_string(
-                    req.method, req.path_qs, req.headers)).hexdigest())
+            self.assertEquals(hash,
+                    hashlib.md5(swift3.canonical_string(req)).hexdigest())
 
         verify('6dd08c75e42190a1ce9468d1fd2eb787', '/bucket/object',
                 {'Content-Type': 'text/plain', 'X-Amz-Something': 'test',

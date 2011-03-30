@@ -127,17 +127,18 @@ def get_acl(account_name):
     return Response(body=body, content_type="text/plain")
 
 
-def canonical_string(method, path, headers):
+def canonical_string(req):
     """
     Canonicalize a request to a token that can be signed.
     """
-    buf = "%s\n%s\n%s\n" % (method, headers.get('Content-MD5', ''),
-            headers.get('Content-Type', ''))
-    if 'Date' in headers:
-        buf += "%s\n" % headers['Date']
-    for amz_header in sorted((key.lower() for key in headers
+    buf = "%s\n%s\n%s\n" % (req.method, req.headers.get('Content-MD5', ''),
+            req.headers.get('Content-Type', ''))
+    if 'Date' in req.headers:
+        buf += "%s\n" % req.headers['Date']
+    for amz_header in sorted((key.lower() for key in req.headers
                               if key.lower().startswith('x-amz-'))):
-        buf += "%s:%s\n" % (amz_header, headers[amz_header])
+        buf += "%s:%s\n" % (amz_header, req.headers[amz_header])
+    path = req.path_qs
     if '?' in path:
         path, args = path.split('?', 1)
         for key in urlparse.parse_qs(args, keep_blank_values=True):
@@ -444,7 +445,7 @@ class Swift3Middleware(object):
         except Exception:
             return None, None
 
-        h = canonical_string(req.method, req.path_qs, req.headers)
+        h = canonical_string(req)
         token = base64.urlsafe_b64encode(h)
         return '%s:%s' % (account, user), token
 
