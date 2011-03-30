@@ -41,6 +41,7 @@ GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
 START_ONCE_SERVERS = REST_SERVERS
 
 KILL_WAIT = 15  # seconds to wait for servers to die
+WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
 
 MAX_DESCRIPTORS = 32768
 MAX_MEMORY = (1024 * 1024 * 1024) * 2  # 2 GB
@@ -530,9 +531,13 @@ class Server():
             output = proc.stdout.read()
             if output:
                 print output
-                proc.communicate()
-            if proc.returncode:
-                status += 1
+                start = time.time()
+                # wait for process to die (output may just be a warning)
+                while time.time() - start < WARNING_WAIT:
+                    time.sleep(0.1)
+                    if proc.poll() is not None:
+                        status += proc.returncode
+                        break
         return status
 
     def interact(self, **kwargs):
