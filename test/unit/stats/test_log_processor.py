@@ -134,7 +134,6 @@ use = egg:swift#proxy
            'http_version': 'HTTP/1.0',
            'object_name': 'bar',
            'etag': '-',
-           'foo': 1,
            'method': 'GET',
            'trans_id': 'txfa431231-7f07-42fd-8fc7-7da9d8cc1f90',
            'client_ip': '1.2.3.4',

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,12 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from optparse import OptionParser
+
 from swift.stats.log_processor import LogProcessorDaemon
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
-    conf_file, options = parse_options()
+    parser = OptionParser(usage='Usage: %prog [options] <conf_file>')
+
+    parser.add_option('--lookback_hours', type='int', dest='lookback_hours',
+        help='Hours in the past to start looking for log files')
+    parser.add_option('--lookback_window', type='int', dest='lookback_window',
+        help='Hours past lookback_hours to stop looking for log files')
+
+    conf_file, options = parse_options(parser)
     # currently the LogProcessorDaemon only supports run_once
     options['once'] = True
     run_daemon(LogProcessorDaemon, conf_file, section_name=None,

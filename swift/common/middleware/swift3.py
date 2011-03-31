@@ -58,7 +58,6 @@ import rfc822
 import hmac
 import base64
 import errno
-import boto.utils
 from xml.sax.saxutils import escape as xml_escape
 import urlparse
 
@@ -126,6 +125,27 @@ def get_acl(account_name):
             '</AccessControlPolicy>' %
             (account_name, account_name))
     return Response(body=body, content_type="text/plain")
+
+
+def canonical_string(req):
+    """
+    Canonicalize a request to a token that can be signed.
+    """
+    buf = "%s\n%s\n%s\n" % (req.method, req.headers.get('Content-MD5', ''),
+            req.headers.get('Content-Type') or '')
+    if 'Date' in req.headers:
+        buf += "%s\n" % req.headers['Date']
+    for amz_header in sorted((key.lower() for key in req.headers
+                              if key.lower().startswith('x-amz-'))):
+        buf += "%s:%s\n" % (amz_header, req.headers[amz_header])
+    path = req.path_qs
+    if '?' in path:
+        path, args = path.split('?', 1)
+        for key in urlparse.parse_qs(args, keep_blank_values=True):
+            if key in ('acl', 'logging', 'torrent', 'location',
+                       'requestPayment'):
+                return "%s%s?%s" % (buf, path, key)
+    return buf + path
 
 
 class Controller(object):
@@ -425,12 +445,7 @@ class Swift3Middleware(object):
         except Exception:
             return None, None
 
-        headers = {}
-        for key in req.headers:
-            if type(req.headers[key]) == str:
-                headers[key] = req.headers[key]
-
-        h = boto.utils.canonical_string(req.method, req.path_qs, headers)
+        h = canonical_string(req)
         token = base64.urlsafe_b64encode(h)
         return '%s:%s' % (account, user), token
 

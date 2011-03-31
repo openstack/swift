@@ -30,6 +30,14 @@ class AuditException(Exception):
     pass
 
 
+class DiskFileError(Exception):
+    pass
+
+
+class DiskFileNotExist(Exception):
+    pass
+
+
 class AuthException(Exception):
     pass
 

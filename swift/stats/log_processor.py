@@ -375,6 +375,10 @@ class LogProcessorDaemon(Daemon):
         return self.get_output(final_info)
 
     def run_once(self, *args, **kwargs):
+        for k in 'lookback_hours lookback_window'.split():
+            if k in kwargs and kwargs[k] is not None:
+                setattr(self, k, kwargs[k])
+
         start = time.time()
         self.logger.info(_("Beginning log processing"))
 

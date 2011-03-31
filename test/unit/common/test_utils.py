@@ -29,7 +29,7 @@ from getpass import getuser
 from shutil import rmtree
 from StringIO import StringIO
 from functools import partial
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryFile, NamedTemporaryFile
 
 from eventlet import sleep
 
@@ -77,7 +77,13 @@ class MockOs():
 
 class MockSys():
 
-    __stderr__ = sys.__stderr__
+    def __init__(self):
+        self.stdin = TemporaryFile('w')
+        self.stdout = TemporaryFile('r')
+        self.stderr = TemporaryFile('r')
+        self.__stderr__ = self.stderr
+        self.stdio_fds = [self.stdin.fileno(), self.stdout.fileno(),
+                          self.stderr.fileno()]
 
 
 def reset_loggers():
@@ -541,9 +547,9 @@ log_name = yarr'''
             # basic test
             utils.capture_stdio(logger)
             self.assert_(utils.sys.excepthook is not None)
-            self.assertEquals(utils.os.closed_fds, [0, 1, 2])
-            self.assert_(utils.sys.stdout is not None)
-            self.assert_(utils.sys.stderr is not None)
+            self.assertEquals(utils.os.closed_fds, utils.sys.stdio_fds)
+            self.assert_(isinstance(utils.sys.stdout, utils.LoggerFileObject))
+            self.assert_(isinstance(utils.sys.stderr, utils.LoggerFileObject))
 
             # reset; test same args, but exc when trying to close stdio
             utils.os = MockOs(raise_funcs=('dup2',))
@@ -553,25 +559,27 @@ log_name = yarr'''
             utils.capture_stdio(logger)
             self.assert_(utils.sys.excepthook is not None)
             self.assertEquals(utils.os.closed_fds, [])
-            self.assert_(utils.sys.stdout is not None)
-            self.assert_(utils.sys.stderr is not None)
+            self.assert_(isinstance(utils.sys.stdout, utils.LoggerFileObject))
+            self.assert_(isinstance(utils.sys.stderr, utils.LoggerFileObject))
 
             # reset; test some other args
-            logger = utils.get_logger(None, log_to_console=True)
             utils.os = MockOs()
             utils.sys = MockSys()
+            logger = utils.get_logger(None, log_to_console=True)
 
             # test console log
             utils.capture_stdio(logger, capture_stdout=False,
                                 capture_stderr=False)
             self.assert_(utils.sys.excepthook is not None)
             # when logging to console, stderr remains open
-            self.assertEquals(utils.os.closed_fds, [0, 1])
+            self.assertEquals(utils.os.closed_fds, utils.sys.stdio_fds[:2])
             reset_loggers()
 
             # stdio not captured
-            self.assertFalse(hasattr(utils.sys, 'stdout'))
-            self.assertFalse(hasattr(utils.sys, 'stderr'))
+            self.assertFalse(isinstance(utils.sys.stdout,
+                                        utils.LoggerFileObject))
+            self.assertFalse(isinstance(utils.sys.stderr,
+                                        utils.LoggerFileObject))
             reset_loggers()
         finally:
             utils.sys = _orig_sys
@@ -736,6 +744,29 @@ log_name = yarr'''
             self.assert_(os.path.exists(file_name))
             self.assertEquals(utils.remove_file(file_name), None)
             self.assertFalse(os.path.exists(file_name))
+
+    def test_human_readable(self):
+        self.assertEquals(utils.human_readable(0), '0')
+        self.assertEquals(utils.human_readable(1), '1')
+        self.assertEquals(utils.human_readable(10), '10')
+        self.assertEquals(utils.human_readable(100), '100')
+        self.assertEquals(utils.human_readable(999), '999')
+        self.assertEquals(utils.human_readable(1024), '1Ki')
+        self.assertEquals(utils.human_readable(1535), '1Ki')
+        self.assertEquals(utils.human_readable(1536), '2Ki')
+        self.assertEquals(utils.human_readable(1047552), '1023Ki')
+        self.assertEquals(utils.human_readable(1048063), '1023Ki')
+        self.assertEquals(utils.human_readable(1048064), '1Mi')
+        self.assertEquals(utils.human_readable(1048576), '1Mi')
+        self.assertEquals(utils.human_readable(1073741824), '1Gi')
+        self.assertEquals(utils.human_readable(1099511627776), '1Ti')
+        self.assertEquals(utils.human_readable(1125899906842624), '1Pi')
+        self.assertEquals(utils.human_readable(1152921504606846976), '1Ei')
+        self.assertEquals(utils.human_readable(1180591620717411303424), '1Zi')
+        self.assertEquals(utils.human_readable(1208925819614629174706176),
+                          '1Yi')
+        self.assertEquals(utils.human_readable(1237940039285380274899124224),
+                          '1024Yi')
 
 
 if __name__ == '__main__':
