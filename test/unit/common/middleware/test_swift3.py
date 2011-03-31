@@ -580,5 +580,19 @@ class TestSwift3(unittest.TestCase):
                  'X-Amz-Z': 'whatever', 'X-Amz-B': 'lalala',
                  'X-Amz-Y': 'lalalalalalala'})
 
+        verify('7506d97002c7d2de922cc0ec34af8846', '/bucket/object',
+                {'Content-Type': None, 'X-Amz-Something': 'test'})
+
+        req1 = Request.blank('/', headers=
+                {'Content-Type': None, 'X-Amz-Something': 'test'})
+        req2 = Request.blank('/', headers=
+                {'Content-Type': '', 'X-Amz-Something': 'test'})
+        req3 = Request.blank('/', headers={'X-Amz-Something': 'test'})
+
+        self.assertEquals(swift3.canonical_string(req1),
+                swift3.canonical_string(req2))
+        self.assertEquals(swift3.canonical_string(req2),
+                swift3.canonical_string(req3))
+
 if __name__ == '__main__':
     unittest.main()

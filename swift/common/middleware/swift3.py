@@ -132,7 +132,7 @@ def canonical_string(req):
     Canonicalize a request to a token that can be signed.
     """
     buf = "%s\n%s\n%s\n" % (req.method, req.headers.get('Content-MD5', ''),
-            req.headers.get('Content-Type', ''))
+            req.headers.get('Content-Type') or '')
     if 'Date' in req.headers:
         buf += "%s\n" % req.headers['Date']
     for amz_header in sorted((key.lower() for key in req.headers
