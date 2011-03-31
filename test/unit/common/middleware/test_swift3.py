@@ -581,8 +581,7 @@ class TestSwift3(unittest.TestCase):
                  'X-Amz-Y': 'lalalalalalala'})
 
         verify('7506d97002c7d2de922cc0ec34af8846', '/bucket/object',
-                {'Content-Type': '', 'X-Amz-Something': 'test'})
-
+                {'Content-Type': None, 'X-Amz-Something': 'test'})
 
         req1 = Request.blank('/', headers=
                 {'Content-Type': None, 'X-Amz-Something': 'test'})
