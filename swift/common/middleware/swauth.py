@@ -850,7 +850,8 @@ class Swauth(object):
                                 (path, resp.status))
             body = resp.body
             if '.reseller_admin' in \
-                    (g['name'] for g in json.loads(body)['groups']):
+                    (g['name'] for g in json.loads(body)['groups']) and \
+                    not self.is_reseller_admin(req):
                 return HTTPForbidden(request=req)
         return Response(body=body)
 

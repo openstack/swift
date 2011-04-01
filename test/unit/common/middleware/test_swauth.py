@@ -2370,7 +2370,7 @@ class TestAuth(unittest.TestCase):
 
     def test_get_user_account_admin_fail_getting_reseller_admin(self):
         self.test_auth.app = FakeApp(iter([
-            # GET of user object (account admin, but not reseller admin)
+            # GET of user object (account admin check)
             ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
              {"name": "test"}, {"name": ".admin"}],
              "auth": "plaintext:key"})),
@@ -2378,13 +2378,43 @@ class TestAuth(unittest.TestCase):
             ('200 Ok', {}, json.dumps(
                 {"groups": [{"name": "act:usr"}, {"name": "act"},
                             {"name": ".reseller_admin"}],
-                 "auth": "plaintext:key"}))]))
+                 "auth": "plaintext:key"})),
+            # GET of user object (reseller admin check [and fail here])
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
         resp = Request.blank('/auth/v2/act/usr',
             headers={'X-Auth-Admin-User': 'act:adm',
                      'X-Auth-Admin-Key': 'key'}
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 403)
-        self.assertEquals(self.test_auth.app.calls, 2)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_get_user_reseller_admin_succeed_getting_reseller_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin check)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"})),
+            # GET of requested user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".reseller_admin"}],
+                 "auth": "plaintext:key"})),
+            # GET of user object (reseller admin check)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"}))
+        self.assertEquals(self.test_auth.app.calls, 3)
 
     def test_get_user_groups_not_found(self):
         self.test_auth.app = FakeApp(iter([
