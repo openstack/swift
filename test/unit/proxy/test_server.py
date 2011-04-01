@@ -1925,6 +1925,35 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('\r\nContent-Length: 0\r\n' in headers)
 
+    def test_client_ip_logging(self):
+        # test that the client ip field in the log gets populated with the 
+        # ip instead of being blank
+        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+                _test_servers
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+
+        class Logger(object):
+
+            def info(self, msg):
+                self.msg = msg
+
+        orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
+        prosrv.logger = prosrv.access_logger = Logger()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write(
+            'GET /v1/a?format=json HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n'
+            '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        exp = '127.0.0.1 127.0.0.1'
+        self.assert_(exp in prosrv.logger.msg)
+
     def test_chunked_put_logging(self):
         # GET account with a query string to test that
         # Application.log_request logs the query string. Also, throws
