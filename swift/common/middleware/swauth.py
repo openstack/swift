@@ -849,6 +849,9 @@ class Swauth(object):
                 raise Exception('Could not retrieve user object: %s %s' %
                                 (path, resp.status))
             body = resp.body
+            if '.reseller_admin' in \
+                    (g['name'] for g in json.loads(body)['groups']):
+                return HTTPForbidden(request=req)
         return Response(body=body)
 
     def handle_put_user(self, req):
