@@ -507,8 +507,7 @@ class Controller(object):
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == 507:
                         self.error_limit(node)
-            except Exception:
-                self.error_limit(node)
+            except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': method, 'path': path})
