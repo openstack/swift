@@ -16,9 +16,6 @@
 """
 The swift3 middleware will emulate the S3 REST api on top of swift.
 
-The boto python library is necessary to use this middleware (install
-the python-boto package if you use Ubuntu).
-
 The following opperations are currently supported:
 
     * GET Service
@@ -451,7 +448,16 @@ class Swift3Middleware(object):
 
     def __call__(self, env, start_response):
         req = Request(env)
-        if not'Authorization' in req.headers:
+
+        if 'AWSAccessKeyId' in req.GET:
+            try:
+                req.headers['Date'] = req.GET['Expires']
+                req.headers['Authorization'] = \
+                    'AWS %(AWSAccessKeyId)s:%(Signature)s' % req.GET
+            except KeyError:
+                return get_err_response('InvalidArgument')(env, start_response)
+
+        if not 'Authorization' in req.headers:
             return self.app(env, start_response)
         try:
             controller, path_parts = self.get_controller(req.path)
