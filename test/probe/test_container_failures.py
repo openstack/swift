@@ -316,6 +316,8 @@ class TestContainerFailures(unittest.TestCase):
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
 
+    def test_locked_container_dbs(self):
+        pass
 
 if __name__ == '__main__':
     unittest.main()
