@@ -30,6 +30,8 @@ from swift.common.exceptions import ChunkReadTimeout
 from swift.common.utils import get_logger, readconf
 from swift.common.daemon import Daemon
 
+now = datetime.datetime.now
+
 
 class BadFileDownload(Exception):
     def __init__(self, status_code=None):
@@ -234,31 +236,46 @@ class LogProcessorDaemon(Daemon):
         self.log_processor_container = c.get('container_name',
                                              'log_processing_data')
         self.worker_count = int(c.get('worker_count', '1'))
+        self._keylist_mapping = None
+        self.processed_files_filename = 'processed_files.pickle.gz'
 
-    def run_once(self, *args, **kwargs):
-        for k in 'lookback_hours lookback_window'.split():
-            if kwargs[k] is not None:
-                setattr(self, k, kwargs[k])
+    def get_lookback_interval(self):
+        """
+        :returns: lookback_start, lookback_end.
 
-        self.logger.info(_("Beginning log processing"))
-        start = time.time()
+            Both or just lookback_end can be None. Otherwise, returns strings
+            of the form 'YYYYMMDDHH'. The interval returned is used as bounds
+            when looking for logs to processes.
+
+            A returned None means don't limit the log files examined on that
+            side of the interval.
+        """
+
         if self.lookback_hours == 0:
             lookback_start = None
             lookback_end = None
         else:
             delta_hours = datetime.timedelta(hours=self.lookback_hours)
-            lookback_start = datetime.datetime.now() - delta_hours
+            lookback_start = now() - delta_hours
             lookback_start = lookback_start.strftime('%Y%m%d%H')
             if self.lookback_window == 0:
                 lookback_end = None
             else:
                 delta_window = datetime.timedelta(hours=self.lookback_window)
-                lookback_end = datetime.datetime.now() - \
+                lookback_end = now() - \
                                delta_hours + \
                                delta_window
                 lookback_end = lookback_end.strftime('%Y%m%d%H')
-        self.logger.debug('lookback_start: %s' % lookback_start)
-        self.logger.debug('lookback_end: %s' % lookback_end)
+        return lookback_start, lookback_end
+
+    def get_processed_files_list(self):
+        """
+        :returns: a set of files that have already been processed or returns
+        None on error.
+
+            Downloads the set from the stats account. Creates an empty set if
+            the an existing file cannot be found.
+        """
         try:
             # Note: this file (or data set) will grow without bound.
             # In practice, if it becomes a problem (say, after many months of
@@ -266,44 +283,52 @@ class LogProcessorDaemon(Daemon):
             # entries. Automatically pruning on each run could be dangerous.
             # There is not a good way to determine when an old entry should be
             # pruned (lookback_hours could be set to anything and could change)
-            processed_files_stream = self.log_processor.get_object_data(
-                                        self.log_processor_account,
-                                        self.log_processor_container,
-                                        'processed_files.pickle.gz',
-                                        compressed=True)
-            buf = '\n'.join(x for x in processed_files_stream)
+            stream = self.log_processor.get_object_data(
+                         self.log_processor_account,
+                         self.log_processor_container,
+                         self.processed_files_filename,
+                         compressed=True)
+            buf = '\n'.join(x for x in stream)
             if buf:
-                already_processed_files = cPickle.loads(buf)
+                files = cPickle.loads(buf)
             else:
-                already_processed_files = set()
+                return None
         except BadFileDownload, err:
             if err.status_code == 404:
-                already_processed_files = set()
+                files = set()
             else:
-                self.logger.error(_('Log processing unable to load list of '
-                    'already processed log files'))
-                return
-        self.logger.debug(_('found %d processed files') % \
-                          len(already_processed_files))
-        logs_to_process = self.log_processor.get_data_list(lookback_start,
-                                                       lookback_end,
-                                                       already_processed_files)
-        self.logger.info(_('loaded %d files to process') %
-                         len(logs_to_process))
-        if not logs_to_process:
-            self.logger.info(_("Log processing done (%0.2f minutes)") %
-                        ((time.time() - start) / 60))
-            return
+                return None
+        return files
 
-        # map
-        processor_args = (self.total_conf, self.logger)
-        results = multiprocess_collate(processor_args, logs_to_process,
-                                       self.worker_count)
+    def get_aggregate_data(self, processed_files, input_data):
+        """
+        Aggregates stats data by account/hour, summing as needed.
 
-        #reduce
+        :param processed_files: set of processed files
+        :param input_data: is the output from multiprocess_collate/the plugins.
+
+        :returns: A dict containing data aggregated from the input_data
+        passed in.
+
+            The dict returned has tuple keys of the form:
+                (account, year, month, day, hour)
+            The dict returned has values that are dicts with items of this
+                form:
+            key:field_value
+                - key corresponds to something in one of the plugin's keylist
+                mapping, something like the tuple (source, level, verb, code)
+                - field_value is the sum of the field_values for the
+                corresponding values in the input
+
+            Both input_data and the dict returned are hourly aggregations of
+            stats.
+
+            Multiple values for the same (account, hour, tuple key) found in
+            input_data are summed in the dict returned.
+        """
+
         aggr_data = {}
-        processed_files = already_processed_files
-        for item, data in results:
+        for item, data in input_data:
             # since item contains the plugin and the log name, new plugins will
             # "reprocess" the file and the results will be in the final csv.
             processed_files.add(item)
@@ -315,14 +340,30 @@ class LogProcessorDaemon(Daemon):
                     # processing plugins need to realize this
                     existing_data[i] = current + j
                 aggr_data[k] = existing_data
+        return aggr_data
 
-        # group
-        # reduce a large number of keys in aggr_data[k] to a small number of
-        # output keys
-        keylist_mapping = self.log_processor.generate_keylist_mapping()
+    def get_final_info(self, aggr_data):
+        """
+        Aggregates data from aggr_data based on the keylist mapping.
+
+        :param aggr_data: The results of the get_aggregate_data function.
+        :returns: a dict of further aggregated data
+
+            The dict returned has keys of the form:
+                (account, year, month, day, hour)
+            The dict returned has values that are dicts with items of this
+                 form:
+                'field_name': field_value (int)
+
+            Data is aggregated as specified by the keylist mapping. The
+            keylist mapping specifies which keys to combine in aggr_data
+            and the final field_names for these combined keys in the dict
+            returned. Fields combined are summed.
+        """
+
         final_info = collections.defaultdict(dict)
         for account, data in aggr_data.items():
-            for key, mapping in keylist_mapping.items():
+            for key, mapping in self.keylist_mapping.items():
                 if isinstance(mapping, (list, set)):
                     value = 0
                     for k in mapping:
@@ -336,37 +377,154 @@ class LogProcessorDaemon(Daemon):
                     except KeyError:
                         value = 0
                 final_info[account][key] = value
+        return final_info
 
-        # output
-        sorted_keylist_mapping = sorted(keylist_mapping)
-        columns = 'data_ts,account,' + ','.join(sorted_keylist_mapping)
-        out_buf = [columns]
+    def store_processed_files_list(self, processed_files):
+        """
+        Stores the proccessed files list in the stats account.
+
+        :param processed_files: set of processed files
+        """
+
+        s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
+        f = cStringIO.StringIO(s)
+        self.log_processor.internal_proxy.upload_file(f,
+            self.log_processor_account,
+            self.log_processor_container,
+            self.processed_files_filename)
+
+    def get_output(self, final_info):
+        """
+        :returns: a list of rows to appear in the csv file.
+
+            The first row contains the column headers for the rest of the
+            rows in the returned list.
+
+            Each row after the first row corresponds to an account's data
+            for that hour.
+        """
+
+        sorted_keylist_mapping = sorted(self.keylist_mapping)
+        columns = ['data_ts', 'account'] + sorted_keylist_mapping
+        output = [columns]
         for (account, year, month, day, hour), d in final_info.items():
-            data_ts = '%s/%s/%s %s:00:00' % (year, month, day, hour)
-            row = [data_ts]
-            row.append('%s' % account)
+            data_ts = '%04d/%02d/%02d %02d:00:00' % \
+                (int(year), int(month), int(day), int(hour))
+            row = [data_ts, '%s' % (account)]
             for k in sorted_keylist_mapping:
-                row.append('%s' % d[k])
-            out_buf.append(','.join(row))
-        out_buf = '\n'.join(out_buf)
+                row.append(str(d[k]))
+            output.append(row)
+        return output
+
+    def store_output(self, output):
+        """
+        Takes the a list of rows and stores a csv file of the values in the
+        stats account.
+
+        :param output: list of rows to appear in the csv file
+
+            This csv file is final product of this script.
+        """
+
+        out_buf = '\n'.join([','.join(row) for row in output])
         h = hashlib.md5(out_buf).hexdigest()
         upload_name = time.strftime('%Y/%m/%d/%H/') + '%s.csv.gz' % h
         f = cStringIO.StringIO(out_buf)
         self.log_processor.internal_proxy.upload_file(f,
-                                        self.log_processor_account,
-                                        self.log_processor_container,
-                                        upload_name)
+            self.log_processor_account,
+            self.log_processor_container,
+            upload_name)
 
-        # cleanup
-        s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
-        f = cStringIO.StringIO(s)
-        self.log_processor.internal_proxy.upload_file(f,
-                                        self.log_processor_account,
-                                        self.log_processor_container,
-                                        'processed_files.pickle.gz')
+    @property
+    def keylist_mapping(self):
+        """
+        :returns: the keylist mapping.
+
+            The keylist mapping determines how the stats fields are aggregated in
+            the final aggregation step.
+        """
+
+        if self._keylist_mapping == None:
+            self._keylist_mapping = \
+                self.log_processor.generate_keylist_mapping()
+        return self._keylist_mapping
+
+    def process_logs(self, logs_to_process, processed_files):
+        """
+        :param logs_to_process: list of logs to process
+        :param processed_files: set of processed files
+
+        :returns: returns a list of rows of processed data.
+
+            The first row is the column headers. The rest of the rows contain
+            hourly aggregate data for the account specified in the row.
+
+            Files processed are added to the processed_files set.
+
+            When a large data structure is no longer needed, it is deleted in
+            an effort to conserve memory.
+        """
+
+        # map
+        processor_args = (self.total_conf, self.logger)
+        results = multiprocess_collate(processor_args, logs_to_process,
+            self.worker_count)
+
+        # reduce
+        aggr_data = self.get_aggregate_data(processed_files, results)
+        del results
+
+        # group
+        # reduce a large number of keys in aggr_data[k] to a small
+        # number of output keys
+        final_info = self.get_final_info(aggr_data)
+        del aggr_data
+
+        # output
+        return self.get_output(final_info)
+
+    def run_once(self, *args, **kwargs):
+        """
+        Process log files that fall within the lookback interval.
+
+        Upload resulting csv file to stats account.
+
+        Update processed files list and upload to stats account.
+        """
+
+        for k in 'lookback_hours lookback_window'.split():
+            if k in kwargs and kwargs[k] is not None:
+                setattr(self, k, kwargs[k])
+
+        start = time.time()
+        self.logger.info(_("Beginning log processing"))
+
+        lookback_start, lookback_end = self.get_lookback_interval()
+        self.logger.debug('lookback_start: %s' % lookback_start)
+        self.logger.debug('lookback_end: %s' % lookback_end)
+
+        processed_files = self.get_processed_files_list()
+        if processed_files == None:
+            self.logger.error(_('Log processing unable to load list of '
+                'already processed log files'))
+            return
+        self.logger.debug(_('found %d processed files') %
+            len(processed_files))
+
+        logs_to_process = self.log_processor.get_data_list(lookback_start,
+            lookback_end, processed_files)
+        self.logger.info(_('loaded %d files to process') %
+            len(logs_to_process))
+
+        if logs_to_process:
+            output = self.process_logs(logs_to_process, processed_files)
+            self.store_output(output)
+            del output
+
+            self.store_processed_files_list(processed_files)
 
         self.logger.info(_("Log processing done (%0.2f minutes)") %
-                        ((time.time() - start) / 60))
+            ((time.time() - start) / 60))
 
 
 def multiprocess_collate(processor_args, logs_to_process, worker_count):
