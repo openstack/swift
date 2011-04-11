@@ -240,6 +240,17 @@ class LogProcessorDaemon(Daemon):
         self.processed_files_filename = 'processed_files.pickle.gz'
 
     def get_lookback_interval(self):
+        """
+        :returns: lookback_start, lookback_end.
+
+            Both or just lookback_end can be None. Otherwise, returns strings
+            of the form 'YYYYMMDDHH'. The interval returned is used as bounds
+            when looking for logs to processes.
+
+            A returned None means don't limit the log files examined on that
+            side of the interval.
+        """
+
         if self.lookback_hours == 0:
             lookback_start = None
             lookback_end = None
@@ -258,6 +269,13 @@ class LogProcessorDaemon(Daemon):
         return lookback_start, lookback_end
 
     def get_processed_files_list(self):
+        """
+        :returns: a set of files that have already been processed or returns
+        None on error.
+
+            Downloads the set from the stats account. Creates an empty set if
+            the an existing file cannot be found.
+        """
         try:
             # Note: this file (or data set) will grow without bound.
             # In practice, if it becomes a problem (say, after many months of
@@ -282,9 +300,35 @@ class LogProcessorDaemon(Daemon):
                 return None
         return files
 
-    def get_aggregate_data(self, processed_files, results):
+    def get_aggregate_data(self, processed_files, input_data):
+        """
+        Aggregates stats data by account/hour, summing as needed.
+
+        :param processed_files: set of processed files
+        :param input_data: is the output from multiprocess_collate/the plugins.
+
+        :returns: A dict containing data aggregated from the input_data
+        passed in.
+
+            The dict returned has tuple keys of the form:
+                (account, year, month, day, hour)
+            The dict returned has values that are dicts with items of this
+                form:
+            key:field_value
+                - key corresponds to something in one of the plugin's keylist
+                mapping, something like the tuple (source, level, verb, code)
+                - field_value is the sum of the field_values for the
+                corresponding values in the input
+
+            Both input_data and the dict returned are hourly aggregations of
+            stats.
+
+            Multiple values for the same (account, hour, tuple key) found in
+            input_data are summed in the dict returned.
+        """
+
         aggr_data = {}
-        for item, data in results:
+        for item, data in input_data:
             # since item contains the plugin and the log name, new plugins will
             # "reprocess" the file and the results will be in the final csv.
             processed_files.add(item)
@@ -299,6 +343,24 @@ class LogProcessorDaemon(Daemon):
         return aggr_data
 
     def get_final_info(self, aggr_data):
+        """
+        Aggregates data from aggr_data based on the keylist mapping.
+
+        :param aggr_data: The results of the get_aggregate_data function.
+        :returns: a dict of further aggregated data
+
+            The dict returned has keys of the form:
+                (account, year, month, day, hour)
+            The dict returned has values that are dicts with items of this
+                 form:
+                'field_name': field_value (int)
+
+            Data is aggregated as specified by the keylist mapping. The
+            keylist mapping specifies which keys to combine in aggr_data
+            and the final field_names for these combined keys in the dict
+            returned. Fields combined are summed.
+        """
+
         final_info = collections.defaultdict(dict)
         for account, data in aggr_data.items():
             for key, mapping in self.keylist_mapping.items():
@@ -318,6 +380,12 @@ class LogProcessorDaemon(Daemon):
         return final_info
 
     def store_processed_files_list(self, processed_files):
+        """
+        Stores the proccessed files list in the stats account.
+
+        :param processed_files: set of processed files
+        """
+
         s = cPickle.dumps(processed_files, cPickle.HIGHEST_PROTOCOL)
         f = cStringIO.StringIO(s)
         self.log_processor.internal_proxy.upload_file(f,
@@ -326,6 +394,16 @@ class LogProcessorDaemon(Daemon):
             self.processed_files_filename)
 
     def get_output(self, final_info):
+        """
+        :returns: a list of rows to appear in the csv file.
+
+            The first row contains the column headers for the rest of the
+            rows in the returned list.
+
+            Each row after the first row corresponds to an account's data
+            for that hour.
+        """
+
         sorted_keylist_mapping = sorted(self.keylist_mapping)
         columns = ['data_ts', 'account'] + sorted_keylist_mapping
         output = [columns]
@@ -339,6 +417,15 @@ class LogProcessorDaemon(Daemon):
         return output
 
     def store_output(self, output):
+        """
+        Takes the a list of rows and stores a csv file of the values in the
+        stats account.
+
+        :param output: list of rows to appear in the csv file
+
+            This csv file is final product of this script.
+        """
+
         out_buf = '\n'.join([','.join(row) for row in output])
         h = hashlib.md5(out_buf).hexdigest()
         upload_name = time.strftime('%Y/%m/%d/%H/') + '%s.csv.gz' % h
@@ -350,12 +437,34 @@ class LogProcessorDaemon(Daemon):
 
     @property
     def keylist_mapping(self):
+        """
+        :returns: the keylist mapping.
+
+            The keylist mapping determines how the stats fields are aggregated in
+            the final aggregation step.
+        """
+
         if self._keylist_mapping == None:
             self._keylist_mapping = \
                 self.log_processor.generate_keylist_mapping()
         return self._keylist_mapping
 
     def process_logs(self, logs_to_process, processed_files):
+        """
+        :param logs_to_process: list of logs to process
+        :param processed_files: set of processed files
+
+        :returns: returns a list of rows of processed data.
+
+            The first row is the column headers. The rest of the rows contain
+            hourly aggregate data for the account specified in the row.
+
+            Files processed are added to the processed_files set.
+
+            When a large data structure is no longer needed, it is deleted in
+            an effort to conserve memory.
+        """
+
         # map
         processor_args = (self.total_conf, self.logger)
         results = multiprocess_collate(processor_args, logs_to_process,
@@ -375,6 +484,14 @@ class LogProcessorDaemon(Daemon):
         return self.get_output(final_info)
 
     def run_once(self, *args, **kwargs):
+        """
+        Process log files that fall within the lookback interval.
+
+        Upload resulting csv file to stats account.
+
+        Update processed files list and upload to stats account.
+        """
+
         for k in 'lookback_hours lookback_window'.split():
             if k in kwargs and kwargs[k] is not None:
                 setattr(self, k, kwargs[k])
