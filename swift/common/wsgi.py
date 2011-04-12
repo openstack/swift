@@ -124,9 +124,6 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
 
-    # finally after binding to ports and privilege drop, run app __init__ code
-    app = loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})
-
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
@@ -135,6 +132,8 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         eventlet.hubs.use_hub('poll')
         eventlet.patcher.monkey_patch(all=False, socket=True)
         monkey_patch_mimetools()
+        app = loadapp('config:%s' % conf_file,
+                      global_conf={'log_name': log_name})
         pool = GreenPool(size=1024)
         try:
             wsgi.server(sock, app, NullLogger(), custom_pool=pool)
