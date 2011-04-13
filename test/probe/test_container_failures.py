@@ -15,13 +15,17 @@
 # limitations under the License.
 
 import unittest
+import os
 from os import kill
 from signal import SIGTERM
 from subprocess import Popen
 from time import sleep
 from uuid import uuid4
+import eventlet
+import sqlite3
 
 from swift.common import client
+from swift.common.utils import hash_path, readconf
 
 from test.probe.common import get_to_final_state, kill_pids, reset_environment
 
@@ -316,8 +320,61 @@ class TestContainerFailures(unittest.TestCase):
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
 
+    def _get_db_file_path(self, obj_dir):
+        files = sorted(os.listdir(obj_dir), reverse=True)
+        for file in files:
+            if file.endswith('db'):
+                return os.path.join(obj_dir, file)
+
+    def _get_container_db_files(self, container):
+        opart, onodes = self.container_ring.get_nodes(self.account, container)
+        onode = onodes[0]
+        db_files = []
+        for onode in onodes:
+            node_id = (onode['port'] - 6000) / 10
+            device = onode['device']
+            hash_str = hash_path(self.account, container)
+            server_conf = readconf('/etc/swift/container-server/%s.conf' %
+                                    node_id)
+            devices = server_conf['app:container-server']['devices']
+            obj_dir = '%s/%s/containers/%s/%s/%s/' % (devices,
+                                                      device, opart,
+                                                      hash_str[-3:], hash_str)
+            db_files.append(self._get_db_file_path(obj_dir))
+
+        return db_files
+
     def test_locked_container_dbs(self):
-        pass
+
+        def run_test(num_locks, catch_503):
+            container = 'container-%s' % uuid4()
+            client.put_container(self.url, self.token, container)
+            db_files = self._get_container_db_files(container)
+            db_conns = []
+            for i in range(num_locks):
+                db_conn = sqlite3.connect(db_files[i])
+                db_conn.execute('begin exclusive transaction')
+                db_conns.append(db_conn)
+            if catch_503:
+                try:
+                    client.delete_container(self.url, self.token, container)
+                except client.ClientException, e:
+                    self.assertEquals(e.http_status, 503)
+            else:
+                client.delete_container(self.url, self.token, container)
+
+        pool = eventlet.GreenPool()
+        try:
+            with eventlet.Timeout(15):
+                p = pool.spawn(run_test, 1, False)
+                r = pool.spawn(run_test, 2, True)
+                q = pool.spawn(run_test, 3, True)
+                pool.waitall()
+        except eventlet.Timeout, e:
+            raise Exception(
+                "The server did not return a 503 on container db locks, "
+                "it just hangs: %s" % e)
+
 
 if __name__ == '__main__':
     unittest.main()
