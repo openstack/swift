@@ -555,7 +555,9 @@ Sample configuration files are provided with all defaults in line-by-line commen
 Setting up scripts for running Swift
 ------------------------------------
 
-  #. Create `~/bin/resetswift.` If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`::
+  #. Create `~/bin/resetswift.` 
+  If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
+  If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
   
         #!/bin/bash
 
