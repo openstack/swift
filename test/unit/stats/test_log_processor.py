@@ -364,7 +364,7 @@ use = egg:swift#proxy
             self.assertEquals(item, work_request)
             # these only work for Py2.7+
             #self.assertIsInstance(ret, log_processor.BadFileDownload)
-            self.assertTrue(isinstance(ret, Exception), type(ret))
+            self.assertTrue(isinstance(ret, Exception))
         finally:
             log_processor.LogProcessor.get_object_data = orig_get_object_data
 
