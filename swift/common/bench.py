@@ -103,6 +103,13 @@ class Bench(object):
         finally:
             self.conn_pool.put(hc)
 
+    def delete_containers(self):
+        for container in self.containers:
+            try:
+                client.delete_container(self.url, self.token, container)
+            except client.ClientException, e:
+                pass
+
     def run(self):
         pool = eventlet.GreenPool(self.concurrency)
         events = []
@@ -137,6 +144,7 @@ class BenchController(object):
         if self.delete:
             dels = BenchDELETE(self.logger, self.conf, self.names)
             dels.run()
+            dels.delete_containers()
 
 
 class BenchDELETE(Bench):
