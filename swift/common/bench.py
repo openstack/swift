@@ -108,7 +108,9 @@ class Bench(object):
             try:
                 client.delete_container(self.url, self.token, container)
             except client.ClientException, e:
-                pass
+                if e.http_status != 409:
+                    self._log_status("Unable to delete container '%s'. " \
+                        "Got http status '%d'." % (container, e.http_status))
 
     def run(self):
         pool = eventlet.GreenPool(self.concurrency)
