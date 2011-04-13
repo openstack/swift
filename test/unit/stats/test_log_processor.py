@@ -342,7 +342,7 @@ use = egg:swift#proxy
 
     def test_collate_worker_error(self):
         def get_object_data(*a,**kw):
-            raise log_processor.BadFileDownload()
+            raise Exception()
         orig_get_object_data = log_processor.LogProcessor.get_object_data
         try:
             log_processor.LogProcessor.get_object_data = get_object_data
@@ -364,8 +364,7 @@ use = egg:swift#proxy
             self.assertEquals(item, work_request)
             # these only work for Py2.7+
             #self.assertIsInstance(ret, log_processor.BadFileDownload)
-            self.assertTrue(isinstance(ret, log_processor.BadFileDownload),
-                            type(ret))
+            self.assertTrue(isinstance(ret, Exception), type(ret))
         finally:
             log_processor.LogProcessor.get_object_data = orig_get_object_data
 
@@ -388,7 +387,8 @@ use = egg:swift#proxy
             logs_to_process = [item]
             results = log_processor.multiprocess_collate(processor_args,
                                                          logs_to_process,
-                                                         1)
+                                                         1,
+                                                         DumbLogger())
             results = list(results)
             expected = [(item, {('acct', '2010', '07', '09', '04'):
                         {('public', 'object', 'GET', '2xx'): 1,
@@ -422,7 +422,8 @@ use = egg:swift#proxy
             logs_to_process = [item]
             results = log_processor.multiprocess_collate(processor_args,
                                                          logs_to_process,
-                                                         1)
+                                                         1,
+                                                         DumbLogger())
             results = list(results)
             expected = []
             self.assertEquals(results, expected)
@@ -762,12 +763,13 @@ class TestLogProcessorDaemon(unittest.TestCase):
             d = MockLogProcessorDaemon(self)
 
             def mock_multiprocess_collate(processor_args, logs_to_process,
-                worker_count):
+                worker_count, logger):
                 self.assertEquals(d.total_conf, processor_args[0])
                 self.assertEquals(d.logger, processor_args[1])
 
                 self.assertEquals(mock_logs_to_process, logs_to_process)
                 self.assertEquals(d.worker_count, worker_count)
+                self.assertEquals(d.logger, logger)
 
                 return multiprocess_collate_return
 
