@@ -387,8 +387,7 @@ use = egg:swift#proxy
             logs_to_process = [item]
             results = log_processor.multiprocess_collate(processor_args,
                                                          logs_to_process,
-                                                         1,
-                                                         DumbLogger())
+                                                         1)
             results = list(results)
             expected = [(item, {('acct', '2010', '07', '09', '04'):
                         {('public', 'object', 'GET', '2xx'): 1,
@@ -422,8 +421,7 @@ use = egg:swift#proxy
             logs_to_process = [item]
             results = log_processor.multiprocess_collate(processor_args,
                                                          logs_to_process,
-                                                         1,
-                                                         DumbLogger())
+                                                         1)
             results = list(results)
             expected = []
             self.assertEquals(results, expected)
@@ -763,13 +761,12 @@ class TestLogProcessorDaemon(unittest.TestCase):
             d = MockLogProcessorDaemon(self)
 
             def mock_multiprocess_collate(processor_args, logs_to_process,
-                worker_count, logger):
+                worker_count):
                 self.assertEquals(d.total_conf, processor_args[0])
                 self.assertEquals(d.logger, processor_args[1])
 
                 self.assertEquals(mock_logs_to_process, logs_to_process)
                 self.assertEquals(d.worker_count, worker_count)
-                self.assertEquals(d.logger, logger)
 
                 return multiprocess_collate_return
 

@@ -468,7 +468,7 @@ class LogProcessorDaemon(Daemon):
         # map
         processor_args = (self.total_conf, self.logger)
         results = multiprocess_collate(processor_args, logs_to_process,
-            self.worker_count, self.logger)
+            self.worker_count)
 
         # reduce
         aggr_data = self.get_aggregate_data(processed_files, results)
@@ -527,8 +527,7 @@ class LogProcessorDaemon(Daemon):
             ((time.time() - start) / 60))
 
 
-def multiprocess_collate(processor_args, logs_to_process, worker_count,
-    logger):
+def multiprocess_collate(processor_args, logs_to_process, worker_count):
     '''
     yield hourly data from logs_to_process
     Every item that this function yields will be added to the processed files
@@ -554,11 +553,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count,
         except Queue.Empty:
             time.sleep(.01)
         else:
-            if isinstance(data, Exception):
-                item_string = '/'.join(item[2:])
-                logger.exception("Problem processing file '%s'" %
-                    (item_string))
-            else:
+            if not isinstance(data, Exception):
                 yield item, data
         if not any(r.is_alive() for r in results) and out_queue.empty():
             # all the workers are done and nothing is in the queue
@@ -576,5 +571,7 @@ def collate_worker(processor_args, in_queue, out_queue):
         try:
             ret = p.process_one_file(*item)
         except Exception, err:
+            item_string = '/'.join(item[2:])
+            p.logger.exception("Unable to process file '%s'" % (item_string))
             ret = err
         out_queue.put((item, ret))
