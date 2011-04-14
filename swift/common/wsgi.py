@@ -25,12 +25,6 @@ import mimetools
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
 from paste.deploy import loadapp, appconfig
-
-# Hook to ensure connection resets don't blow up our servers.
-# Remove with next release of Eventlet that has it in the set already.
-from errno import ECONNRESET
-wsgi.ACCEPT_ERRNO.add(ECONNRESET)
-
 from eventlet.green import socket, ssl
 
 from swift.common.utils import get_logger, drop_privileges, \
