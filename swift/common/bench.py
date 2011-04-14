@@ -103,15 +103,6 @@ class Bench(object):
         finally:
             self.conn_pool.put(hc)
 
-    def delete_containers(self):
-        for container in self.containers:
-            try:
-                client.delete_container(self.url, self.token, container)
-            except client.ClientException, e:
-                if e.http_status != 409:
-                    self._log_status("Unable to delete container '%s'. " \
-                        "Got http status '%d'." % (container, e.http_status))
-
     def run(self):
         pool = eventlet.GreenPool(self.concurrency)
         events = []
@@ -146,7 +137,6 @@ class BenchController(object):
         if self.delete:
             dels = BenchDELETE(self.logger, self.conf, self.names)
             dels.run()
-            dels.delete_containers()
 
 
 class BenchDELETE(Bench):
@@ -156,6 +146,16 @@ class BenchDELETE(Bench):
         self.concurrency = self.del_concurrency
         self.total = len(names)
         self.msg = 'DEL'
+
+    def run(self):
+        Bench.run(self)
+        for container in self.containers:
+            try:
+                client.delete_container(self.url, self.token, container)
+            except client.ClientException, e:
+                if e.http_status != 409:
+                    self._log_status("Unable to delete container '%s'. " \
+                        "Got http status '%d'." % (container, e.http_status))
 
     def _run(self, thread):
         if time.time() - self.heartbeat >= 15:
