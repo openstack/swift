@@ -511,8 +511,7 @@ class Controller(object):
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == 507:
                         self.error_limit(node)
-            except Exception:
-                self.error_limit(node)
+            except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': method, 'path': path})
@@ -564,7 +563,7 @@ class Controller(object):
                     status_index = statuses.index(status)
                     resp.status = '%s %s' % (status, reasons[status_index])
                     resp.body = bodies[status_index]
-                    resp.content_type = 'text/plain'
+                    resp.content_type = 'text/html'
                     if etag:
                         resp.headers['etag'] = etag.strip('"')
                     return resp

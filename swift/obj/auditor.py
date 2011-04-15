@@ -23,7 +23,8 @@ from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
 from swift.common.utils import get_logger, renamer, audit_location_generator, \
     ratelimit_sleep, TRUE_VALUES
-from swift.common.exceptions import AuditException
+from swift.common.exceptions import AuditException, DiskFileError, \
+    DiskFileNotExist
 from swift.common.daemon import Daemon
 
 SLEEP_BETWEEN_AUDITS = 30
@@ -119,47 +120,39 @@ class AuditorWorker(object):
             except Exception, exc:
                 raise AuditException('Error when reading metadata: %s' % exc)
             _junk, account, container, obj = name.split('/', 3)
-            df = object_server.DiskFile(self.devices, device,
-                                        partition, account,
-                                        container, obj,
+            df = object_server.DiskFile(self.devices, device, partition,
+                                        account, container, obj, self.logger,
                                         keep_data_fp=True)
             if df.data_file is None:
                 # file is deleted, we found the tombstone
                 return
-            obj_size = os.path.getsize(df.data_file)
-            if obj_size != int(df.metadata['Content-Length']):
-                raise AuditException('Content-Length of %s does not match '
-                    'file size of %s' % (int(df.metadata['Content-Length']),
-                                         os.path.getsize(df.data_file)))
+            try:
+                obj_size = df.get_data_file_size()
+            except DiskFileError, e:
+                raise AuditException(str(e))
+            except DiskFileNotExist:
+                return
             if self.zero_byte_only_at_fps and obj_size:
                 return
-            etag = md5()
             for chunk in df:
                 self.bytes_running_time = ratelimit_sleep(
                     self.bytes_running_time, self.max_bytes_per_second,
                     incr_by=len(chunk))
-                etag.update(chunk)
                 self.bytes_processed += len(chunk)
                 self.total_bytes_processed += len(chunk)
-            etag = etag.hexdigest()
-            if etag != df.metadata['ETag']:
-                raise AuditException("ETag of %s does not match file's md5 of "
-                    "%s" % (df.metadata['ETag'], etag))
+            df.close()
+            if df.quarantined_dir:
+                self.quarantines += 1
+                self.logger.error(
+                    _("ERROR Object %(path)s failed audit and will be "
+                      "quarantined: ETag and file's md5 do not match"),
+                    {'path': path})
         except AuditException, err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                 'be quarantined: %(err)s'), {'obj': path, 'err': err})
-            object_dir = os.path.dirname(path)
-            invalidate_hash(os.path.dirname(object_dir))
-            renamer_path = os.path.dirname(path)
-            to_path = os.path.join(self.devices, device, 'quarantined',
-                                   'objects', os.path.basename(renamer_path))
-            try:
-                renamer(renamer_path, to_path)
-            except OSError, e:
-                if e.errno == errno.EEXIST:
-                    to_path = "%s-%s" % (to_path, uuid.uuid4().hex)
-                    renamer(renamer_path, to_path)
+            object_server.quarantine_renamer(
+                os.path.join(self.devices, device), path)
             return
         except Exception:
             self.errors += 1

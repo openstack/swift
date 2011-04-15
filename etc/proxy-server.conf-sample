@@ -153,3 +153,17 @@ use = egg:swift#cname_lookup
 # set log_headers = False
 # storage_domain = example.com
 # lookup_depth = 1
+
+# Note: Put staticweb just after your auth filter(s) in the pipeline
+[filter:staticweb]
+use = egg:swift#staticweb
+# Seconds to cache container x-container-meta-web-* header values.
+# cache_timeout = 300
+# You can override the default log routing for this filter here:
+# set log_name = staticweb
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set access_log_name = staticweb
+# set access_log_facility = LOG_LOCAL0
+# set access_log_level = INFO
+# set log_headers = False

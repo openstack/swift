@@ -128,3 +128,9 @@ Swift3
     :members:
     :show-inheritance:
 
+StaticWeb
+=========
+
+.. automodule:: swift.common.middleware.staticweb
+    :members:
+    :show-inheritance:

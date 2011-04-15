@@ -400,37 +400,46 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 403)
 
     def test_authorize_acl_referrer_access(self):
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
-        req.acl = '.r:*'
+        req.acl = '.r:*,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.remote_user = 'act:usr,act'
+        req.acl = '.r:.example.com,.rlistings'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 403)
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:.example.com,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 401)
-        req = Request.blank('/v1/AUTH_cfa')
-        req.acl = '.r:*'
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:*,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
-        req = Request.blank('/v1/AUTH_cfa')
-        req.acl = '.r:.example.com'
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 401)
-        req = Request.blank('/v1/AUTH_cfa')
+        req = Request.blank('/v1/AUTH_cfa/c')
+        req.acl = '.r:.example.com,.rlistings'
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp.status_int, 401)
+        req = Request.blank('/v1/AUTH_cfa/c')
         req.referer = 'http://www.example.com/index.html'
-        req.acl = '.r:.example.com'
+        req.acl = '.r:.example.com,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
 
     def test_account_put_permissions(self):
@@ -2345,8 +2354,7 @@ class TestAuth(unittest.TestCase):
              "auth": "plaintext:key"})),
             # GET of requested user object
             ('200 Ok', {}, json.dumps(
-                {"groups": [{"name": "act:usr"}, {"name": "act"},
-                            {"name": ".admin"}],
+                {"groups": [{"name": "act:usr"}, {"name": "act"}],
                  "auth": "plaintext:key"}))]))
         resp = Request.blank('/auth/v2/act/usr',
             headers={'X-Auth-Admin-User': 'act:adm',
@@ -2354,10 +2362,85 @@ class TestAuth(unittest.TestCase):
             ).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, json.dumps(
-            {"groups": [{"name": "act:usr"}, {"name": "act"},
-                        {"name": ".admin"}],
+            {"groups": [{"name": "act:usr"}, {"name": "act"}],
              "auth": "plaintext:key"}))
         self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_get_user_account_admin_fail_getting_account_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin check)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"})),
+            # GET of requested user object [who is an .admin as well]
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".admin"}],
+                 "auth": "plaintext:key"})),
+            # GET of user object (reseller admin check [and fail here])
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 3)
+
+    def test_get_user_account_admin_fail_getting_reseller_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin check)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".admin"}],
+             "auth": "plaintext:key"})),
+            # GET of requested user object [who is a .reseller_admin]
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".reseller_admin"}],
+                 "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_get_user_reseller_admin_fail_getting_reseller_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of user object (account admin check)
+            ('200 Ok', {}, json.dumps({"groups": [{"name": "act:adm"},
+             {"name": "test"}, {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"})),
+            # GET of requested user object [who also is a .reseller_admin]
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".reseller_admin"}],
+                 "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': 'act:adm',
+                     'X-Auth-Admin-Key': 'key'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 403)
+        self.assertEquals(self.test_auth.app.calls, 2)
+
+    def test_get_user_super_admin_succeed_getting_reseller_admin(self):
+        self.test_auth.app = FakeApp(iter([
+            # GET of requested user object
+            ('200 Ok', {}, json.dumps(
+                {"groups": [{"name": "act:usr"}, {"name": "act"},
+                            {"name": ".reseller_admin"}],
+                 "auth": "plaintext:key"}))]))
+        resp = Request.blank('/auth/v2/act/usr',
+            headers={'X-Auth-Admin-User': '.super_admin',
+                     'X-Auth-Admin-Key': 'supertest'}
+            ).get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps(
+            {"groups": [{"name": "act:usr"}, {"name": "act"},
+                        {"name": ".reseller_admin"}],
+             "auth": "plaintext:key"}))
+        self.assertEquals(self.test_auth.app.calls, 1)
 
     def test_get_user_groups_not_found(self):
         self.test_auth.app = FakeApp(iter([

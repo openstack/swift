@@ -18,34 +18,280 @@
 import cPickle as pickle
 import os
 import sys
+import shutil
 import unittest
 from nose import SkipTest
 from shutil import rmtree
 from StringIO import StringIO
 from time import gmtime, sleep, strftime, time
 from tempfile import mkdtemp
+from hashlib import md5
 
 from eventlet import sleep, spawn, wsgi, listen
 from webob import Request
+from test.unit import FakeLogger
 from test.unit import _getxattr as getxattr
 from test.unit import _setxattr as setxattr
-
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
+from swift.common.exceptions import DiskFileNotExist
+from eventlet import tpool
+
+
+class TestDiskFile(unittest.TestCase):
+    """Test swift.obj.server.DiskFile"""
+
+    def setUp(self):
+        """ Set up for testing swift.object_server.ObjectController """
+        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
+        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+
+        def fake_exe(*args, **kwargs):
+            pass
+        tpool.execute = fake_exe
+
+    def tearDown(self):
+        """ Tear down for testing swift.object_server.ObjectController """
+        rmtree(os.path.dirname(self.testdir))
+
+    def test_disk_file_app_iter_corners(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        f.write('1234567890')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        f.close()
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger(), keep_data_fp=True)
+        it = df.app_iter_range(0, None)
+        sio = StringIO()
+        for chunk in it:
+            sio.write(chunk)
+        self.assertEquals(sio.getvalue(), '1234567890')
+
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger(), keep_data_fp=True)
+        it = df.app_iter_range(5, None)
+        sio = StringIO()
+        for chunk in it:
+            sio.write(chunk)
+        self.assertEquals(sio.getvalue(), '67890')
+
+    def test_disk_file_mkstemp_creates_dir(self):
+        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
+        os.rmdir(tmpdir)
+        with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
+                                    'o', FakeLogger()).mkstemp():
+            self.assert_(os.path.exists(tmpdir))
+
+    def test_quarantine(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        df.quarantine()
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
+                                'objects', os.path.basename(os.path.dirname(
+                                                            df.data_file)))
+        self.assert_(os.path.isdir(quar_dir))
+
+    def test_quarantine_same_file(self):
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        new_dir = df.quarantine()
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
+                                'objects', os.path.basename(os.path.dirname(
+                                                            df.data_file)))
+        self.assert_(os.path.isdir(quar_dir))
+        self.assertEquals(quar_dir, new_dir)
+        # have to remake the datadir and file
+        mkdirs(df.datadir)
+        f = open(os.path.join(df.datadir,
+                              normalize_timestamp(time()) + '.data'), 'wb')
+        setxattr(f.fileno(), object_server.METADATA_KEY,
+                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
+
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger(), keep_data_fp=True)
+        double_uuid_path = df.quarantine()
+        self.assert_(os.path.isdir(double_uuid_path))
+        self.assert_('-' in os.path.basename(double_uuid_path))
+
+    def _get_data_file(self, invalid_type=None, obj_name='o',
+                       fsize=1024, csize=8, extension='.data', ts=None):
+        '''returns a DiskFile'''
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
+                                    obj_name, FakeLogger())
+        data = '0' * fsize
+        etag = md5()
+        if ts:
+            timestamp = ts
+        else:
+            timestamp = str(normalize_timestamp(time()))
+        with df.mkstemp() as (fd, tmppath):
+            os.write(fd, data)
+            etag.update(data)
+            etag = etag.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': timestamp,
+                'Content-Length': str(os.fstat(fd).st_size),
+            }
+            df.put(fd, tmppath, metadata, extension=extension)
+            if invalid_type == 'ETag':
+                etag = md5()
+                etag.update('1' + '0' * (fsize-1))
+                etag = etag.hexdigest()
+                metadata['ETag'] = etag
+                object_server.write_metadata(fd, metadata)
+            if invalid_type == 'Content-Length':
+                metadata['Content-Length'] = fsize-1
+                object_server.write_metadata(fd, metadata)
+
+        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
+                                    obj_name, FakeLogger(),
+                                    keep_data_fp=True, disk_chunk_size=csize)
+        if invalid_type == 'Zero-Byte':
+            os.remove(df.data_file)
+            fp = open(df.data_file, 'w')
+            fp.close()
+        df.unit_test_len = fsize
+        return df
+
+    def test_quarantine_valids(self):
+        df = self._get_data_file(obj_name='1')
+        for chunk in df:
+            pass
+        self.assertFalse(df.quarantined_dir)
+
+        df = self._get_data_file(obj_name='2', csize=1)
+        for chunk in df:
+            pass
+        self.assertFalse(df.quarantined_dir)
+
+        df = self._get_data_file(obj_name='3', csize=100000)
+        for chunk in df:
+            pass
+        self.assertFalse(df.quarantined_dir)
+
+    def run_quarantine_invalids(self, invalid_type):
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='1')
+        for chunk in df:
+            pass
+        self.assertTrue(df.quarantined_dir)
+        df = self._get_data_file(invalid_type=invalid_type,
+                                 obj_name='2', csize=1)
+        for chunk in df:
+            pass
+        self.assertTrue(df.quarantined_dir)
+        df = self._get_data_file(invalid_type=invalid_type,
+                                 obj_name='3', csize=100000)
+        for chunk in df:
+            pass
+        self.assertTrue(df.quarantined_dir)
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='4')
+        self.assertFalse(df.quarantined_dir)
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='5')
+        for chunk in df.app_iter_range(0, df.unit_test_len):
+            pass
+        self.assertTrue(df.quarantined_dir)
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='6')
+        for chunk in df.app_iter_range(0, df.unit_test_len + 100):
+            pass
+        self.assertTrue(df.quarantined_dir)
+        expected_quar = False
+        # for the following, Content-Length/Zero-Byte errors will always result
+        # in a quarantine, even if the whole file isn't check-summed
+        if invalid_type in ('Zero-Byte', 'Content-Length'):
+            expected_quar = True
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='7')
+        for chunk in df.app_iter_range(1, df.unit_test_len):
+            pass
+        self.assertEquals(bool(df.quarantined_dir), expected_quar)
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='8')
+        for chunk in df.app_iter_range(0, df.unit_test_len - 1):
+            pass
+        self.assertEquals(bool(df.quarantined_dir), expected_quar)
+        df = self._get_data_file(invalid_type=invalid_type, obj_name='8')
+        for chunk in df.app_iter_range(1, df.unit_test_len + 1):
+            pass
+        self.assertEquals(bool(df.quarantined_dir), expected_quar)
+
+    def test_quarantine_invalids(self):
+        self.run_quarantine_invalids('ETag')
+        self.run_quarantine_invalids('Content-Length')
+        self.run_quarantine_invalids('Zero-Byte')
+
+    def test_quarantine_deleted_files(self):
+        df = self._get_data_file(invalid_type='Content-Length',
+                                 extension='.data')
+        df.close()
+        self.assertTrue(df.quarantined_dir)
+
+        df = self._get_data_file(invalid_type='Content-Length',
+                                 extension='.ts')
+        df.close()
+        self.assertFalse(df.quarantined_dir)
+        df = self._get_data_file(invalid_type='Content-Length',
+                                 extension='.ts')
+        self.assertRaises(DiskFileNotExist, df.get_data_file_size)
+
+    def test_unlinkold(self):
+        df1 = self._get_data_file()
+        future_time = str(normalize_timestamp(time() + 100))
+        df2 = self._get_data_file(ts=future_time)
+        self.assertEquals(len(os.listdir(df1.datadir)), 2)
+        df1.unlinkold(future_time)
+        self.assertEquals(len(os.listdir(df1.datadir)), 1)
+        self.assertEquals(os.listdir(df1.datadir)[0], "%s.data" % future_time)
+
+    def test_close_error(self):
+
+        def err():
+            raise Exception("bad")
+
+        df = self._get_data_file(fsize=1024 * 1024 * 2)
+        df._handle_close_quarantine = err
+        for chunk in df:
+            pass
+        # close is called at the end of the iterator
+        self.assertEquals(df.fp, None)
+        self.assertEquals(len(df.logger.log_dict['error']), 1)
+
+    def test_quarantine_twice(self):
+        df = self._get_data_file(invalid_type='Content-Length',
+                                 extension='.data')
+        self.assert_(os.path.isfile(df.data_file))
+        quar_dir = df.quarantine()
+        self.assertFalse(os.path.isfile(df.data_file))
+        self.assert_(os.path.isdir(quar_dir))
+        self.assertEquals(df.quarantine(), None)
 
 
 class TestObjectController(unittest.TestCase):
-    """ Test swift.object_server.ObjectController """
+    """ Test swift.obj.server.ObjectController """
 
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
         self.testdir = \
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
-        mkdirs(self.testdir)
-        rmtree(self.testdir)
-        mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(conf)
@@ -57,10 +303,15 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_update_meta(self):
         """ Test swift.object_server.ObjectController.POST """
+        original_headers = self.object_controller.allowed_headers
+        test_headers = 'content-encoding foo bar'.split()
+        self.object_controller.allowed_headers = set(test_headers)
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test',
+                                     'Foo': 'fooheader',
+                                     'Baz': 'bazheader',
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'
@@ -73,13 +324,81 @@ class TestObjectController(unittest.TestCase):
                             headers={'X-Timestamp': timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'X-Object-Meta-4': 'Four',
+                                     'Content-Encoding': 'gzip',
+                                     'Foo': 'fooheader',
+                                     'Bar': 'barheader',
                                      'Content-Type': 'application/x-test'})
         resp = self.object_controller.POST(req)
         self.assertEquals(resp.status_int, 202)
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
-        self.assert_("X-Object-Meta-1" not in resp.headers and \
+        self.assert_("X-Object-Meta-1" not in resp.headers and
+                     "X-Object-Meta-Two" not in resp.headers and
+                     "X-Object-Meta-3" in resp.headers and
+                     "X-Object-Meta-4" in resp.headers and
+                     "Foo" in resp.headers and
+                     "Bar" in resp.headers and
+                     "Baz" not in resp.headers and
+                     "Content-Encoding" in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-3" not in resp.headers and
+                     "X-Object-Meta-4" not in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Bar" not in resp.headers and
+                     "Content-Encoding" not in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        # test defaults
+        self.object_controller.allowed_headers = original_headers
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'Foo': 'fooheader',
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Manifest': 'c/bar',
+                                     'Content-Encoding': 'gzip',
+                                     'Content-Disposition': 'bar',
+                                     })
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-1" in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Content-Encoding" in resp.headers and
+                     "X-Object-Manifest" in resp.headers and
+                     "Content-Disposition" in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'X-Object-Meta-3': 'Three',
+                                     'Foo': 'fooheader',
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assert_("X-Object-Meta-1" not in resp.headers and
+                     "Foo" not in resp.headers and
+                     "Content-Encoding" not in resp.headers and
+                     "X-Object-Manifest" not in resp.headers and
+                     "Content-Disposition" not in resp.headers and
                      "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
@@ -169,6 +488,35 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 202)
         finally:
             object_server.http_connect = old_http_connect
+
+    def test_POST_quarantine_zbyte(self):
+        """ Test swift.object_server.ObjectController.GET """
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+                                      FakeLogger(), keep_data_fp=True)
+
+        file_name = os.path.basename(file.data_file)
+        with open(file.data_file) as fp:
+            metadata = object_server.read_metadata(fp)
+        os.unlink(file.data_file)
+        with open(file.data_file, 'w') as fp:
+            object_server.write_metadata(fp, metadata)
+
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o',
+                        headers={'X-Timestamp': normalize_timestamp(time())})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 404)
+
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                       os.path.basename(os.path.dirname(file.data_file)))
+        self.assertEquals(os.listdir(quar_dir)[0], file_name)
 
     def test_PUT_invalid_path(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'})
@@ -439,6 +787,34 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.HEAD(req)
         self.assertEquals(resp.status_int, 404)
 
+    def test_HEAD_quarantine_zbyte(self):
+        """ Test swift.object_server.ObjectController.GET """
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+                                      FakeLogger(), keep_data_fp=True)
+
+        file_name = os.path.basename(file.data_file)
+        with open(file.data_file) as fp:
+            metadata = object_server.read_metadata(fp)
+        os.unlink(file.data_file)
+        with open(file.data_file, 'w') as fp:
+            object_server.write_metadata(fp, metadata)
+
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.HEAD(req)
+        self.assertEquals(resp.status_int, 404)
+
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                       os.path.basename(os.path.dirname(file.data_file)))
+        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+
     def test_GET(self):
         """ Test swift.object_server.ObjectController.GET """
         req = Request.blank('/sda1/p/a/c')
@@ -700,6 +1076,116 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.GET(req)
         self.assertEquals(resp.status_int, 200)
 
+    def test_GET_quarantine(self):
+        """ Test swift.object_server.ObjectController.GET """
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+                                      FakeLogger(), keep_data_fp=True)
+        file_name = os.path.basename(file.data_file)
+        etag = md5()
+        etag.update('VERIF')
+        etag = etag.hexdigest()
+        metadata = {'X-Timestamp': timestamp,
+                    'Content-Length': 6, 'ETag': etag}
+        object_server.write_metadata(file.fp, metadata)
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                       os.path.basename(os.path.dirname(file.data_file)))
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        body = resp.body # actually does quarantining
+        self.assertEquals(body, 'VERIFY')
+        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_GET_quarantine_zbyte(self):
+        """ Test swift.object_server.ObjectController.GET """
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+                                      FakeLogger(), keep_data_fp=True)
+        file_name = os.path.basename(file.data_file)
+        with open(file.data_file) as fp:
+            metadata = object_server.read_metadata(fp)
+        os.unlink(file.data_file)
+        with open(file.data_file, 'w') as fp:
+            object_server.write_metadata(fp, metadata)
+
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 404)
+
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                       os.path.basename(os.path.dirname(file.data_file)))
+        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+
+    def test_GET_quarantine_range(self):
+        """ Test swift.object_server.ObjectController.GET """
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+                                      FakeLogger(), keep_data_fp=True)
+        file_name = os.path.basename(file.data_file)
+        etag = md5()
+        etag.update('VERIF')
+        etag = etag.hexdigest()
+        metadata = {'X-Timestamp': timestamp,
+                    'Content-Length': 6, 'ETag': etag}
+        object_server.write_metadata(file.fp, metadata)
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        req = Request.blank('/sda1/p/a/c/o')
+        req.range = 'bytes=0-4'  # partial
+        resp = self.object_controller.GET(req)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                            os.path.basename(os.path.dirname(file.data_file)))
+        body = resp.body
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        self.assertFalse(os.path.isdir(quar_dir))
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 200)
+
+        req = Request.blank('/sda1/p/a/c/o')
+        req.range = 'bytes=1-6'  # partial
+        resp = self.object_controller.GET(req)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                            os.path.basename(os.path.dirname(file.data_file)))
+        body = resp.body
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        self.assertFalse(os.path.isdir(quar_dir))
+
+        req = Request.blank('/sda1/p/a/c/o')
+        req.range = 'bytes=0-14'  # full
+        resp = self.object_controller.GET(req)
+        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
+                       os.path.basename(os.path.dirname(file.data_file)))
+        self.assertEquals(os.listdir(file.datadir)[0], file_name)
+        body = resp.body
+        self.assertTrue(os.path.isdir(quar_dir))
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 404)
+
     def test_DELETE(self):
         """ Test swift.object_server.ObjectController.DELETE """
         req = Request.blank('/sda1/p/a/c',
@@ -869,38 +1355,6 @@ class TestObjectController(unittest.TestCase):
         req.body = 'DATA'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 400)
-
-    def test_disk_file_app_iter_corners(self):
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o')
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        f.write('1234567890')
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-        f.close()
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    keep_data_fp=True)
-        it = df.app_iter_range(0, None)
-        sio = StringIO()
-        for chunk in it:
-            sio.write(chunk)
-        self.assertEquals(sio.getvalue(), '1234567890')
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    keep_data_fp=True)
-        it = df.app_iter_range(5, None)
-        sio = StringIO()
-        for chunk in it:
-            sio.write(chunk)
-        self.assertEquals(sio.getvalue(), '67890')
-
-    def test_disk_file_mkstemp_creates_dir(self):
-        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
-        os.rmdir(tmpdir)
-        with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                'o').mkstemp():
-            self.assert_(os.path.exists(tmpdir))
 
     def test_max_upload_time(self):
 

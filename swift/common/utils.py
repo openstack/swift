@@ -72,7 +72,7 @@ if hash_conf.read('/etc/swift/swift.conf'):
         pass
 
 # Used when reading config values
-TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On'))
+TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On', 't', 'y'))
 
 
 def validate_configuration():
@@ -179,9 +179,9 @@ def mkdirs(path):
                 raise
 
 
-def renamer(old, new):  # pragma: no cover
+def renamer(old, new):
     """
-    Attempt to fix^H^H^Hhide race conditions like empty object directories
+    Attempt to fix / hide race conditions like empty object directories
     being removed by backend processes during uploads, by retrying.
 
     :param old: old path to be renamed
@@ -470,19 +470,17 @@ def capture_stdio(logger, **kwargs):
         logger.critical(_('UNCAUGHT EXCEPTION'), exc_info=exc_info)
 
     # collect stdio file desc not in use for logging
-    stdio_fds = [0, 1, 2]
-    for _junk, handler in getattr(get_logger,
-                                  'console_handler4logger', {}).items():
-        try:
-            stdio_fds.remove(handler.stream.fileno())
-        except ValueError:
-            pass  # fd not in list
+    stdio_files = [sys.stdin, sys.stdout, sys.stderr]
+    console_fds = [h.stream.fileno() for _junk, h in getattr(
+        get_logger, 'console_handler4logger', {}).items()]
+    stdio_files = [f for f in stdio_files if f.fileno() not in console_fds]
 
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)
-        for desc in stdio_fds:
+        for f in stdio_files:
+            f.flush()
             try:
-                os.dup2(nullfile.fileno(), desc)
+                os.dup2(nullfile.fileno(), f.fileno())
             except OSError:
                 pass
 
@@ -567,7 +565,7 @@ def storage_directory(datadir, partition, hash):
     :param hash: Account, container or object hash
     :returns: Storage directory
     """
-    return os.path.join(datadir, partition, hash[-3:], hash)
+    return os.path.join(datadir, str(partition), hash[-3:], hash)
 
 
 def hash_path(account, container=None, object=None, raw_digest=False):
@@ -992,3 +990,18 @@ def get_remote_client(req):
         # remote host for other lbs
         client = req.headers['x-forwarded-for'].split(',')[0].strip()
     return client
+
+
+def human_readable(value):
+    """
+    Returns the number in a human readable format; for example 1048576 = "1Mi".
+    """
+    value = float(value)
+    index = -1
+    suffixes = 'KMGTPEZY'
+    while value >= 1024 and index + 1 < len(suffixes):
+        index += 1
+        value = round(value / 1024)
+    if index == -1:
+        return '%d' % value
+    return '%d%si' % (round(value), suffixes[index])
