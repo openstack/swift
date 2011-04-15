@@ -281,9 +281,17 @@ class ContainerSync(Daemon):
                     row = rows[0]
                     if row['ROWID'] >= sync_point1:
                         break
-                    if not self.container_sync_row(row, sync_to, sync_key,
-                                                   broker, info):
-                        return
+                    key = hash_path(info['account'], info['container'],
+                                    row['name'], raw_digest=True)
+                    # This node will only intially sync out one third of the
+                    # objects (if 3 replicas, 1/4 if 4, etc.). This section
+                    # will attempt to sync previously skipped rows in case the
+                    # other nodes didn't succeed.
+                    if unpack_from('>I', key)[0] % \
+                            self.container_ring.replica_count != ordinal:
+                        if not self.container_sync_row(row, sync_to, sync_key,
+                                                       broker, info):
+                            return
                     sync_point2 = row['ROWID']
                     broker.set_x_container_sync_points(None, sync_point2)
                 while time.time() < stop_at:
