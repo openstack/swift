@@ -981,6 +981,7 @@ def validate_sync_to(value, allowed_sync_hosts):
                  'X-Container-Sync-To')
     if p.hostname not in allowed_sync_hosts:
         return _('Invalid host %r in X-Container-Sync-To') % p.hostname
+    return None
 
 
 def get_remote_client(req):
