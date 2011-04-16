@@ -161,8 +161,10 @@ def fake_http_connect(*code_iter, **kwargs):
             self.body = body
 
         def getresponse(self):
-            if 'raise_exc' in kwargs:
+            if kwargs.get('raise_exc'):
                 raise Exception('test')
+            if kwargs.get('raise_timeout_exc'):
+                raise TimeoutError()
             return self
 
         def getexpect(self):
@@ -340,6 +342,14 @@ class TestController(unittest.TestCase):
             p, n = self.account_ring.get_nodes(self.account)
         self.assertEqual(p, partition)
         self.assertEqual(n, nodes)
+
+    def test_make_requests(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200)
+            partition, nodes = self.controller.account_info(self.account)
+            proxy_server.http_connect = fake_http_connect(201,
+                                            raise_timeout_exc=True)
+            self.controller._make_request(nodes, partition, 'POST','/','','')
 
     # tests if 200 is cached and used
     def test_account_info_200(self):
@@ -1893,8 +1903,8 @@ class TestObjectController(unittest.TestCase):
                  _test_sockets
         orig_update_request = prosrv.update_request
 
-        def broken_update_request(env, req):
-            raise Exception('fake')
+        def broken_update_request(*args, **kwargs):
+            raise Exception('fake: this should be printed')
 
         prosrv.update_request = broken_update_request
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
