@@ -603,14 +603,10 @@ class TestSwift3(unittest.TestCase):
         app = FakeApp()
         local_app = swift3.filter_factory({})(app)
         req = Request.blank('/bucket/object?Signature=X&Expires=Y&'
-                'AWSAccessKeyId=Z', environ={'REQUEST_METHOD': 'PUT'},
-                headers={'Authorization': 'AWS test:tester:hmac',
-                         'Content-MD5': 'ffoHqOWd280dyE1MT4KuoQ=='})
+                'AWSAccessKeyId=Z', environ={'REQUEST_METHOD': 'GET'})
         req.date = datetime.now()
-        print req.GET
         req.content_type = 'text/plain'
         resp = local_app(req.environ, lambda *args: None)
-        print ''.join(resp)
         self.assertEquals(app.req.headers['Authorization'], 'AWS Z:X')
         self.assertEquals(app.req.headers['Date'], 'Y')
 
