@@ -440,8 +440,8 @@ class LogProcessorDaemon(Daemon):
         """
         :returns: the keylist mapping.
 
-            The keylist mapping determines how the stats fields are aggregated in
-            the final aggregation step.
+            The keylist mapping determines how the stats fields are aggregated
+            in the final aggregation step.
         """
 
         if self._keylist_mapping == None:

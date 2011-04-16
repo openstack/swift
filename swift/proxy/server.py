@@ -1325,8 +1325,8 @@ class AccountController(Controller):
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'PUT', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'PUT', req.path_info, [headers] * len(accounts))
 
     @public
     def POST(self, req):
@@ -1342,8 +1342,9 @@ class AccountController(Controller):
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'POST', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'POST', req.path_info,
+            [headers] * len(accounts))
 
     @public
     def DELETE(self, req):
@@ -1356,8 +1357,9 @@ class AccountController(Controller):
                    'X-CF-Trans-Id': self.trans_id}
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'DELETE', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'DELETE', req.path_info,
+            [headers] * len(accounts))
 
 
 class BaseApplication(object):

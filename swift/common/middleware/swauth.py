@@ -468,7 +468,7 @@ class Swauth(object):
 
              {"account_id": "AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162",
               "services": {"storage": {"default": "local",
-                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}},
+                           "local": "http://127.0.0.1:8080/v1/AUTH_018c3946"}},
               "users": [{"name": "tester"}, {"name": "tester3"}]}
 
         :param req: The webob.Request to process.
@@ -522,7 +522,7 @@ class Swauth(object):
         this::
 
               "services": {"storage": {"default": "local",
-                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}}
+                            "local": "http://127.0.0.1:8080/v1/AUTH_018c3946"}}
 
         Making use of this section is described in :func:`handle_get_token`.
 
