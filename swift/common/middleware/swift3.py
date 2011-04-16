@@ -435,17 +435,6 @@ class Swift3Middleware(object):
             return BucketController, d
         return ServiceController, d
 
-    def get_account_info(self, env, req):
-        try:
-            account, user, _junk = \
-                req.headers['Authorization'].split(' ')[-1].split(':')
-        except Exception:
-            return None, None
-
-        h = canonical_string(req)
-        token = base64.urlsafe_b64encode(h)
-        return '%s:%s' % (account, user), token
-
     def __call__(self, env, start_response):
         req = Request(env)
 
@@ -459,17 +448,22 @@ class Swift3Middleware(object):
 
         if not 'Authorization' in req.headers:
             return self.app(env, start_response)
+
+        try:
+            account, signature = \
+                req.headers['Authorization'].split(' ')[-1].rsplit(':', 1)
+        except Exception:
+            return get_err_response('InvalidArgument')(env, start_response)
+
         try:
             controller, path_parts = self.get_controller(req.path)
         except ValueError:
             return get_err_response('InvalidURI')(env, start_response)
 
-        account_name, token = self.get_account_info(env, req)
-        if not account_name:
-            return get_err_response('InvalidArgument')(env, start_response)
+        token = base64.urlsafe_b64encode(canonical_string(req))
 
-        controller = controller(env, self.app, account_name, token,
-                                **path_parts)
+        controller = controller(env, self.app, account, token, **path_parts)
+
         if hasattr(controller, req.method):
             res = getattr(controller, req.method)(env, start_response)
         else:
