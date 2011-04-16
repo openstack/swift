@@ -239,7 +239,7 @@ class BucketController(Controller):
 
         if 'acl' in args:
             return get_acl(self.account_name)
-        
+
         objects = loads(''.join(list(body_iter)))
         body = ('<?xml version="1.0" encoding="UTF-8"?>'
             '<ListBucketResult '
