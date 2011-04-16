@@ -776,7 +776,7 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     return conf
 
 
-def write_pickle(obj, dest, tmp):
+def write_pickle(obj, dest, tmp, pickle_protocol=0):
     """
     Ensure that a pickle file gets written to disk.  The file
     is first written to a tmp location, ensure it is synced to disk, then
@@ -785,10 +785,11 @@ def write_pickle(obj, dest, tmp):
     :param obj: python object to be pickled
     :param dest: path of final destination file
     :param tmp: path to tmp to use
+    :param pickle_protocol: protocol to pickle the obj with, defaults to 0
     """
-    fd, tmppath = mkstemp(dir=tmp)
+    fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
     with os.fdopen(fd, 'wb') as fo:
-        pickle.dump(obj, fo)
+        pickle.dump(obj, fo, pickle_protocol)
         fo.flush()
         os.fsync(fd)
         renamer(tmppath, dest)
@@ -990,6 +991,8 @@ def get_remote_client(req):
     if not client and 'x-forwarded-for' in req.headers:
         # remote host for other lbs
         client = req.headers['x-forwarded-for'].split(',')[0].strip()
+    if not client:
+        client = req.remote_addr
     return client
 
 

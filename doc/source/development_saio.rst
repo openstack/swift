@@ -11,8 +11,8 @@ virtual machine will emulate running a four node Swift cluster.
 
 * Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
 
-  - Ubuntu Server ISO: http://releases.ubuntu.com/10.04/ubuntu-10.04.1-server-amd64.iso (682 MB)
-  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/10.04/release/ubuntu-10.04-dvd-amd64.iso (4.1 GB)
+  - Ubuntu Server ISO: http://releases.ubuntu.com/lucid/ubuntu-10.04.2-server-amd64.iso (717 MB)
+  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/lucid/release/ubuntu-10.04.2-dvd-amd64.iso (4.2 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
 * Create guest virtual machine from the Ubuntu image. 
@@ -70,6 +70,7 @@ Using a loopback device for storage
 
 If you want to use a loopback device instead of another partition, follow these instructions. 
 
+  #. `mkdir /srv`
   #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
        (modify seek to make a larger or smaller partition)
   #. `mkfs.xfs -i size=1024 /srv/swift-disk`
@@ -79,7 +80,6 @@ If you want to use a loopback device instead of another partition, follow these 
   #. `mount /mnt/sdb1`
   #. `mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4`
   #. `chown <your-user-name>:<your-group-name> /mnt/sdb1/*`
-  #. `mkdir /srv`
   #. `for x in {1..4}; do ln -s /mnt/sdb1/$x /srv/$x; done`
   #. `mkdir -p /etc/swift/object-server /etc/swift/container-server /etc/swift/account-server /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4 /var/run/swift`
   #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4]/ /var/run/swift` -- **Make sure to include the trailing slash after /srv/[1-4]/**
@@ -563,7 +563,9 @@ Sample configuration files are provided with all defaults in line-by-line commen
 Setting up scripts for running Swift
 ------------------------------------
 
-  #. Create `~/bin/resetswift.` If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`::
+  #. Create `~/bin/resetswift.` 
+  If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
+  If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
   
         #!/bin/bash
 

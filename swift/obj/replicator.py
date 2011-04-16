@@ -30,7 +30,7 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        renamer, compute_eta, get_logger
+        compute_eta, get_logger, write_pickle
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 
@@ -105,9 +105,7 @@ def invalidate_hash(suffix_dir):
         except Exception:
             return
         hashes[suffix] = None
-        with open(hashes_file + '.tmp', 'wb') as fp:
-            pickle.dump(hashes, fp, PICKLE_PROTOCOL)
-        renamer(hashes_file + '.tmp', hashes_file)
+        write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
 
 
 def get_hashes(partition_dir, recalculate=[], do_listdir=False,
@@ -157,9 +155,7 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
                 modified = True
                 sleep()
         if modified:
-            with open(hashes_file + '.tmp', 'wb') as fp:
-                pickle.dump(hashes, fp, PICKLE_PROTOCOL)
-            renamer(hashes_file + '.tmp', hashes_file)
+            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
         return hashed, hashes
 
 
