@@ -1550,6 +1550,8 @@ class Application(BaseApplication):
         if not client and 'x-forwarded-for' in req.headers:
             # remote user for other lbs
             client = req.headers['x-forwarded-for'].split(',')[0].strip()
+        if not client:
+            client = req.remote_addr
         logged_headers = None
         if self.log_headers:
             logged_headers = '\n'.join('%s: %s' % (k, v)
