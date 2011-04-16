@@ -594,5 +594,21 @@ class TestSwift3(unittest.TestCase):
         self.assertEquals(swift3.canonical_string(req2),
                 swift3.canonical_string(req3))
 
+    def test_signed_urls(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.req = Request(env)
+                start_response('200 OK')
+                start_response([])
+        app = FakeApp()
+        local_app = swift3.filter_factory({})(app)
+        req = Request.blank('/bucket/object?Signature=X&Expires=Y&'
+                'AWSAccessKeyId=Z', environ={'REQUEST_METHOD': 'GET'})
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        resp = local_app(req.environ, lambda *args: None)
+        self.assertEquals(app.req.headers['Authorization'], 'AWS Z:X')
+        self.assertEquals(app.req.headers['Date'], 'Y')
+
 if __name__ == '__main__':
     unittest.main()
