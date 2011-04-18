@@ -571,7 +571,7 @@ def collate_worker(processor_args, in_queue, out_queue):
         try:
             ret = p.process_one_file(*item)
         except Exception, err:
-            item_string = '/'.join(item[2:])
+            item_string = '/'.join(item[1:])
             p.logger.exception("Unable to process file '%s'" % (item_string))
             ret = err
         out_queue.put((item, ret))
