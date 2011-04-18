@@ -70,4 +70,4 @@ Example: %prog -K swauthkey test storage local http://127.0.0.1:8080/v1/AUTH_018
     conn.send(body)
     resp = conn.getresponse()
     if resp.status // 100 != 2:
-        print 'Service set failed: %s %s' % (resp.status, resp.reason)
+        exit('Service set failed: %s %s' % (resp.status, resp.reason))
