@@ -342,7 +342,7 @@ use = egg:swift#proxy
 
     def test_collate_worker_error(self):
         def get_object_data(*a,**kw):
-            raise log_processor.BadFileDownload()
+            raise Exception()
         orig_get_object_data = log_processor.LogProcessor.get_object_data
         try:
             log_processor.LogProcessor.get_object_data = get_object_data
@@ -364,8 +364,7 @@ use = egg:swift#proxy
             self.assertEquals(item, work_request)
             # these only work for Py2.7+
             #self.assertIsInstance(ret, log_processor.BadFileDownload)
-            self.assertTrue(isinstance(ret, log_processor.BadFileDownload),
-                            type(ret))
+            self.assertTrue(isinstance(ret, Exception))
         finally:
             log_processor.LogProcessor.get_object_data = orig_get_object_data
 

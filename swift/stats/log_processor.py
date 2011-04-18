@@ -553,7 +553,7 @@ def multiprocess_collate(processor_args, logs_to_process, worker_count):
         except Queue.Empty:
             time.sleep(.01)
         else:
-            if not isinstance(data, BadFileDownload):
+            if not isinstance(data, Exception):
                 yield item, data
         if not any(r.is_alive() for r in results) and out_queue.empty():
             # all the workers are done and nothing is in the queue
@@ -570,6 +570,8 @@ def collate_worker(processor_args, in_queue, out_queue):
             break
         try:
             ret = p.process_one_file(*item)
-        except BadFileDownload, err:
+        except Exception, err:
+            item_string = '/'.join(item[1:])
+            p.logger.exception("Unable to process file '%s'" % (item_string))
             ret = err
         out_queue.put((item, ret))
