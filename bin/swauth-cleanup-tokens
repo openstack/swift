@@ -69,13 +69,11 @@ if __name__ == '__main__':
                 objs = conn.get_container(container, marker=marker)[1]
             except ClientException, e:
                 if e.http_status == 404:
-                    print 'Container %s not found' % (container)
-                    print 'swauth-prep needs to be rerun'
-                    exit()
+                    exit('Container %s not found. swauth-prep needs to be '
+                        'rerun' % (container))
                 else:
-                    print 'Object listing on container %s failed with ' \
-                        'status code %d' % (container, e.http_status)
-                    break
+                    exit('Object listing on container %s failed with status '
+                        'code %d' % (container, e.http_status))
             if objs:
                 marker = objs[-1]['name']
             else:
