@@ -649,8 +649,8 @@ class ObjectController(object):
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key == 'X-Object-Manifest' or \
-                    key.lower().startswith('x-object-meta-'):
+            if key.lower().startswith('x-object-meta-') or \
+                    key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
