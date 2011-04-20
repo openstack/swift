@@ -976,6 +976,9 @@ class TestObjectController(unittest.TestCase):
                 if expected < 400:
                     self.assert_('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
+                    self.assert_('accept-ranges' in res.headers)
+                    self.assertEquals(res.headers['accept-ranges'], 'bytes')
+
             test_status_map((200, 404, 404), 200)
             test_status_map((200, 500, 404), 200)
             test_status_map((304, 500, 404), 304)
@@ -1247,7 +1250,7 @@ class TestObjectController(unittest.TestCase):
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
             'Object', etag='68b329da9893e34099c7d8ad5cb9c940')
         self.assertEquals(resp.etag, '68b329da9893e34099c7d8ad5cb9c940')
-
+    
     def test_proxy_passes_content_type(self):
         with save_globals():
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -2487,7 +2490,29 @@ class TestObjectController(unittest.TestCase):
                 self.assert_(res.client_disconnect)
             finally:
                 self.app.object_chunk_size = orig_object_chunk_size
+                
+    def test_response_get_accept_ranges_header(self):
+        with save_globals():
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+            self.app.update_request(req)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                                                       'container', 'object')
+            proxy_server.http_connect = fake_http_connect(200, 200, 200)
+            resp = controller.GET(req)
+            self.assert_('accept-ranges' in resp.headers)
+            self.assertEquals(resp.headers['accept-ranges'], 'bytes')
 
+    def test_response_head_accept_ranges_header(self):
+        with save_globals():
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+            self.app.update_request(req)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                                                       'container', 'object')
+            proxy_server.http_connect = fake_http_connect(200, 200, 200)
+            resp = controller.HEAD(req)
+            self.assert_('accept-ranges' in resp.headers)
+            self.assertEquals(resp.headers['accept-ranges'], 'bytes')
+            
     def test_GET_calls_authorize(self):
         called = [False]
 
@@ -2827,6 +2852,28 @@ class TestContainerController(unittest.TestCase):
             finally:
                 self.app.object_chunk_size = orig_object_chunk_size
 
+    def test_response_get_accept_ranges_header(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c?format=json')
+            self.app.update_request(req)
+            res = controller.GET(req)
+            self.assert_('accept-ranges' in res.headers)
+            self.assertEqual(res.headers['accept-ranges'], 'bytes')
+
+    def test_response_head_accept_ranges_header(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c?format=json')
+            self.app.update_request(req)
+            res = controller.HEAD(req)
+            self.assert_('accept-ranges' in res.headers)
+            self.assertEqual(res.headers['accept-ranges'], 'bytes')
+    
     def test_PUT_metadata(self):
         self.metadata_helper('PUT')
 
@@ -3132,7 +3179,28 @@ class TestAccountController(unittest.TestCase):
             res.body
             self.assert_(hasattr(res, 'bytes_transferred'))
             self.assertEquals(res.bytes_transferred, 2)
-
+            
+    def test_response_get_accept_ranges_header(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/a?format=json')
+            self.app.update_request(req)
+            res = controller.GET(req)
+            self.assert_('accept-ranges' in res.headers)
+            self.assertEqual(res.headers['accept-ranges'], 'bytes')
+            
+    def test_response_head_accept_ranges_header(self):
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/a?format=json')
+            self.app.update_request(req)
+            res = controller.HEAD(req)
+            res.body
+            self.assert_('accept-ranges' in res.headers)
+            self.assertEqual(res.headers['accept-ranges'], 'bytes')
+            
     def test_response_client_disconnect_attr(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
