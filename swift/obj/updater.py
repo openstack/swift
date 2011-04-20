@@ -132,11 +132,23 @@ class ObjectUpdater(Daemon):
             prefix_path = os.path.join(async_pending, prefix)
             if not os.path.isdir(prefix_path):
                 continue
-            for update in os.listdir(prefix_path):
+            seen = set()
+            for update in sorted(os.listdir(prefix_path), reverse=True):
                 update_path = os.path.join(prefix_path, update)
                 if not os.path.isfile(update_path):
                     continue
-                self.process_object_update(update_path, device)
+                try:
+                    hash, timestamp = update.split('-')
+                except ValueError:
+                    self.logger.error(
+                        _('ERROR async pending file with unexpected name %s')
+                        % (update_path))
+                    continue
+                if hash in seen:
+                    os.unlink(update_path)
+                else:
+                    self.process_object_update(update_path, device)
+                    seen.add(hash)
                 time.sleep(self.slowdown)
             try:
                 os.rmdir(prefix_path)
