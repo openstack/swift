@@ -645,6 +645,7 @@ class Controller(object):
                         raise
                 res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
+                update_headers(res, {'accept-ranges': 'bytes'})
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
                 if source.getheader('Content-Type'):
@@ -654,6 +655,7 @@ class Controller(object):
             elif 200 <= source.status <= 399:
                 res = status_map[source.status](request=req)
                 update_headers(res, source.getheaders())
+                update_headers(res, {'accept-ranges': 'bytes'})
                 if req.method == 'HEAD':
                     res.content_length = source.getheader('Content-Length')
                     if source.getheader('Content-Type'):
@@ -828,6 +830,7 @@ class ObjectController(Controller):
                                                   resp)
                 resp.content_length = content_length
                 resp.last_modified = last_modified
+            resp.headers['accept-ranges'] = 'bytes'
 
         return resp
 
