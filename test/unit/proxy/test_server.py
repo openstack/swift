@@ -2504,7 +2504,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_response_head_accept_ranges_header(self):
         with save_globals():
-            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
             self.app.update_request(req)
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
