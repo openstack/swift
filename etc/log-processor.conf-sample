@@ -37,3 +37,14 @@ source_filename_pattern = stats-%Y%m%d%H_.*
 class_path = swift.stats.stats_processor.StatsLogProcessor
 # account_server_conf = /etc/swift/account-server.conf
 # user = swift
+
+[log-processor-container-stats]
+# log_dir = /var/log/swift/
+swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
+container_name = container_stats
+source_filename_pattern = container-stats-%Y%m%d%H_.*
+# new_log_cutoff = 7200
+# unlink_log = True
+class_path = swift.stats.stats_processor.StatsLogProcessor
+# container_server_conf = /etc/swift/container-server.conf
+# user = swift
