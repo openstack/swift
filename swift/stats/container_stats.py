@@ -37,7 +37,7 @@ class ContainerStat(Daemon):
         super(ContainerStat, self).__init__(stats_conf)
         target_dir = stats_conf.get('log_dir', '/var/log/swift')
         container_server_conf_loc = stats_conf.get('container_server_conf',
-                                             '/etc/swift/container-server.conf')
+                                            '/etc/swift/container-server.conf')
         server_conf = appconfig('config:%s' % container_server_conf_loc,
                                 name='container-server')
         filename_format = stats_conf['source_filename_format']
