@@ -121,7 +121,7 @@ Running the stats system on SAIO
 		swift_account = <your-stats-account-hash>
 		container_name = log_data
 		log_dir = /var/log/swift/hourly/
-		source_filename_format = %Y%m%d%H
+		source_filename_pattern = %Y%m%d%H
 		class_path = swift.stats.access_processor.AccessLogProcessor
 		user = <your-user-name>
 
@@ -129,7 +129,7 @@ Running the stats system on SAIO
 		swift_account = <your-stats-account-hash>
 		container_name = account_stats
 		log_dir = /var/log/swift/stats/
-		source_filename_format = %Y%m%d%H_*
+		source_filename_pattern = %Y%m%d%H_*
 		class_path = swift.stats.stats_processor.StatsLogProcessor
 		account_server_conf = /etc/swift/account-server/1.conf
 		user = <your-user-name>
@@ -138,7 +138,7 @@ Running the stats system on SAIO
 		swift_account = <your-stats-account-hash>
 		container_name = container_stats
 		log_dir = /var/log/swift/stats/
-		source_filename_format = container-stats-%Y%m%d%H_*
+		source_filename_pattern = container-stats-%Y%m%d%H_*
 		class_path = swift.stats.stats_processor.StatsLogProcessor
 		account_server_conf = /etc/swift/container-server/1.conf
 		user = <your-user-name>
