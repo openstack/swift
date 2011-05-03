@@ -62,7 +62,7 @@ class ContainerStat(Daemon):
 
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)
-        working_dir = os.path.join(self.target_dir, '.stats_tmp')
+        working_dir = os.path.join(self.target_dir, '.container-stats_tmp')
         shutil.rmtree(working_dir, ignore_errors=True)
         mkdirs(working_dir)
         tmp_filename = os.path.join(working_dir, src_filename)
@@ -92,9 +92,12 @@ class ContainerStat(Daemon):
                                 _junk, _junk, _junk, object_count, bytes_used,
                                 _junk, _junk, _junk,
                                 _junk, _junk, _junk) = broker.get_info()
+                                encoded_container_name = urllib.quote(
+                                    unicode(container_name,
+                                        'utf-8').encode('utf-8'))
                                 line_data = '"%s","%s",%d,%d\n' % (
-                                    account_name, 
-                                    container_name,
+                                    account_name,
+                                    encoded_container_name,
                                     object_count, bytes_used)
                                 statfile.write(line_data)
                                 hasher.update(line_data)
