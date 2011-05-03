@@ -134,7 +134,7 @@ Running the stats system on SAIO
 		account_server_conf = /etc/swift/account-server/1.conf
 		user = <your-user-name>
 
-		[log-container-processor-stats]
+		[log-processor-container-stats]
 		swift_account = <your-stats-account-hash>
 		container_name = container_stats
 		log_dir = /var/log/swift/stats/
@@ -160,22 +160,22 @@ Running the stats system on SAIO
 #. Create a `cron` job to run once per hour to upload the stats logs. In
    `/etc/cron.d/swift-stats-log-uploader`::
 
-        10 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf stats
+        	10 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf stats
 
 #. Create a `cron` job to run once per hour to upload the stats logs. In
    `/etc/cron.d/swift-stats-log-uploader`::
 
-        15 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf container-stats
+        	15 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf container-stats
 
 #. Create a `cron` job to run once per hour to upload the access logs. In
    `/etc/cron.d/swift-access-log-uploader`::
 
-        5 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf access
+        	5 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf access
 
 #. Create a `cron` job to run once per hour to process the logs. In
    `/etc/cron.d/swift-stats-processor`::
 
-        30 * * * * <your-user-name> swift-log-stats-collector /etc/swift/log-processor.conf
+        	30 * * * * <your-user-name> swift-log-stats-collector /etc/swift/log-processor.conf
 
 After running for a few hours, you should start to see .csv files in the
 log_processing_data container in the swift stats account that was created
