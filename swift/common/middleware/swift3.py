@@ -426,7 +426,7 @@ class Swift3Middleware(object):
         self.app = app
 
     def get_controller(self, path):
-        container, obj = split_path(path, 0, 2)
+        container, obj = split_path(path, 0, 2, True)
         d = dict(container_name=container, object_name=obj)
 
         if container and obj:
