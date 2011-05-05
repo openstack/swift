@@ -14,13 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.stats.container_stats import ContainerStat
+from swift.stats.account_stats import ContainerStat
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    # currently ContainnerStat only supports run_once
+    # currently ContainerStat only supports run_once
     options['once'] = True
-    run_daemon(ContainerStat, conf_file, section_name='log-processor-container-stats',
+    run_daemon(ContainerStat, conf_file,
+               section_name='log-processor-container-stats',
                log_name="container-stats", **options)

@@ -20,44 +20,39 @@ import shutil
 import hashlib
 
 from swift.account.server import DATADIR as account_server_data_dir
-from swift.common.db import AccountBroker
-from swift.common.utils import renamer, get_logger, readconf, mkdirs
+from swift.container.server import DATADIR as container_server_data_dir
+from swift.common.db import AccountBroker, ContainerBroker
+from swift.common.utils import renamer, get_logger, readconf, mkdirs, \
+    TRUE_VALUES
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
 
-
-class AccountStat(Daemon):
+class DatabaseStatCollector(Daemon):
     """
     Extract storage stats from account databases on the account
     storage nodes
+
+    Any subclasses must define self.stats_type, self.logger, self.data_dir
+    and the function get_data.
     """
 
-    def __init__(self, stats_conf):
-        super(AccountStat, self).__init__(stats_conf)
-        target_dir = stats_conf.get('log_dir', '/var/log/swift')
-        account_server_conf_loc = stats_conf.get('account_server_conf',
-                                             '/etc/swift/account-server.conf')
-        server_conf = appconfig('config:%s' % account_server_conf_loc,
-                                name='account-server')
-        filename_format = stats_conf['source_filename_format']
-        if filename_format.count('*') > 1:
+    def __init__(self, stats_conf, server_conf):
+        super(DatabaseStatCollector, self).__init__(stats_conf)
+        self.filename_format = stats_conf['source_filename_format']
+        if self.filename_format.count('*') > 1:
             raise Exception('source filename format should have at max one *')
-        self.filename_format = filename_format
-        self.target_dir = target_dir
+        self.target_dir = stats_conf.get('log_dir', '/var/log/swift')
         mkdirs(self.target_dir)
         self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
-        self.logger = \
-            get_logger(stats_conf, log_route='account-stats')
+        self.mount_check = server_conf.get('mount_check',
+                                           'true').lower() in TRUE_VALUES
 
     def run_once(self, *args, **kwargs):
-        self.logger.info(_("Gathering account stats"))
+        self.logger.info(_("Gathering %s stats" % self.stats_type))
         start = time.time()
         self.find_and_process()
-        self.logger.info(
-            _("Gathering account stats complete (%0.2f minutes)") %
-            ((time.time() - start) / 60))
+        self.logger.info(_("Gathering %s stats complete (%0.2f minutes)") %
+                         (self.stats_type, (time.time() - start) / 60))
 
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)
@@ -67,37 +62,27 @@ class AccountStat(Daemon):
         tmp_filename = os.path.join(working_dir, src_filename)
         hasher = hashlib.md5()
         with open(tmp_filename, 'wb') as statfile:
-            # csv has the following columns:
-            # Account Name, Container Count, Object Count, Bytes Used
             for device in os.listdir(self.devices):
                 if self.mount_check and not check_mount(self.devices, device):
                     self.logger.error(
                         _("Device %s is not mounted, skipping.") % device)
                     continue
-                accounts = os.path.join(self.devices,
-                                        device,
-                                        account_server_data_dir)
-                if not os.path.exists(accounts):
-                    self.logger.debug(_("Path %s does not exist, skipping.") %
-                        accounts)
+                db_dir = os.path.join(self.devices,
+                                      device,
+                                      self.data_dir)
+                if not os.path.exists(db_dir):
+                    self.logger.debug(
+                        _("Path %s does not exist, skipping.") % db_dir)
                     continue
-                for root, dirs, files in os.walk(accounts, topdown=False):
+                for root, dirs, files in os.walk(db_dir, topdown=False):
                     for filename in files:
                         if filename.endswith('.db'):
                             db_path = os.path.join(root, filename)
-                            broker = AccountBroker(db_path)
-                            if not broker.is_deleted():
-                                (account_name,
-                                _junk, _junk, _junk,
-                                container_count,
-                                object_count,
-                                bytes_used,
-                                _junk, _junk) = broker.get_info()
-                                line_data = '"%s",%d,%d,%d\n' % (
-                                    account_name, container_count,
-                                    object_count, bytes_used)
+                            line_data = self.get_data(db_path)
+                            if line_data:
                                 statfile.write(line_data)
                                 hasher.update(line_data)
+
         file_hash = hasher.hexdigest()
         hash_index = src_filename.find('*')
         if hash_index < 0:
@@ -110,3 +95,70 @@ class AccountStat(Daemon):
             src_filename = ''.join([parts[0], file_hash, parts[1]])
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
         shutil.rmtree(working_dir, ignore_errors=True)
+
+
+class AccountStat(DatabaseStatCollector):
+    """
+    Extract storage stats from account databases on the account
+    storage nodes
+    """
+
+    def __init__(self, stats_conf):
+        server_conf_loc = stats_conf.get('account_server_conf',
+                                         '/etc/swift/account-server.conf')
+        server_conf = appconfig('config:%s' % server_conf_loc,
+                                name='account-server')
+        self.logger = get_logger(stats_conf, log_route='account-stats')
+        self.data_dir = account_server_data_dir
+        self.stats_type = 'account'
+        super(AccountStat, self).__init__(stats_conf, server_conf)
+
+    def get_data(self, db_path):
+        """
+        Data for generated csv has the following columns:
+        Account Hash, Container Count, Object Count, Bytes Used
+        """
+        line_data = None
+        broker = AccountBroker(db_path)
+        if not broker.is_deleted():
+            info = broker.get_info()
+            line_data = '"%s",%d,%d,%d\n' % (info['account'],
+                                             info['container_count'],
+                                             info['object_count'],
+                                             info['bytes_used'])
+        return line_data
+
+class ContainerStat(DatabaseStatCollector):
+    """
+    Extract storage stats from container databases on the container
+    storage nodes
+    """
+
+    def __init__(self, stats_conf):
+        server_conf_loc = stats_conf.get('container_server_conf',
+                                         '/etc/swift/container-server.conf')
+        server_conf = appconfig('config:%s' % server_conf_loc,
+                                name='container-server')
+        self.logger = get_logger(stats_conf, log_route='container-stats')
+        self.data_dir = container_server_data_dir
+        self.stats_type = 'container'
+        super(ContainerStat, self).__init__(stats_conf, server_conf)
+
+    def get_data(self, db_path):
+        """
+        Data for generated csv has the following columns:
+        Account Hash, Container Name, Object Count, Bytes Used
+        """
+        line_data = None
+        broker = ContainerBroker(db_path)
+        if not broker.is_deleted():
+            info = broker.get_info()
+            encoded_container_name = urllib.quote(
+                unicode(info['container'], 'utf-8').encode('utf-8'))
+            line_data = '"%s","%s",%d,%d\n' % (
+                info['account'],
+                encoded_container_name,
+                info['object_count'],
+                info['bytes_used'])
+        return line_data
+
