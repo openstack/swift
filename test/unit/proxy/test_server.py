@@ -656,6 +656,46 @@ class TestProxyServer(unittest.TestCase):
         resp = app.handle_request(req)
         self.assert_(called[0])
 
+    def test_trans_id_header(self):
+
+        def start_response(status, headers):
+            self.assert_('x-trans-id' in (x[0] for x in headers))
+        with save_globals():
+            proxy_server.http_connect = fake_http_connect(200, 200, 200, 200)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a')
+            app(req.environ, start_response)
+
+            proxy_server.http_connect = fake_http_connect(200, 200, 200, 200)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a/c')
+            app(req.environ, start_response)
+
+            proxy_server.http_connect = fake_http_connect(200, 200, 200, 200)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a/c/o')
+            app(req.environ, start_response)
+
+            proxy_server.http_connect = fake_http_connect(200, 404, 404, 404)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a/c/o')
+            app(req.environ, start_response)
+
+            proxy_server.http_connect = fake_http_connect(200, 503, 503, 503)
+            app = proxy_server.Application(None, FakeMemcache(),
+                account_ring=FakeRing(), container_ring=FakeRing(),
+                object_ring=FakeRing())
+            req = Request.blank('/v1/a/c/o')
+            app(req.environ, start_response)
+
 
 class TestObjectController(unittest.TestCase):
 
