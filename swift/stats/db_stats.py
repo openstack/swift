@@ -27,25 +27,29 @@ from swift.common.utils import renamer, get_logger, readconf, mkdirs, \
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
 
-class DatabaseStatCollector(Daemon):
+class DatabaseStatsCollector(Daemon):
     """
     Extract storage stats from account databases on the account
     storage nodes
 
-    Any subclasses must define self.stats_type, self.logger, self.data_dir
-    and the function get_data.
+    Any subclasses must define the function get_data.
     """
 
-    def __init__(self, stats_conf, server_conf):
-        super(DatabaseStatCollector, self).__init__(stats_conf)
-        self.filename_format = stats_conf['source_filename_format']
-        if self.filename_format.count('*') > 1:
-            raise Exception('source filename format should have at max one *')
+    def __init__(self, stats_conf, stats_type, data_dir, filename_format):
+        super(DatabaseStatsCollector, self).__init__(stats_conf)
         self.target_dir = stats_conf.get('log_dir', '/var/log/swift')
+        self.stats_type = stats_type
+        server_conf_loc = stats_conf.get('%s_server_conf' % stats_type,
+                                       '/etc/swift/%s-server.conf' % stats_type)
+        server_conf = appconfig('config:%s' % server_conf_loc,
+                                name='%s-server' % stats_type)
+        self.filename_format = filename_format
         mkdirs(self.target_dir)
         self.devices = server_conf.get('devices', '/srv/node')
         self.mount_check = server_conf.get('mount_check',
                                            'true').lower() in TRUE_VALUES
+        self.logger = get_logger(stats_conf,
+                                 log_route='%s-stats' % stats_type)
 
     def run_once(self, *args, **kwargs):
         self.logger.info(_("Gathering %s stats" % self.stats_type))
@@ -54,9 +58,13 @@ class DatabaseStatCollector(Daemon):
         self.logger.info(_("Gathering %s stats complete (%0.2f minutes)") %
                          (self.stats_type, (time.time() - start) / 60))
 
+    def get_data(self):
+        raise Exception('Not Implemented')
+
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)
-        working_dir = os.path.join(self.target_dir, '.stats_tmp')
+        working_dir = os.path.join(self.target_dir,
+                                   '.%-stats_tmp' % self.stats_type)
         shutil.rmtree(working_dir, ignore_errors=True)
         mkdirs(working_dir)
         tmp_filename = os.path.join(working_dir, src_filename)
@@ -83,35 +91,20 @@ class DatabaseStatCollector(Daemon):
                                 statfile.write(line_data)
                                 hasher.update(line_data)
 
-        file_hash = hasher.hexdigest()
-        hash_index = src_filename.find('*')
-        if hash_index < 0:
-            # if there is no * in the target filename, the uploader probably
-            # won't work because we are crafting a filename that doesn't
-            # fit the pattern
-            src_filename = '_'.join([src_filename, file_hash])
-        else:
-            parts = src_filename[:hash_index], src_filename[hash_index + 1:]
-            src_filename = ''.join([parts[0], file_hash, parts[1]])
+        src_filename += hasher.hexdigest()
         renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
         shutil.rmtree(working_dir, ignore_errors=True)
 
 
-class AccountStat(DatabaseStatCollector):
+class AccountStat(DatabaseStatsCollector):
     """
     Extract storage stats from account databases on the account
     storage nodes
     """
-
     def __init__(self, stats_conf):
-        server_conf_loc = stats_conf.get('account_server_conf',
-                                         '/etc/swift/account-server.conf')
-        server_conf = appconfig('config:%s' % server_conf_loc,
-                                name='account-server')
-        self.logger = get_logger(stats_conf, log_route='account-stats')
-        self.data_dir = account_server_data_dir
-        self.stats_type = 'account'
-        super(AccountStat, self).__init__(stats_conf, server_conf)
+        super(AccountStat, self).__init__(stats_conf, 'account',
+                                          account_server_data_dir,
+                                          'stats-%Y%m%d%H_')
 
     def get_data(self, db_path):
         """
@@ -128,21 +121,15 @@ class AccountStat(DatabaseStatCollector):
                                              info['bytes_used'])
         return line_data
 
-class ContainerStat(DatabaseStatCollector):
+class ContainerStat(DatabaseStatsCollector):
     """
     Extract storage stats from container databases on the container
     storage nodes
     """
-
     def __init__(self, stats_conf):
-        server_conf_loc = stats_conf.get('container_server_conf',
-                                         '/etc/swift/container-server.conf')
-        server_conf = appconfig('config:%s' % server_conf_loc,
-                                name='container-server')
-        self.logger = get_logger(stats_conf, log_route='container-stats')
-        self.data_dir = container_server_data_dir
-        self.stats_type = 'container'
-        super(ContainerStat, self).__init__(stats_conf, server_conf)
+        super(ContainerStat, self).__init__(stats_conf, 'container',
+                                            container_server_data_dir,
+                                            'container-stats-%Y%m%d%H_')
 
     def get_data(self, db_path):
         """

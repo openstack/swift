@@ -16,7 +16,7 @@
 # TODO: Tests
 
 import unittest
-from swift.stats import account_stats
+from swift.stats import db_stats
 
 
 class TestAccountStats(unittest.TestCase):
