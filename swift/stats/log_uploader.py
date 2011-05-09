@@ -150,7 +150,8 @@ class LogUploader(Daemon):
 
     def upload_all_logs(self):
         """
-        Match files under log_dir to source_filename_pattern and upload to swift
+        Match files under log_dir to source_filename_pattern and upload to
+        swift
         """
         pattern = self.validate_filename_pattern()
         if not pattern:

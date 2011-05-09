@@ -468,7 +468,7 @@ class Swauth(object):
 
              {"account_id": "AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162",
               "services": {"storage": {"default": "local",
-                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}},
+                           "local": "http://127.0.0.1:8080/v1/AUTH_018c3946"}},
               "users": [{"name": "tester"}, {"name": "tester3"}]}
 
         :param req: The webob.Request to process.
@@ -522,7 +522,7 @@ class Swauth(object):
         this::
 
               "services": {"storage": {"default": "local",
-                                       "local": "http://127.0.0.1:8080/v1/AUTH_018c3946-23f8-4efb-a8fb-b67aae8e4162"}}
+                            "local": "http://127.0.0.1:8080/v1/AUTH_018c3946"}}
 
         Making use of this section is described in :func:`handle_get_token`.
 
@@ -849,6 +849,12 @@ class Swauth(object):
                 raise Exception('Could not retrieve user object: %s %s' %
                                 (path, resp.status))
             body = resp.body
+            display_groups = [g['name'] for g in json.loads(body)['groups']]
+            if ('.admin' in display_groups and
+                not self.is_reseller_admin(req)) or \
+               ('.reseller_admin' in display_groups and
+                not self.is_super_admin(req)):
+                return HTTPForbidden(request=req)
         return Response(body=body)
 
     def handle_put_user(self, req):

@@ -44,7 +44,7 @@ from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist
-from swift.obj.replicator import get_hashes, invalidate_hash
+from swift.obj.replicator import tpooled_get_hashes, invalidate_hash
 
 
 DATADIR = 'objects'
@@ -649,8 +649,8 @@ class ObjectController(object):
         response = Response(content_type=file.metadata['Content-Type'],
                             request=request, conditional_response=True)
         for key, value in file.metadata.iteritems():
-            if key == 'X-Object-Manifest' or \
-                    key.lower().startswith('x-object-meta-'):
+            if key.lower().startswith('x-object-meta-') or \
+                    key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
@@ -708,7 +708,11 @@ class ObjectController(object):
         if not os.path.exists(path):
             mkdirs(path)
         suffixes = suffix.split('-') if suffix else []
-        _junk, hashes = tpool.execute(get_hashes, path, recalculate=suffixes)
+        _junk, hashes = tpool.execute(tpooled_get_hashes, path,
+                                      recalculate=suffixes)
+        # See tpooled_get_hashes "Hack".
+        if isinstance(hashes, BaseException):
+            raise hashes
         return Response(body=pickle.dumps(hashes))
 
     def __call__(self, env, start_response):

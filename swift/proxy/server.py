@@ -507,8 +507,7 @@ class Controller(object):
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == 507:
                         self.error_limit(node)
-            except Exception:
-                self.error_limit(node)
+            except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': method, 'path': path})
@@ -646,6 +645,7 @@ class Controller(object):
                         raise
                 res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
+                update_headers(res, {'accept-ranges': 'bytes'})
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
                 if source.getheader('Content-Type'):
@@ -655,6 +655,7 @@ class Controller(object):
             elif 200 <= source.status <= 399:
                 res = status_map[source.status](request=req)
                 update_headers(res, source.getheaders())
+                update_headers(res, {'accept-ranges': 'bytes'})
                 if req.method == 'HEAD':
                     res.content_length = source.getheader('Content-Length')
                     if source.getheader('Content-Type'):
@@ -829,6 +830,7 @@ class ObjectController(Controller):
                                                   resp)
                 resp.content_length = content_length
                 resp.last_modified = last_modified
+            resp.headers['accept-ranges'] = 'bytes'
 
         return resp
 
@@ -1326,8 +1328,8 @@ class AccountController(Controller):
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'PUT', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'PUT', req.path_info, [headers] * len(accounts))
 
     @public
     def POST(self, req):
@@ -1343,8 +1345,9 @@ class AccountController(Controller):
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'POST', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'POST', req.path_info,
+            [headers] * len(accounts))
 
     @public
     def DELETE(self, req):
@@ -1357,8 +1360,9 @@ class AccountController(Controller):
                    'X-CF-Trans-Id': self.trans_id}
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring, account_partition,
-                    'DELETE', req.path_info, [headers] * len(accounts))
+        return self.make_requests(req, self.app.account_ring,
+            account_partition, 'DELETE', req.path_info,
+            [headers] * len(accounts))
 
 
 class BaseApplication(object):
@@ -1551,6 +1555,8 @@ class Application(BaseApplication):
         if not client and 'x-forwarded-for' in req.headers:
             # remote user for other lbs
             client = req.headers['x-forwarded-for'].split(',')[0].strip()
+        if not client:
+            client = req.remote_addr
         logged_headers = None
         if self.log_headers:
             logged_headers = '\n'.join('%s: %s' % (k, v)

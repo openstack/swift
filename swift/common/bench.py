@@ -147,6 +147,16 @@ class BenchDELETE(Bench):
         self.total = len(names)
         self.msg = 'DEL'
 
+    def run(self):
+        Bench.run(self)
+        for container in self.containers:
+            try:
+                client.delete_container(self.url, self.token, container)
+            except client.ClientException, e:
+                if e.http_status != 409:
+                    self._log_status("Unable to delete container '%s'. " \
+                        "Got http status '%d'." % (container, e.http_status))
+
     def _run(self, thread):
         if time.time() - self.heartbeat >= 15:
             self.heartbeat = time.time()

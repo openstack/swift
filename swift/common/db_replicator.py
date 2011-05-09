@@ -20,6 +20,8 @@ import random
 import math
 import time
 import shutil
+import uuid
+import errno
 
 from eventlet import GreenPool, sleep, Timeout, TimeoutError
 from eventlet.green import subprocess
@@ -49,7 +51,13 @@ def quarantine_db(object_file, server_type):
     quarantine_dir = os.path.abspath(os.path.join(object_dir, '..',
         '..', '..', '..', 'quarantined', server_type + 's',
         os.path.basename(object_dir)))
-    renamer(object_dir, quarantine_dir)
+    try:
+        renamer(object_dir, quarantine_dir)
+    except OSError, e:
+        if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+            raise
+        quarantine_dir = "%s-%s" % (quarantine_dir, uuid.uuid4().hex)
+        renamer(object_dir, quarantine_dir)
 
 
 class ReplConnection(BufferedHTTPConnection):

@@ -1,0 +1,4 @@
+swift (x.x.x)
+
+  * Renamed swift-stats-populate to swift-dispersion-populate and
+    swift-stats-report to swift-dispersion-report.

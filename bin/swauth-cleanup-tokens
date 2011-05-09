@@ -25,7 +25,7 @@ from optparse import OptionParser
 from sys import argv, exit
 from time import sleep, time
 
-from swift.common.client import Connection
+from swift.common.client import Connection, ClientException
 
 
 if __name__ == '__main__':
@@ -65,7 +65,15 @@ if __name__ == '__main__':
         while True:
             if options.verbose:
                 print 'GET %s?marker=%s' % (container, marker)
-            objs = conn.get_container(container, marker=marker)[1]
+            try:
+                objs = conn.get_container(container, marker=marker)[1]
+            except ClientException, e:
+                if e.http_status == 404:
+                    exit('Container %s not found. swauth-prep needs to be '
+                        'rerun' % (container))
+                else:
+                    exit('Object listing on container %s failed with status '
+                        'code %d' % (container, e.http_status))
             if objs:
                 marker = objs[-1]['name']
             else:
@@ -90,7 +98,13 @@ if __name__ == '__main__':
                                   (container, obj['name'],
                                    time() - detail['expires'])
                         print 'DELETE %s/%s' % (container, obj['name'])
-                        conn.delete_object(container, obj['name'])
+                        try:
+                            conn.delete_object(container, obj['name'])
+                        except ClientException, e:
+                            if e.http_status != 404:
+                                print 'DELETE of %s/%s failed with status ' \
+                                    'code %d' % (container, obj['name'],
+                                    e.http_status)
                     elif options.verbose:
                         print "%s/%s won't expire for %ds; skipping" % \
                               (container, obj['name'],

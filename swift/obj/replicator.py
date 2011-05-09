@@ -30,7 +30,7 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        renamer, compute_eta, get_logger
+        compute_eta, get_logger, write_pickle
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 
@@ -105,9 +105,7 @@ def invalidate_hash(suffix_dir):
         except Exception:
             return
         hashes[suffix] = None
-        with open(hashes_file + '.tmp', 'wb') as fp:
-            pickle.dump(hashes, fp, PICKLE_PROTOCOL)
-        renamer(hashes_file + '.tmp', hashes_file)
+        write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
 
 
 def get_hashes(partition_dir, recalculate=[], do_listdir=False,
@@ -157,10 +155,18 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
                 modified = True
                 sleep()
         if modified:
-            with open(hashes_file + '.tmp', 'wb') as fp:
-                pickle.dump(hashes, fp, PICKLE_PROTOCOL)
-            renamer(hashes_file + '.tmp', hashes_file)
+            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
         return hashed, hashes
+
+
+# Hack to work around Eventlet's tpool not catching and reraising Timeouts. We
+# return the Timeout, Timeout if it's raised, the caller looks for it and
+# reraises it if found.
+def tpooled_get_hashes(*args, **kwargs):
+    try:
+        return get_hashes(*args, **kwargs)
+    except Timeout, err:
+        return err, err
 
 
 class ObjectReplicator(Daemon):
@@ -336,9 +342,12 @@ class ObjectReplicator(Daemon):
         self.replication_count += 1
         begin = time.time()
         try:
-            hashed, local_hash = tpool.execute(get_hashes, job['path'],
+            hashed, local_hash = tpool.execute(tpooled_get_hashes, job['path'],
                     do_listdir=(self.replication_count % 10) == 0,
                     reclaim_age=self.reclaim_age)
+            # See tpooled_get_hashes "Hack".
+            if isinstance(hashed, BaseException):
+                raise hashed
             self.suffix_hash += hashed
             attempts_left = self.object_ring.replica_count - 1
             nodes = itertools.chain(job['nodes'],
@@ -368,8 +377,12 @@ class ObjectReplicator(Daemon):
                             local_hash[suffix] != remote_hash.get(suffix, -1)]
                     if not suffixes:
                         continue
-                    hashed, local_hash = tpool.execute(get_hashes, job['path'],
-                            recalculate=suffixes, reclaim_age=self.reclaim_age)
+                    hashed, local_hash = tpool.execute(tpooled_get_hashes,
+                        job['path'], recalculate=suffixes,
+                        reclaim_age=self.reclaim_age)
+                    # See tpooled_get_hashes "Hack".
+                    if isinstance(hashed, BaseException):
+                        raise hashed
                     suffixes = [suffix for suffix in local_hash if
                             local_hash[suffix] != remote_hash.get(suffix, -1)]
                     self.rsync(node, job, suffixes)
@@ -496,6 +509,7 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
+        eventlet.sleep()  # Give spawns a cycle
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs()

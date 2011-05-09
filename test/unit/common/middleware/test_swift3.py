@@ -207,16 +207,6 @@ class TestSwift3(unittest.TestCase):
         code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
         self.assertEquals(code, 'InvalidArgument')
 
-    def test_bad_path(self):
-        req = Request.blank('/bucket/object/bad',
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
-        resp = self.app(req.environ, start_response)
-        dom = xml.dom.minidom.parseString("".join(resp))
-        self.assertEquals(dom.firstChild.nodeName, 'Error')
-        code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
-        self.assertEquals(code, 'InvalidURI')
-
     def test_bad_method(self):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'PUT'},
@@ -593,6 +583,22 @@ class TestSwift3(unittest.TestCase):
                 swift3.canonical_string(req2))
         self.assertEquals(swift3.canonical_string(req2),
                 swift3.canonical_string(req3))
+
+    def test_signed_urls(self):
+        class FakeApp(object):
+            def __call__(self, env, start_response):
+                self.req = Request(env)
+                start_response('200 OK')
+                start_response([])
+        app = FakeApp()
+        local_app = swift3.filter_factory({})(app)
+        req = Request.blank('/bucket/object?Signature=X&Expires=Y&'
+                'AWSAccessKeyId=Z', environ={'REQUEST_METHOD': 'GET'})
+        req.date = datetime.now()
+        req.content_type = 'text/plain'
+        resp = local_app(req.environ, lambda *args: None)
+        self.assertEquals(app.req.headers['Authorization'], 'AWS Z:X')
+        self.assertEquals(app.req.headers['Date'], 'Y')
 
 if __name__ == '__main__':
     unittest.main()
