@@ -15,6 +15,7 @@
 
 from webob import Request
 from webob.exc import HTTPServerError
+import uuid
 
 from swift.common.utils import get_logger
 
@@ -29,13 +30,23 @@ class CatchErrorMiddleware(object):
         self.logger = get_logger(conf, log_route='catch-errors')
 
     def __call__(self, env, start_response):
+        trans_id = env.get('HTTP_X_TRANS_ID')
+        if not trans_id:
+            trans_id = uuid.uuid4().hex
+            env['HTTP_X_TRANS_ID'] = 'tx' + trans_id
         try:
-            return self.app(env, start_response)
+
+            def my_start_response(status, response_headers, exc_info=None):
+                trans_header = ('x-trans-id', trans_id)
+                response_headers.append(trans_header)
+                return start_response(status, response_headers, exc_info)
+            return self.app(env, my_start_response)
         except Exception, err:
             self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')
+            resp.headers['x-trans-id'] = trans_id
             return resp(env, start_response)
 
 
