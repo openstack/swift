@@ -134,7 +134,8 @@ Running the stats system on SAIO
     container_name = account_stats
     log_dir = /var/log/swift/stats/
     class_path = swift.stats.stats_processor.StatsLogProcessor
-    account_server_conf = /etc/swift/account-server/1.conf
+    devices = /srv/1/node
+    mount_check = false
     user = <your-user-name>
 
     [log-processor-container-stats]
@@ -142,7 +143,8 @@ Running the stats system on SAIO
     container_name = container_stats
     log_dir = /var/log/swift/stats/
     class_path = swift.stats.stats_processor.StatsLogProcessor
-    account_server_conf = /etc/swift/container-server/1.conf
+    devices = /srv/1/node
+    mount_check = false
     user = <your-user-name>
 
 #. Add the following under [app:proxy-server] in `/etc/swift/proxy-server.conf`::

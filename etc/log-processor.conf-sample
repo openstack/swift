@@ -39,7 +39,8 @@ container_name = account_stats
 # new_log_cutoff = 7200
 # unlink_log = True
 class_path = swift.stats.stats_processor.StatsLogProcessor
-# account_server_conf = /etc/swift/account-server.conf
+# devices = /srv/node
+# mount_check = true
 # user = swift
 
 [log-processor-container-stats]
@@ -49,5 +50,6 @@ container_name = container_stats
 # new_log_cutoff = 7200
 # unlink_log = True
 class_path = swift.stats.stats_processor.StatsLogProcessor
-# container_server_conf = /etc/swift/container-server.conf
+# devices = /srv/node
+# mount_check = true
 # user = swift
