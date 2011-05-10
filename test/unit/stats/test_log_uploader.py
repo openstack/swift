@@ -30,8 +30,6 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 LOGGER = logging.getLogger()
 
-DEFAULT_GLOB = '%Y%m%d%H'
-
 COMPRESSED_DATA = '\x1f\x8b\x08\x08\x87\xa5zM\x02\xffdata\x00KI,I\x04\x00c' \
         '\xf3\xf3\xad\x04\x00\x00\x00'
 

@@ -18,12 +18,13 @@ import time
 from paste.deploy import appconfig
 import shutil
 import hashlib
+import urllib
 
 from swift.account.server import DATADIR as account_server_data_dir
 from swift.container.server import DATADIR as container_server_data_dir
 from swift.common.db import AccountBroker, ContainerBroker
 from swift.common.utils import renamer, get_logger, readconf, mkdirs, \
-    TRUE_VALUES
+    TRUE_VALUES, remove_file
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
 
@@ -37,17 +38,14 @@ class DatabaseStatsCollector(Daemon):
 
     def __init__(self, stats_conf, stats_type, data_dir, filename_format):
         super(DatabaseStatsCollector, self).__init__(stats_conf)
-        self.target_dir = stats_conf.get('log_dir', '/var/log/swift')
         self.stats_type = stats_type
-        server_conf_loc = stats_conf.get('%s_server_conf' % stats_type,
-                                       '/etc/swift/%s-server.conf' % stats_type)
-        server_conf = appconfig('config:%s' % server_conf_loc,
-                                name='%s-server' % stats_type)
+        self.data_dir = data_dir
         self.filename_format = filename_format
-        mkdirs(self.target_dir)
-        self.devices = server_conf.get('devices', '/srv/node')
-        self.mount_check = server_conf.get('mount_check',
+        self.devices = stats_conf.get('devices', '/srv/node')
+        self.mount_check = stats_conf.get('mount_check',
                                            'true').lower() in TRUE_VALUES
+        self.target_dir = stats_conf.get('log_dir', '/var/log/swift')
+        mkdirs(self.target_dir)
         self.logger = get_logger(stats_conf,
                                  log_route='%s-stats' % stats_type)
 
@@ -69,31 +67,36 @@ class DatabaseStatsCollector(Daemon):
         mkdirs(working_dir)
         tmp_filename = os.path.join(working_dir, src_filename)
         hasher = hashlib.md5()
-        with open(tmp_filename, 'wb') as statfile:
-            for device in os.listdir(self.devices):
-                if self.mount_check and not check_mount(self.devices, device):
-                    self.logger.error(
-                        _("Device %s is not mounted, skipping.") % device)
-                    continue
-                db_dir = os.path.join(self.devices,
-                                      device,
-                                      self.data_dir)
-                if not os.path.exists(db_dir):
-                    self.logger.debug(
-                        _("Path %s does not exist, skipping.") % db_dir)
-                    continue
-                for root, dirs, files in os.walk(db_dir, topdown=False):
-                    for filename in files:
-                        if filename.endswith('.db'):
-                            db_path = os.path.join(root, filename)
-                            line_data = self.get_data(db_path)
-                            if line_data:
-                                statfile.write(line_data)
-                                hasher.update(line_data)
+        try:
+            with open(tmp_filename, 'wb') as statfile:
+                for device in os.listdir(self.devices):
+                    if self.mount_check and not check_mount(self.devices,
+                                                            device):
+                        self.logger.error(
+                            _("Device %s is not mounted, skipping.") % device)
+                        continue
+                    db_dir = os.path.join(self.devices,
+                                          device,
+                                          self.data_dir)
+                    if not os.path.exists(db_dir):
+                        self.logger.debug(
+                            _("Path %s does not exist, skipping.") % db_dir)
+                        continue
+                    for root, dirs, files in os.walk(db_dir, topdown=False):
+                        for filename in files:
+                            if filename.endswith('.db'):
+                                db_path = os.path.join(root, filename)
+                                line_data = self.get_data(db_path)
+                                if line_data:
+                                    statfile.write(line_data)
+                                    hasher.update(line_data)
 
-        src_filename += hasher.hexdigest()
-        renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
-        shutil.rmtree(working_dir, ignore_errors=True)
+            src_filename += hasher.hexdigest()
+            renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
+            shutil.rmtree(working_dir, ignore_errors=True)
+        finally:
+            # clean up temp file, remove_file ignores errors
+            remove_file(tmp_filename)
 
 
 class AccountStat(DatabaseStatsCollector):

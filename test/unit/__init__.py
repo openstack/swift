@@ -94,8 +94,8 @@ def temptree(files, contents=''):
 class FakeLogger(object):
     # a thread safe logger
 
-    def __init__(self):
-        self.log_dict = dict(error=[], info=[], warning=[])
+    def __init__(self, *args, **kwargs):
+        self.log_dict = dict(error=[], info=[], warning=[], debug=[])
 
     def error(self, *args, **kwargs):
         self.log_dict['error'].append((args, kwargs))
@@ -105,6 +105,9 @@ class FakeLogger(object):
 
     def warning(self, *args, **kwargs):
         self.log_dict['warning'].append((args, kwargs))
+
+    def debug(self, *args, **kwargs):
+        self.log_dict['debug'].append((args, kwargs))
 
 
 class MockTrue(object):
