@@ -28,6 +28,7 @@ from swift.common.utils import renamer, get_logger, readconf, mkdirs, \
 from swift.common.constraints import check_mount
 from swift.common.daemon import Daemon
 
+
 class DatabaseStatsCollector(Daemon):
     """
     Extract storage stats from account databases on the account
@@ -75,9 +76,7 @@ class DatabaseStatsCollector(Daemon):
                         self.logger.error(
                             _("Device %s is not mounted, skipping.") % device)
                         continue
-                    db_dir = os.path.join(self.devices,
-                                          device,
-                                          self.data_dir)
+                    db_dir = os.path.join(self.devices, device, self.data_dir)
                     if not os.path.exists(db_dir):
                         self.logger.debug(
                             _("Path %s does not exist, skipping.") % db_dir)
@@ -93,21 +92,20 @@ class DatabaseStatsCollector(Daemon):
 
             src_filename += hasher.hexdigest()
             renamer(tmp_filename, os.path.join(self.target_dir, src_filename))
-            shutil.rmtree(working_dir, ignore_errors=True)
         finally:
-            # clean up temp file, remove_file ignores errors
-            remove_file(tmp_filename)
+            shutil.rmtree(working_dir, ignore_errors=True)
 
 
-class AccountStat(DatabaseStatsCollector):
+class AccountStatsCollector(DatabaseStatsCollector):
     """
     Extract storage stats from account databases on the account
     storage nodes
     """
+
     def __init__(self, stats_conf):
-        super(AccountStat, self).__init__(stats_conf, 'account',
-                                          account_server_data_dir,
-                                          'stats-%Y%m%d%H_')
+        super(AccountStatsCollector, self).__init__(stats_conf, 'account',
+                                                    account_server_data_dir,
+                                                    'stats-%Y%m%d%H_')
 
     def get_data(self, db_path):
         """
@@ -124,15 +122,17 @@ class AccountStat(DatabaseStatsCollector):
                                              info['bytes_used'])
         return line_data
 
-class ContainerStat(DatabaseStatsCollector):
+
+class ContainerStatsCollector(DatabaseStatsCollector):
     """
     Extract storage stats from container databases on the container
     storage nodes
     """
+
     def __init__(self, stats_conf):
-        super(ContainerStat, self).__init__(stats_conf, 'container',
-                                            container_server_data_dir,
-                                            'container-stats-%Y%m%d%H_')
+        super(ContainerStatsCollector, self).__init__(stats_conf, 'container',
+                                                   container_server_data_dir,
+                                                   'container-stats-%Y%m%d%H_')
 
     def get_data(self, db_path):
         """
@@ -151,4 +151,3 @@ class ContainerStat(DatabaseStatsCollector):
                 info['object_count'],
                 info['bytes_used'])
         return line_data
-

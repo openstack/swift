@@ -116,8 +116,8 @@ class LogUploader(Daemon):
                 filename2match[full_path] = match.groupdict()
             else:
                 self.logger.debug(_('%(filename)s does not match '
-                            '%(pattern)s') % {'filename': filename,
-                                              'pattern': self.filename_pattern})
+                           '%(pattern)s') % {'filename': filename,
+                                             'pattern': self.filename_pattern})
         return filename2match
 
     def upload_all_logs(self):

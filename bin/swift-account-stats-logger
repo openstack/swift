@@ -14,13 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.stats.db_stats import AccountStat
+from swift.stats.db_stats_collector import AccountStatsCollector
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    # currently AccountStat only supports run_once
+    # currently AccountStatsCollector only supports run_once
     options['once'] = True
-    run_daemon(AccountStat, conf_file, section_name='log-processor-stats',
+    run_daemon(AccountStatsCollector, conf_file,
+               section_name='log-processor-stats',
                log_name="account-stats", **options)
