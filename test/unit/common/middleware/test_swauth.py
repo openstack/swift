@@ -56,15 +56,21 @@ class FakeMemcache(object):
 
 class FakeApp(object):
 
-    def __init__(self, status_headers_body_iter=None):
+    def __init__(self, status_headers_body_iter=None, acl=None, sync_key=None):
         self.calls = 0
         self.status_headers_body_iter = status_headers_body_iter
         if not self.status_headers_body_iter:
             self.status_headers_body_iter = iter([('404 Not Found', {}, '')])
+        self.acl = acl
+        self.sync_key = sync_key
 
     def __call__(self, env, start_response):
         self.calls += 1
         self.request = Request.blank('', environ=env)
+        if self.acl:
+            self.request.acl = self.acl
+        if self.sync_key:
+            self.request.environ['swift_sync_key'] = self.sync_key
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](self.request)
             if resp:
@@ -3215,6 +3221,173 @@ class TestAuth(unittest.TestCase):
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
+
+    def test_allowed_sync_hosts(self):
+        a = auth.filter_factory({'super_admin_key': 'supertest'})(FakeApp())
+        self.assertEquals(a.allowed_sync_hosts, ['127.0.0.1'])
+        a = auth.filter_factory({'super_admin_key': 'supertest',
+            'allowed_sync_hosts':
+                '1.1.1.1,2.1.1.1, 3.1.1.1 , 4.1.1.1,, , 5.1.1.1'})(FakeApp())
+        self.assertEquals(a.allowed_sync_hosts,
+            ['1.1.1.1', '2.1.1.1', '3.1.1.1', '4.1.1.1', '5.1.1.1'])
+
+    def test_reseller_admin_is_owner(self):
+        orig_authorize = self.test_auth.authorize
+        owner_values = []
+
+        def mitm_authorize(req):
+            rv = orig_authorize(req)
+            owner_values.append(req.environ.get('swift_owner', False))
+            return rv
+
+        self.test_auth.authorize = mitm_authorize
+
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'account': 'other', 'user': 'other:usr',
+                         'account_id': 'AUTH_other',
+                         'groups': [{'name': 'other:usr'}, {'name': 'other'},
+                                    {'name': '.reseller_admin'}],
+                         'expires': time() + 60})),
+            ('204 No Content', {}, '')]))
+        req = Request.blank('/v1/AUTH_cfa', headers={'X-Auth-Token': 'AUTH_t'})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(owner_values, [True])
+
+    def test_admin_is_owner(self):
+        orig_authorize = self.test_auth.authorize
+        owner_values = []
+
+        def mitm_authorize(req):
+            rv = orig_authorize(req)
+            owner_values.append(req.environ.get('swift_owner', False))
+            return rv
+
+        self.test_auth.authorize = mitm_authorize
+
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'account': 'act', 'user': 'act:usr',
+                         'account_id': 'AUTH_cfa',
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'},
+                                    {'name': '.admin'}],
+                         'expires': time() + 60})),
+            ('204 No Content', {}, '')]))
+        req = Request.blank('/v1/AUTH_cfa', headers={'X-Auth-Token': 'AUTH_t'})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(owner_values, [True])
+
+    def test_regular_is_not_owner(self):
+        orig_authorize = self.test_auth.authorize
+        owner_values = []
+
+        def mitm_authorize(req):
+            rv = orig_authorize(req)
+            owner_values.append(req.environ.get('swift_owner', False))
+            return rv
+
+        self.test_auth.authorize = mitm_authorize
+
+        self.test_auth.app = FakeApp(iter([
+            ('200 Ok', {},
+             json.dumps({'account': 'act', 'user': 'act:usr',
+                         'account_id': 'AUTH_cfa',
+                         'groups': [{'name': 'act:usr'}, {'name': 'act'}],
+                         'expires': time() + 60})),
+            ('204 No Content', {}, '')]), acl='act:usr')
+        req = Request.blank('/v1/AUTH_cfa/c',
+                            headers={'X-Auth-Token': 'AUTH_t'})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(owner_values, [False])
+
+    def test_sync_request_success(self):
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456'})
+        req.remote_addr = '127.0.0.1'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_sync_request_fail_key(self):
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'wrongsecret',
+                     'x-timestamp': '123.456'})
+        req.remote_addr = '127.0.0.1'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='othersecret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456'})
+        req.remote_addr = '127.0.0.1'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key=None)
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456'})
+        req.remote_addr = '127.0.0.1'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+
+    def test_sync_request_fail_no_timestamp(self):
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret'})
+        req.remote_addr = '127.0.0.1'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+
+    def test_sync_request_fail_sync_host(self):
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456'})
+        req.remote_addr = '127.0.0.2'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+
+    def test_sync_request_success_lb_sync_host(self):
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456',
+                     'x-forwarded-for': '127.0.0.1'})
+        req.remote_addr = '127.0.0.2'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
+
+        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+                                     sync_key='secret')
+        req = Request.blank('/v1/AUTH_cfa/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'x-container-sync-key': 'secret',
+                     'x-timestamp': '123.456',
+                     'x-cluster-client-ip': '127.0.0.1'})
+        req.remote_addr = '127.0.0.2'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 204)
 
 
 if __name__ == '__main__':
