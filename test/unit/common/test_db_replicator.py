@@ -17,8 +17,10 @@ import unittest
 from contextlib import contextmanager
 import os
 import logging
+import errno
 
 from swift.common import db_replicator
+from swift.common import utils
 from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 
@@ -86,6 +88,8 @@ class ChangingMtimesOs:
 
 class FakeBroker:
     db_file = __file__
+    get_repl_missing_table = False
+    db_type = 'container'
     def __init__(self, *args, **kwargs):
         return None
     @contextmanager
@@ -104,6 +108,8 @@ class FakeBroker:
     def merge_items(self, *args):
         self.args = args
     def get_replication_info(self):
+        if self.get_repl_missing_table:
+            raise Exception('no such table')
         return {'delete_timestamp': 0, 'put_timestamp': 1, 'count': 0}
     def reclaim(self, item_timestamp, sync_timestamp):
         pass
@@ -202,6 +208,35 @@ class TestDBReplicator(unittest.TestCase):
         replicator = TestReplicator({})
         replicator._replicate_object('0', 'file', 'node_id')
 
+    def test_replicate_object_quarantine(self):
+        replicator = TestReplicator({})
+        was_db_file = replicator.brokerclass.db_file
+        try:
+
+            def mock_renamer(was, new, cause_colision=False):
+                if cause_colision and '-' not in new:
+                    raise OSError(errno.EEXIST, "File already exists")
+                self.assertEquals('/a/b/c/d/e', was)
+                if '-' in new:
+                    self.assert_(
+                        new.startswith('/a/quarantined/containers/e-'))
+                else:
+                    self.assertEquals('/a/quarantined/containers/e', new)
+
+            def mock_renamer_error(was, new):
+                return mock_renamer(was, new, cause_colision=True)
+            was_renamer = db_replicator.renamer
+            db_replicator.renamer = mock_renamer
+            db_replicator.lock_parent_directory = lock_parent_directory
+            replicator.brokerclass.get_repl_missing_table = True
+            replicator.brokerclass.db_file = '/a/b/c/d/e/hey'
+            replicator._replicate_object('0', 'file', 'node_id')
+            # try the double quarantine
+            db_replicator.renamer = mock_renamer_error
+            replicator._replicate_object('0', 'file', 'node_id')
+        finally:
+            replicator.brokerclass.db_file = was_db_file
+            db_replicator.renamer = was_renamer
 
 #    def test_dispatch(self):
 #        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)

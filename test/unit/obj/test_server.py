@@ -343,6 +343,19 @@ class TestObjectController(unittest.TestCase):
                      "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.object_controller.HEAD(req)
+        self.assert_("X-Object-Meta-1" not in resp.headers and
+                     "X-Object-Meta-Two" not in resp.headers and
+                     "X-Object-Meta-3" in resp.headers and
+                     "X-Object-Meta-4" in resp.headers and
+                     "Foo" in resp.headers and
+                     "Bar" in resp.headers and
+                     "Baz" not in resp.headers and
+                     "Content-Encoding" in resp.headers)
+        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},

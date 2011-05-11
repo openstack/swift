@@ -75,9 +75,9 @@ If the [user] is '.groups', the active groups for the account will be listed.
     conn = http_connect(parsed.hostname, parsed.port, 'GET', path, headers,
                         ssl=(parsed.scheme == 'https'))
     resp = conn.getresponse()
-    if resp.status // 100 != 2:
-        print 'List failed: %s %s' % (resp.status, resp.reason)
     body = resp.read()
+    if resp.status // 100 != 2:
+        exit('List failed: %s %s' % (resp.status, resp.reason))
     if options.plain_text:
         info = json.loads(body)
         for group in info[['accounts', 'users', 'groups'][len(args)]]:

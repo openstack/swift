@@ -776,7 +776,7 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     return conf
 
 
-def write_pickle(obj, dest, tmp, pickle_protocol=0):
+def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     """
     Ensure that a pickle file gets written to disk.  The file
     is first written to a tmp location, ensure it is synced to disk, then
@@ -784,9 +784,11 @@ def write_pickle(obj, dest, tmp, pickle_protocol=0):
 
     :param obj: python object to be pickled
     :param dest: path of final destination file
-    :param tmp: path to tmp to use
+    :param tmp: path to tmp to use, defaults to None
     :param pickle_protocol: protocol to pickle the obj with, defaults to 0
     """
+    if tmp == None:
+        tmp = os.path.dirname(dest)
     fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
     with os.fdopen(fd, 'wb') as fo:
         pickle.dump(obj, fo, pickle_protocol)

@@ -509,6 +509,7 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
+        eventlet.sleep()  # Give spawns a cycle
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs()

@@ -652,6 +652,7 @@ class Controller(object):
                 # Used by container sync feature
                 res.environ['swift_x_timestamp'] = \
                     source.getheader('x-timestamp')
+                update_headers(res, {'accept-ranges': 'bytes'})
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
                 if source.getheader('Content-Type'):
@@ -664,6 +665,7 @@ class Controller(object):
                 # Used by container sync feature
                 res.environ['swift_x_timestamp'] = \
                     source.getheader('x-timestamp')
+                update_headers(res, {'accept-ranges': 'bytes'})
                 if req.method == 'HEAD':
                     res.content_length = source.getheader('Content-Length')
                     if source.getheader('Content-Type'):
@@ -838,6 +840,7 @@ class ObjectController(Controller):
                                                   resp)
                 resp.content_length = content_length
                 resp.last_modified = last_modified
+            resp.headers['accept-ranges'] = 'bytes'
 
         return resp
 

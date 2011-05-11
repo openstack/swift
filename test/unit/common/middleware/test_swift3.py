@@ -207,16 +207,6 @@ class TestSwift3(unittest.TestCase):
         code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
         self.assertEquals(code, 'InvalidArgument')
 
-    def test_bad_path(self):
-        req = Request.blank('/bucket/object/bad',
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
-        resp = self.app(req.environ, start_response)
-        dom = xml.dom.minidom.parseString("".join(resp))
-        self.assertEquals(dom.firstChild.nodeName, 'Error')
-        code = dom.getElementsByTagName('Code')[0].childNodes[0].nodeValue
-        self.assertEquals(code, 'InvalidURI')
-
     def test_bad_method(self):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'PUT'},

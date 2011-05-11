@@ -56,4 +56,4 @@ if __name__ == '__main__':
                         ssl=(parsed.scheme == 'https'))
     resp = conn.getresponse()
     if resp.status // 100 != 2:
-        print 'Auth subsystem prep failed: %s %s' % (resp.status, resp.reason)
+        exit('Auth subsystem prep failed: %s %s' % (resp.status, resp.reason))
