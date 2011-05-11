@@ -42,6 +42,7 @@ access_regex = '''
     .*$
     '''
 
+
 def mock_appconfig(*args, **kwargs):
     pass
 
@@ -233,7 +234,6 @@ class TestLogUploader(unittest.TestCase):
             self.assertRaises(SystemExit, uploader.run_once)
             # file still there
             self.assertEquals(len(os.listdir(t)), 1)
-
 
 
 if __name__ == '__main__':
