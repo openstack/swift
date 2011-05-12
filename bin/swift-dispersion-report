@@ -35,6 +35,7 @@ from swift.common.utils import compute_eta, get_time_units
 
 unmounted = []
 
+
 def get_error_log(prefix):
     def error_log(msg_or_exc):
         global unmounted
@@ -72,6 +73,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     container_copies_found = [0, 0, 0, 0]
     begun = time()
     next_report = [time() + 2]
+
     def direct(container, part, nodes):
         found_count = 0
         for node in nodes:
@@ -159,6 +161,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     object_copies_found = [0, 0, 0, 0]
     begun = time()
     next_report = [time() + 2]
+
     def direct(obj, part, nodes):
         found_count = 0
         for node in nodes:
