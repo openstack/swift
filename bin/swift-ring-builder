@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import cPickle as pickle
+from array import array
 from errno import EEXIST
 from gzip import GzipFile
 from os import mkdir
@@ -227,6 +228,37 @@ swift-ring-builder <builder_file> search <search-value>
                 (dev['id'], dev['zone'], dev['ip'], dev['port'],
                  dev['device'], dev['weight'], dev['parts'], balance,
                  dev['meta'])
+        exit(EXIT_RING_UNCHANGED)
+
+    def list_parts():
+        """
+swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
+    Lists the common partitions for the matching devices, in order of partition
+    most matching to least matching. If there are a lot of devices to match
+    against, this command could take a while to run.
+        """
+        if len(argv) < 4:
+            print Commands.list_parts.__doc__.strip()
+            print
+            print search_devs.__doc__.strip()
+            exit(EXIT_RING_UNCHANGED)
+        devs = []
+        for arg in argv[3:]:
+            devs.extend(search_devs(builder, arg) or [])
+        if not devs:
+            print 'No matching devices found'
+            exit(EXIT_ERROR)
+        devs = [d['id'] for d in devs]
+        matches = [array('i') for x in xrange(builder.replicas)]
+        for part in xrange(builder.parts):
+            count = len([d for d in builder.get_part_devices(part)
+                         if d['id'] in devs])
+            if count:
+                matches[builder.replicas - count].append(part)
+        print 'Partition   Matches'
+        for index, parts in enumerate(matches):
+            for part in parts:
+                print '%9d   %7d' % (part, builder.replicas - index)
         exit(EXIT_RING_UNCHANGED)
 
     def add():

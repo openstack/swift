@@ -1,0 +1,4 @@
+swift (x.x.x)
+
+  * Added list_parts command to swift-ring-builder which lists common
+    partitions for a list of devices.
