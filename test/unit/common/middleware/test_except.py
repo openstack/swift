@@ -45,5 +45,28 @@ class TestCatchErrors(unittest.TestCase):
         resp = app(req.environ, start_response)
         self.assertEquals(resp, ['An error occurred'])
 
+    def test_trans_id_header(self):
+
+        def start_response(status, headers):
+            self.assert_('x-trans-id' in (x[0] for x in headers))
+        app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
+        req = Request.blank('/v1/a')
+        app(req.environ, start_response)
+        app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
+        req = Request.blank('/v1/a/c')
+        app(req.environ, start_response)
+        app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
+        req = Request.blank('/v1/a/c/o')
+        app(req.environ, start_response)
+        app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
+        req = Request.blank('/v1/a')
+        app(req.environ, start_response)
+        app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
+        req = Request.blank('/v1/a/c')
+        app(req.environ, start_response)
+        app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
+        req = Request.blank('/v1/a/c/o')
+        app(req.environ, start_response)
+
 if __name__ == '__main__':
     unittest.main()
