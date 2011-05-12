@@ -90,6 +90,7 @@ setup(
         'bin/swift-object-updater', 'bin/swift-proxy-server',
         'bin/swift-ring-builder', 'bin/swift-stats-populate',
         'bin/swift-stats-report',
+        'bin/swift-dispersion-populate', 'bin/swift-dispersion-report',
         'bin/swift-bench',
         'bin/swift-log-uploader',
         'bin/swift-log-stats-collector',
