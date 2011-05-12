@@ -1,3 +1,6 @@
+# WARNING: The swift-stats-populate and swift-stats-report commands are being
+# replaced with swift-dispersion-populate and swift-dispersion-report; you
+# should switch to those before the next Swift release.
 [stats]
 auth_url = http://saio:8080/auth/v1.0
 auth_user = test:tester

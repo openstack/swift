@@ -1,4 +1,4 @@
-#!/usr/bin/python -u
+#!/usr/bin/env python
 # Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +18,7 @@ import os
 import traceback
 from ConfigParser import ConfigParser
 from cStringIO import StringIO
-from sys import exit, argv
+from sys import exit, argv, stdout
 from time import time
 from uuid import uuid4
 
@@ -71,6 +71,7 @@ def report(success):
     eta, eta_unit = compute_eta(begun, created, need_to_create)
     print '\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries' % (item_type,
           created, need_to_create, round(eta), eta_unit, retries_done),
+    stdout.flush()
 
 
 if __name__ == '__main__':
@@ -125,6 +126,7 @@ if __name__ == '__main__':
     print '\r\x1B[KCreated %d containers for dispersion reporting, %d%s, %d ' \
           'retries' % \
           (need_to_create, round(elapsed), elapsed_unit, retries_done)
+    stdout.flush()
 
     container = 'dispersion_objects'
     put_container(connpool, container, None)
@@ -150,3 +152,4 @@ if __name__ == '__main__':
     print '\r\x1B[KCreated %d objects for dispersion reporting, %d%s, %d ' \
           'retries' % \
           (need_to_create, round(elapsed), elapsed_unit, retries_done)
+    stdout.flush()

@@ -1,4 +1,4 @@
-#!/usr/bin/python -u
+#!/usr/bin/env python
 # Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,7 @@ import socket
 from ConfigParser import ConfigParser
 from httplib import HTTPException
 from optparse import OptionParser
-from sys import argv, exit, stderr
+from sys import argv, exit, stdout, stderr
 from time import time
 from uuid import uuid4
 
@@ -48,9 +48,11 @@ def get_error_log(prefix):
                     'considered missing until resolved or the ring is ' \
                     'updated.' % (msg_or_exc.http_host, msg_or_exc.http_port,
                     msg_or_exc.http_device)
+                stderr.flush()
         if not hasattr(msg_or_exc, 'http_status') or \
                 msg_or_exc.http_status not in (404, 507):
             print >>stderr, 'ERROR: %s: %s' % (prefix, msg_or_exc)
+            stderr.flush()
     return error_log
 
 
@@ -63,6 +65,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     if not containers_listed:
         print >>stderr, 'No containers to query. Has ' \
                         'swift-dispersion-populate been run?'
+        stderr.flush()
         return
     retries_done = [0]
     containers_queried = [0]
@@ -96,6 +99,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
                   'retries' % (containers_queried[0], containers_listed,
                   round(eta), eta_unit, retries_done[0]),
+            stdout.flush()
     container_parts = {}
     for container in containers:
         part, nodes = container_ring.get_nodes(account, container)
@@ -127,6 +131,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
           value, copies_found, copies_expected)
     print 'Sample represents %.02f%% of the container partition space' % (
           100.0 * distinct_partitions / container_ring.partition_count)
+    stdout.flush()
 
 
 def object_dispersion_report(coropool, connpool, account, object_ring,
@@ -141,11 +146,13 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                 raise
             print >>stderr, 'No objects to query. Has ' \
                             'swift-dispersion-populate been run?'
+            stderr.flush()
             return
     objects_listed = len(objects)
     if not objects_listed:
         print >>stderr, 'No objects to query. Has swift-dispersion-populate ' \
                         'been run?'
+        stderr.flush()
         return
     retries_done = [0]
     objects_queried = [0]
@@ -179,6 +186,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             print '\r\x1B[KQuerying objects: %d of %d, %d%s left, %d ' \
                   'retries' % (objects_queried[0], objects_listed, round(eta),
                   eta_unit, retries_done[0]),
+            stdout.flush()
     object_parts = {}
     for obj in objects:
         part, nodes = object_ring.get_nodes(account, container, obj)
@@ -210,6 +218,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                 (value, copies_found, copies_expected)
     print 'Sample represents %.02f%% of the object partition space' % (
           100.0 * distinct_partitions / object_ring.partition_count)
+    stdout.flush()
 
 
 if __name__ == '__main__':
