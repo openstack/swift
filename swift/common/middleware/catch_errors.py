@@ -32,8 +32,8 @@ class CatchErrorMiddleware(object):
     def __call__(self, env, start_response):
         trans_id = env.get('HTTP_X_TRANS_ID')
         if not trans_id:
-            trans_id = uuid.uuid4().hex
-            env['HTTP_X_TRANS_ID'] = 'tx' + trans_id
+            trans_id = 'tx' + uuid.uuid4().hex
+            env['HTTP_X_TRANS_ID'] = trans_id
         try:
 
             def my_start_response(status, response_headers, exc_info=None):
