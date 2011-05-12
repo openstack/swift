@@ -18,7 +18,7 @@ import os
 import traceback
 from ConfigParser import ConfigParser
 from optparse import OptionParser
-from sys import exit, argv
+from sys import exit, argv, stderr
 from time import time
 from uuid import uuid4
 
@@ -76,6 +76,11 @@ def report(success):
 if __name__ == '__main__':
     global begun, created, item_type, next_report, need_to_create, retries_done
     patcher.monkey_patch()
+
+    print >>stderr, '''
+WARNING: This command is being replaced with swift-dispersion-populate; you
+should switch to that before the next Swift release.
+    '''
 
     parser = OptionParser()
     parser.add_option('-d', '--dispersion', action='store_true',

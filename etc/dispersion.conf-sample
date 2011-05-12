@@ -1,0 +1,8 @@
+[dispersion]
+auth_url = http://saio:8080/auth/v1.0
+auth_user = test:tester
+auth_key = testing
+# swift_dir = /etc/swift
+# dispersion_coverage = 1
+# retries = 5
+# concurrency = 25
