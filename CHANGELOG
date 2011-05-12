@@ -3,3 +3,8 @@ swift (x.x.x)
   * Renamed swift-stats-populate to swift-dispersion-populate and
     swift-stats-report to swift-dispersion-report with extraneous unused
     options removed. The new tools use dispersion.conf instead of stats.conf.
+
+  * Transaction id for each request is returned in a response header
+    (X-Trans-ID). Setting the transaction id has moved from the proxy server to
+    the catch_errors middleware. Additionally, the internal header has changed
+    from X-CF-Trans-ID to X-Trans-ID.

@@ -86,7 +86,7 @@ class AccountController(object):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
-            if 'x-cf-trans-id' in req.headers:
+            if 'x-trans-id' in req.headers:
                 broker.pending_timeout = 3
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
@@ -296,7 +296,7 @@ class AccountController(object):
     def __call__(self, env, start_response):
         start_time = time.time()
         req = Request(env)
-        self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
+        self.logger.txn_id = req.headers.get('x-trans-id', None)
         if not check_utf8(req.path_info):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
@@ -319,7 +319,7 @@ class AccountController(object):
             time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
             req.method, req.path,
             res.status.split()[0], res.content_length or '-',
-            req.headers.get('x-cf-trans-id', '-'),
+            req.headers.get('x-trans-id', '-'),
             req.referer or '-', req.user_agent or '-',
             trans_time,
             additional_info)

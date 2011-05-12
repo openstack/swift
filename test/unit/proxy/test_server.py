@@ -124,7 +124,7 @@ def setup():
     for node in nodes:
         conn = proxy_server.http_connect(node['ip'], node['port'],
                 node['device'], partition, 'PUT', '/a',
-                {'X-Timestamp': ts, 'X-CF-Trans-Id': 'test'})
+                {'X-Timestamp': ts, 'x-trans-id': 'test'})
         resp = conn.getresponse()
         assert(resp.status == 201)
     # Create container
