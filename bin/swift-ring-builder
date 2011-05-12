@@ -50,7 +50,7 @@ The <search-value> can be of the form:
         _shiny           Matches devices with shiny in the meta data
         _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
         [::1]            Matches devices in any zone with the ip ::1
-        z1-[::1]:5678    Matches devices in zone 1 with the ip ::1 and port 5678
+        z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678
     Most specific example:
         d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
     Nerd explanation:
