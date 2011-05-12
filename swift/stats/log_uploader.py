@@ -128,9 +128,10 @@ class LogUploader(Daemon):
         all_files = self.get_relpath_to_files_under_log_dir()
         filename2match = self.filter_files(all_files)
         if not filename2match:
-            sys.exit(_('No files in %(log_dir)s match %(pattern)s') %
+            self.logger.error(_('No files in %(log_dir)s match %(pattern)s') %
                      {'log_dir': self.log_dir,
                       'pattern': self.filename_pattern})
+            sys.exit(1)
         if not self.internal_proxy.create_container(self.swift_account,
                                                     self.container_name):
             self.logger.error(_('Unable to create container for '

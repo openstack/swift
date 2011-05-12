@@ -143,8 +143,7 @@ class ContainerStatsCollector(DatabaseStatsCollector):
         broker = ContainerBroker(db_path)
         if not broker.is_deleted():
             info = broker.get_info()
-            encoded_container_name = urllib.quote(
-                unicode(info['container'], 'utf-8').encode('utf-8'))
+            encoded_container_name = urllib.quote(info['container'])
             line_data = '"%s","%s",%d,%d\n' % (
                 info['account'],
                 encoded_container_name,

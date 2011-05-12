@@ -143,6 +143,7 @@ Running the stats system on SAIO
     container_name = container_stats
     log_dir = /var/log/swift/stats/
     class_path = swift.stats.stats_processor.StatsLogProcessor
+    processable = false
     devices = /srv/1/node
     mount_check = false
     user = <your-user-name>

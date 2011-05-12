@@ -50,6 +50,7 @@ container_name = container_stats
 # new_log_cutoff = 7200
 # unlink_log = True
 class_path = swift.stats.stats_processor.StatsLogProcessor
+processable = false
 # devices = /srv/node
 # mount_check = true
 # user = swift
