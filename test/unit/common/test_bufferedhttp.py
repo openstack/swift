@@ -85,13 +85,17 @@ class TestBufferedHTTP(unittest.TestCase):
             def endheaders(self):
                 pass
 
+        origHTTPSConnection = bufferedhttp.HTTPSConnection
         bufferedhttp.HTTPSConnection = MockHTTPSConnection
-        bufferedhttp.http_connect('127.0.0.1', 8080, 'sda', 1, 'GET', '/',
-            headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
-                     'x-four': {'crazy': 'value'}}, ssl=True)
-        bufferedhttp.http_connect_raw('127.0.0.1', 8080, 'GET', '/',
-            headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
-                     'x-four': {'crazy': 'value'}}, ssl=True)
+        try:
+            bufferedhttp.http_connect('127.0.0.1', 8080, 'sda', 1, 'GET', '/',
+                headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
+                         'x-four': {'crazy': 'value'}}, ssl=True)
+            bufferedhttp.http_connect_raw('127.0.0.1', 8080, 'GET', '/',
+                headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
+                         'x-four': {'crazy': 'value'}}, ssl=True)
+        finally:
+            bufferedhttp.HTTPSConnection = origHTTPSConnection
 
 
 if __name__ == '__main__':
