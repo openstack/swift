@@ -1448,21 +1448,18 @@ class BaseApplication(object):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
             req = self.update_request(Request(env))
-            trans_id = req.headers.get('x-trans-id')
             if 'eventlet.posthooks' in env:
                 env['eventlet.posthooks'].append(
                     (self.posthooklogger, (req,), {}))
-                resp = self.handle_request(req)
+                return self.handle_request(req)(env, start_response)
             else:
                 # Lack of posthook support means that we have to log on the
                 # start of the response, rather than after all the data has
                 # been sent. This prevents logging client disconnects
                 # differently than full transmissions.
-                resp = self.handle_request(req)
+                response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
-            #if trans_id:
-            #    resp.headers['x-trans-id'] = trans_id
-            return resp(env, start_response)
+                return response
         except Exception:
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
