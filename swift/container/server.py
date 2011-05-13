@@ -316,7 +316,8 @@ class ContainerController(object):
                 created_at = datetime.utcfromtimestamp(
                     float(created_at)).isoformat()
                 if content_type is None:
-                    xml_output.append('<subdir name="%s" />' % name)
+                    xml_output.append('<subdir><name>%s</name>' \
+                                      '</subdir>' % name)
                 else:
                     content_type = saxutils.escape(content_type)
                     xml_output.append('<object><name>%s</name><hash>%s</hash>'\
