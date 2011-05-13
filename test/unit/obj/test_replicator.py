@@ -179,7 +179,7 @@ class TestObjectReplicator(unittest.TestCase):
                  self.ring.get_part_nodes(int(cur_part)) \
                      if node['ip'] not in _ips()]
         for node in nodes:
-            rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
+            rsync_mod = '[%s]::object/sda/objects/%s' % (node['ip'], cur_part)
             process_arg_checker.append(
                 (0, '', ['rsync', whole_path_from, rsync_mod]))
         with _mock_process(process_arg_checker):
@@ -363,7 +363,7 @@ class TestObjectReplicator(unittest.TestCase):
                  self.ring.get_part_nodes(int(cur_part)) \
                      if node['ip'] not in _ips()]
         for node in nodes:
-            rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
+            rsync_mod = '[%s]::object/sda/objects/%s' % (node['ip'], cur_part)
             process_arg_checker.append(
                 (0, '', ['rsync', whole_path_from, rsync_mod]))
         self.assertTrue(os.access(os.path.join(self.objects,
