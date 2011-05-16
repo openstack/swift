@@ -8,3 +8,11 @@ swift (x.x.x)
     (X-Trans-ID). Setting the transaction id has moved from the proxy server to
     the catch_errors middleware. Additionally, the internal header has changed
     from X-CF-Trans-ID to X-Trans-ID.
+
+  * Fixed Python 2.7 httplib compatibility problem.
+
+  * Improved client.py: Retries on 408s. Treats empty object contents as
+    resettable for retries.
+
+  * Improved st: No longer aborts everything on one error. Prints when it has
+    to retry. Also contains client.py improvements.
