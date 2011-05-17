@@ -155,32 +155,32 @@ Running the stats system on SAIO
 #. Create a `cron` job to run once per hour to create the stats logs. In
    `/etc/cron.d/swift-stats-log-creator`::
 
-    0 * * * * <your-user-name> swift-account-stats-logger /etc/swift/log-processor.conf
+    0 * * * * <your-user-name> /usr/local/bin/swift-account-stats-logger /etc/swift/log-processor.conf
 
 #. Create a `cron` job to run once per hour to create the container stats logs. In
    `/etc/cron.d/swift-container-stats-log-creator`::
 
-    5 * * * * <your-user-name> swift-container-stats-logger /etc/swift/log-processor.conf
+    5 * * * * <your-user-name> /usr/local/bin/swift-container-stats-logger /etc/swift/log-processor.conf
 
 #. Create a `cron` job to run once per hour to upload the stats logs. In
    `/etc/cron.d/swift-stats-log-uploader`::
 
-    10 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf stats
+    10 * * * * <your-user-name> /usr/local/bin/swift-log-uploader /etc/swift/log-processor.conf stats
 
 #. Create a `cron` job to run once per hour to upload the stats logs. In
    `/etc/cron.d/swift-stats-log-uploader`::
 
-    15 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf container-stats
+    15 * * * * <your-user-name> /usr/local/bin/swift-log-uploader /etc/swift/log-processor.conf container-stats
 
 #. Create a `cron` job to run once per hour to upload the access logs. In
    `/etc/cron.d/swift-access-log-uploader`::
 
-    5 * * * * <your-user-name> swift-log-uploader /etc/swift/log-processor.conf access
+    5 * * * * <your-user-name> /usr/local/bin/swift-log-uploader /etc/swift/log-processor.conf access
 
 #. Create a `cron` job to run once per hour to process the logs. In
    `/etc/cron.d/swift-stats-processor`::
 
-    30 * * * * <your-user-name> swift-log-stats-collector /etc/swift/log-processor.conf
+    30 * * * * <your-user-name> /usr/local/bin/swift-log-stats-collector /etc/swift/log-processor.conf
 
 After running for a few hours, you should start to see .csv files in the
 log_processing_data container in the swift stats account that was created
