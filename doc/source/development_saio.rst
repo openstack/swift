@@ -229,19 +229,20 @@ Getting the code and setting up test environment
 
 Sample configuration files are provided with all defaults in line-by-line comments. 
 
-Do these commands as you on guest:
+Do these commands as you on guest. The bazaar configuration is optional; you can always do a bzr branch command regardless of whether you have a Launchpad account:
 
-  #. `mkdir ~/bin`
-  #. Create `~/.bazaar/bazaar.conf`::
+  #. (optional) `mkdir ~/bin/.bazaar`
+  #. (optional) Create `~/.bazaar/bazaar.conf`::
 
         [DEFAULT]
                 email = Your Name <your-email-address>
-  #. If you are using launchpad to get the code or make changes, run
+  #. (optional) If you are using launchpad to get the code or make changes, run
      `bzr launchpad-login <launchpad_id>`
-  #. Create the swift repo with `bzr init-repo swift`
-  #. Check out your bzr branch of swift, for example:
+  #. (optional) Create the swift repo with `bzr init-repo swift`
+  #. Check out a bzr branch of swift, for example:
      `cd ~/swift; bzr branch lp:swift trunk`
-  #. `cd ~/swift/trunk; sudo python setup.py develop`
+  #. Build a development installation of swift, for example: 
+     `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
