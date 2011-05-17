@@ -177,11 +177,11 @@ class Replicator(Daemon):
         :param replicate_timeout: timeout to wait in seconds
         """
         if self.vm_test_mode:
-            remote_file = '%s::%s%s/%s/tmp/%s' % (device['ip'],
+            remote_file = '[%s]::%s%s/%s/tmp/%s' % (device['ip'],
                     self.server_type, device['port'], device['device'],
                     local_id)
         else:
-            remote_file = '%s::%s/%s/tmp/%s' % (device['ip'],
+            remote_file = '[%s]::%s/%s/tmp/%s' % (device['ip'],
                     self.server_type, device['device'], local_id)
         mtime = os.path.getmtime(broker.db_file)
         if not self._rsync_file(broker.db_file, remote_file):
