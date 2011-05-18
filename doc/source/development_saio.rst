@@ -231,7 +231,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
 Do these commands as you on guest. The bazaar configuration is optional; you can always do a bzr branch command regardless of whether you have a Launchpad account:
 
-  #. (optional) `mkdir ~/bin/.bazaar`
+  #. `mkdir ~/bin`
+  #. (optional) `mkdir ~/.bazaar`
   #. (optional) Create `~/.bazaar/bazaar.conf`::
 
         [DEFAULT]
