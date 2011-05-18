@@ -233,9 +233,12 @@ swift-ring-builder <builder_file> search <search-value>
     def list_parts():
         """
 swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
-    Lists the common partitions for the matching devices, in order of partition
-    most matching to least matching. If there are a lot of devices to match
-    against, this command could take a while to run.
+    Returns a 2 column list of all the partitions that are assigned to any of
+    the devices matching the search values given. The first column is the
+    assigned partition number and the second column is the number of device
+    matches for that partition. The list is ordered from most number of matches
+    to least. If there are a lot of devices to match against, this command
+    could take a while to run.
         """
         if len(argv) < 4:
             print Commands.list_parts.__doc__.strip()
