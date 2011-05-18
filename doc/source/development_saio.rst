@@ -239,7 +239,7 @@ Do these commands as you on guest. The bazaar configuration is optional; you can
                 email = Your Name <your-email-address>
   #. (optional) If you are using launchpad to get the code or make changes, run
      `bzr launchpad-login <launchpad_id>`
-  #. (optional) Create the swift repo with `bzr init-repo swift`
+  #. Create the swift repo with `bzr init-repo swift`
   #. Check out a bzr branch of swift, for example:
      `cd ~/swift; bzr branch lp:swift trunk`
   #. Build a development installation of swift, for example: 
