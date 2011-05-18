@@ -27,13 +27,14 @@ import hashlib
 
 from swift.common.internal_proxy import InternalProxy
 from swift.common.exceptions import ChunkReadTimeout
-from swift.common.utils import get_logger, readconf
+from swift.common.utils import get_logger, readconf, TRUE_VALUES
 from swift.common.daemon import Daemon
 
 now = datetime.datetime.now
 
 
 class BadFileDownload(Exception):
+
     def __init__(self, status_code=None):
         self.status_code = status_code
 
@@ -56,6 +57,9 @@ class LogProcessor(object):
         for section in (x for x in conf if x.startswith(plugin_prefix)):
             plugin_name = section[len(plugin_prefix):]
             plugin_conf = conf.get(section, {})
+            if plugin_conf.get('processable', 'true').lower() not in \
+                    TRUE_VALUES:
+                continue
             self.plugins[plugin_name] = plugin_conf
             class_path = self.plugins[plugin_name]['class_path']
             import_target, class_name = class_path.rsplit('.', 1)

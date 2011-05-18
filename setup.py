@@ -95,6 +95,7 @@ setup(
         'bin/swift-log-uploader',
         'bin/swift-log-stats-collector',
         'bin/swift-account-stats-logger',
+        'bin/swift-container-stats-logger',
         'bin/swauth-add-account', 'bin/swauth-add-user',
         'bin/swauth-cleanup-tokens', 'bin/swauth-delete-account',
         'bin/swauth-delete-user', 'bin/swauth-list', 'bin/swauth-prep',

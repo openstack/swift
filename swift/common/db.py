@@ -883,7 +883,7 @@ class ContainerBroker(DatabaseBroker):
         """
         Get global data for the container.
 
-        :returns: a tuple of (account, container, created_at, put_timestamp,
+        :returns: sqlite.row of (account, container, created_at, put_timestamp,
                   delete_timestamp, object_count, bytes_used,
                   reported_put_timestamp, reported_delete_timestamp,
                   reported_object_count, reported_bytes_used, hash, id)
@@ -1394,7 +1394,7 @@ class AccountBroker(DatabaseBroker):
         """
         Get global data for the account.
 
-        :returns: a tuple of (account, created_at, put_timestamp,
+        :returns: sqlite.row of (account, created_at, put_timestamp,
                   delete_timestamp, container_count, object_count,
                   bytes_used, hash, id)
         """
