@@ -732,8 +732,9 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.body, '<?xml version="1.0" encoding="UTF-8"?>'
-            '\n<container name="c"><subdir name="US-OK-" />'
-            '<subdir name="US-TX-" /><subdir name="US-UT-" /></container>')
+            '\n<container name="c"><subdir name="US-OK-"><name>US-OK-</name></subdir>'
+            '<subdir name="US-TX-"><name>US-TX-</name></subdir>'
+            '<subdir name="US-UT-"><name>US-UT-</name></subdir></container>')
 
     def test_GET_path(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
