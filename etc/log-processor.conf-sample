@@ -14,7 +14,12 @@ swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 # log_dir = /var/log/swift/
 swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 container_name = log_data
-source_filename_pattern = access-%Y%m%d%H
+source_filename_pattern = ^
+    (?P<year>[0-9]{4})
+    (?P<month>[0-1][0-9])
+    (?P<day>[0-3][0-9])
+    (?P<hour>[0-2][0-9])
+    .*$
 # new_log_cutoff = 7200
 # unlink_log = True
 class_path = swift.stats.access_processor.AccessLogProcessor
@@ -31,9 +36,21 @@ class_path = swift.stats.access_processor.AccessLogProcessor
 # log_dir = /var/log/swift/
 swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
 container_name = account_stats
-source_filename_pattern = stats-%Y%m%d%H_.*
 # new_log_cutoff = 7200
 # unlink_log = True
 class_path = swift.stats.stats_processor.StatsLogProcessor
-# account_server_conf = /etc/swift/account-server.conf
+# devices = /srv/node
+# mount_check = true
+# user = swift
+
+[log-processor-container-stats]
+# log_dir = /var/log/swift/
+swift_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
+container_name = container_stats
+# new_log_cutoff = 7200
+# unlink_log = True
+class_path = swift.stats.stats_processor.StatsLogProcessor
+processable = false
+# devices = /srv/node
+# mount_check = true
 # user = swift
