@@ -1791,8 +1791,11 @@ Example:
 
     try:
         parser.usage = globals()['st_%s_help' % args[0]]
-        globals()['st_%s' % args[0]](parser, argv[1:], print_queue,
-                                     error_queue)
+        try:
+            globals()['st_%s' % args[0]](parser, argv[1:], print_queue,
+                                         error_queue)
+        except (ClientException, HTTPException, socket.error), err:
+            error_queue.put(str(err))
         while not print_queue.empty():
             sleep(0.01)
         print_thread.abort = True
