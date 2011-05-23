@@ -63,6 +63,8 @@ class AuditorWorker(object):
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0
+        total_quarantines = 0
+        total_errors = 0
         files_running_time = 0
         time_auditing = 0
         all_locs = audit_location_generator(self.devices,
@@ -93,6 +95,8 @@ class AuditorWorker(object):
                             'total': (now - begin), 'audit': time_auditing,
                             'audit_rate': time_auditing / (now - begin)})
                 reported = now
+                total_quarantines += self.quarantines
+                total_errors += self.errors
                 self.passes = 0
                 self.quarantines = 0
                 self.errors = 0
@@ -101,10 +105,12 @@ class AuditorWorker(object):
         elapsed = time.time() - begin
         self.logger.info(_(
             'Object audit (%(type)s) "%(mode)s" mode '
-            'completed: %(elapsed).02fs. Total files/sec: %(frate).2f , '
+            'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
+            'Total errors: %(errors)d, Total files/sec: %(frate).2f , '
             'Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, '
             'Rate: %(audit_rate).2f') % {
                 'type': self.auditor_type, 'mode': mode, 'elapsed': elapsed,
+                'quars': total_quarantines, 'errors': total_errors,
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
