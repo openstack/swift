@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import cPickle as pickle
+from array import array
 from errno import EEXIST
 from gzip import GzipFile
 from os import mkdir
@@ -49,7 +50,7 @@ The <search-value> can be of the form:
         _shiny           Matches devices with shiny in the meta data
         _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
         [::1]            Matches devices in any zone with the ip ::1
-        z1-[::1]:5678    Matches devices in zone 1 with the ip ::1 and port 5678
+        z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678
     Most specific example:
         d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
     Nerd explanation:
@@ -227,6 +228,40 @@ swift-ring-builder <builder_file> search <search-value>
                 (dev['id'], dev['zone'], dev['ip'], dev['port'],
                  dev['device'], dev['weight'], dev['parts'], balance,
                  dev['meta'])
+        exit(EXIT_RING_UNCHANGED)
+
+    def list_parts():
+        """
+swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
+    Returns a 2 column list of all the partitions that are assigned to any of
+    the devices matching the search values given. The first column is the
+    assigned partition number and the second column is the number of device
+    matches for that partition. The list is ordered from most number of matches
+    to least. If there are a lot of devices to match against, this command
+    could take a while to run.
+        """
+        if len(argv) < 4:
+            print Commands.list_parts.__doc__.strip()
+            print
+            print search_devs.__doc__.strip()
+            exit(EXIT_RING_UNCHANGED)
+        devs = []
+        for arg in argv[3:]:
+            devs.extend(search_devs(builder, arg) or [])
+        if not devs:
+            print 'No matching devices found'
+            exit(EXIT_ERROR)
+        devs = [d['id'] for d in devs]
+        matches = [array('i') for x in xrange(builder.replicas)]
+        for part in xrange(builder.parts):
+            count = len([d for d in builder.get_part_devices(part)
+                         if d['id'] in devs])
+            if count:
+                matches[builder.replicas - count].append(part)
+        print 'Partition   Matches'
+        for index, parts in enumerate(matches):
+            for part in parts:
+                print '%9d   %7d' % (part, builder.replicas - index)
         exit(EXIT_RING_UNCHANGED)
 
     def add():

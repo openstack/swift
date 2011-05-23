@@ -354,6 +354,15 @@ class RingBuilder(object):
         for part in xrange(self.parts):
             self._last_part_moves[part] = 0xff
 
+    def get_part_devices(self, part):
+        """
+        Get the devices that are responsible for the partition.
+
+        :param part: partition to get devices for
+        :returns: list of device dicts
+        """
+        return [self.devs[r[part]] for r in self._replica2part2dev]
+
     def _set_parts_wanted(self):
         """
         Sets the parts_wanted key for each of the devices to the number of
