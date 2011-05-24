@@ -54,7 +54,7 @@ class LogUploader(Daemon):
         .*$
     '''
 
-    def __init__(self, uploader_conf, plugin_name, regex=None):
+    def __init__(self, uploader_conf, plugin_name, regex=None, cutoff=None):
         super(LogUploader, self).__init__(uploader_conf)
         log_name = '%s-log-uploader' % plugin_name
         self.logger = utils.get_logger(uploader_conf, log_name,
@@ -67,21 +67,19 @@ class LogUploader(Daemon):
         proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
                                       name='proxy-server')
         self.internal_proxy = InternalProxy(proxy_server_conf)
-        self.new_log_cutoff = int(uploader_conf.get('new_log_cutoff', '7200'))
+        self.new_log_cutoff = int(cutoff or
+                                  uploader_conf.get('new_log_cutoff', '7200'))
         self.unlink_log = uploader_conf.get('unlink_log', 'True').lower() in \
                 utils.TRUE_VALUES
-        if regex:
-            self.filename_pattern = regex
-        else:
-            self.filename_pattern = \
-                uploader_conf.get('source_filename_pattern',
-                    '''
-                    ^%s-
-                    (?P<year>[0-9]{4})
-                    (?P<month>[0-1][0-9])
-                    (?P<day>[0-3][0-9])
-                    (?P<hour>[0-2][0-9])
-                    .*$''' % plugin_name)
+        self.filename_pattern = regex or \
+            uploader_conf.get('source_filename_pattern',
+                '''
+                ^%s-
+                (?P<year>[0-9]{4})
+                (?P<month>[0-1][0-9])
+                (?P<day>[0-3][0-9])
+                (?P<hour>[0-2][0-9])
+                .*$''' % plugin_name)
 
     def run_once(self, *args, **kwargs):
         self.logger.info(_("Uploading logs"))

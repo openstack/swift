@@ -22,6 +22,8 @@ from swift.common import utils
 
 if __name__ == '__main__':
     parser = OptionParser("Usage: %prog CONFIG_FILE PLUGIN")
+    parser.add_option('-c', '--log_cutoff',
+                      help='Override new_log_cutoff.')
     parser.add_option('-x', '--regex',
                       help='Override source_filename_pattern regex.')
     conf_file, options = parse_options(parser=parser)
@@ -42,4 +44,6 @@ if __name__ == '__main__':
     # currently LogUploader only supports run_once
     options['once'] = True
     regex = options.get('regex')
-    uploader = LogUploader(uploader_conf, plugin, regex=regex).run(**options)
+    cutoff = options.get('log_cutoff')
+    uploader = LogUploader(uploader_conf, plugin,
+                           regex=regex, cutoff=cutoff).run(**options)
