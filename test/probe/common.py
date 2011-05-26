@@ -13,27 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from os import environ, kill
+from os import kill
 from signal import SIGTERM
 from subprocess import call, Popen
 from time import sleep
-from ConfigParser import ConfigParser
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from swift.common.client import get_auth
 from swift.common.ring import Ring
-
-
-SUPER_ADMIN_KEY = None
-
-c = ConfigParser()
-PROXY_SERVER_CONF_FILE = environ.get('SWIFT_PROXY_SERVER_CONF_FILE',
-                                     '/etc/swift/proxy-server.conf')
-if c.read(PROXY_SERVER_CONF_FILE):
-    conf = dict(c.items('filter:swauth'))
-    SUPER_ADMIN_KEY = conf.get('super_admin_key', 'swauthkey')
-else:
-    exit('Unable to read config file: %s' % PROXY_SERVER_CONF_FILE)
 
 
 def kill_pids(pids):
@@ -61,7 +48,6 @@ def reset_environment():
         container_ring = Ring('/etc/swift/container.ring.gz')
         object_ring = Ring('/etc/swift/object.ring.gz')
         sleep(5)
-        call(['recreateaccounts'])
         url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
                               'test:tester', 'testing')
         account = url.split('/')[-1]
