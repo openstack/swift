@@ -113,7 +113,7 @@ class TestAuth(object):
         This is to handle granting tokens, etc.
         """
         # Ensure the accounts we handle have been created
-        if not self.created_accounts:
+        if not self.created_accounts and self.users:
             newenv = {'REQUEST_METHOD': 'GET', 'HTTP_USER_AGENT': 'TestAuth'}
             for name in ('swift.cache', 'HTTP_X_TRANS_ID'):
                 if name in env:

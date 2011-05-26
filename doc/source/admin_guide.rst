@@ -222,22 +222,6 @@ place and then rerun the dispersion report::
     Sample represents 1.00% of the object partition space
 
 
-------------------------------------
-Additional Cleanup Script for Swauth
-------------------------------------
-
-With Swauth, you'll want to install a cronjob to clean up any
-orphaned expired tokens. These orphaned tokens can occur when a "stampede"
-occurs where a single user authenticates several times concurrently. Generally,
-these orphaned tokens don't pose much of an issue, but it's good to clean them
-up once a "token life" period (default: 1 day or 86400 seconds).
-
-This should be as simple as adding `swauth-cleanup-tokens -A
-https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey > /dev/null` to a crontab
-entry on one of the proxies that is running Swauth; but run
-`swauth-cleanup-tokens` with no arguments for detailed help on the options
-available.
-
 ------------------------
 Debugging Tips and Tools
 ------------------------

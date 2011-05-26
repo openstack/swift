@@ -6,7 +6,7 @@ Auth Server and Middleware
 Creating Your Own Auth Server and Middleware
 --------------------------------------------
 
-The included swift/common/middleware/swauth.py is a good example of how to
+The included swift/common/middleware/testauth.py is a good example of how to
 create an auth subsystem with proxy server auth middleware. The main points are
 that the auth middleware can reject requests up front, before they ever get to
 the Swift Proxy application, and afterwards when the proxy issues callbacks to
@@ -27,7 +27,7 @@ specific information, it just passes it along. Convention has
 environ['REMOTE_USER'] set to the authenticated user string but often more
 information is needed than just that.
 
-The included Swauth will set the REMOTE_USER to a comma separated list of
+The included TestAuth will set the REMOTE_USER to a comma separated list of
 groups the user belongs to. The first group will be the "user's group", a group
 that only the user belongs to. The second group will be the "account's group",
 a group that includes all users for that auth account (different than the
@@ -37,7 +37,7 @@ will be omitted.
 
 It is highly recommended that authentication server implementers prefix their
 tokens and Swift storage accounts they create with a configurable reseller
-prefix (`AUTH_` by default with the included Swauth). This prefix will avoid
+prefix (`AUTH_` by default with the included TestAuth). This prefix will avoid
 conflicts with other authentication servers that might be using the same
 Swift cluster. Otherwise, the Swift cluster will have to try all the resellers
 until one validates a token or all fail.
@@ -46,14 +46,14 @@ A restriction with group names is that no group name should begin with a period
 '.' as that is reserved for internal Swift use (such as the .r for referrer
 designations as you'll see later).
 
-Example Authentication with Swauth:
+Example Authentication with TestAuth:
 
-    * Token AUTH_tkabcd is given to the Swauth middleware in a request's
+    * Token AUTH_tkabcd is given to the TestAuth middleware in a request's
       X-Auth-Token header.
-    * The Swauth middleware validates the token AUTH_tkabcd and discovers
+    * The TestAuth middleware validates the token AUTH_tkabcd and discovers
       it matches the "tester" user within the "test" account for the storage
       account "AUTH_storage_xyz".
-    * The Swauth server sets the REMOTE_USER to
+    * The TestAuth middleware sets the REMOTE_USER to
       "test:tester,test,AUTH_storage_xyz"
     * Now this user will have full access (via authorization procedures later)
       to the AUTH_storage_xyz Swift storage account and access to containers in
