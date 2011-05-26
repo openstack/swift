@@ -9,9 +9,9 @@ class Version(object):
     @property
     def pretty_version(self):
         if self.final:
-           return self.canonical_version
+            return self.canonical_version
         else:
-           return '%s-dev' % (self.canonical_version,)
+            return '%s-dev' % (self.canonical_version,)
 
 
 _version = Version('1.4.0', True)
