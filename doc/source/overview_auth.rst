@@ -3,7 +3,7 @@ The Auth System
 ===============
 
 --------
-TestAuth
+TempAuth
 --------
 
 The auth system for Swift is loosely based on the auth system from the existing
@@ -27,7 +27,7 @@ validation.
 Swift will make calls to the auth system, giving the auth token to be
 validated. For a valid token, the auth system responds with an overall
 expiration in seconds from now. Swift will cache the token up to the expiration
-time. The included TestAuth also has the concept of admin and non-admin users
+time. The included TempAuth also has the concept of admin and non-admin users
 within an account. Admin users can do anything within the account. Non-admin
 users can only perform operations per container based on the container's
 X-Container-Read and X-Container-Write ACLs. For more information on ACLs, see
@@ -40,7 +40,7 @@ receive the auth token and a URL to the Swift system.
 Extending Auth
 --------------
 
-TestAuth is written as wsgi middleware, so implementing your own auth is as
+TempAuth is written as wsgi middleware, so implementing your own auth is as
 easy as writing new wsgi middleware, and plugging it in to the proxy server.
 The KeyStone project and the Swauth project are examples of additional auth
 services.

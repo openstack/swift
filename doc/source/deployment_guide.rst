@@ -549,17 +549,17 @@ allow_account_management      false            Whether account PUTs and DELETEs
                                                are even callable
 ============================  ===============  =============================
 
-[testauth]
+[tempauth]
 
 =====================  =============================== =======================
 Option                 Default                         Description
 ---------------------  ------------------------------- -----------------------
 use                                                    Entry point for
                                                        paste.deploy to use for
-                                                       auth. To use testauth
+                                                       auth. To use tempauth
                                                        set to:
-                                                       `egg:swift#testauth`
-set log_name           testauth                        Label used when logging
+                                                       `egg:swift#tempauth`
+set log_name           tempauth                        Label used when logging
 set log_facility       LOG_LOCAL0                      Syslog log facility
 set log_level          INFO                            Log level
 set log_headers        True                            If True, log headers in

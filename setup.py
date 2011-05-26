@@ -113,7 +113,7 @@ setup(
             'domain_remap=swift.common.middleware.domain_remap:filter_factory',
             'swift3=swift.common.middleware.swift3:filter_factory',
             'staticweb=swift.common.middleware.staticweb:filter_factory',
-            'testauth=swift.common.middleware.testauth:filter_factory',
+            'tempauth=swift.common.middleware.tempauth:filter_factory',
             ],
         },
     )

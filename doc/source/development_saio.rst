@@ -265,14 +265,14 @@ Sample configuration files are provided with all defaults in line-by-line commen
         log_facility = LOG_LOCAL1
 
         [pipeline:main]
-        pipeline = healthcheck cache testauth proxy-server
+        pipeline = healthcheck cache tempauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
 
-        [filter:testauth]
-        use = egg:swift#testauth
+        [filter:tempauth]
+        use = egg:swift#tempauth
         user_admin_admin = admin .admin .reseller_admin
         user_test_tester = testing .admin
         user_test2_tester2 = testing2 .admin

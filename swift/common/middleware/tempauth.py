@@ -30,19 +30,19 @@ from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, split_path
 
 
-class TestAuth(object):
+class TempAuth(object):
     """
     Test authentication and authorization system.
 
     Add to your pipeline in proxy-server.conf, such as::
 
         [pipeline:main]
-        pipeline = catch_errors cache testauth proxy-server
+        pipeline = catch_errors cache tempauth proxy-server
 
-    And add a testauth filter section, such as::
+    And add a tempauth filter section, such as::
 
-        [filter:testauth]
-        use = egg:swift#testauth
+        [filter:tempauth]
+        use = egg:swift#tempauth
         user_admin_admin = admin .admin .reseller_admin
         user_test_tester = testing .admin
         user_test2_tester2 = testing2 .admin
@@ -57,7 +57,7 @@ class TestAuth(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
-        self.logger = get_logger(conf, log_route='testauth')
+        self.logger = get_logger(conf, log_route='tempauth')
         self.log_headers = conf.get('log_headers') == 'True'
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
@@ -114,7 +114,7 @@ class TestAuth(object):
         """
         # Ensure the accounts we handle have been created
         if not self.created_accounts and self.users:
-            newenv = {'REQUEST_METHOD': 'GET', 'HTTP_USER_AGENT': 'TestAuth'}
+            newenv = {'REQUEST_METHOD': 'GET', 'HTTP_USER_AGENT': 'TempAuth'}
             for name in ('swift.cache', 'HTTP_X_TRANS_ID'):
                 if name in env:
                     newenv[name] = env[name]
@@ -478,5 +478,5 @@ def filter_factory(global_conf, **local_conf):
     conf.update(local_conf)
 
     def auth_filter(app):
-        return TestAuth(app, conf)
+        return TempAuth(app, conf)
     return auth_filter

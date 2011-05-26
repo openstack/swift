@@ -13,7 +13,7 @@ Prerequisites
 Basic architecture and terms
 ----------------------------
 - *node* - a host machine running one or more Swift services
-- *Proxy node* - node that runs Proxy services; also runs TestAuth
+- *Proxy node* - node that runs Proxy services; also runs TempAuth
 - *Storage node* - node that runs Account, Container, and Object services
 - *ring* - a set of mappings of Swift data to physical devices
 
@@ -23,7 +23,7 @@ This document shows a cluster using the following types of nodes:
 
   - Runs the swift-proxy-server processes which proxy requests to the
     appropriate Storage nodes. The proxy server will also contain
-    the TestAuth service as WSGI middleware.
+    the TempAuth service as WSGI middleware.
 
 - five Storage nodes
 
@@ -130,14 +130,14 @@ Configure the Proxy node
         user = swift
         
         [pipeline:main]
-        pipeline = healthcheck cache testauth proxy-server
+        pipeline = healthcheck cache tempauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
         
-        [filter:testauth]
-        use = egg:swift#testauth
+        [filter:tempauth]
+        use = egg:swift#tempauth
         user_system_root = testpass .admin https://$PROXY_LOCAL_NET_IP:8080/v1/AUTH_system
         
         [filter:healthcheck]
@@ -420,8 +420,8 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
 
 #. Change the storage url for any users to point to the load balanced url, rather than the first proxy server you created in /etc/swift/proxy-server.conf::
 
-        [filter:testauth]
-        use = egg:swift#testauth
+        [filter:tempauth]
+        use = egg:swift#tempauth
         user_system_root = testpass .admin http[s]://<LOAD_BALANCER_HOSTNAME>:<PORT>/v1/AUTH_system
 
 #. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 

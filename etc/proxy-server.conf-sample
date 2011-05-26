@@ -13,7 +13,7 @@
 # log_level = INFO
 
 [pipeline:main]
-pipeline = catch_errors healthcheck cache ratelimit testauth proxy-server
+pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -41,10 +41,10 @@ use = egg:swift#proxy
 # 'false' no one, even authorized, can.
 # allow_account_management = false
 
-[filter:testauth]
-use = egg:swift#testauth
+[filter:tempauth]
+use = egg:swift#tempauth
 # You can override the default log routing for this filter here:
-# set log_name = testauth
+# set log_name = tempauth
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False

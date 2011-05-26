@@ -33,12 +33,12 @@ Utils
     :members:
     :show-inheritance:
 
-.. _common_testauth:
+.. _common_tempauth:
 
-TestAuth
+TempAuth
 ========
 
-.. automodule:: swift.common.middleware.testauth
+.. automodule:: swift.common.middleware.tempauth
     :members:
     :show-inheritance:
 

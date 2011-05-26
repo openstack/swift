@@ -23,7 +23,7 @@ from time import time
 
 from webob import Request, Response
 
-from swift.common.middleware import testauth as auth
+from swift.common.middleware import tempauth as auth
 
 
 class FakeMemcache(object):
