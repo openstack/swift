@@ -23,7 +23,7 @@ try:
 except ImportError:
     frontend = None
 
-from swift import __version__ as version
+from swift import __canonical_version__ as version
 
 
 class local_sdist(sdist):
