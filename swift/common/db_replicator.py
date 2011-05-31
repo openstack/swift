@@ -486,7 +486,6 @@ class ReplicatorRpc(object):
             info = broker.get_replication_info()
         except Exception, e:
             if 'no such table' in str(e):
-                # TODO(unknown): find a real logger
                 self.logger.error(_("Quarantining DB %s") % broker.db_file)
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()
