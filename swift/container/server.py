@@ -56,7 +56,7 @@ class ContainerController(object):
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
-                                            ContainerBroker, self.mount_check)
+            ContainerBroker, self.mount_check, logger=self.logger)
 
     def _get_container_broker(self, drive, part, account, container):
         """
