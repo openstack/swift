@@ -116,6 +116,8 @@ class Replicator(Daemon):
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
+        self.debug_timings_threshold = \
+            int(conf.get('debug_timings_threshold', 10))
         self._zero_stats()
 
     def _zero_stats(self):
@@ -491,14 +493,14 @@ class ReplicatorRpc(object):
                 return HTTPNotFound()
             raise
         timespan = time.time() - timemark
-        if timespan > 10:
+        if timespan > self.debug_timings_threshold:
             self.logger.debug(_('replicator-rpc-sync time for info: %.02fs') %
                               timespan)
         if metadata:
             timemark = time.time()
             broker.update_metadata(simplejson.loads(metadata))
             timespan = time.time() - timemark
-            if timespan > 10:
+            if timespan > self.debug_timings_threshold:
                 self.logger.debug(_('replicator-rpc-sync time for '
                     'update_metadata: %.02fs') % timespan)
         if info['put_timestamp'] != put_timestamp or \
@@ -508,13 +510,13 @@ class ReplicatorRpc(object):
             broker.merge_timestamps(
                 created_at, put_timestamp, delete_timestamp)
             timespan = time.time() - timemark
-            if timespan > 10:
+            if timespan > self.debug_timings_threshold:
                 self.logger.debug(_('replicator-rpc-sync time for '
                     'merge_timestamps: %.02fs') % timespan)
         timemark = time.time()
         info['point'] = broker.get_sync(id_)
         timespan = time.time() - timemark
-        if timespan > 10:
+        if timespan > self.debug_timings_threshold:
             self.logger.debug(_('replicator-rpc-sync time for get_sync: '
                 '%.02fs') % timespan)
         if hash_ == info['hash'] and info['point'] < remote_sync:
@@ -523,7 +525,7 @@ class ReplicatorRpc(object):
                                  'sync_point': remote_sync}])
             info['point'] = remote_sync
             timespan = time.time() - timemark
-            if timespan > 10:
+            if timespan > self.debug_timings_threshold:
                 self.logger.debug(_('replicator-rpc-sync time for '
                     'merge_syncs: %.02fs') % timespan)
         return Response(simplejson.dumps(info))
