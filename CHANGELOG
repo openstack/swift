@@ -1,0 +1,58 @@
+swift (1.4.0)
+
+    * swift-bench now cleans up containers it creates.
+
+    * WSGI servers now load WSGI filters and applications after forking for
+      better plugin support.
+
+    * swauth-cleanup-tokens now handles 404s on token containers and tokens
+      better.
+
+    * Proxy logs the remote IP address as the client IP in the absence of
+      X-Forwarded-For and X-Cluster-Client-IP headers instead of - like it did
+      before.
+
+    * Swift3 WSGI middleware added support for param-signed URLs.
+
+    * swauth- scripts now exit with proper exit codes.
+
+    * Fixed a bug where allowed_headers weren't honored for HEAD requests.
+
+    * Double quarantining of corrupted sqlite3 databases now works.
+
+    * Fix for Object replicator breaking when running object replicator with no
+      objects on the server.
+
+    * Added the Accept-Ranges header to GET and HEAD requests.
+
+    * When a single object has multiple async pending updates on a single
+      device, only latest async pending is now sent.
+
+    * Fixed issue of Swift3 WSGI middleware not working correctly with '/' in
+      object names.
+
+    * Renamed swift-stats-* to swift-dispersion-* to avoid confusion with log
+      stats stuff.
+
+    * Added X-Trans-Id transaction id header to every response.
+
+    * Fixed a Python 2.7 compatibility problem.
+
+    * Now using bracketed notation for ip literals in rsync calls, so
+      compressed ipv6 literals work.
+
+    * Added a container stats collector and refactoring some of the stats code.
+
+    * Changed subdir nodes in XML formatted object listings to align with
+      object nodes. Now: <subdir name="foo"><name>foo</name></subdir> Before:
+      <subdir name="foo" />.
+
+    * Fixed bug in Swauth to support for multiple swauth instances.
+
+    * swift-ring-builder: Added list_parts command which shows common
+      partitions for a given list of devices.
+
+    * Object auditor now shows better statistics updates in the logs.
+
+    * Stats uploaders now allow overrides for source_filename_pattern and
+      new_log_cutoff values.

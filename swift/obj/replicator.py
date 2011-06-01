@@ -271,9 +271,9 @@ class ObjectReplicator(Daemon):
             '--contimeout=%s' % self.rsync_io_timeout,
         ]
         if self.vm_test_mode:
-            rsync_module = '%s::object%s' % (node['ip'], node['port'])
+            rsync_module = '[%s]::object%s' % (node['ip'], node['port'])
         else:
-            rsync_module = '%s::object' % node['ip']
+            rsync_module = '[%s]::object' % node['ip']
         had_any = False
         for suffix in suffixes:
             spath = join(job['path'], suffix)

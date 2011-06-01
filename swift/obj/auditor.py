@@ -63,46 +63,57 @@ class AuditorWorker(object):
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0
+        total_quarantines = 0
+        total_errors = 0
         files_running_time = 0
+        time_auditing = 0
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
+            loop_time = time.time()
             self.object_audit(path, device, partition)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
             self.total_files_processed += 1
-            if time.time() - reported >= self.log_time:
+            now = time.time()
+            if now - reported >= self.log_time:
                 self.logger.info(_(
                     'Object audit (%(type)s). '
                     'Since %(start_time)s: Locally: %(passes)d passed, '
                     '%(quars)d quarantined, %(errors)d errors '
-                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f') % {
+                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f, '
+                    'Total time: %(total).2f, Auditing time: %(audit).2f, '
+                    'Rate: %(audit_rate).2f') % {
                             'type': self.auditor_type,
                             'start_time': time.ctime(reported),
-                            'passes': self.passes,
-                            'quars': self.quarantines,
+                            'passes': self.passes, 'quars': self.quarantines,
                             'errors': self.errors,
-                            'frate': self.passes / (time.time() - reported),
-                            'brate': self.bytes_processed /
-                                     (time.time() - reported)})
-                reported = time.time()
+                            'frate': self.passes / (now - reported),
+                            'brate': self.bytes_processed / (now - reported),
+                            'total': (now - begin), 'audit': time_auditing,
+                            'audit_rate': time_auditing / (now - begin)})
+                reported = now
+                total_quarantines += self.quarantines
+                total_errors += self.errors
                 self.passes = 0
                 self.quarantines = 0
                 self.errors = 0
                 self.bytes_processed = 0
+            time_auditing += (now - loop_time)
         elapsed = time.time() - begin
         self.logger.info(_(
-                'Object audit (%(type)s) "%(mode)s" mode '
-                'completed: %(elapsed).02fs. '
-                'Total files/sec: %(frate).2f , '
-                'Total bytes/sec: %(brate).2f ') % {
-                    'type': self.auditor_type,
-                    'mode': mode,
-                    'elapsed': elapsed,
-                    'frate': self.total_files_processed / elapsed,
-                    'brate': self.total_bytes_processed / elapsed})
+            'Object audit (%(type)s) "%(mode)s" mode '
+            'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
+            'Total errors: %(errors)d, Total files/sec: %(frate).2f , '
+            'Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, '
+            'Rate: %(audit_rate).2f') % {
+                'type': self.auditor_type, 'mode': mode, 'elapsed': elapsed,
+                'quars': total_quarantines, 'errors': total_errors,
+                'frate': self.total_files_processed / elapsed,
+                'brate': self.total_bytes_processed / elapsed,
+                'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
 
     def object_audit(self, path, device, partition):
         """
@@ -133,6 +144,7 @@ class AuditorWorker(object):
             except DiskFileNotExist:
                 return
             if self.zero_byte_only_at_fps and obj_size:
+                self.passes += 1
                 return
             for chunk in df:
                 self.bytes_running_time = ratelimit_sleep(

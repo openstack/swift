@@ -244,5 +244,6 @@ class BenchPUT(Bench):
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
-        self.names.append((device, partition, name, container_name))
+            else:
+                self.names.append((device, partition, name, container_name))
         self.complete += 1

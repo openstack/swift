@@ -23,7 +23,7 @@ try:
 except ImportError:
     frontend = None
 
-from swift import __version__ as version
+from swift import __canonical_version__ as version
 
 
 class local_sdist(sdist):
@@ -90,10 +90,12 @@ setup(
         'bin/swift-object-updater', 'bin/swift-proxy-server',
         'bin/swift-ring-builder', 'bin/swift-stats-populate',
         'bin/swift-stats-report',
+        'bin/swift-dispersion-populate', 'bin/swift-dispersion-report',
         'bin/swift-bench',
         'bin/swift-log-uploader',
         'bin/swift-log-stats-collector',
         'bin/swift-account-stats-logger',
+        'bin/swift-container-stats-logger',
         'bin/swauth-add-account', 'bin/swauth-add-user',
         'bin/swauth-cleanup-tokens', 'bin/swauth-delete-account',
         'bin/swauth-delete-user', 'bin/swauth-list', 'bin/swauth-prep',

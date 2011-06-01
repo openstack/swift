@@ -358,7 +358,7 @@ class Controller(object):
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
         path = '/%s' % account
-        headers = {'x-cf-trans-id': self.trans_id}
+        headers = {'x-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.account_ring):
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -432,7 +432,7 @@ class Controller(object):
         sync_key = None
         container_size = None
         attempts_left = self.app.container_ring.replica_count
-        headers = {'x-cf-trans-id': self.trans_id}
+        headers = {'x-trans-id': self.trans_id}
         for node in self.iter_nodes(partition, nodes, self.app.container_ring):
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -1276,7 +1276,7 @@ class ContainerController(Controller):
         headers = []
         for account in accounts:
             nheaders = {'X-Timestamp': normalize_timestamp(time.time()),
-                        'x-cf-trans-id': self.trans_id,
+                        'x-trans-id': self.trans_id,
                         'X-Account-Host': '%(ip)s:%(port)s' % account,
                         'X-Account-Partition': account_partition,
                         'X-Account-Device': account['device']}
@@ -1304,7 +1304,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
+                   'x-trans-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower() in self.pass_through_headers or
                value[0].lower().startswith('x-container-meta-'))
@@ -1327,7 +1327,7 @@ class ContainerController(Controller):
         headers = []
         for account in accounts:
             headers.append({'X-Timestamp': normalize_timestamp(time.time()),
-                           'X-Cf-Trans-Id': self.trans_id,
+                           'X-Trans-Id': self.trans_id,
                            'X-Account-Host': '%(ip)s:%(port)s' % account,
                            'X-Account-Partition': account_partition,
                            'X-Account-Device': account['device']})
@@ -1372,7 +1372,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-cf-trans-id': self.trans_id}
+                   'x-trans-id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
@@ -1389,7 +1389,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-CF-Trans-Id': self.trans_id}
+                   'X-Trans-Id': self.trans_id}
         headers.update(value for value in req.headers.iteritems()
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
@@ -1406,7 +1406,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-CF-Trans-Id': self.trans_id}
+                   'X-Trans-Id': self.trans_id}
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.make_requests(req, self.app.account_ring,
@@ -1522,8 +1522,6 @@ class BaseApplication(object):
     def update_request(self, req):
         req.bytes_transferred = '-'
         req.client_disconnect = False
-        if 'x-cf-trans-id' not in req.headers:
-            req.headers['x-cf-trans-id'] = 'tx' + str(uuid.uuid4())
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
@@ -1547,8 +1545,8 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
 
             controller = controller(self, **path_parts)
-            controller.trans_id = req.headers.get('x-cf-trans-id', '-')
-            self.logger.txn_id = req.headers.get('x-cf-trans-id', None)
+            controller.trans_id = req.headers.get('x-trans-id', '-')
+            self.logger.txn_id = req.headers.get('x-trans-id', None)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
@@ -1622,7 +1620,7 @@ class Application(BaseApplication):
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),
-                req.headers.get('x-cf-trans-id', '-'),
+                req.headers.get('x-trans-id', '-'),
                 logged_headers or '-',
                 trans_time,
             )))

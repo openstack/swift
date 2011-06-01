@@ -20,9 +20,10 @@ from optparse import OptionParser
 from os import environ, listdir, makedirs, utime
 from os.path import basename, dirname, getmtime, getsize, isdir, join
 from Queue import Empty, Queue
-from sys import argv, exit, stderr, stdout
+from sys import argv, exc_info, exit, stderr, stdout
 from threading import enumerate as threading_enumerate, Thread
 from time import sleep
+from traceback import format_exception
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -778,6 +779,8 @@ class Connection(object):
                     self.url = self.token = None
                     if self.attempts > 1:
                         raise
+                elif err.http_status == 408:
+                    self.http_conn = None
                 elif 500 <= err.http_status <= 599:
                     pass
                 else:
@@ -854,6 +857,8 @@ class Connection(object):
         if tell and seek:
             orig_pos = tell()
             reset_func = lambda *a, **k: seek(orig_pos)
+        elif not contents:
+            reset_func = lambda *a, **k: None
 
         return self._retry(reset_func, put_object, container, obj, contents,
             content_length=content_length, etag=etag, chunk_size=chunk_size,
@@ -879,6 +884,24 @@ def mkdirs(path):
             raise
 
 
+def put_errors_from_threads(threads, error_queue):
+    """
+    Places any errors from the threads into error_queue.
+    :param threads: A list of QueueFunctionThread instances.
+    :param error_queue: A queue to put error strings into.
+    :returns: True if any errors were found.
+    """
+    was_error = False
+    for thread in threads:
+        for info in thread.exc_infos:
+            was_error = True
+            if isinstance(info[1], ClientException):
+                error_queue.put(str(info[1]))
+            else:
+                error_queue.put(''.join(format_exception(*info)))
+    return was_error
+
+
 class QueueFunctionThread(Thread):
 
     def __init__(self, queue, func, *args, **kwargs):
@@ -892,18 +915,22 @@ class QueueFunctionThread(Thread):
         self.func = func
         self.args = args
         self.kwargs = kwargs
+        self.exc_infos = []
 
     def run(self):
-        while True:
-            try:
-                item = self.queue.get_nowait()
-                if not self.abort:
-                    self.func(item, *self.args, **self.kwargs)
-                self.queue.task_done()
-            except Empty:
-                if self.abort:
-                    break
-                sleep(0.01)
+        try:
+            while True:
+                try:
+                    item = self.queue.get_nowait()
+                    if not self.abort:
+                        self.func(item, *self.args, **self.kwargs)
+                    self.queue.task_done()
+                except Empty:
+                    if self.abort:
+                        break
+                    sleep(0.01)
+        except Exception:
+            self.exc_infos.append(exc_info())
 
 
 st_delete_help = '''
@@ -931,7 +958,11 @@ def st_delete(parser, args, print_queue, error_queue):
     def _delete_segment((container, obj), conn):
         conn.delete_object(container, obj)
         if options.verbose:
-            print_queue.put('%s/%s' % (container, obj))
+            if conn.attempts > 2:
+                print_queue.put('%s/%s [after %d attempts]' %
+                                (container, obj, conn.attempts))
+            else:
+                print_queue.put('%s/%s' % (container, obj))
 
     object_queue = Queue(10000)
 
@@ -964,11 +995,16 @@ def st_delete(parser, args, print_queue, error_queue):
                         thread.abort = True
                         while thread.isAlive():
                             thread.join(0.01)
+                    put_errors_from_threads(segment_threads, error_queue)
             if options.verbose:
                 path = options.yes_all and join(container, obj) or obj
                 if path[:1] in ('/', '\\'):
                     path = path[1:]
-                print_queue.put(path)
+                if conn.attempts > 1:
+                    print_queue.put('%s [after %d attempts]' %
+                                    (path, conn.attempts))
+                else:
+                    print_queue.put(path)
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -1055,12 +1091,14 @@ def st_delete(parser, args, print_queue, error_queue):
         thread.abort = True
         while thread.isAlive():
             thread.join(0.01)
+    put_errors_from_threads(container_threads, error_queue)
     while not object_queue.empty():
         sleep(0.01)
     for thread in object_threads:
         thread.abort = True
         while thread.isAlive():
             thread.join(0.01)
+    put_errors_from_threads(object_threads, error_queue)
 
 
 st_download_help = '''
@@ -1152,7 +1190,11 @@ def st_download(options, args, print_queue, error_queue):
                 mtime = float(headers['x-object-meta-mtime'])
                 utime(path, (mtime, mtime))
             if options.verbose:
-                print_queue.put(path)
+                if conn.attempts > 1:
+                    print_queue.put('%s [after %d attempts' %
+                                    (path, conn.attempts))
+                else:
+                    print_queue.put(path)
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -1224,12 +1266,14 @@ def st_download(options, args, print_queue, error_queue):
         thread.abort = True
         while thread.isAlive():
             thread.join(0.01)
+    put_errors_from_threads(container_threads, error_queue)
     while not object_queue.empty():
         sleep(0.01)
     for thread in object_threads:
         thread.abort = True
         while thread.isAlive():
             thread.join(0.01)
+    put_errors_from_threads(object_threads, error_queue)
 
 
 st_list_help = '''
@@ -1526,7 +1570,11 @@ def st_upload(options, args, print_queue, error_queue):
             conn.put_object(job.get('container', args[0] + '_segments'),
                 job['obj'], fp, content_length=job['segment_size'])
         if options.verbose and 'log_line' in job:
-            print_queue.put(job['log_line'])
+            if conn.attempts > 1:
+                print_queue.put('%s [after %d attempts]' %
+                                (job['log_line'], conn.attempts))
+            else:
+                print_queue.put(job['log_line'])
 
     def _object_job(job, conn):
         path = job['path']
@@ -1604,6 +1652,10 @@ def st_upload(options, args, print_queue, error_queue):
                         thread.abort = True
                         while thread.isAlive():
                             thread.join(0.01)
+                    if put_errors_from_threads(segment_threads, error_queue):
+                        raise ClientException('Aborting manifest creation '
+                            'because not all segments could be uploaded. %s/%s'
+                            % (container, obj))
                     new_object_manifest = '%s_segments/%s/%s/%s/' % (
                         container, obj, put_headers['x-object-meta-mtime'],
                         full_size)
@@ -1634,8 +1686,13 @@ def st_upload(options, args, print_queue, error_queue):
                             thread.abort = True
                             while thread.isAlive():
                                 thread.join(0.01)
+                        put_errors_from_threads(segment_threads, error_queue)
             if options.verbose:
-                print_queue.put(obj)
+                if conn.attempts > 1:
+                    print_queue.put(
+                        '%s [after %d attempts]' % (obj, conn.attempts))
+                else:
+                    print_queue.put(obj)
         except OSError, err:
             if err.errno != ENOENT:
                 raise
@@ -1684,6 +1741,7 @@ def st_upload(options, args, print_queue, error_queue):
             thread.abort = True
             while thread.isAlive():
                 thread.join(0.01)
+        put_errors_from_threads(object_threads, error_queue)
     except ClientException, err:
         if err.http_status != 404:
             raise
@@ -1765,8 +1823,11 @@ Example:
 
     try:
         parser.usage = globals()['st_%s_help' % args[0]]
-        globals()['st_%s' % args[0]](parser, argv[1:], print_queue,
-                                     error_queue)
+        try:
+            globals()['st_%s' % args[0]](parser, argv[1:], print_queue,
+                                         error_queue)
+        except (ClientException, HTTPException, socket.error), err:
+            error_queue.put(str(err))
         while not print_queue.empty():
             sleep(0.01)
         print_thread.abort = True

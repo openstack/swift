@@ -749,6 +749,11 @@ if __name__ == '__main__':
     patcher.monkey_patch()
     hubs.get_hub().debug_exceptions = False
 
+    print >>stderr, '''
+WARNING: This command is being replaced with swift-dispersion-report; you
+should switch to that before the next Swift release.
+    '''
+
     parser = OptionParser(usage='''
 Usage: %prog [options] [conf_file]
 

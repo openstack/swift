@@ -766,6 +766,8 @@ class Connection(object):
                     self.url = self.token = None
                     if self.attempts > 1:
                         raise
+                elif err.http_status == 408:
+                    self.http_conn = None
                 elif 500 <= err.http_status <= 599:
                     pass
                 else:
@@ -842,6 +844,8 @@ class Connection(object):
         if tell and seek:
             orig_pos = tell()
             reset_func = lambda *a, **k: seek(orig_pos)
+        elif not contents:
+            reset_func = lambda *a, **k: None
 
         return self._retry(reset_func, put_object, container, obj, contents,
             content_length=content_length, etag=etag, chunk_size=chunk_size,

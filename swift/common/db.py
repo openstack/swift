@@ -885,12 +885,11 @@ class ContainerBroker(DatabaseBroker):
         """
         Get global data for the container.
 
-        :returns: a dict with at least the following keys: account, container,
-                  created_at, put_timestamp, delete_timestamp, object_count,
-                  bytes_used, reported_put_timestamp,
-                  reported_delete_timestamp, reported_object_count,
-                  reported_bytes_used, hash, id, x_container_sync_point1, and
-                  x_container_sync_point2
+        :returns: sqlite.row of (account, container, created_at, put_timestamp,
+                  delete_timestamp, object_count, bytes_used,
+                  reported_put_timestamp, reported_delete_timestamp,
+                  reported_object_count, reported_bytes_used, hash, id,
+                  x_container_sync_point1, x_container_sync_point2)
         """
         try:
             self._commit_puts()
@@ -1450,9 +1449,9 @@ class AccountBroker(DatabaseBroker):
         """
         Get global data for the account.
 
-        :returns: a dict with at least the following keys: account, created_at,
-                  put_timestamp, delete_timestamp, container_count,
-                  object_count, bytes_used, hash, id
+        :returns: sqlite.row of (account, created_at, put_timestamp,
+                  delete_timestamp, container_count, object_count,
+                  bytes_used, hash, id)
         """
         try:
             self._commit_puts()

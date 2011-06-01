@@ -19,6 +19,7 @@ import hashlib
 import time
 import gzip
 import re
+import sys
 from paste.deploy import appconfig
 
 from swift.common.internal_proxy import InternalProxy
@@ -40,9 +41,20 @@ class LogUploader(Daemon):
 
     The given proxy server config is used to instantiate a proxy server for
     the object uploads.
+
+    The default log file format is: plugin_name-%Y%m%d%H* . Any other format
+    of log file names must supply a regular expression that defines groups
+    for year, month, day, and hour. The regular expression will be evaluated
+    with re.VERBOSE. A common example may be:
+    source_filename_pattern = ^cdn_logger-
+        (?P<year>[0-9]{4})
+        (?P<month>[0-1][0-9])
+        (?P<day>[0-3][0-9])
+        (?P<hour>[0-2][0-9])
+        .*$
     '''
 
-    def __init__(self, uploader_conf, plugin_name):
+    def __init__(self, uploader_conf, plugin_name, regex=None, cutoff=None):
         super(LogUploader, self).__init__(uploader_conf)
         log_name = '%s-log-uploader' % plugin_name
         self.logger = utils.get_logger(uploader_conf, log_name,
@@ -55,19 +67,19 @@ class LogUploader(Daemon):
         proxy_server_conf = appconfig('config:%s' % proxy_server_conf_loc,
                                       name='proxy-server')
         self.internal_proxy = InternalProxy(proxy_server_conf)
-        self.new_log_cutoff = int(uploader_conf.get('new_log_cutoff', '7200'))
+        self.new_log_cutoff = int(cutoff or
+                                  uploader_conf.get('new_log_cutoff', '7200'))
         self.unlink_log = uploader_conf.get('unlink_log', 'True').lower() in \
                 utils.TRUE_VALUES
-
-        # source_filename_format is deprecated
-        source_filename_format = uploader_conf.get('source_filename_format')
-        source_filename_pattern = uploader_conf.get('source_filename_pattern')
-        if source_filename_format and not source_filename_pattern:
-            self.logger.warning(_('source_filename_format is unreliable and '
-                                  'deprecated; use source_filename_pattern'))
-            self.pattern = self.convert_glob_to_regex(source_filename_format)
-        else:
-            self.pattern = source_filename_pattern or '%Y%m%d%H'
+        self.filename_pattern = regex or \
+            uploader_conf.get('source_filename_pattern',
+                '''
+                ^%s-
+                (?P<year>[0-9]{4})
+                (?P<month>[0-1][0-9])
+                (?P<day>[0-3][0-9])
+                (?P<hour>[0-2][0-9])
+                .*$''' % plugin_name)
 
     def run_once(self, *args, **kwargs):
         self.logger.info(_("Uploading logs"))
@@ -75,44 +87,6 @@ class LogUploader(Daemon):
         self.upload_all_logs()
         self.logger.info(_("Uploading logs complete (%0.2f minutes)") %
             ((time.time() - start) / 60))
-
-    def convert_glob_to_regex(self, glob):
-        """
-        Make a best effort to support old style config globs
-
-        :param : old style config source_filename_format
-
-        :returns : new style config source_filename_pattern
-        """
-        pattern = glob
-        pattern = pattern.replace('.', r'\.')
-        pattern = pattern.replace('*', r'.*')
-        pattern = pattern.replace('?', r'.?')
-        return pattern
-
-    def validate_filename_pattern(self):
-        """
-        Validate source_filename_pattern
-
-        :returns : valid regex pattern based on soruce_filename_pattern with
-                   group matches substituded for date fmt markers
-        """
-        pattern = self.pattern
-        markers = {
-            '%Y': ('year', '(?P<year>[0-9]{4})'),
-            '%m': ('month', '(?P<month>[0-1][0-9])'),
-            '%d': ('day', '(?P<day>[0-3][0-9])'),
-            '%H': ('hour', '(?P<hour>[0-2][0-9])'),
-        }
-        for marker, (mtype, group) in markers.items():
-            if marker not in self.pattern:
-                self.logger.error(_('source_filename_pattern much contain a '
-                                    'marker %(marker)s to match the '
-                                    '%(mtype)s') % {'marker': marker,
-                                                   'mtype': mtype})
-                return
-            pattern = pattern.replace(marker, group)
-        return pattern
 
     def get_relpath_to_files_under_log_dir(self):
         """
@@ -125,7 +99,7 @@ class LogUploader(Daemon):
             all_files.extend(os.path.join(path, f) for f in files)
         return [os.path.relpath(f, start=self.log_dir) for f in all_files]
 
-    def filter_files(self, all_files, pattern):
+    def filter_files(self, all_files):
         """
         Filter files based on regex pattern
 
@@ -137,15 +111,15 @@ class LogUploader(Daemon):
         filename2match = {}
         found_match = False
         for filename in all_files:
-            match = re.match(pattern, filename)
+            match = re.match(self.filename_pattern, filename, re.VERBOSE)
             if match:
                 found_match = True
                 full_path = os.path.join(self.log_dir, filename)
                 filename2match[full_path] = match.groupdict()
             else:
                 self.logger.debug(_('%(filename)s does not match '
-                                    '%(pattern)s') % {'filename': filename,
-                                                      'pattern': pattern})
+                           '%(pattern)s') % {'filename': filename,
+                                             'pattern': self.filename_pattern})
         return filename2match
 
     def upload_all_logs(self):
@@ -153,16 +127,13 @@ class LogUploader(Daemon):
         Match files under log_dir to source_filename_pattern and upload to
         swift
         """
-        pattern = self.validate_filename_pattern()
-        if not pattern:
-            self.logger.error(_('Invalid filename_format'))
-            return
         all_files = self.get_relpath_to_files_under_log_dir()
-        filename2match = self.filter_files(all_files, pattern)
+        filename2match = self.filter_files(all_files)
         if not filename2match:
-            self.logger.info(_('No files in %(log_dir)s match %(pattern)s') %
-                             {'log_dir': self.log_dir, 'pattern': pattern})
-            return
+            self.logger.error(_('No files in %(log_dir)s match %(pattern)s') %
+                     {'log_dir': self.log_dir,
+                      'pattern': self.filename_pattern})
+            sys.exit(1)
         if not self.internal_proxy.create_container(self.swift_account,
                                                     self.container_name):
             self.logger.error(_('Unable to create container for '

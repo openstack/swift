@@ -147,7 +147,7 @@ Configure the Proxy node
         
         [filter:cache]
         use = egg:swift#memcache
-        memcache_servers = <PROXY_LOCAL_NET_IP>:11211
+        memcache_servers = $PROXY_LOCAL_NET_IP:11211
         EOF
 
    .. note::
@@ -156,7 +156,9 @@ Configure the Proxy node
     in the [filter:cache] section of the proxy-server.conf file like:
     `10.1.2.3:11211,10.1.2.4:11211`. Only the proxy server uses memcache.
 
-#. Create the account, container and object rings::
+#. Create the account, container and object rings. The builder command is basically creating a builder file with a few parameters. The parameter with the value of 18 represents 2 ^ 18th, the value that the partition will be sized to. Set this "partition power" value based on the total amount of storage you expect your entire ring to use. The value of 3 represents the number of replicas of each object, with the last value being the number of hours to restrict moving a partition more than once.
+
+::
 
     cd /etc/swift
     swift-ring-builder account.builder create 18 3 1
@@ -297,7 +299,7 @@ Configure the Storage nodes
 
         cat >/etc/swift/container-server.conf <<EOF
         [DEFAULT]
-        bind_ip = <STORAGE_LOCAL_NET_IP>
+        bind_ip = $STORAGE_LOCAL_NET_IP
         workers = 2
         
         [pipeline:main]
@@ -317,7 +319,7 @@ Configure the Storage nodes
 
         cat >/etc/swift/object-server.conf <<EOF
         [DEFAULT]
-        bind_ip = <STORAGE_LOCAL_NET_IP>
+        bind_ip = $STORAGE_LOCAL_NET_IP
         workers = 2
         
         [pipeline:main]
@@ -371,12 +373,12 @@ You run these commands from the Proxy node.
    above.  *Note: None of the values of 
    account, username, or password are special - they can be anything.*::
 
-        swauth-prep -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey
-        swauth-add-user -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey -a system root testpass
+        swauth-prep -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey
+        swauth-add-user -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey -a system root testpass
 
 #. Get an X-Storage-Url and X-Auth-Token::
 
-        curl -k -v -H 'X-Storage-User: system:root' -H 'X-Storage-Pass: testpass' https://<PROXY_HOSTNAME>:8080/auth/v1.0
+        curl -k -v -H 'X-Storage-User: system:root' -H 'X-Storage-Pass: testpass' https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0
 
 #. Check that you can HEAD the account::
 
@@ -384,32 +386,32 @@ You run these commands from the Proxy node.
 
 #. Check that ``st`` works  (at this point, expect zero containers, zero objects, and zero bytes)::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass stat
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass stat
 
 #. Use ``st`` to upload a few files named 'bigfile[1-2].tgz' to a container named 'myfiles'::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
 
 #. Use ``st`` to download all files from the 'myfiles' container::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass download myfiles
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download myfiles
 
 #. Use ``st`` to save a backup of your builder files to a container named 'builders'. Very important not to lose your builders!::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
 
 #. Use ``st`` to list your containers::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass list
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list
 
 #. Use ``st`` to list the contents of your 'builders' container::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass list builders
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list builders
 
 #. Use ``st`` to download all files from the 'builders' container::
 
-        st -A https://<PROXY_HOSTNAME>:8080/auth/v1.0 -U system:root -K testpass download builders
+        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download builders
 
 .. _add-proxy-server:
 
@@ -426,7 +428,7 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
 
         [filter:cache]
         use = egg:swift#memcache
-        memcache_servers = <PROXY_LOCAL_NET_IP>:11211
+        memcache_servers = $PROXY_LOCAL_NET_IP:11211
 
 #. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/proxy-server.conf::
 
@@ -440,11 +442,11 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
 
     First retreve what the URL was::
 
-         swauth-list -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey <account>
+         swauth-list -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey <account>
 
      And then update it with::
 
-         swauth-set-account-service -A https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey <account> storage local <new_url_for_the_account>
+         swauth-set-account-service -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey <account> storage local <new_url_for_the_account>
 
     Make the <new_url_for_the_account> look just like it's original URL but with the host:port update you want.
 
