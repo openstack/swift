@@ -46,8 +46,8 @@ class AccountController(object):
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        self.replicator_rpc = \
-            ReplicatorRpc(self.root, DATADIR, AccountBroker, self.mount_check)
+        self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
+            self.mount_check, logger=self.logger)
 
     def _get_account_broker(self, drive, part, account):
         hsh = hash_path(account)
