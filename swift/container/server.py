@@ -61,7 +61,7 @@ class ContainerController(object):
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
-                                            ContainerBroker, self.mount_check)
+            ContainerBroker, self.mount_check, logger=self.logger)
 
     def _get_container_broker(self, drive, part, account, container):
         """
