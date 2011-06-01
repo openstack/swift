@@ -35,8 +35,6 @@ def reset_environment():
     call(['resetswift'])
     pids = {}
     try:
-        pids['proxy'] = Popen(['swift-proxy-server',
-                               '/etc/swift/proxy-server.conf']).pid
         port2server = {}
         for s, p in (('account', 6002), ('container', 6001), ('object', 6000)):
             for n in xrange(1, 5):
@@ -44,13 +42,27 @@ def reset_environment():
                     Popen(['swift-%s-server' % s,
                            '/etc/swift/%s-server/%d.conf' % (s, n)]).pid
                 port2server[p + (n * 10)] = '%s%d' % (s, n)
+        pids['proxy'] = Popen(['swift-proxy-server',
+                               '/etc/swift/proxy-server.conf']).pid
         account_ring = Ring('/etc/swift/account.ring.gz')
         container_ring = Ring('/etc/swift/container.ring.gz')
         object_ring = Ring('/etc/swift/object.ring.gz')
-        sleep(5)
-        url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
-                              'test:tester', 'testing')
-        account = url.split('/')[-1]
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
+                                      'test:tester', 'testing')
+                account = url.split('/')[-1]
+                break
+            except Exception, err:
+                if attempt > 9:
+                    print err
+                    print 'Giving up after %s retries.' % attempt
+                    raise err
+                print err
+                print 'Retrying in 1 second...'
+                sleep(1)
     except BaseException, err:
         kill_pids(pids)
         raise err
