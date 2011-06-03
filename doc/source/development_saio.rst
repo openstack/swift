@@ -265,16 +265,18 @@ Sample configuration files are provided with all defaults in line-by-line commen
         log_facility = LOG_LOCAL1
 
         [pipeline:main]
-        pipeline = healthcheck cache swauth proxy-server
+        pipeline = healthcheck cache tempauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
 
-        [filter:swauth]
-        use = egg:swift#swauth
-        # Highly recommended to change this.
-        super_admin_key = swauthkey
+        [filter:tempauth]
+        use = egg:swift#tempauth
+        user_admin_admin = admin .admin .reseller_admin
+        user_test_tester = testing .admin
+        user_test2_tester2 = testing2 .admin
+        user_test_tester3 = testing3
 
         [filter:healthcheck]
         use = egg:swift#healthcheck
@@ -566,8 +568,10 @@ Setting up scripts for running Swift
 ------------------------------------
 
   #. Create `~/bin/resetswift.` 
-  If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
-  If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
+
+     If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
+
+     If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
   
         #!/bin/bash
 
@@ -615,18 +619,6 @@ Setting up scripts for running Swift
         #!/bin/bash
 
         swift-init main start
-
-  #. Create `~/bin/recreateaccounts`::
-  
-        #!/bin/bash
-
-        # Replace swauthkey with whatever your super_admin key is (recorded in
-        # /etc/swift/proxy-server.conf).
-        swauth-prep -K swauthkey
-        swauth-add-user -K swauthkey -a test tester testing
-        swauth-add-user -K swauthkey -a test2 tester2 testing2
-        swauth-add-user -K swauthkey test tester3 testing3
-        swauth-add-user -K swauthkey -a -r reseller reseller reseller
 
   #. Create `~/bin/startrest`::
 
