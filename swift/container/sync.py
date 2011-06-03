@@ -149,6 +149,7 @@ class ContainerSync(Daemon):
         self.allowed_sync_hosts = [h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
+        self.proxy = conf.get('sync_proxy')
         #: Number of containers with sync turned on that were successfully
         #: synced.
         self.container_syncs = 0
@@ -337,7 +338,8 @@ class ContainerSync(Daemon):
                 try:
                     client.delete_object(sync_to, name=row['name'],
                         headers={'X-Timestamp': row['created_at'],
-                                 'X-Container-Sync-Key': sync_key})
+                                 'X-Container-Sync-Key': sync_key},
+                        proxy=self.proxy)
                 except client.ClientException, err:
                     if err.http_status != 404:
                         raise
@@ -375,7 +377,8 @@ class ContainerSync(Daemon):
                 headers['X-Container-Sync-Key'] = sync_key
                 client.put_object(sync_to, name=row['name'],
                                 headers=headers,
-                                contents=_Iter2FileLikeObject(body))
+                                contents=_Iter2FileLikeObject(body),
+                                proxy=self.proxy)
                 self.container_puts += 1
         except client.ClientException, err:
             if err.http_status == 401:

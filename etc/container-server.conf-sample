@@ -10,6 +10,8 @@
 # This is a comma separated list of hosts allowed in the X-Container-Sync-To
 # field for containers.
 # allowed_sync_hosts = 127.0.0.1
+# If you need to use an HTTP Proxy, set it here; defaults to no proxy.
+# sync_proxy = http://127.0.0.1:8888
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0

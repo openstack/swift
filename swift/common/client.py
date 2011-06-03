@@ -137,7 +137,7 @@ class ClientException(Exception):
         return b and '%s: %s' % (a, b) or a
 
 
-def http_connection(url):
+def http_connection(url, proxy=None):
     """
     Make an HTTPConnection or HTTPSConnection
 
@@ -145,14 +145,16 @@ def http_connection(url):
     :returns: tuple of (parsed url, connection object)
     :raises ClientException: Unable to handle protocol scheme
     """
-    parsed = urlparse(url)
+    parsed = urlparse(proxy or url)
     if parsed.scheme == 'http':
         conn = HTTPConnection(parsed.netloc)
     elif parsed.scheme == 'https':
         conn = HTTPSConnection(parsed.netloc)
     else:
         raise ClientException('Cannot handle protocol scheme %s for url %s' %
-                              (parsed.scheme, repr(url)))
+                              (parsed.scheme, repr(proxy or url)))
+    if proxy:
+        parsed = urlparse(url)
     return parsed, conn
 
 
@@ -567,7 +569,7 @@ def head_object(url, token, container, name, http_conn=None):
 
 def put_object(url, token=None, container=None, name=None, contents=None,
                content_length=None, etag=None, chunk_size=65536,
-               content_type=None, headers=None, http_conn=None):
+               content_type=None, headers=None, http_conn=None, proxy=None):
     """
     Put an object
 
@@ -590,12 +592,14 @@ def put_object(url, token=None, container=None, name=None, contents=None,
     if http_conn:
         parsed, conn = http_conn
     else:
-        parsed, conn = http_connection(url)
+        parsed, conn = http_connection(url, proxy=proxy)
     path = parsed.path
     if container:
         path = '%s/%s' % (path.rstrip('/'), quote(container))
     if name:
         path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if proxy:
+        path = parsed.scheme + '://' + parsed.netloc + path
     if headers:
         headers = dict(headers)
     else:
@@ -606,6 +610,10 @@ def put_object(url, token=None, container=None, name=None, contents=None,
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
         headers['Content-Length'] = str(content_length)
+    else:
+        for n, v in headers.iteritems():
+            if n.lower() == 'content-length':
+                content_length = int(v)
     if content_type is not None:
         headers['Content-Type'] = content_type
     if not contents:
@@ -672,7 +680,7 @@ def post_object(url, token, container, name, headers, http_conn=None):
 
 
 def delete_object(url, token=None, container=None, name=None, http_conn=None,
-                  headers=None):
+                  headers=None, proxy=None):
     """
     Delete object
 
@@ -687,7 +695,7 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
     if http_conn:
         parsed, conn = http_conn
     else:
-        parsed, conn = http_connection(url)
+        parsed, conn = http_connection(url, proxy=proxy)
     path = parsed.path
     if container:
         path = '%s/%s' % (path.rstrip('/'), quote(container))
@@ -699,6 +707,8 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
         headers = {}
     if token:
         headers['X-Auth-Token'] = token
+    if proxy:
+        path = parsed.scheme + '://' + parsed.netloc + path
     conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
     resp.read()
