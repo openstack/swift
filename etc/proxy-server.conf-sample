@@ -40,6 +40,9 @@ use = egg:swift#proxy
 # If set to 'true' any authorized user may create and delete accounts; if
 # 'false' no one, even authorized, can.
 # allow_account_management = false
+# If set to 'true' authorized accounts that do not yet exist within the Swift
+# cluster will be automatically created.
+# account_autocreate = false
 
 [filter:tempauth]
 use = egg:swift#tempauth

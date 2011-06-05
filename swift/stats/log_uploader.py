@@ -69,7 +69,7 @@ class LogUploader(Daemon):
         self.internal_proxy = InternalProxy(proxy_server_conf)
         self.new_log_cutoff = int(cutoff or
                                   uploader_conf.get('new_log_cutoff', '7200'))
-        self.unlink_log = uploader_conf.get('unlink_log', 'True').lower() in \
+        self.unlink_log = uploader_conf.get('unlink_log', 'true').lower() in \
                 utils.TRUE_VALUES
         self.filename_pattern = regex or \
             uploader_conf.get('source_filename_pattern',

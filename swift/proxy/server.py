@@ -41,8 +41,8 @@ from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
 from webob import Request, Response
 
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, normalize_timestamp, split_path, \
-    cache_from_env, ContextPool
+from swift.common.utils import cache_from_env, ContextPool, get_logger, \
+    normalize_timestamp, split_path, TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -353,7 +353,7 @@ class Controller(object):
             result_code = self.app.memcache.get(cache_key)
             if result_code == 200:
                 return partition, nodes
-            elif result_code == 404:
+            elif result_code == 404 and not self.app.account_autocreate:
                 return None, None
         result_code = 0
         attempts_left = self.app.account_ring.replica_count
@@ -386,6 +386,17 @@ class Controller(object):
             except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
+        if result_code == 404:
+            if self.app.account_autocreate:
+                if len(account) > MAX_ACCOUNT_NAME_LENGTH:
+                    return None, None
+                headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                           'x-trans-id': self.trans_id}
+                resp = self.make_requests(Request.blank('/v1' + path),
+                    self.app.account_ring, partition, 'PUT',
+                    path, [headers] * len(nodes))
+                if resp.status_int // 100 == 2:
+                    result_code = 200
         if self.app.memcache and result_code in (200, 404):
             if result_code == 200:
                 cache_timeout = self.app.recheck_account_existence
@@ -1391,7 +1402,7 @@ class BaseApplication(object):
         self.put_queue_depth = int(conf.get('put_queue_depth', 10))
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
-        self.log_headers = conf.get('log_headers') == 'True'
+        self.log_headers = conf.get('log_headers', 'no').lower() in TRUE_VALUES
         self.error_suppression_interval = \
             int(conf.get('error_suppression_interval', 60))
         self.error_suppression_limit = \
@@ -1401,7 +1412,7 @@ class BaseApplication(object):
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
-            conf.get('allow_account_management', 'false').lower() == 'true'
+            conf.get('allow_account_management', 'no').lower() in TRUE_VALUES
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \
@@ -1413,6 +1424,8 @@ class BaseApplication(object):
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
+        self.account_autocreate = \
+            conf.get('account_autocreate', 'no').lower() in TRUE_VALUES
 
     def get_controller(self, path):
         """
