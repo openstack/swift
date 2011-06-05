@@ -406,7 +406,7 @@ class TestController(unittest.TestCase):
         self.assertEqual(write_acl, ret[3])
 
     def test_container_info_invalid_account(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return None, None
 
         with save_globals():
@@ -417,7 +417,7 @@ class TestController(unittest.TestCase):
 
     # tests if 200 is cached and used
     def test_container_info_200(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return True, True
 
         with save_globals():
@@ -443,7 +443,7 @@ class TestController(unittest.TestCase):
 
     # tests if 404 is cached and used
     def test_container_info_404(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return True, True
 
         with save_globals():
