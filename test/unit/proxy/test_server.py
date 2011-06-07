@@ -150,7 +150,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
     class FakeConn(object):
 
-        def __init__(self, status, etag=None, body=''):
+        def __init__(self, status, etag=None, body='', timestamp='1'):
             self.status = status
             self.reason = 'Fake'
             self.host = '1.2.3.4'
@@ -159,6 +159,7 @@ def fake_http_connect(*code_iter, **kwargs):
             self.received = 0
             self.etag = etag
             self.body = body
+            self.timestamp = timestamp
 
         def getresponse(self):
             if kwargs.get('raise_exc'):
@@ -173,7 +174,8 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheaders(self):
             headers = {'content-length': len(self.body),
                        'content-type': 'x-application/test',
-                       'x-timestamp': '1',
+                       'x-timestamp': self.timestamp,
+                       'last-modified': self.timestamp,
                        'x-object-meta-test': 'testing',
                        'etag':
                             self.etag or '"68b329da9893e34099c7d8ad5cb9c940"',
@@ -209,7 +211,8 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheader(self, name, default=None):
             return dict(self.getheaders()).get(name.lower(), default)
 
-    etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
+    timestamps_iter = iter(kwargs.get('timestamps') or [None] * len(code_iter))
+    etag_iter = iter(kwargs.get('etags') or ['1'] * len(code_iter))
     x = kwargs.get('missing_container', [False] * len(code_iter))
     if not isinstance(x, (tuple, list)):
         x = [x] * len(code_iter)
@@ -226,9 +229,11 @@ def fake_http_connect(*code_iter, **kwargs):
             kwargs['give_connect'](*args, **ckwargs)
         status = code_iter.next()
         etag = etag_iter.next()
+        timestamp = timestamps_iter.next()
         if status == -1:
             raise HTTPException()
-        return FakeConn(status, etag, body=kwargs.get('body', ''))
+        return FakeConn(status, etag, body=kwargs.get('body', ''),
+                        timestamp=timestamp)
 
     return connect
 
@@ -985,6 +990,51 @@ class TestObjectController(unittest.TestCase):
             test_status_map((404, 404, 404), 404)
             test_status_map((404, 404, 500), 404)
             test_status_map((500, 500, 500), 503)
+
+    def test_HEAD_newest(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'account',
+                'container', 'object')
+
+            def test_status_map(statuses, expected, timestamps,
+                                expected_timestamp):
+                proxy_server.http_connect = \
+                    fake_http_connect(*statuses, timestamps=timestamps)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/c/o', {}, headers={'x-newest': 'true'})
+                self.app.update_request(req)
+                res = controller.HEAD(req)
+                self.assertEquals(res.status[:len(str(expected))],
+                                  str(expected))
+                self.assertEquals(res.headers.get('last-modified'),
+                                  expected_timestamp)
+
+            test_status_map((200, 200, 200), 200, ('1', '2', '3'), '3')
+            test_status_map((200, 200, 200), 200, ('1', '3', '2'), '3')
+            test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'account',
+                'container', 'object')
+
+            def test_status_map(statuses, expected, timestamps,
+                                expected_timestamp):
+                proxy_server.http_connect = \
+                    fake_http_connect(*statuses, timestamps=timestamps)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/c/o', {})
+                self.app.update_request(req)
+                res = controller.HEAD(req)
+                self.assertEquals(res.status[:len(str(expected))],
+                                  str(expected))
+                self.assertEquals(res.headers.get('last-modified'),
+                                  expected_timestamp)
+
+            test_status_map((200, 200, 200), 200, ('1', '2', '3'), '1')
+            test_status_map((200, 200, 200), 200, ('1', '3', '2'), '1')
+            test_status_map((200, 200, 200), 200, ('1', '3', '1'), '1')
+            test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
 
     def test_POST_meta_val_len(self):
         with save_globals():
@@ -2772,6 +2822,7 @@ class TestContainerController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
+            proxy_server.shuffle = lambda l: None
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             self.assert_status_map(controller.HEAD, (200, 503, 200, 200), 200,

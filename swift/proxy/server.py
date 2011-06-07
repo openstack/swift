@@ -41,8 +41,8 @@ from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed, \
 from webob import Request, Response
 
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, normalize_timestamp, split_path, \
-    cache_from_env, ContextPool
+from swift.common.utils import cache_from_env, ContextPool, get_logger, \
+    normalize_timestamp, split_path, TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -162,6 +162,7 @@ class SegmentedIterable(object):
             if self.segment > 10:
                 sleep(max(self.next_get_time - time.time(), 0))
                 self.next_get_time = time.time() + 1
+            shuffle(nodes)
             resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
@@ -594,6 +595,8 @@ class Controller(object):
         statuses = []
         reasons = []
         bodies = []
+        source = None
+        newest = req.headers.get('x-newest', 'f').lower() in TRUE_VALUES
         for node in nodes:
             if len(statuses) >= attempts:
                 break
@@ -606,23 +609,48 @@ class Controller(object):
                         headers=req.headers,
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
+                    possible_source = conn.getresponse()
             except (Exception, TimeoutError):
                 self.exception_occurred(node, server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
                 continue
-            if source.status == 507:
+            if possible_source.status == 507:
                 self.error_limit(node)
                 continue
-            if 200 <= source.status <= 399:
+            if 200 <= possible_source.status <= 399:
                 # 404 if we know we don't have a synced copy
-                if not float(source.getheader('X-PUT-Timestamp', '1')):
+                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                     statuses.append(404)
                     reasons.append('')
                     bodies.append('')
-                    source.read()
+                    possible_source.read()
                     continue
+            if (req.method == 'GET' and
+                possible_source.status in (200, 206)) or \
+                    200 <= possible_source.status <= 399:
+                if newest:
+                    ts = 0
+                    if source:
+                        ts = float(source.getheader('x-put-timestamp',
+                                    source.getheader('x-timestamp', 0)))
+                    pts = float(possible_source.getheader('x-put-timestamp',
+                                possible_source.getheader('x-timestamp', 0)))
+                    if pts > ts:
+                        source = possible_source
+                    continue
+                else:
+                    source = possible_source
+                    break
+            statuses.append(possible_source.status)
+            reasons.append(possible_source.reason)
+            bodies.append(possible_source.read())
+            if possible_source.status >= 500:
+                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
+                    'From %(type)s Server') %
+                    {'status': possible_source.status,
+                    'body': bodies[-1][:1024], 'type': server_type})
+        if source:
             if req.method == 'GET' and source.status in (200, 206):
                 res = Response(request=req, conditional_response=True)
                 res.bytes_transferred = 0
@@ -662,13 +690,6 @@ class Controller(object):
                         res.charset = None
                         res.content_type = source.getheader('Content-Type')
                 return res
-            statuses.append(source.status)
-            reasons.append(source.reason)
-            bodies.append(source.read())
-            if source.status >= 500:
-                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
-                    'From %(type)s Server') % {'status': source.status,
-                    'body': bodies[-1][:1024], 'type': server_type})
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
 
@@ -723,6 +744,7 @@ class ObjectController(Controller):
                 lreq = Request.blank('/%s/%s?prefix=%s&format=json&marker=%s' %
                     (quote(self.account_name), quote(lcontainer),
                      quote(lprefix), quote(marker)))
+                shuffle(lnodes)
                 lresp = self.GETorHEAD_base(lreq, _('Container'), lpartition,
                     lnodes, lreq.path_info,
                     self.app.container_ring.replica_count)
@@ -1174,6 +1196,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
                         self.account_name, self.container_name)
+        shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Container'), part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
@@ -1304,6 +1327,7 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
+        shuffle(nodes)
         return self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
 
