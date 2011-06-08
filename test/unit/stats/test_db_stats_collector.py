@@ -66,6 +66,17 @@ class TestDbStats(unittest.TestCase):
         info = stat.get_data("%s/con.db" % self.containers)
         self.assertEquals('''"test_acc","test_con",1,10\n''', info)
 
+    def test_container_stat_get_metadata(self):
+        stat = db_stats_collector.ContainerStatsCollector(self.conf)
+        container_db = ContainerBroker("%s/con.db" % self.containers,
+                                     account='test_acc', container='test_con')
+        container_db.initialize()
+        container_db.put_object('test_obj', time.time(), 10, 'text', 'faketag')
+        info = stat.get_data("%s/con.db" % self.containers)
+        self.assertEquals('''"test_acc","test_con",1,10\n''', info)
+        container_db.update_metadata({'test1': ('val',1000)})
+
+
     def _gen_account_stat(self):
         stat = db_stats_collector.AccountStatsCollector(self.conf)
         output_data = set()
@@ -83,20 +94,30 @@ class TestDbStats(unittest.TestCase):
         self.assertEqual(len(output_data), 10)
         return stat, output_data
 
-    def _gen_container_stat(self):
+    def _gen_container_stat(self, set_metadata=False):
+        if set_metadata:
+            self.conf['metadata_keys'] = 'test1,test2'
         stat = db_stats_collector.ContainerStatsCollector(self.conf)
         output_data = set()
         for i in range(10):
-            account_db = ContainerBroker(
+            cont_db = ContainerBroker(
                 "%s/container-stats-201001010%s-%s.db" % (self.containers, i,
                                                           uuid.uuid4().hex),
                  account='test_acc_%s' % i, container='test_con')
-            account_db.initialize()
-            account_db.put_object('test_obj', time.time(), 10, 'text',
-                                  'faketag')
+            cont_db.initialize()
+            cont_db.put_object('test_obj', time.time(), 10, 'text', 'faketag')
+            metadata_output = ''
+            if set_metadata:
+                if i%2:
+                    cont_db.update_metadata({'test1': (55,100)})
+                    metadata_output = ',1,'
+                else:
+                    cont_db.update_metadata({'test2': (55,100)})
+                    metadata_output = ',,1'
             # this will "commit" the data
-            account_db.get_info()
-            output_data.add('''"test_acc_%s","test_con",1,10''' % i),
+            cont_db.get_info()
+            output_data.add('''"test_acc_%s","test_con",1,10%s''' %
+                            (i, metadata_output))
 
         self.assertEqual(len(output_data), 10)
         return stat, output_data
@@ -111,6 +132,21 @@ class TestDbStats(unittest.TestCase):
                 output_data.discard(data.strip())
 
         self.assertEqual(len(output_data), 0)
+
+    def test_account_stat_run_once_container_metadata(self):
+
+        stat, output_data = self._gen_container_stat(set_metadata=True)
+        stat.run_once()
+        stat_file = os.listdir(self.log_dir)[0]
+        with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
+            headers = stat_handle.readline()
+            self.assert_(headers.startswith('Account Hash, Container Name,'))
+            for i in range(10):
+                data = stat_handle.readline()
+                output_data.discard(data.strip())
+
+        self.assertEqual(len(output_data), 0)
+
 
     def test_account_stat_run_once_both(self):
         acc_stat, acc_output_data = self._gen_account_stat()
@@ -128,6 +164,8 @@ class TestDbStats(unittest.TestCase):
         con_stat.run_once()
         stat_file = [f for f in os.listdir(self.log_dir) if f != stat_file][0]
         with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
+            headers = stat_handle.readline()
+            self.assert_(headers.startswith('Account Hash, Container Name,'))
             for i in range(10):
                 data = stat_handle.readline()
                 con_output_data.discard(data.strip())
@@ -144,6 +182,7 @@ class TestDbStats(unittest.TestCase):
         db_stat = db_stats_collector.DatabaseStatsCollector(self.conf,
                                      'account', 'test_dir', 'stats-%Y%m%d%H_')
         self.assertRaises(Exception, db_stat.get_data)
+        self.assertRaises(Exception, db_stat.get_header)
 
     def test_not_not_mounted(self):
         self.conf['mount_check'] = 'true'
