@@ -925,7 +925,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST(self):
         with save_globals():
-            self.app.post_as_copy = False
+            self.app.object_post_as_copy = False
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
 
@@ -1084,7 +1084,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_val_len(self):
         with save_globals():
-            self.app.post_as_copy = False
+            self.app.object_post_as_copy = False
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
             proxy_server.http_connect = \
@@ -1127,7 +1127,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_key_len(self):
         with save_globals():
-            self.app.post_as_copy = False
+            self.app.object_post_as_copy = False
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
             proxy_server.http_connect = \
@@ -1536,7 +1536,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_POST_requires_container_exist(self):
         with save_globals():
-            self.app.post_as_copy = False
+            self.app.object_post_as_copy = False
             self.app.memcache = FakeMemcacheReturnsNone()
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
@@ -2753,7 +2753,7 @@ class TestObjectController(unittest.TestCase):
             called[0] = True
             return HTTPUnauthorized(request=req)
         with save_globals():
-            self.app.post_as_copy = False
+            self.app.object_post_as_copy = False
             proxy_server.http_connect = \
                 fake_http_connect(200, 200, 201, 201, 201)
             controller = proxy_server.ObjectController(self.app, 'account',

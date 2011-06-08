@@ -872,7 +872,7 @@ class ObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
-        if self.app.post_as_copy:
+        if self.app.object_post_as_copy:
             req.method = 'PUT'
             req.path_info = '/%s/%s/%s' % (self.account_name,
                 self.container_name, self.object_name)
@@ -1443,8 +1443,8 @@ class BaseApplication(object):
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
             conf.get('allow_account_management', 'false').lower() == 'true'
-        self.post_as_copy = \
-            conf.get('post_as_copy', 'true').lower() in TRUE_VALUES
+        self.object_post_as_copy = \
+            conf.get('object_post_as_copy', 'true').lower() in TRUE_VALUES
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \
