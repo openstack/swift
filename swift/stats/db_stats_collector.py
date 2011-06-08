@@ -139,8 +139,10 @@ class ContainerStatsCollector(DatabaseStatsCollector):
         super(ContainerStatsCollector, self).__init__(stats_conf, 'container',
                                                    container_server_data_dir,
                                                    'container-stats-%Y%m%d%H_')
-        self.metadata_keys = [mkey.strip() for mkey in
-            stats_conf.get('metadata_keys', '').split(',') if mkey.strip()]
+        # webob calls title on all the header keys
+        self.metadata_keys = ['X-Container-Meta-%s' % mkey.strip().title()
+                for mkey in stats_conf.get('metadata_keys', '').split(',')
+                if mkey.strip()]
 
     def get_header(self):
         header = 'Account Hash, Container Name, Object Count, Bytes Used'
