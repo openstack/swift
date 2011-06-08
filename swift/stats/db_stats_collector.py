@@ -129,6 +129,7 @@ class AccountStatsCollector(DatabaseStatsCollector):
     def get_header(self):
         return ''
 
+
 class ContainerStatsCollector(DatabaseStatsCollector):
     """
     Extract storage stats from container databases on the container
@@ -168,7 +169,7 @@ class ContainerStatsCollector(DatabaseStatsCollector):
                 info['account'], encoded_container_name,
                 info['object_count'], info['bytes_used'])
             if self.metadata_keys:
-                metadata_results  = ','.join(
+                metadata_results = ','.join(
                     [info['metadata'].get(mkey) and '1' or ''
                      for mkey in self.metadata_keys])
                 line_data += ',%s' % metadata_results

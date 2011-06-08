@@ -883,8 +883,8 @@ class ContainerBroker(DatabaseBroker):
         """
         Get global data for the container.
 
-        :returns: dict with keys: account, container, created_at, put_timestamp,
-                  delete_timestamp, object_count, bytes_used,
+        :returns: dict with keys: account, container, created_at,
+                  put_timestamp, delete_timestamp, object_count, bytes_used,
                   reported_put_timestamp, reported_delete_timestamp,
                   reported_object_count, reported_bytes_used, hash, id
                   If include_metadata is set, metadata is included as a key
@@ -910,7 +910,7 @@ class ContainerBroker(DatabaseBroker):
             data = dict(data)
             if include_metadata:
                 try:
-                    data['metadata'] = json.loads(data.get('metadata',''))
+                    data['metadata'] = json.loads(data.get('metadata', ''))
                 except ValueError:
                     data['metadata'] = {}
             return data

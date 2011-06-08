@@ -74,8 +74,7 @@ class TestDbStats(unittest.TestCase):
         container_db.put_object('test_obj', time.time(), 10, 'text', 'faketag')
         info = stat.get_data("%s/con.db" % self.containers)
         self.assertEquals('''"test_acc","test_con",1,10\n''', info)
-        container_db.update_metadata({'test1': ('val',1000)})
-
+        container_db.update_metadata({'test1': ('val', 1000)})
 
     def _gen_account_stat(self):
         stat = db_stats_collector.AccountStatsCollector(self.conf)
@@ -109,11 +108,11 @@ class TestDbStats(unittest.TestCase):
             cont_db.put_object('test_obj', time.time(), 10, 'text', 'faketag')
             metadata_output = ''
             if set_metadata:
-                if i%2:
-                    cont_db.update_metadata({'X-Container-Meta-Test1': (55,1)})
+                if i % 2:
+                    cont_db.update_metadata({'X-Container-Meta-Test1': (5, 1)})
                     metadata_output = ',1,'
                 else:
-                    cont_db.update_metadata({'X-Container-Meta-Test2': (55,2)})
+                    cont_db.update_metadata({'X-Container-Meta-Test2': (7, 2)})
                     metadata_output = ',,1'
             # this will "commit" the data
             cont_db.get_info()
@@ -147,7 +146,6 @@ class TestDbStats(unittest.TestCase):
                 output_data.discard(data.strip())
 
         self.assertEqual(len(output_data), 0)
-
 
     def test_account_stat_run_once_both(self):
         acc_stat, acc_output_data = self._gen_account_stat()
