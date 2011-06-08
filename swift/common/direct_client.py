@@ -36,6 +36,57 @@ def quote(value, safe='/'):
     return _quote(value, safe)
 
 
+def direct_get_account(node, part, account, marker=None, limit=None,
+                       prefix=None, delimiter=None, conn_timeout=5,
+                       response_timeout=15):
+    """
+    Get listings directly from the account server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the account is on
+    :param account: account name
+    :param marker: marker query
+    :param limit: query limit
+    :param prefix: prefix query
+    :param delimeter: delimeter for the query
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :returns: a tuple of (response headers, a list of containers) The response
+              headers will be a dict and all header names will be lowercase.
+    """
+    path = '/' + account
+    qs = 'format=json'
+    if marker:
+        qs += '&marker=%s' % quote(marker)
+    if limit:
+        qs += '&limit=%d' % limit
+    if prefix:
+        qs += '&prefix=%s' % quote(prefix)
+    if delimiter:
+        qs += '&delimiter=%s' % quote(delimiter)
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                            'GET', path, query_string='format=json')
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+    if resp.status < 200 or resp.status >= 300:
+        resp.read()
+        raise ClientException(
+            'Account server %s:%s direct GET %s gave status %s' % (node['ip'],
+                node['port'], repr('/%s/%s%s' % (node['device'], part, path)),
+                resp.status),
+            http_host=node['ip'], http_port=node['port'],
+            http_device=node['device'], http_status=resp.status,
+            http_reason=resp.reason)
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    if resp.status == 204:
+        resp.read()
+        return resp_headers, []
+    return resp_headers, json_loads(resp.read())
+
+
 def direct_head_container(node, part, account, container, conn_timeout=5,
                           response_timeout=15):
     """

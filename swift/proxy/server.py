@@ -872,29 +872,39 @@ class ObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
-        error_response = check_metadata(req, 'object')
-        if error_response:
-            return error_response
-        container_partition, containers, _junk, req.acl = \
-            self.container_info(self.account_name, self.container_name)
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
-        if not containers:
-            return HTTPNotFound(request=req)
-        partition, nodes = self.app.object_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        headers = []
-        for container in containers:
-            nheaders = dict(req.headers.iteritems())
-            nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
-            nheaders['X-Container-Partition'] = container_partition
-            nheaders['X-Container-Device'] = container['device']
-            headers.append(nheaders)
-        return self.make_requests(req, self.app.object_ring,
-                partition, 'POST', req.path_info, headers)
+        if self.app.post_as_copy:
+            req.method = 'PUT'
+            req.path_info = '/%s/%s/%s' % (self.account_name,
+                self.container_name, self.object_name)
+            req.headers['Content-Length'] = 0
+            req.headers['X-Copy-From'] = '/%s/%s' % (self.container_name,
+                self.object_name)
+            req.headers['X-Fresh-Metadata'] = 'true'
+            return self.PUT(req)
+        else:
+            error_response = check_metadata(req, 'object')
+            if error_response:
+                return error_response
+            container_partition, containers, _junk, req.acl = \
+                self.container_info(self.account_name, self.container_name)
+            if 'swift.authorize' in req.environ:
+                aresp = req.environ['swift.authorize'](req)
+                if aresp:
+                    return aresp
+            if not containers:
+                return HTTPNotFound(request=req)
+            partition, nodes = self.app.object_ring.get_nodes(
+                self.account_name, self.container_name, self.object_name)
+            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            headers = []
+            for container in containers:
+                nheaders = dict(req.headers.iteritems())
+                nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
+                nheaders['X-Container-Partition'] = container_partition
+                nheaders['X-Container-Device'] = container['device']
+                headers.append(nheaders)
+            return self.make_requests(req, self.app.object_ring,
+                    partition, 'POST', req.path_info, headers)
 
     def _send_file(self, conn, path):
         """Method for a file PUT coro"""
@@ -998,12 +1008,14 @@ class ObjectController(Controller):
             if not content_type_manually_set:
                 new_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
-            for k, v in source_resp.headers.items():
-                if k.lower().startswith('x-object-meta-'):
-                    new_req.headers[k] = v
-            for k, v in req.headers.items():
-                if k.lower().startswith('x-object-meta-'):
-                    new_req.headers[k] = v
+            if new_req.headers.get('x-fresh-metadata', 'false').lower() \
+                    not in TRUE_VALUES:
+                for k, v in source_resp.headers.items():
+                    if k.lower().startswith('x-object-meta-'):
+                        new_req.headers[k] = v
+                for k, v in req.headers.items():
+                    if k.lower().startswith('x-object-meta-'):
+                        new_req.headers[k] = v
             req = new_req
         node_iter = self.iter_nodes(partition, nodes, self.app.object_ring)
         pile = GreenPile(len(nodes))
@@ -1431,6 +1443,8 @@ class BaseApplication(object):
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
             conf.get('allow_account_management', 'false').lower() == 'true'
+        self.post_as_copy = \
+            conf.get('post_as_copy', 'true').lower() in TRUE_VALUES
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \

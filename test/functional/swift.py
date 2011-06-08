@@ -668,7 +668,7 @@ class File(Base):
 
             self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
 
-            if self.conn.response.status != 202:
+            if self.conn.response.status not in (201, 202):
                 raise ResponseError(self.conn.response)
 
         return True
