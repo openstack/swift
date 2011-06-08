@@ -97,6 +97,7 @@ class TestDbStats(unittest.TestCase):
     def _gen_container_stat(self, set_metadata=False):
         if set_metadata:
             self.conf['metadata_keys'] = 'test1,test2'
+            # webob runs title on all headers
         stat = db_stats_collector.ContainerStatsCollector(self.conf)
         output_data = set()
         for i in range(10):
@@ -109,10 +110,10 @@ class TestDbStats(unittest.TestCase):
             metadata_output = ''
             if set_metadata:
                 if i%2:
-                    cont_db.update_metadata({'test1': (55,100)})
+                    cont_db.update_metadata({'X-Container-Meta-Test1': (55,1)})
                     metadata_output = ',1,'
                 else:
-                    cont_db.update_metadata({'test2': (55,100)})
+                    cont_db.update_metadata({'X-Container-Meta-Test2': (55,2)})
                     metadata_output = ',,1'
             # this will "commit" the data
             cont_db.get_info()
