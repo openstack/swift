@@ -632,10 +632,10 @@ class Controller(object):
                 if newest:
                     ts = 0
                     if source:
-                        ts = float(source.getheader('x-put-timestamp',
-                                    source.getheader('x-timestamp', 0)))
-                    pts = float(possible_source.getheader('x-put-timestamp',
-                                possible_source.getheader('x-timestamp', 0)))
+                        ts = float(source.getheader('x-put-timestamp') or
+                                   source.getheader('x-timestamp') or 0)
+                    pts = float(possible_source.getheader('x-put-timestamp') or
+                                possible_source.getheader('x-timestamp') or 0)
                     if pts > ts:
                         source = possible_source
                     continue
@@ -956,6 +956,7 @@ class ObjectController(Controller):
         reader = req.environ['wsgi.input'].read
         data_source = iter(lambda: reader(self.app.client_chunk_size), '')
         source_header = req.headers.get('X-Copy-From')
+        source_resp = None
         if source_header:
             source_header = unquote(source_header)
             acct = req.path_info.split('/', 2)[1]
@@ -971,6 +972,7 @@ class ObjectController(Controller):
                     '<container name>/<object name>')
             source_req = req.copy_get()
             source_req.path_info = source_header
+            source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
             self.object_name = src_obj_name
@@ -1103,6 +1105,9 @@ class ObjectController(Controller):
         if source_header:
             resp.headers['X-Copied-From'] = quote(
                                                 source_header.split('/', 2)[2])
+            if 'last-modified' in source_resp.headers:
+                resp.headers['X-Copied-From-Last-Modified'] = \
+                    source_resp.headers['last-modified']
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v

@@ -211,8 +211,8 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheader(self, name, default=None):
             return dict(self.getheaders()).get(name.lower(), default)
 
-    timestamps_iter = iter(kwargs.get('timestamps') or [None] * len(code_iter))
-    etag_iter = iter(kwargs.get('etags') or ['1'] * len(code_iter))
+    timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
+    etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
     x = kwargs.get('missing_container', [False] * len(code_iter))
     if not isinstance(x, (tuple, list)):
         x = [x] * len(code_iter)
@@ -1014,6 +1014,29 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
             test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
 
+    def test_GET_newest(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'account',
+                'container', 'object')
+
+            def test_status_map(statuses, expected, timestamps,
+                                expected_timestamp):
+                proxy_server.http_connect = \
+                    fake_http_connect(*statuses, timestamps=timestamps)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/c/o', {}, headers={'x-newest': 'true'})
+                self.app.update_request(req)
+                res = controller.GET(req)
+                self.assertEquals(res.status[:len(str(expected))],
+                                  str(expected))
+                self.assertEquals(res.headers.get('last-modified'),
+                                  expected_timestamp)
+
+            test_status_map((200, 200, 200), 200, ('1', '2', '3'), '3')
+            test_status_map((200, 200, 200), 200, ('1', '3', '2'), '3')
+            test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
@@ -1725,8 +1748,10 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Destination': 'c/o'})
             req.account = 'a'
             proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-                #                 acct cont acct cont objc obj  obj  obj
+                fake_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201,
+                    201)
+                #                 acct cont acct cont objc objc objc obj  obj
+                #   obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 201)
@@ -1738,8 +1763,10 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o/o2'
             proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-                #                 acct cont acct cont objc obj  obj  obj
+                fake_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201,
+                    201)
+                #                 acct cont acct cont objc objc objc obj  obj
+                #   obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 201)
@@ -1750,8 +1777,10 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-                #                 acct cont acct cont objc obj  obj  obj
+                fake_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201,
+                    201)
+                #                 acct cont acct cont objc objc objc obj  obj
+                #   obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 201)
@@ -1763,8 +1792,10 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o/o2'
             proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-                #                 acct cont acct cont objc obj  obj  obj
+                fake_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201,
+                    201)
+                #                 acct cont acct cont objc objc objc obj  obj
+                #   obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 201)
@@ -1820,14 +1851,31 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 201, 201, 201)
-                #                 acct cont objc obj  obj  obj
+                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
+                #                 acct cont objc objc objc obj  obj  obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers.get('x-object-meta-test'),
                               'testing')
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
+
+    def test_COPY_newest(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                                headers={'Destination': '/c/o'})
+            req.account = 'a'
+            controller.object_name = 'o'
+            proxy_server.http_connect = \
+                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
+                      timestamps=('1', '1', '1', '3', '2', '4', '4', '4'))
+                #                 acct cont objc objc objc obj  obj  obj
+            self.app.memcache.store = {}
+            resp = controller.COPY(req)
+            self.assertEquals(resp.status_int, 201)
+            self.assertEquals(resp.headers['x-copied-from-last-modified'],
+                              '3')
 
     def test_chunked_put(self):
 
