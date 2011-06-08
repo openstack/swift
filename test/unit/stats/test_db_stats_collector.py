@@ -140,7 +140,7 @@ class TestDbStats(unittest.TestCase):
         stat_file = os.listdir(self.log_dir)[0]
         with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
             headers = stat_handle.readline()
-            self.assert_(headers.startswith('Account Hash, Container Name,'))
+            self.assert_(headers.startswith('Account Hash,Container Name,'))
             for i in range(10):
                 data = stat_handle.readline()
                 output_data.discard(data.strip())
@@ -164,7 +164,7 @@ class TestDbStats(unittest.TestCase):
         stat_file = [f for f in os.listdir(self.log_dir) if f != stat_file][0]
         with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
             headers = stat_handle.readline()
-            self.assert_(headers.startswith('Account Hash, Container Name,'))
+            self.assert_(headers.startswith('Account Hash,Container Name,'))
             for i in range(10):
                 data = stat_handle.readline()
                 con_output_data.discard(data.strip())
