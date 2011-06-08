@@ -146,7 +146,7 @@ class ContainerStatsCollector(DatabaseStatsCollector):
                 if mkey.strip()]
 
     def get_header(self):
-        header = 'Account Hash, Container Name, Object Count, Bytes Used'
+        header = 'Account Hash,Container Name,Object Count,Bytes Used'
         if self.metadata_keys:
             xtra_headers = ','.join(self.metadata_keys)
             header += ',%s' % xtra_headers
