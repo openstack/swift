@@ -559,35 +559,17 @@ object_post_as_copy           true             Set object_post_as_copy = false
                                                sync posts.
 ============================  ===============  =============================
 
-[auth]
-
-============  ===================================  ========================
-Option        Default                              Description
-------------  -----------------------------------  ------------------------
-use                                                Entry point for paste.deploy 
-                                                   to use for auth.  To
-                                                   use the swift dev auth,
-                                                   set to:
-                                                   `egg:swift#auth`
-ip            127.0.0.1                            IP address of auth
-                                                   server
-port          11000                                Port of auth server
-ssl           False                                If True, use SSL to
-                                                   connect to auth
-node_timeout  10                                   Request timeout
-============  ===================================  ========================
-
-[swauth]
+[tempauth]
 
 =====================  =============================== =======================
 Option                 Default                         Description
 ---------------------  ------------------------------- -----------------------
 use                                                    Entry point for
                                                        paste.deploy to use for
-                                                       auth. To use the swauth
+                                                       auth. To use tempauth
                                                        set to:
-                                                       `egg:swift#swauth`
-set log_name           auth-server                     Label used when logging
+                                                       `egg:swift#tempauth`
+set log_name           tempauth                        Label used when logging
 set log_facility       LOG_LOCAL0                      Syslog log facility
 set log_level          INFO                            Log level
 set log_headers        True                            If True, log headers in
@@ -603,16 +585,39 @@ auth_prefix            /auth/                          The HTTP request path
                                                        reserves anything
                                                        beginning with the
                                                        letter `v`.
-default_swift_cluster  local#http://127.0.0.1:8080/v1  The default Swift
-                                                       cluster to place newly
-                                                       created accounts on.
 token_life             86400                           The number of seconds a
                                                        token is valid.
-node_timeout           10                              Request timeout
-super_admin_key        None                            The key for the
-                                                       .super_admin account.
 =====================  =============================== =======================
 
+Additionally, you need to list all the accounts/users you want here. The format
+is::
+
+    user_<account>_<user> = <key> [group] [group] [...] [storage_url]
+
+There are special groups of::
+
+    .reseller_admin = can do anything to any account for this auth
+    .admin = can do anything within the account
+
+If neither of these groups are specified, the user can only access containers
+that have been explicitly allowed for them by a .admin or .reseller_admin.
+
+The trailing optional storage_url allows you to specify an alternate url to
+hand back to the user upon authentication. If not specified, this defaults to::
+
+    http[s]://<ip>:<port>/v1/<reseller_prefix>_<account>
+
+Where http or https depends on whether cert_file is specified in the [DEFAULT]
+section, <ip> and <port> are based on the [DEFAULT] section's bind_ip and
+bind_port (falling back to 127.0.0.1 and 8080), <reseller_prefix> is from this
+section, and <account> is from the user_<account>_<user> name.
+
+Here are example entries, required for running the tests::
+
+    user_admin_admin = admin .admin .reseller_admin
+    user_test_tester = testing .admin
+    user_test2_tester2 = testing2 .admin
+    user_test_tester3 = testing3
 
 ------------------------
 Memcached Considerations
