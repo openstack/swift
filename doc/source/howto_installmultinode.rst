@@ -13,7 +13,7 @@ Prerequisites
 Basic architecture and terms
 ----------------------------
 - *node* - a host machine running one or more Swift services
-- *Proxy node* - node that runs Proxy services; also runs Swauth
+- *Proxy node* - node that runs Proxy services; also runs TempAuth
 - *Storage node* - node that runs Account, Container, and Object services
 - *ring* - a set of mappings of Swift data to physical devices
 
@@ -23,7 +23,7 @@ This document shows a cluster using the following types of nodes:
 
   - Runs the swift-proxy-server processes which proxy requests to the
     appropriate Storage nodes. The proxy server will also contain
-    the Swauth service as WSGI middleware.
+    the TempAuth service as WSGI middleware.
 
 - five Storage nodes
 
@@ -130,17 +130,15 @@ Configure the Proxy node
         user = swift
         
         [pipeline:main]
-        pipeline = healthcheck cache swauth proxy-server
+        pipeline = healthcheck cache tempauth proxy-server
         
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
         
-        [filter:swauth]
-        use = egg:swift#swauth
-        default_swift_cluster = local#https://$PROXY_LOCAL_NET_IP:8080/v1
-        # Highly recommended to change this key to something else!
-        super_admin_key = swauthkey
+        [filter:tempauth]
+        use = egg:swift#tempauth
+        user_system_root = testpass .admin https://$PROXY_LOCAL_NET_IP:8080/v1/AUTH_system
         
         [filter:healthcheck]
         use = egg:swift#healthcheck
@@ -366,16 +364,6 @@ Create Swift admin account and test
 
 You run these commands from the Proxy node.
 
-#. Create a user with administrative privileges (account = system,
-   username = root, password = testpass).  Make sure to replace 
-   ``swauthkey`` with whatever super_admin key you assigned in
-   the proxy-server.conf file
-   above.  *Note: None of the values of 
-   account, username, or password are special - they can be anything.*::
-
-        swauth-prep -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey
-        swauth-add-user -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey -a system root testpass
-
 #. Get an X-Storage-Url and X-Auth-Token::
 
         curl -k -v -H 'X-Storage-User: system:root' -H 'X-Storage-Pass: testpass' https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0
@@ -430,44 +418,15 @@ See :ref:`config-proxy` for the initial setup, and then follow these additional 
         use = egg:swift#memcache
         memcache_servers = $PROXY_LOCAL_NET_IP:11211
 
-#. Change the default_cluster_url to point to the load balanced url, rather than the first proxy server you created in /etc/swift/proxy-server.conf::
+#. Change the storage url for any users to point to the load balanced url, rather than the first proxy server you created in /etc/swift/proxy-server.conf::
 
-        [filter:swauth]
-        use = egg:swift#swauth
-        default_swift_cluster = local#http://<LOAD_BALANCER_HOSTNAME>/v1
-        # Highly recommended to change this key to something else!
-        super_admin_key = swauthkey
-
-#. The above will make new accounts with the new default_swift_cluster URL, however it won't change any existing accounts. You can change a service URL for existing accounts with::
-
-    First retreve what the URL was::
-
-         swauth-list -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey <account>
-
-     And then update it with::
-
-         swauth-set-account-service -A https://$PROXY_LOCAL_NET_IP:8080/auth/ -K swauthkey <account> storage local <new_url_for_the_account>
-
-    Make the <new_url_for_the_account> look just like it's original URL but with the host:port update you want.
+        [filter:tempauth]
+        use = egg:swift#tempauth
+        user_system_root = testpass .admin http[s]://<LOAD_BALANCER_HOSTNAME>:<PORT>/v1/AUTH_system
 
 #. Next, copy all the ring information to all the nodes, including your new proxy nodes, and ensure the ring info gets to all the storage nodes as well. 
 
 #. After you sync all the nodes, make sure the admin has the keys in /etc/swift and the ownership for the ring file is correct. 
-
-Additional Cleanup Script for Swauth
-------------------------------------
-
-With Swauth, you'll want to install a cronjob to clean up any
-orphaned expired tokens. These orphaned tokens can occur when a "stampede"
-occurs where a single user authenticates several times concurrently. Generally,
-these orphaned tokens don't pose much of an issue, but it's good to clean them
-up once a "token life" period (default: 1 day or 86400 seconds).
-
-This should be as simple as adding `swauth-cleanup-tokens -A
-https://<PROXY_HOSTNAME>:8080/auth/ -K swauthkey > /dev/null` to a crontab
-entry on one of the proxies that is running Swauth; but run
-`swauth-cleanup-tokens` with no arguments for detailed help on the options
-available.
 
 Troubleshooting Notes
 ---------------------
