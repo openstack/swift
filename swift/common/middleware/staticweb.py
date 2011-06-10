@@ -28,7 +28,7 @@ added. For example::
     ...
 
     [pipeline:main]
-    pipeline = healthcheck cache swauth staticweb proxy-server
+    pipeline = healthcheck cache tempauth staticweb proxy-server
 
     ...
 

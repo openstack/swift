@@ -96,10 +96,6 @@ setup(
         'bin/swift-log-stats-collector',
         'bin/swift-account-stats-logger',
         'bin/swift-container-stats-logger',
-        'bin/swauth-add-account', 'bin/swauth-add-user',
-        'bin/swauth-cleanup-tokens', 'bin/swauth-delete-account',
-        'bin/swauth-delete-user', 'bin/swauth-list', 'bin/swauth-prep',
-        'bin/swauth-set-account-service',
         ],
     entry_points={
         'paste.app_factory': [
@@ -109,7 +105,6 @@ setup(
             'account=swift.account.server:app_factory',
             ],
         'paste.filter_factory': [
-            'swauth=swift.common.middleware.swauth:filter_factory',
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
             'ratelimit=swift.common.middleware.ratelimit:filter_factory',
@@ -118,6 +113,7 @@ setup(
             'domain_remap=swift.common.middleware.domain_remap:filter_factory',
             'swift3=swift.common.middleware.swift3:filter_factory',
             'staticweb=swift.common.middleware.staticweb:filter_factory',
+            'tempauth=swift.common.middleware.tempauth:filter_factory',
             ],
         },
     )
