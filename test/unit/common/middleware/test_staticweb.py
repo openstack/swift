@@ -187,7 +187,7 @@ class FakeApp(object):
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
                             'X-Container-Read': '.r:*',
-                            'Content-Type': 'application/json; charset=utf8'})
+                            'Content-Type': 'application/json; charset=utf-8'})
             body = '''
                 [{"name":"subdir/1.txt",
                   "hash":"5f595114a4b3077edfac792c61ca4fe4", "bytes":20,
@@ -204,14 +204,14 @@ class FakeApp(object):
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
                             'X-Container-Read': '.r:*',
-                            'Content-Type': 'application/json; charset=utf8'})
+                            'Content-Type': 'application/json; charset=utf-8'})
             body = '[]'
         elif env['PATH_INFO'] == '/v1/a/c3' and env['QUERY_STRING'] == \
                 'limit=1&format=json&delimiter=/&limit=1&prefix=subdirz/':
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
                             'X-Container-Read': '.r:*',
-                            'Content-Type': 'application/json; charset=utf8'})
+                            'Content-Type': 'application/json; charset=utf-8'})
             body = '''
                 [{"name":"subdirz/1.txt",
                   "hash":"5f595114a4b3077edfac792c61ca4fe4", "bytes":20,
@@ -224,7 +224,7 @@ class FakeApp(object):
                             'X-Container-Bytes-Used': '73741',
                             'X-Container-Read': '.r:*',
                             'X-Container-Web-Listings': 't',
-                            'Content-Type': 'application/json; charset=utf8'})
+                            'Content-Type': 'application/json; charset=utf-8'})
             body = '''
                 [{"name":"subdir/1.txt",
                   "hash":"5f595114a4b3077edfac792c61ca4fe4", "bytes":20,
@@ -236,7 +236,7 @@ class FakeApp(object):
         elif 'format=json' in env['QUERY_STRING']:
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
-                            'Content-Type': 'application/json; charset=utf8'})
+                            'Content-Type': 'application/json; charset=utf-8'})
             body = '''
                 [{"name":"401error.html",
                   "hash":"893f8d80692a4d3875b45be8f152ad18", "bytes":110,
@@ -283,7 +283,7 @@ class FakeApp(object):
         else:
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
-                            'Content-Type': 'text/plain; charset=utf8'})
+                            'Content-Type': 'text/plain; charset=utf-8'})
             body = '\n'.join(['401error.html', '404error.html', 'index.html',
                               'listing.css', 'one.txt', 'subdir/1.txt',
                               'subdir/2.txt', 'subdir/omgomg.txt', 'subdir2',
