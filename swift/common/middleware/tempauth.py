@@ -118,17 +118,17 @@ class TempAuth(object):
         """
         # Ensure the accounts we handle have been created
         if not self.created_accounts and self.users:
-            newenv = {'REQUEST_METHOD': 'GET', 'HTTP_USER_AGENT': 'TempAuth'}
+            newenv = {'REQUEST_METHOD': 'HEAD', 'HTTP_USER_AGENT': 'TempAuth'}
             for name in ('swift.cache', 'HTTP_X_TRANS_ID'):
                 if name in env:
                     newenv[name] = env[name]
-            account_id = self.users.values()[0]['url'].rsplit('/', 1)[-1]
-            resp = Request.blank('/v1/' + account_id,
-                                 environ=newenv).get_response(self.app)
-            if resp.status_int // 100 != 2:
-                newenv['REQUEST_METHOD'] = 'PUT'
-                for key, value in self.users.iteritems():
-                    account_id = value['url'].rsplit('/', 1)[-1]
+            for key, value in self.users.iteritems():
+                account_id = value['url'].rsplit('/', 1)[-1]
+                newenv['REQUEST_METHOD'] = 'HEAD'
+                resp = Request.blank('/v1/' + account_id,
+                                     environ=newenv).get_response(self.app)
+                if resp.status_int // 100 != 2:
+                    newenv['REQUEST_METHOD'] = 'PUT'
                     resp = Request.blank('/v1/' + account_id,
                                          environ=newenv).get_response(self.app)
                     if resp.status_int // 100 != 2:
