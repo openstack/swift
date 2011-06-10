@@ -395,23 +395,45 @@ class TestController(unittest.TestCase):
 
     def test_account_info_account_autocreate(self):
         with save_globals():
+            self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
             partition, nodes = \
                 self.controller.account_info(self.account, autocreate=False)
             self.check_account_info_return(partition, nodes, is_none=True)
 
+            self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
             partition, nodes = \
                 self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes, is_none=True)
 
+            self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
             partition, nodes = \
                 self.controller.account_info(self.account, autocreate=True)
             self.check_account_info_return(partition, nodes)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 503, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 503, 201, 503)
+            exc = None
+            try:
+                partition, nodes = \
+                    self.controller.account_info(self.account, autocreate=True)
+            except Exception, err:
+                exc = err
+            self.assertEquals(str(exc),
+                              "Could not autocreate account '/some_account'")
 
     def check_container_info_return(self, ret, is_none=False):
         if is_none:

@@ -394,8 +394,9 @@ class Controller(object):
             resp = self.make_requests(Request.blank('/v1' + path),
                 self.app.account_ring, partition, 'PUT',
                 path, [headers] * len(nodes))
-            if resp.status_int // 100 == 2:
-                result_code = 200
+            if resp.status_int // 100 != 2:
+                raise Exception('Could not autocreate account %r' % path)
+            result_code = 200
         if self.app.memcache and result_code in (200, 404):
             if result_code == 200:
                 cache_timeout = self.app.recheck_account_existence
