@@ -43,7 +43,7 @@ class Bench(object):
         self.user = conf.user
         self.key = conf.key
         self.auth_url = conf.auth
-        self.use_proxy = conf.use_proxy in TRUE_VALUES
+        self.use_proxy = conf.use_proxy.lower() in TRUE_VALUES
         if self.use_proxy:
             url, token = client.get_auth(self.auth_url, self.user, self.key)
             self.token = token
@@ -125,7 +125,7 @@ class BenchController(object):
         self.logger = logger
         self.conf = conf
         self.names = []
-        self.delete = conf.delete in TRUE_VALUES
+        self.delete = conf.delete.lower() in TRUE_VALUES
         self.gets = int(conf.num_gets)
 
     def run(self):

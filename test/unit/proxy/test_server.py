@@ -393,6 +393,48 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
+    def test_account_info_account_autocreate(self):
+        with save_globals():
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=False)
+            self.check_account_info_return(partition, nodes, is_none=True)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, is_none=True)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 503, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 503, 201, 503)
+            exc = None
+            try:
+                partition, nodes = \
+                    self.controller.account_info(self.account, autocreate=True)
+            except Exception, err:
+                exc = err
+            self.assertEquals(str(exc),
+                              "Could not autocreate account '/some_account'")
+
     def check_container_info_return(self, ret, is_none=False):
         if is_none:
             partition, nodes, read_acl, write_acl = None, None, None, None
@@ -406,7 +448,7 @@ class TestController(unittest.TestCase):
         self.assertEqual(write_acl, ret[3])
 
     def test_container_info_invalid_account(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return None, None
 
         with save_globals():
@@ -417,7 +459,7 @@ class TestController(unittest.TestCase):
 
     # tests if 200 is cached and used
     def test_container_info_200(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return True, True
 
         with save_globals():
@@ -443,7 +485,7 @@ class TestController(unittest.TestCase):
 
     # tests if 404 is cached and used
     def test_container_info_404(self):
-        def account_info(self, account):
+        def account_info(self, account, autocreate=False):
             return True, True
 
         with save_globals():
