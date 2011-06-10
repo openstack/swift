@@ -388,6 +388,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body.strip().split('\n'), ['c1', 'c2'])
         self.assertEquals(resp.content_type, 'text/plain')
+        self.assertEquals(resp.charset, 'utf-8')
 
     def test_GET_with_containers_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -436,6 +437,7 @@ class TestAccountController(unittest.TestCase):
                           [{'count': 1, 'bytes': 2, 'name': 'c1'},
                            {'count': 3, 'bytes': 4, 'name': 'c2'}])
         self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(resp.charset, 'utf-8')
 
     def test_GET_with_containers_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -529,6 +531,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(node.firstChild.nodeValue, '3')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEquals(node.firstChild.nodeValue, '4')
+        self.assertEquals(resp.charset, 'utf-8')
 
     def test_GET_limit_marker_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
