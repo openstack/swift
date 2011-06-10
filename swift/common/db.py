@@ -879,14 +879,16 @@ class ContainerBroker(DatabaseBroker):
             return (row['object_count'] in (None, '', 0, '0')) and \
                 (float(row['delete_timestamp']) > float(row['put_timestamp']))
 
-    def get_info(self):
+    def get_info(self, include_metadata=False):
         """
         Get global data for the container.
 
-        :returns: sqlite.row of (account, container, created_at, put_timestamp,
-                  delete_timestamp, object_count, bytes_used,
+        :returns: dict with keys: account, container, created_at,
+                  put_timestamp, delete_timestamp, object_count, bytes_used,
                   reported_put_timestamp, reported_delete_timestamp,
-                  reported_object_count, reported_bytes_used, hash, id)
+                  reported_object_count, reported_bytes_used, hash, id
+                  If include_metadata is set, metadata is included as a key
+                  pointing to a dict of tuples of the metadata
         """
         try:
             self._commit_puts()
@@ -894,13 +896,34 @@ class ContainerBroker(DatabaseBroker):
             if not self.stale_reads_ok:
                 raise
         with self.get() as conn:
-            return conn.execute('''
-                SELECT account, container, created_at, put_timestamp,
-                    delete_timestamp, object_count, bytes_used,
-                    reported_put_timestamp, reported_delete_timestamp,
-                    reported_object_count, reported_bytes_used, hash, id
-                FROM container_stat
-            ''').fetchone()
+            metadata = ''
+            if include_metadata:
+                metadata = ', metadata'
+            try:
+                data = conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id
+                        %s
+                    FROM container_stat
+                ''' % metadata).fetchone()
+            except sqlite3.OperationalError, err:
+                if 'no such column: metadata' not in str(err):
+                    raise
+                data = conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id
+                    FROM container_stat''').fetchone()
+            data = dict(data)
+            if include_metadata:
+                try:
+                    data['metadata'] = json.loads(data.get('metadata', ''))
+                except ValueError:
+                    data['metadata'] = {}
+            return data
 
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):
@@ -1394,9 +1417,9 @@ class AccountBroker(DatabaseBroker):
         """
         Get global data for the account.
 
-        :returns: sqlite.row of (account, created_at, put_timestamp,
+        :returns: dict with keys: account, created_at, put_timestamp,
                   delete_timestamp, container_count, object_count,
-                  bytes_used, hash, id)
+                  bytes_used, hash, id
         """
         try:
             self._commit_puts()
@@ -1404,11 +1427,11 @@ class AccountBroker(DatabaseBroker):
             if not self.stale_reads_ok:
                 raise
         with self.get() as conn:
-            return conn.execute('''
+            return dict(conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
                        container_count, object_count, bytes_used, hash, id
                 FROM account_stat
-            ''').fetchone()
+            ''').fetchone())
 
     def list_containers_iter(self, limit, marker, end_marker, prefix,
                              delimiter):
