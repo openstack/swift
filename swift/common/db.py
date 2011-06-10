@@ -899,14 +899,24 @@ class ContainerBroker(DatabaseBroker):
             metadata = ''
             if include_metadata:
                 metadata = ', metadata'
-            data = conn.execute('''
-                SELECT account, container, created_at, put_timestamp,
-                    delete_timestamp, object_count, bytes_used,
-                    reported_put_timestamp, reported_delete_timestamp,
-                    reported_object_count, reported_bytes_used, hash, id
-                    %s
-                FROM container_stat
-            ''' % metadata).fetchone()
+            try:
+                data = conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id
+                        %s
+                    FROM container_stat
+                ''' % metadata).fetchone()
+            except sqlite3.OperationalError, err:
+                if 'no such column: metadata' not in str(err):
+                    raise
+                data = conn.execute('''
+                    SELECT account, container, created_at, put_timestamp,
+                        delete_timestamp, object_count, bytes_used,
+                        reported_put_timestamp, reported_delete_timestamp,
+                        reported_object_count, reported_bytes_used, hash, id
+                    FROM container_stat''').fetchone()
             data = dict(data)
             if include_metadata:
                 try:

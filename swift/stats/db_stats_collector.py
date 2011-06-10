@@ -58,10 +58,10 @@ class DatabaseStatsCollector(Daemon):
                          (self.stats_type, (time.time() - start) / 60))
 
     def get_data(self):
-        raise Exception('Not Implemented')
+        raise NotImplementedError('Subclasses must override')
 
     def get_header(self):
-        raise Exception('Not Implemented')
+        raise NotImplementedError('Subclasses must override')
 
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)

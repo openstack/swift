@@ -93,7 +93,32 @@ class TestDbStats(unittest.TestCase):
         self.assertEqual(len(output_data), 10)
         return stat, output_data
 
-    def _gen_container_stat(self, set_metadata=False):
+    def _drop_metadata_col(self, broker, acc_name):
+        broker.conn.execute('''drop table container_stat''')
+        broker.conn.executescript("""
+            CREATE TABLE container_stat (
+                account TEXT DEFAULT '%s',
+                container TEXT DEFAULT 'test_con',
+                created_at TEXT,
+                put_timestamp TEXT DEFAULT '0',
+                delete_timestamp TEXT DEFAULT '0',
+                object_count INTEGER,
+                bytes_used INTEGER,
+                reported_put_timestamp TEXT DEFAULT '0',
+                reported_delete_timestamp TEXT DEFAULT '0',
+                reported_object_count INTEGER DEFAULT 0,
+                reported_bytes_used INTEGER DEFAULT 0,
+                hash TEXT default '00000000000000000000000000000000',
+                id TEXT,
+                status TEXT DEFAULT '',
+                status_changed_at TEXT DEFAULT '0'
+            );
+
+            INSERT INTO container_stat (object_count, bytes_used)
+                VALUES (1, 10);
+        """ % acc_name)
+
+    def _gen_container_stat(self, set_metadata=False, drop_metadata=False):
         if set_metadata:
             self.conf['metadata_keys'] = 'test1,test2'
             # webob runs title on all headers
@@ -116,8 +141,13 @@ class TestDbStats(unittest.TestCase):
                     metadata_output = ',,1'
             # this will "commit" the data
             cont_db.get_info()
-            output_data.add('''"test_acc_%s","test_con",1,10%s''' %
-                            (i, metadata_output))
+            if drop_metadata:
+                output_data.add('''"test_acc_%s","test_con",1,10,,''' % i)
+            else:
+                output_data.add('''"test_acc_%s","test_con",1,10%s''' %
+                                (i, metadata_output))
+            if drop_metadata:
+                self._drop_metadata_col(cont_db, 'test_acc_%s' % i)
 
         self.assertEqual(len(output_data), 10)
         return stat, output_data
@@ -136,6 +166,21 @@ class TestDbStats(unittest.TestCase):
     def test_account_stat_run_once_container_metadata(self):
 
         stat, output_data = self._gen_container_stat(set_metadata=True)
+        stat.run_once()
+        stat_file = os.listdir(self.log_dir)[0]
+        with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
+            headers = stat_handle.readline()
+            self.assert_(headers.startswith('Account Hash,Container Name,'))
+            for i in range(10):
+                data = stat_handle.readline()
+                output_data.discard(data.strip())
+
+        self.assertEqual(len(output_data), 0)
+
+    def test_account_stat_run_once_container_no_metadata(self):
+
+        stat, output_data = self._gen_container_stat(set_metadata=True,
+                                                     drop_metadata=True)
         stat.run_once()
         stat_file = os.listdir(self.log_dir)[0]
         with open(os.path.join(self.log_dir, stat_file)) as stat_handle:
@@ -180,8 +225,8 @@ class TestDbStats(unittest.TestCase):
     def test_not_implemented(self):
         db_stat = db_stats_collector.DatabaseStatsCollector(self.conf,
                                      'account', 'test_dir', 'stats-%Y%m%d%H_')
-        self.assertRaises(Exception, db_stat.get_data)
-        self.assertRaises(Exception, db_stat.get_header)
+        self.assertRaises(NotImplementedError, db_stat.get_data)
+        self.assertRaises(NotImplementedError, db_stat.get_header)
 
     def test_not_not_mounted(self):
         self.conf['mount_check'] = 'true'
