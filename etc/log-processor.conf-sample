@@ -54,3 +54,4 @@ processable = false
 # devices = /srv/node
 # mount_check = true
 # user = swift
+# metadata_keys = comma separated list of user metadata keys to be collected

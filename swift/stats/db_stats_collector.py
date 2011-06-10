@@ -58,7 +58,10 @@ class DatabaseStatsCollector(Daemon):
                          (self.stats_type, (time.time() - start) / 60))
 
     def get_data(self):
-        raise Exception('Not Implemented')
+        raise NotImplementedError('Subclasses must override')
+
+    def get_header(self):
+        raise NotImplementedError('Subclasses must override')
 
     def find_and_process(self):
         src_filename = time.strftime(self.filename_format)
@@ -70,6 +73,7 @@ class DatabaseStatsCollector(Daemon):
         hasher = hashlib.md5()
         try:
             with open(tmp_filename, 'wb') as statfile:
+                statfile.write(self.get_header())
                 for device in os.listdir(self.devices):
                     if self.mount_check and not check_mount(self.devices,
                                                             device):
@@ -122,6 +126,9 @@ class AccountStatsCollector(DatabaseStatsCollector):
                                              info['bytes_used'])
         return line_data
 
+    def get_header(self):
+        return ''
+
 
 class ContainerStatsCollector(DatabaseStatsCollector):
     """
@@ -133,20 +140,38 @@ class ContainerStatsCollector(DatabaseStatsCollector):
         super(ContainerStatsCollector, self).__init__(stats_conf, 'container',
                                                    container_server_data_dir,
                                                    'container-stats-%Y%m%d%H_')
+        # webob calls title on all the header keys
+        self.metadata_keys = ['X-Container-Meta-%s' % mkey.strip().title()
+                for mkey in stats_conf.get('metadata_keys', '').split(',')
+                if mkey.strip()]
+
+    def get_header(self):
+        header = 'Account Hash,Container Name,Object Count,Bytes Used'
+        if self.metadata_keys:
+            xtra_headers = ','.join(self.metadata_keys)
+            header += ',%s' % xtra_headers
+        header += '\n'
+        return header
 
     def get_data(self, db_path):
         """
         Data for generated csv has the following columns:
         Account Hash, Container Name, Object Count, Bytes Used
+        This will just collect whether or not the metadata is set
+        using a 1 or ''.
         """
         line_data = None
         broker = ContainerBroker(db_path)
         if not broker.is_deleted():
-            info = broker.get_info()
+            info = broker.get_info(include_metadata=bool(self.metadata_keys))
             encoded_container_name = urllib.quote(info['container'])
-            line_data = '"%s","%s",%d,%d\n' % (
-                info['account'],
-                encoded_container_name,
-                info['object_count'],
-                info['bytes_used'])
+            line_data = '"%s","%s",%d,%d' % (
+                info['account'], encoded_container_name,
+                info['object_count'], info['bytes_used'])
+            if self.metadata_keys:
+                metadata_results = ','.join(
+                    [info['metadata'].get(mkey) and '1' or ''
+                     for mkey in self.metadata_keys])
+                line_data += ',%s' % metadata_results
+            line_data += '\n'
         return line_data
