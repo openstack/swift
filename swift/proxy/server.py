@@ -386,17 +386,16 @@ class Controller(object):
             except (Exception, TimeoutError):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
-        if result_code == 404:
-            if autocreate:
-                if len(account) > MAX_ACCOUNT_NAME_LENGTH:
-                    return None, None
-                headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                           'x-trans-id': self.trans_id}
-                resp = self.make_requests(Request.blank('/v1' + path),
-                    self.app.account_ring, partition, 'PUT',
-                    path, [headers] * len(nodes))
-                if resp.status_int // 100 == 2:
-                    result_code = 200
+        if result_code == 404 and autocreate:
+            if len(account) > MAX_ACCOUNT_NAME_LENGTH:
+                return None, None
+            headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                       'X-Trans-Id': self.trans_id}
+            resp = self.make_requests(Request.blank('/v1' + path),
+                self.app.account_ring, partition, 'PUT',
+                path, [headers] * len(nodes))
+            if resp.status_int // 100 == 2:
+                result_code = 200
         if self.app.memcache and result_code in (200, 404):
             if result_code == 200:
                 cache_timeout = self.app.recheck_account_existence

@@ -393,6 +393,26 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
+    def test_account_info_account_autocreate(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=False)
+            self.check_account_info_return(partition, nodes, is_none=True)
+
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account)
+            self.check_account_info_return(partition, nodes, is_none=True)
+
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 201, 201, 201)
+            partition, nodes = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes)
+
     def check_container_info_return(self, ret, is_none=False):
         if is_none:
             partition, nodes, read_acl, write_acl = None, None, None, None
