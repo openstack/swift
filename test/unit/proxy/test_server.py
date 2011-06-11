@@ -3171,6 +3171,16 @@ class TestAccountController(unittest.TestCase):
             self.app.memcache = FakeMemcacheReturnsNone()
             self.assert_status_map(controller.GET, (404, 404, 404), 404)
 
+    def test_GET_autocreate(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.app.memcache = FakeMemcacheReturnsNone()
+            self.assert_status_map(controller.GET,
+                (404, 404, 404, 201, 201, 201, 204), 404)
+            controller.app.account_autocreate = True
+            self.assert_status_map(controller.GET,
+                (404, 404, 404, 201, 201, 201, 204), 204)
+
     def test_HEAD(self):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
@@ -3188,6 +3198,26 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.HEAD, (404, 404, 503), 404)
             self.assert_status_map(controller.HEAD, (404, 503, 503), 503)
             self.assert_status_map(controller.HEAD, (404, 204, 503), 204)
+
+    def test_HEAD_autocreate(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.app.memcache = FakeMemcacheReturnsNone()
+            self.assert_status_map(controller.HEAD,
+                (404, 404, 404, 201, 201, 201, 204), 404)
+            controller.app.account_autocreate = True
+            self.assert_status_map(controller.HEAD,
+                (404, 404, 404, 201, 201, 201, 204), 204)
+
+    def test_POST_autocreate(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.app.memcache = FakeMemcacheReturnsNone()
+            self.assert_status_map(controller.POST,
+                (404, 404, 404, 201, 201, 201), 404)
+            controller.app.account_autocreate = True
+            self.assert_status_map(controller.POST,
+                (404, 404, 404, 201, 201, 201), 201)
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')
