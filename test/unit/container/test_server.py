@@ -514,6 +514,7 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/json')
         self.assertEquals(eval(resp.body), json_body)
+        self.assertEquals(resp.charset, 'utf-8')
 
         for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',
                  '*/*;q=0.9,application/json;q=1.0', 'application/*'):
@@ -552,6 +553,7 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'text/plain')
         self.assertEquals(resp.body, plain_body)
+        self.assertEquals(resp.charset, 'utf-8')
 
         for accept in ('', 'text/plain', 'application/xml;q=0.8,*/*;q=0.9',
                 '*/*;q=0.9,application/xml;q=0.8', '*/*',
@@ -609,6 +611,7 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/xml')
         self.assertEquals(resp.body, xml_body)
+        self.assertEquals(resp.charset, 'utf-8')
 
         for xml_accept in ('application/xml', 'application/xml;q=1.0,*/*;q=0.9',
                  '*/*;q=0.9,application/xml;q=1.0', 'application/xml,text/xml'):
