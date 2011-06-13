@@ -270,7 +270,7 @@ class StaticWeb(object):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
-        if self._listings not in TRUE_VALUES:
+        if self._listings.lower() not in TRUE_VALUES:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
         tmp_env = self._get_escalated_env(env)

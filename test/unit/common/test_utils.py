@@ -788,6 +788,10 @@ log_name = yarr'''
                                                        ['1.1.1.1', '2.2.2.2']),
                                  None)
 
+    def test_TRUE_VALUES(self):
+        for v in utils.TRUE_VALUES:
+            self.assertEquals(v, v.lower())
+
 
 if __name__ == '__main__':
     unittest.main()
