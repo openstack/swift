@@ -1319,8 +1319,26 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
-        return self.GETorHEAD_base(req, _('Account'), partition, nodes,
+        resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
+        if resp.status_int == 404 and self.app.account_autocreate:
+            if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+                resp = HTTPBadRequest(request=req)
+                resp.body = 'Account name length of %d longer than %d' % \
+                            (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+                return resp
+            headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                       'X-Trans-Id': self.trans_id}
+            resp = self.make_requests(
+                Request.blank('/v1/' + self.account_name),
+                self.app.account_ring, partition, 'PUT',
+                '/' + self.account_name, [headers] * len(nodes))
+            if resp.status_int // 100 != 2:
+                raise Exception('Could not autocreate account %r' %
+                                self.account_name)
+            resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
+                req.path_info.rstrip('/'), self.app.account_ring.replica_count)
+        return resp
 
     @public
     def PUT(self, req):
@@ -1360,9 +1378,23 @@ class AccountController(Controller):
             if value[0].lower().startswith('x-account-meta-'))
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        return self.make_requests(req, self.app.account_ring,
+        resp = self.make_requests(req, self.app.account_ring,
             account_partition, 'POST', req.path_info,
             [headers] * len(accounts))
+        if resp.status_int == 404 and self.app.account_autocreate:
+            if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+                resp = HTTPBadRequest(request=req)
+                resp.body = 'Account name length of %d longer than %d' % \
+                            (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+                return resp
+            resp = self.make_requests(
+                Request.blank('/v1/' + self.account_name),
+                self.app.account_ring, account_partition, 'PUT',
+                '/' + self.account_name, [headers] * len(accounts))
+            if resp.status_int // 100 != 2:
+                raise Exception('Could not autocreate account %r' %
+                                self.account_name)
+        return resp
 
     @public
     def DELETE(self, req):
