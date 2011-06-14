@@ -75,7 +75,8 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
                           log_name=kwargs.get('log_name'))
 
     # once on command line (i.e. daemonize=false) will over-ride config
-    once = once or conf.get('daemonize', 'true') not in utils.TRUE_VALUES
+    once = once or \
+            conf.get('daemonize', 'true').lower() not in utils.TRUE_VALUES
 
     # pre-configure logger
     if 'logger' in kwargs:

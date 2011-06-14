@@ -768,6 +768,10 @@ log_name = yarr'''
         self.assertEquals(utils.human_readable(1237940039285380274899124224),
                           '1024Yi')
 
+    def test_TRUE_VALUES(self):
+        for v in utils.TRUE_VALUES:
+            self.assertEquals(v, v.lower())
+
 
 if __name__ == '__main__':
     unittest.main()

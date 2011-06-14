@@ -557,6 +557,10 @@ object_post_as_copy           true             Set object_post_as_copy = false
                                                in this mode, features like
                                                container sync won't be able to
                                                sync posts.
+account_autocreate            false            If set to 'true' authorized
+                                               accounts that do not yet exist
+                                               within the Swift cluster will
+                                               be automatically created.
 ============================  ===============  =============================
 
 [tempauth]

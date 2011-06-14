@@ -72,7 +72,7 @@ if hash_conf.read('/etc/swift/swift.conf'):
         pass
 
 # Used when reading config values
-TRUE_VALUES = set(('true', '1', 'yes', 'True', 'Yes', 'on', 'On', 't', 'y'))
+TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
 
 def validate_configuration():

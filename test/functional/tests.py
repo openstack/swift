@@ -227,10 +227,10 @@ class TestAccount(Base):
             headers = dict(self.env.conn.response.getheaders())
             if format == 'json':
                 self.assertEquals(headers['content-type'],
-                    'application/json; charset=utf8')
+                    'application/json; charset=utf-8')
             elif format == 'xml':
                 self.assertEquals(headers['content-type'],
-                    'application/xml; charset=utf8')
+                    'application/xml; charset=utf-8')
 
     def testListingLimit(self):
         limit = 10000
@@ -1355,10 +1355,10 @@ class TestFile(Base):
             headers = dict(self.env.conn.response.getheaders())
             if format == 'json':
                 self.assertEquals(headers['content-type'],
-                    'application/json; charset=utf8')
+                    'application/json; charset=utf-8')
             elif format == 'xml':
                 self.assertEquals(headers['content-type'],
-                    'application/xml; charset=utf8')
+                    'application/xml; charset=utf-8')
 
         lm_diff = max([f['last_modified'] for f in files]) - \
             min([f['last_modified'] for f in files])

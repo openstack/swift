@@ -74,36 +74,36 @@ the .../listing.css style sheet. If you "view source" in your browser on a
 listing page, you will see the well defined document structure that can be
 styled.
 
-Example usage of this middleware via ``st``:
+Example usage of this middleware via ``swift``:
 
     Make the container publicly readable::
 
-        st post -r '.r:*' container
+        swift post -r '.r:*' container
 
     You should be able to get objects directly, but no index.html resolution or
     listings.
 
     Set an index file directive::
 
-        st post -m 'web-index:index.html' container
+        swift post -m 'web-index:index.html' container
 
     You should be able to hit paths that have an index.html without needing to
     type the index.html part.
 
     Turn on listings::
 
-        st post -m 'web-listings: true' container
+        swift post -m 'web-listings: true' container
 
     Now you should see object listings for paths and pseudo paths that have no
     index.html.
 
     Enable a custom listings style sheet::
 
-        st post -m 'web-listings-css:listings.css' container
+        swift post -m 'web-listings-css:listings.css' container
 
     Set an error file::
 
-        st post -m 'web-error:error.html' container
+        swift post -m 'web-error:error.html' container
 
     Now 401's should load 401error.html, 404's should load 404error.html, etc.
 """
@@ -270,7 +270,7 @@ class StaticWeb(object):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
-        if self._listings not in TRUE_VALUES:
+        if self._listings.lower() not in TRUE_VALUES:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
         tmp_env = self._get_escalated_env(env)
