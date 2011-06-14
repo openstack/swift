@@ -14,24 +14,24 @@ concatenated as a single object. This also offers much greater upload speed
 with the possibility of parallel uploads of the segments.
 
 ----------------------------------
-Using ``st`` for Segmented Objects
+Using ``swift`` for Segmented Objects
 ----------------------------------
 
-The quickest way to try out this feature is use the included ``st`` Swift Tool.
+The quickest way to try out this feature is use the included ``swift`` Swift Tool.
 You can use the ``-S`` option to specify the segment size to use when splitting
 a large file. For example::
 
-    st upload test_container -S 1073741824 large_file
+    swift upload test_container -S 1073741824 large_file
 
 This would split the large_file into 1G segments and begin uploading those
-segments in parallel. Once all the segments have been uploaded, ``st`` will
+segments in parallel. Once all the segments have been uploaded, ``swift`` will
 then create the manifest file so the segments can be downloaded as one.
 
-So now, the following ``st`` command would download the entire large object::
+So now, the following ``swift`` command would download the entire large object::
 
-    st download test_container large_file
+    swift download test_container large_file
 
-``st`` uses a strict convention for its segmented object support. In the above
+``swift`` uses a strict convention for its segmented object support. In the above
 example it will upload all the segments into a second container named
 test_container_segments. These segments will have names like
 large_file/1290206778.25/21474836480/00000000,
@@ -43,7 +43,7 @@ the segment name format of <name>/<timestamp>/<size>/<segment> is so that an
 upload of a new file with the same name won't overwrite the contents of the
 first until the last moment when the manifest file is updated.
 
-``st`` will manage these segment files for you, deleting old segments on
+``swift`` will manage these segment files for you, deleting old segments on
 deletes and overwrites, etc. You can override this behavior with the
 ``--leave-segments`` option if desired; this is useful if you want to have
 multiple versions of the same large object available.
@@ -53,14 +53,14 @@ Direct API
 ----------
 
 You can also work with the segments and manifests directly with HTTP requests
-instead of having ``st`` do that for you. You can just upload the segments like
+instead of having ``swift`` do that for you. You can just upload the segments like
 you would any other object and the manifest is just a zero-byte file with an
 extra ``X-Object-Manifest`` header.
 
 All the object segments need to be in the same container, have a common object
 name prefix, and their names sort in the order they should be concatenated.
 They don't have to be in the same container as the manifest file will be, which
-is useful to keep container listings clean as explained above with ``st``.
+is useful to keep container listings clean as explained above with ``swift``.
 
 The manifest file is simply a zero-byte file with the extra
 ``X-Object-Manifest: <container>/<prefix>`` header, where ``<container>`` is
