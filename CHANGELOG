@@ -1,3 +1,19 @@
+swift (1.4.1)
+
+    * st renamed to swift
+
+    * swauth was separated froms swift. It is now its own project and can be
+      found at https://github.com/gholt/swauth.
+
+    * tempauth middleware added as an extremely limited auth system for dev
+      work.
+
+    * Account and container listings now properly labeled UTF-8 (previously the
+      label was "utf8").
+
+    * Accounts are auto-created if an auth token is valid when the
+      account_autocreate proxy config parameter is set to true.
+
 swift (1.4.0)
 
     * swift-bench now cleans up containers it creates.
