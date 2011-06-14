@@ -76,7 +76,7 @@ setup(
         ],
     install_requires=[],  # removed for better compat
     scripts=[
-        'bin/st', 'bin/swift-account-auditor',
+        'bin/swift', 'bin/swift-account-auditor',
         'bin/swift-account-audit', 'bin/swift-account-reaper',
         'bin/swift-account-replicator', 'bin/swift-account-server',
         'bin/swift-container-auditor',

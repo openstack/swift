@@ -633,7 +633,7 @@ Setting up scripts for running Swift
   #. `recreateaccounts`
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
-  #. Check that `st` works: `st -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
+  #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
   #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
   #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
