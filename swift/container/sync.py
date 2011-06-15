@@ -14,9 +14,11 @@
 # limitations under the License.
 
 import os
-import time
+from time import ctime, time
 import random
 from struct import unpack_from
+
+from eventlet import sleep
 
 from swift.container import server as container_server
 from swift.common import client, direct_client
@@ -49,9 +51,12 @@ class _Iter2FileLikeObject(object):
             chunk = self._chunk
             self._chunk = ''
             return chunk + ''.join(self.iterator)
-        chunk = ''
+        chunk = self._chunk
+        self._chunk = ''
+        if chunk and len(chunk) <= size:
+            return chunk
         try:
-            chunk = self.iterator.next()
+            chunk += self.iterator.next()
         except StopIteration:
             pass
         if len(chunk) <= size:
@@ -162,7 +167,7 @@ class ContainerSync(Daemon):
         #: Number of containers that had a failure of some type.
         self.container_failures = 0
         #: Time of last stats report.
-        self.reported = time.time()
+        self.reported = time()
         swift_dir = conf.get('swift_dir', '/etc/swift')
         #: swift.common.ring.Ring for locating containers.
         self.container_ring = container_ring or \
@@ -177,37 +182,37 @@ class ContainerSync(Daemon):
         """
         Runs container sync scans until stopped.
         """
-        time.sleep(random.random() * self.interval)
+        sleep(random.random() * self.interval)
         while True:
-            begin = time.time()
+            begin = time()
             all_locs = audit_location_generator(self.devices,
                                                 container_server.DATADIR,
                                                 mount_check=self.mount_check,
                                                 logger=self.logger)
             for path, device, partition in all_locs:
                 self.container_sync(path)
-                if time.time() - self.reported >= 3600:  # once an hour
+                if time() - self.reported >= 3600:  # once an hour
                     self.report()
-            elapsed = time.time() - begin
+            elapsed = time() - begin
             if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
+                sleep(self.interval - elapsed)
 
     def run_once(self):
         """
         Runs a single container sync scan.
         """
         self.logger.info(_('Begin container sync "once" mode'))
-        begin = time.time()
+        begin = time()
         all_locs = audit_location_generator(self.devices,
                                             container_server.DATADIR,
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
             self.container_sync(path)
-            if time.time() - self.reported >= 3600:  # once an hour
+            if time() - self.reported >= 3600:  # once an hour
                 self.report()
         self.report()
-        elapsed = time.time() - begin
+        elapsed = time() - begin
         self.logger.info(
             _('Container sync "once" mode completed: %.02fs'), elapsed)
 
@@ -219,13 +224,13 @@ class ContainerSync(Daemon):
         self.logger.info(
             _('Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s '
               'puts], %(skip)s skipped, %(fail)s failed'),
-            {'time': time.ctime(self.reported),
+            {'time': ctime(self.reported),
              'sync': self.container_syncs,
              'delete': self.container_deletes,
              'put': self.container_puts,
              'skip': self.container_skips,
              'fail': self.container_failures})
-        self.reported = time.time()
+        self.reported = time()
         self.container_syncs = 0
         self.container_deletes = 0
         self.container_puts = 0
@@ -274,8 +279,8 @@ class ContainerSync(Daemon):
                          'validate_sync_to_err': err})
                     self.container_failures += 1
                     return
-                stop_at = time.time() + self.container_time
-                while time.time() < stop_at and sync_point2 < sync_point1:
+                stop_at = time() + self.container_time
+                while time() < stop_at and sync_point2 < sync_point1:
                     rows = broker.get_items_since(sync_point2, 1)
                     if not rows:
                         break
@@ -295,7 +300,7 @@ class ContainerSync(Daemon):
                             return
                     sync_point2 = row['ROWID']
                     broker.set_x_container_sync_points(None, sync_point2)
-                while time.time() < stop_at:
+                while time() < stop_at:
                     rows = broker.get_items_since(sync_point1, 1)
                     if not rows:
                         break
