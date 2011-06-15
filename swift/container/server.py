@@ -334,7 +334,7 @@ class ContainerController(object):
             container_list = '\n'.join(r[0] for r in container_list) + '\n'
         ret = Response(body=container_list, request=req, headers=resp_headers)
         ret.content_type = out_content_type
-        ret.charset = 'utf8'
+        ret.charset = 'utf-8'
         return ret
 
     def REPLICATE(self, req):

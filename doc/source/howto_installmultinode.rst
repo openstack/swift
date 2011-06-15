@@ -372,34 +372,34 @@ You run these commands from the Proxy node.
 
         curl -k -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>
 
-#. Check that ``st`` works  (at this point, expect zero containers, zero objects, and zero bytes)::
+#. Check that ``swift`` works  (at this point, expect zero containers, zero objects, and zero bytes)::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass stat
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass stat
 
-#. Use ``st`` to upload a few files named 'bigfile[1-2].tgz' to a container named 'myfiles'::
+#. Use ``swift`` to upload a few files named 'bigfile[1-2].tgz' to a container named 'myfiles'::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile1.tgz
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload myfiles bigfile2.tgz
 
-#. Use ``st`` to download all files from the 'myfiles' container::
+#. Use ``swift`` to download all files from the 'myfiles' container::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download myfiles
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download myfiles
 
-#. Use ``st`` to save a backup of your builder files to a container named 'builders'. Very important not to lose your builders!::
+#. Use ``swift`` to save a backup of your builder files to a container named 'builders'. Very important not to lose your builders!::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass upload builders /etc/swift/*.builder
 
-#. Use ``st`` to list your containers::
+#. Use ``swift`` to list your containers::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list
 
-#. Use ``st`` to list the contents of your 'builders' container::
+#. Use ``swift`` to list the contents of your 'builders' container::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list builders
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass list builders
 
-#. Use ``st`` to download all files from the 'builders' container::
+#. Use ``swift`` to download all files from the 'builders' container::
 
-        st -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download builders
+        swift -A https://$PROXY_LOCAL_NET_IP:8080/auth/v1.0 -U system:root -K testpass download builders
 
 .. _add-proxy-server:
 
