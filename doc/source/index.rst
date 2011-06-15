@@ -42,7 +42,6 @@ Overview and Concepts
     overview_reaper
     overview_auth
     overview_replication
-    overview_stats
     ratelimit
     overview_large_objects
 
