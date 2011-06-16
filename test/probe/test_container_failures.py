@@ -24,7 +24,7 @@ from uuid import uuid4
 import eventlet
 import sqlite3
 
-from swift.common import client
+from swift.common import client, direct_client
 from swift.common.utils import hash_path, readconf
 
 from test.probe.common import get_to_final_state, kill_pids, reset_environment
@@ -72,7 +72,8 @@ class TestContainerFailures(unittest.TestCase):
         # This okay because the first node hasn't got the update that the
         # object was deleted yet.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
 
         # Unfortunately, the following might pass or fail, depending on the
         # position of the account server associated with the first container
@@ -88,7 +89,8 @@ class TestContainerFailures(unittest.TestCase):
         client.put_object(self.url, self.token, container, object2, 'test')
         # First node still doesn't know object1 was deleted yet; this is okay.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
@@ -150,7 +152,8 @@ class TestContainerFailures(unittest.TestCase):
         # server has to indicate the container exists for the put to continue.
         client.put_object(self.url, self.token, container, object2, 'test')
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
@@ -201,7 +204,8 @@ class TestContainerFailures(unittest.TestCase):
         # This okay because the first node hasn't got the update that the
         # object was deleted yet.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -228,7 +232,8 @@ class TestContainerFailures(unittest.TestCase):
         client.put_object(self.url, self.token, container, object2, 'test')
         # First node still doesn't know object1 was deleted yet; this is okay.
         self.assert_(object1 in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
@@ -277,7 +282,8 @@ class TestContainerFailures(unittest.TestCase):
         self.assert_(container in [c['name'] for c in
                      client.get_account(self.url, self.token)[1]])
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
 
         # This fails because all three nodes have to indicate deletion before
         # we tell the user it worked. Since the first node 409s (it hasn't got
@@ -303,7 +309,8 @@ class TestContainerFailures(unittest.TestCase):
         # server has to indicate the container exists for the put to continue.
         client.put_object(self.url, self.token, container, object2, 'test')
         self.assert_(object1 not in [o['name'] for o in
-                     client.get_container(self.url, self.token, container)[1]])
+                     direct_client.direct_get_container(cnodes[0], cpart,
+                     self.account, container)[1]])
         # And, of course, our new object2 exists.
         self.assert_(object2 in [o['name'] for o in
                      client.get_container(self.url, self.token, container)[1]])
