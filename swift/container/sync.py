@@ -344,8 +344,8 @@ class ContainerSync(Daemon):
             if row['deleted']:
                 try:
                     delete_object(sync_to, name=row['name'],
-                        headers={'X-Timestamp': row['created_at'],
-                                 'X-Container-Sync-Key': sync_key},
+                        headers={'x-timestamp': row['created_at'],
+                                 'x-container-sync-key': sync_key},
                         proxy=self.proxy)
                 except ClientException, err:
                     if err.http_status != 404:
@@ -357,15 +357,22 @@ class ContainerSync(Daemon):
                     row['name'])
                 shuffle(nodes)
                 exc = None
+                looking_for_timestamp = float(row['created_at'])
+                timestamp = -1
+                headers = body = None
                 for node in nodes:
                     try:
-                        headers, body = direct_get_object(node, part,
-                            info['account'], info['container'], row['name'],
-                            resp_chunk_size=65536)
-                        break
+                        these_headers, this_body = direct_get_object(node,
+                            part, info['account'], info['container'],
+                            row['name'], resp_chunk_size=65536)
+                        this_timestamp = float(these_headers['x-timestamp'])
+                        if this_timestamp > timestamp:
+                            timestamp = this_timestamp
+                            headers = these_headers
+                            body = this_body
                     except ClientException, err:
                         exc = err
-                else:
+                if timestamp < looking_for_timestamp:
                     if exc:
                         raise exc
                     raise Exception(_('Unknown exception trying to GET: '
@@ -379,8 +386,8 @@ class ContainerSync(Daemon):
                         del headers[key]
                 if 'etag' in headers:
                     headers['etag'] = headers['etag'].strip('"')
-                headers['X-Timestamp'] = row['created_at']
-                headers['X-Container-Sync-Key'] = sync_key
+                headers['x-timestamp'] = row['created_at']
+                headers['x-container-sync-key'] = sync_key
                 put_object(sync_to, name=row['name'], headers=headers,
                     contents=_Iter2FileLikeObject(body), proxy=self.proxy)
                 self.container_puts += 1

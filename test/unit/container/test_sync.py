@@ -610,7 +610,7 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEquals(path, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
                 self.assertEquals(headers,
-                    {'X-Container-Sync-Key': 'key', 'X-Timestamp': '1.2'})
+                    {'x-container-sync-key': 'key', 'x-timestamp': '1.2'})
                 self.assertEquals(proxy, 'http://proxy')
 
             sync.delete_object = fake_delete_object
@@ -678,8 +678,8 @@ class TestContainerSync(unittest.TestCase):
                                 contents=None, proxy=None):
                 self.assertEquals(sync_to, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
-                self.assertEquals(headers, {'X-Container-Sync-Key': 'key',
-                    'X-Timestamp': '1.2',
+                self.assertEquals(headers, {'x-container-sync-key': 'key',
+                    'x-timestamp': '1.2',
                     'other-header': 'other header value',
                     'etag': 'etagvalue'})
                 self.assertEquals(contents.read(), 'contents')
@@ -694,7 +694,7 @@ class TestContainerSync(unittest.TestCase):
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
                 return ({'other-header': 'other header value',
-                         'etag': '"etagvalue"'},
+                         'etag': '"etagvalue"', 'x-timestamp': '1.2'},
                         iter('contents'))
 
             sync.direct_get_object = fake_direct_get_object
@@ -709,6 +709,7 @@ class TestContainerSync(unittest.TestCase):
                                        resp_chunk_size=1):
                 return ({'date': 'date value',
                          'last-modified': 'last modified value',
+                         'x-timestamp': '1.2',
                          'other-header': 'other header value',
                          'etag': '"etagvalue"'},
                         iter('contents'))
@@ -758,7 +759,7 @@ class TestContainerSync(unittest.TestCase):
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
                 return ({'other-header': 'other header value',
-                         'etag': '"etagvalue"'},
+                         'x-timestamp': '1.2', 'etag': '"etagvalue"'},
                         iter('contents'))
 
             def fake_put_object(sync_to, name=None, headers=None,
