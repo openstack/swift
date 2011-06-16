@@ -359,7 +359,6 @@ class TestRateLimit(unittest.TestCase):
             thread.join()
 
         time_took = time.time() - begin
-#         the all 15 threads still take 1.5 secs
         self.assertEquals(1.5, round(time_took, 1))
 
     def test_ratelimit_acc_vrs_container(self):
