@@ -371,7 +371,12 @@ class ContainerSync(Daemon):
                             headers = these_headers
                             body = this_body
                     except ClientException, err:
-                        exc = err
+                        # If any errors are not 404, make sure we report the
+                        # non-404 one. We don't want to mistankely assume the
+                        # object no longer exists just because one says so and
+                        # the others errored for some other reason.
+                        if not exc or exc.http_status == 404:
+                            exc = err
                 if timestamp < looking_for_timestamp:
                     if exc:
                         raise exc
