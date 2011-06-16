@@ -20,7 +20,7 @@ from signal import SIGTERM
 from subprocess import Popen
 from time import sleep
 
-from swift.common import client
+from swift.common import client, direct_client
 from test.probe.common import get_to_final_state, kill_pids, reset_environment
 
 
@@ -146,7 +146,8 @@ class TestAccountFailures(unittest.TestCase):
         sleep(2)
         # This is the earlier counts and bytes because the first node doesn't
         # have the newest udpates yet.
-        headers, containers = client.get_account(self.url, self.token)
+        headers, containers = \
+            direct_client.direct_get_account(anodes[0], apart, self.account)
         self.assertEquals(headers['x-account-container-count'], '2')
         self.assertEquals(headers['x-account-object-count'], '1')
         self.assertEquals(headers['x-account-bytes-used'], '4')
@@ -167,7 +168,8 @@ class TestAccountFailures(unittest.TestCase):
         self.assert_(found2)
 
         get_to_final_state()
-        headers, containers = client.get_account(self.url, self.token)
+        headers, containers = \
+            direct_client.direct_get_account(anodes[0], apart, self.account)
         self.assertEquals(headers['x-account-container-count'], '1')
         self.assertEquals(headers['x-account-object-count'], '2')
         self.assertEquals(headers['x-account-bytes-used'], '9')

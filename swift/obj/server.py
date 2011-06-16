@@ -627,6 +627,7 @@ class ObjectController(object):
             file.keep_cache = True
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
+        response.headers['X-Timestamp'] = file.metadata['X-Timestamp']
         return request.get_response(response)
 
     def HEAD(self, request):
@@ -663,6 +664,7 @@ class ObjectController(object):
         response.content_length = file_size
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
+        response.headers['X-Timestamp'] = file.metadata['X-Timestamp']
         return response
 
     def DELETE(self, request):

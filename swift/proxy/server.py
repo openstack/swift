@@ -162,6 +162,7 @@ class SegmentedIterable(object):
             if self.segment > 10:
                 sleep(max(self.next_get_time - time.time(), 0))
                 self.next_get_time = time.time() + 1
+            shuffle(nodes)
             resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
@@ -609,6 +610,8 @@ class Controller(object):
         statuses = []
         reasons = []
         bodies = []
+        source = None
+        newest = req.headers.get('x-newest', 'f').lower() in TRUE_VALUES
         for node in nodes:
             if len(statuses) >= attempts:
                 break
@@ -621,23 +624,48 @@ class Controller(object):
                         headers=req.headers,
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
-                    source = conn.getresponse()
+                    possible_source = conn.getresponse()
             except (Exception, TimeoutError):
                 self.exception_occurred(node, server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
                 continue
-            if source.status == 507:
+            if possible_source.status == 507:
                 self.error_limit(node)
                 continue
-            if 200 <= source.status <= 399:
+            if 200 <= possible_source.status <= 399:
                 # 404 if we know we don't have a synced copy
-                if not float(source.getheader('X-PUT-Timestamp', '1')):
+                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                     statuses.append(404)
                     reasons.append('')
                     bodies.append('')
-                    source.read()
+                    possible_source.read()
                     continue
+            if (req.method == 'GET' and
+                possible_source.status in (200, 206)) or \
+                    200 <= possible_source.status <= 399:
+                if newest:
+                    ts = 0
+                    if source:
+                        ts = float(source.getheader('x-put-timestamp') or
+                                   source.getheader('x-timestamp') or 0)
+                    pts = float(possible_source.getheader('x-put-timestamp') or
+                                possible_source.getheader('x-timestamp') or 0)
+                    if pts > ts:
+                        source = possible_source
+                    continue
+                else:
+                    source = possible_source
+                    break
+            statuses.append(possible_source.status)
+            reasons.append(possible_source.reason)
+            bodies.append(possible_source.read())
+            if possible_source.status >= 500:
+                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
+                    'From %(type)s Server') %
+                    {'status': possible_source.status,
+                    'body': bodies[-1][:1024], 'type': server_type})
+        if source:
             if req.method == 'GET' and source.status in (200, 206):
                 res = Response(request=req, conditional_response=True)
                 res.bytes_transferred = 0
@@ -683,13 +711,6 @@ class Controller(object):
                         res.charset = None
                         res.content_type = source.getheader('Content-Type')
                 return res
-            statuses.append(source.status)
-            reasons.append(source.reason)
-            bodies.append(source.read())
-            if source.status >= 500:
-                self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
-                    'From %(type)s Server') % {'status': source.status,
-                    'body': bodies[-1][:1024], 'type': server_type})
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
 
@@ -744,6 +765,7 @@ class ObjectController(Controller):
                 lreq = Request.blank('/%s/%s?prefix=%s&format=json&marker=%s' %
                     (quote(self.account_name), quote(lcontainer),
                      quote(lprefix), quote(marker)))
+                shuffle(lnodes)
                 lresp = self.GETorHEAD_base(lreq, _('Container'), lpartition,
                     lnodes, lreq.path_info,
                     self.app.container_ring.replica_count)
@@ -871,30 +893,40 @@ class ObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
-        error_response = check_metadata(req, 'object')
-        if error_response:
-            return error_response
-        container_partition, containers, _junk, req.acl, _junk = \
-            self.container_info(self.account_name, self.container_name,
-                account_autocreate=self.app.account_autocreate)
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
-        if not containers:
-            return HTTPNotFound(request=req)
-        partition, nodes = self.app.object_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        req.headers['X-Timestamp'] = normalize_timestamp(time.time())
-        headers = []
-        for container in containers:
-            nheaders = dict(req.headers.iteritems())
-            nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
-            nheaders['X-Container-Partition'] = container_partition
-            nheaders['X-Container-Device'] = container['device']
-            headers.append(nheaders)
-        return self.make_requests(req, self.app.object_ring,
-                partition, 'POST', req.path_info, headers)
+        if self.app.object_post_as_copy:
+            req.method = 'PUT'
+            req.path_info = '/%s/%s/%s' % (self.account_name,
+                self.container_name, self.object_name)
+            req.headers['Content-Length'] = 0
+            req.headers['X-Copy-From'] = '/%s/%s' % (self.container_name,
+                self.object_name)
+            req.headers['X-Fresh-Metadata'] = 'true'
+            return self.PUT(req)
+        else:
+            error_response = check_metadata(req, 'object')
+            if error_response:
+                return error_response
+            container_partition, containers, _junk, req.acl, _junk = \
+                self.container_info(self.account_name, self.container_name,
+                    account_autocreate=self.app.account_autocreate)
+            if 'swift.authorize' in req.environ:
+                aresp = req.environ['swift.authorize'](req)
+                if aresp:
+                    return aresp
+            if not containers:
+                return HTTPNotFound(request=req)
+            partition, nodes = self.app.object_ring.get_nodes(
+                self.account_name, self.container_name, self.object_name)
+            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            headers = []
+            for container in containers:
+                nheaders = dict(req.headers.iteritems())
+                nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
+                nheaders['X-Container-Partition'] = container_partition
+                nheaders['X-Container-Device'] = container['device']
+                headers.append(nheaders)
+            return self.make_requests(req, self.app.object_ring,
+                    partition, 'POST', req.path_info, headers)
 
     def _send_file(self, conn, path):
         """Method for a file PUT coro"""
@@ -978,6 +1010,7 @@ class ObjectController(Controller):
         reader = req.environ['wsgi.input'].read
         data_source = iter(lambda: reader(self.app.client_chunk_size), '')
         source_header = req.headers.get('X-Copy-From')
+        source_resp = None
         if source_header:
             source_header = unquote(source_header)
             acct = req.path_info.split('/', 2)[1]
@@ -993,6 +1026,7 @@ class ObjectController(Controller):
                     '<container name>/<object name>')
             source_req = req.copy_get()
             source_req.path_info = source_header
+            source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
             self.object_name = src_obj_name
@@ -1018,12 +1052,14 @@ class ObjectController(Controller):
             if not content_type_manually_set:
                 new_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
-            for k, v in source_resp.headers.items():
-                if k.lower().startswith('x-object-meta-'):
-                    new_req.headers[k] = v
-            for k, v in req.headers.items():
-                if k.lower().startswith('x-object-meta-'):
-                    new_req.headers[k] = v
+            if new_req.headers.get('x-fresh-metadata', 'false').lower() \
+                    not in TRUE_VALUES:
+                for k, v in source_resp.headers.items():
+                    if k.lower().startswith('x-object-meta-'):
+                        new_req.headers[k] = v
+                for k, v in req.headers.items():
+                    if k.lower().startswith('x-object-meta-'):
+                        new_req.headers[k] = v
             req = new_req
         node_iter = self.iter_nodes(partition, nodes, self.app.object_ring)
         pile = GreenPile(len(nodes))
@@ -1125,6 +1161,9 @@ class ObjectController(Controller):
         if source_header:
             resp.headers['X-Copied-From'] = quote(
                                                 source_header.split('/', 2)[2])
+            if 'last-modified' in source_resp.headers:
+                resp.headers['X-Copied-From-Last-Modified'] = \
+                    source_resp.headers['last-modified']
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v
@@ -1230,6 +1269,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
                         self.account_name, self.container_name)
+        shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Container'), part, nodes,
                 req.path_info, self.app.container_ring.replica_count)
 
@@ -1368,6 +1408,7 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
+        shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
         if resp.status_int == 404 and self.app.account_autocreate:
@@ -1498,6 +1539,8 @@ class BaseApplication(object):
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
             conf.get('allow_account_management', 'no').lower() in TRUE_VALUES
+        self.object_post_as_copy = \
+            conf.get('object_post_as_copy', 'true').lower() in TRUE_VALUES
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or \
