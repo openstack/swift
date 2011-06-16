@@ -15,13 +15,15 @@
 
 import os
 from time import ctime, time
-import random
+from random import random, shuffle
 from struct import unpack_from
 
 from eventlet import sleep
 
 from swift.container import server as container_server
-from swift.common import client, direct_client
+from swift.common.client import ClientException, delete_object, put_object, \
+    quote
+from swift.common.direct_client import direct_get_object
 from swift.common.ring import Ring
 from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
@@ -182,7 +184,7 @@ class ContainerSync(Daemon):
         """
         Runs container sync scans until stopped.
         """
-        sleep(random.random() * self.interval)
+        sleep(random() * self.interval)
         while True:
             begin = time()
             all_locs = audit_location_generator(self.devices,
@@ -320,7 +322,7 @@ class ContainerSync(Daemon):
                     sync_point1 = row['ROWID']
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
-        except Exception:
+        except Exception, err:
             self.container_failures += 1
             self.logger.exception(_('ERROR Syncing %s'), (broker.db_file))
 
@@ -341,11 +343,11 @@ class ContainerSync(Daemon):
         try:
             if row['deleted']:
                 try:
-                    client.delete_object(sync_to, name=row['name'],
+                    delete_object(sync_to, name=row['name'],
                         headers={'X-Timestamp': row['created_at'],
                                  'X-Container-Sync-Key': sync_key},
                         proxy=self.proxy)
-                except client.ClientException, err:
+                except ClientException, err:
                     if err.http_status != 404:
                         raise
                 self.container_deletes += 1
@@ -353,16 +355,15 @@ class ContainerSync(Daemon):
                 part, nodes = self.object_ring.get_nodes(
                     info['account'], info['container'],
                     row['name'])
-                random.shuffle(nodes)
+                shuffle(nodes)
                 exc = None
                 for node in nodes:
                     try:
-                        headers, body = \
-                            direct_client.direct_get_object(node, part,
-                                info['account'], info['container'],
-                                row['name'], resp_chunk_size=65536)
+                        headers, body = direct_get_object(node, part,
+                            info['account'], info['container'], row['name'],
+                            resp_chunk_size=65536)
                         break
-                    except client.ClientException, err:
+                    except ClientException, err:
                         exc = err
                 else:
                     if exc:
@@ -380,26 +381,22 @@ class ContainerSync(Daemon):
                     headers['etag'] = headers['etag'].strip('"')
                 headers['X-Timestamp'] = row['created_at']
                 headers['X-Container-Sync-Key'] = sync_key
-                client.put_object(sync_to, name=row['name'],
-                                headers=headers,
-                                contents=_Iter2FileLikeObject(body),
-                                proxy=self.proxy)
+                put_object(sync_to, name=row['name'], headers=headers,
+                    contents=_Iter2FileLikeObject(body), proxy=self.proxy)
                 self.container_puts += 1
-        except client.ClientException, err:
+        except ClientException, err:
             if err.http_status == 401:
                 self.logger.info(_('Unauth %(sync_from)r '
                     '=> %(sync_to)r key: %(sync_key)r'),
                     {'sync_from': '%s/%s' %
-                        (client.quote(info['account']),
-                         client.quote(info['container'])),
+                        (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to,
                      'sync_key': sync_key})
             elif err.http_status == 404:
                 self.logger.info(_('Not found %(sync_from)r '
                     '=> %(sync_to)r key: %(sync_key)r'),
                     {'sync_from': '%s/%s' %
-                        (client.quote(info['account']),
-                         client.quote(info['container'])),
+                        (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to,
                      'sync_key': sync_key})
             else:
@@ -408,7 +405,7 @@ class ContainerSync(Daemon):
                     {'db_file': broker.db_file, 'row': row})
             self.container_failures += 1
             return False
-        except Exception:
+        except Exception, err:
             self.logger.exception(
                 _('ERROR Syncing %(db_file)s %(row)s'),
                 {'db_file': broker.db_file, 'row': row})
