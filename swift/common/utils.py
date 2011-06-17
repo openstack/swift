@@ -76,7 +76,7 @@ if hash_conf.read('/etc/swift/swift.conf'):
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
 # Used with xml.sax.saxutils.escape
-XML_EXTRA_ENTITIES = dict((chr(x), '&#x%x;' % x) for x in xrange(1, 20))
+XML_EXTRA_ENTITIES = dict((chr(x), '&#x%x;' % x) for x in xrange(1, 0x20))
 
 def validate_configuration():
     if HASH_PATH_SUFFIX == '':
