@@ -124,47 +124,49 @@ class TestObjectHandoff(unittest.TestCase):
         if not exc:
             raise Exception('Handoff object server still had test object')
 
-        kill(self.pids[self.port2server[onode['port']]], SIGTERM)
-        client.post_object(self.url, self.token, container, obj,
-                           headers={'x-object-meta-probe': 'value'})
-        oheaders = client.head_object(self.url, self.token, container, obj)
-        if oheaders.get('x-object-meta-probe') != 'value':
-            raise Exception('Metadata incorrect, was %s' % repr(oheaders))
-        exc = False
-        try:
-            direct_client.direct_get_object(another_onode, opart, self.account,
-                                            container, obj)
-        except Exception:
-            exc = True
-        if not exc:
-            raise Exception('Handoff server claimed it had the object when '
-                            'it should not have it')
-        self.pids[self.port2server[onode['port']]] = Popen([
-            'swift-object-server',
-            '/etc/swift/object-server/%d.conf' %
-            ((onode['port'] - 6000) / 10)]).pid
-        sleep(2)
-        oheaders = direct_client.direct_get_object(onode, opart, self.account,
-                                                    container, obj)[0]
-        if oheaders.get('x-object-meta-probe') == 'value':
-            raise Exception('Previously downed object server had the new '
-                            'metadata when it should not have it')
-        # Run the extra server last so it'll remove it's extra partition
-        ps = []
-        for n in onodes:
-            ps.append(Popen(['swift-object-replicator',
-                             '/etc/swift/object-server/%d.conf' %
-                             ((n['port'] - 6000) / 10), 'once']))
-        for p in ps:
-            p.wait()
-        call(['swift-object-replicator',
-              '/etc/swift/object-server/%d.conf' %
-              ((another_onode['port'] - 6000) / 10), 'once'])
-        oheaders = direct_client.direct_get_object(onode, opart, self.account,
-                                                    container, obj)[0]
-        if oheaders.get('x-object-meta-probe') != 'value':
-            raise Exception(
-                'Previously downed object server did not have the new metadata')
+# Because POST has changed to a COPY by default, POSTs will succeed on all up
+# nodes now if at least one up node has the object.
+#       kill(self.pids[self.port2server[onode['port']]], SIGTERM)
+#       client.post_object(self.url, self.token, container, obj,
+#                          headers={'x-object-meta-probe': 'value'})
+#       oheaders = client.head_object(self.url, self.token, container, obj)
+#       if oheaders.get('x-object-meta-probe') != 'value':
+#           raise Exception('Metadata incorrect, was %s' % repr(oheaders))
+#       exc = False
+#       try:
+#           direct_client.direct_get_object(another_onode, opart, self.account,
+#                                           container, obj)
+#       except Exception:
+#           exc = True
+#       if not exc:
+#           raise Exception('Handoff server claimed it had the object when '
+#                           'it should not have it')
+#       self.pids[self.port2server[onode['port']]] = Popen([
+#           'swift-object-server',
+#           '/etc/swift/object-server/%d.conf' %
+#           ((onode['port'] - 6000) / 10)]).pid
+#       sleep(2)
+#       oheaders = direct_client.direct_get_object(onode, opart, self.account,
+#                                                   container, obj)[0]
+#       if oheaders.get('x-object-meta-probe') == 'value':
+#           raise Exception('Previously downed object server had the new '
+#                           'metadata when it should not have it')
+#       # Run the extra server last so it'll remove it's extra partition
+#       ps = []
+#       for n in onodes:
+#           ps.append(Popen(['swift-object-replicator',
+#                            '/etc/swift/object-server/%d.conf' %
+#                            ((n['port'] - 6000) / 10), 'once']))
+#       for p in ps:
+#           p.wait()
+#       call(['swift-object-replicator',
+#             '/etc/swift/object-server/%d.conf' %
+#             ((another_onode['port'] - 6000) / 10), 'once'])
+#       oheaders = direct_client.direct_get_object(onode, opart, self.account,
+#                                                   container, obj)[0]
+#       if oheaders.get('x-object-meta-probe') != 'value':
+#           raise Exception(
+#               'Previously downed object server did not have the new metadata')
 
         kill(self.pids[self.port2server[onode['port']]], SIGTERM)
         client.delete_object(self.url, self.token, container, obj)
