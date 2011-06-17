@@ -2,6 +2,7 @@
 
 import unittest
 from nose import SkipTest
+from uuid import uuid4
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
@@ -131,6 +132,32 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEquals(resp.status, 400)
+
+    def test_name_control_chars(self):
+        if skip:
+            raise SkipTest
+
+        container = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s%%01test' %
+                (parsed.path, container), '',
+                {'X-Auth-Token': token, 'Content-Length': '0'})
+            return check_response(conn)
+
+        resp = retry(put)
+        resp.read()
+        self.assertTrue(resp.status in (201, 202))
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', '%s?format=xml' % (parsed.path,), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(get)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertTrue('<name>%s&#x1;test</name>' % (container,) in body)
 
 
 if __name__ == '__main__':

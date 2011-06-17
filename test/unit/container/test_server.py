@@ -246,6 +246,24 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
 
+    def test_PUT_container_no_null(self):
+        req = Request.blank('/sda1/p/a/test\x00test',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_PUT_object_no_null(self):
+        req = Request.blank('/sda1/p/a/test',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/test/test\x00test',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
+                     'HTTP_X_SIZE': '0', 'HTTP_X_CONTENT_TYPE': 'text/plain',
+                     'HTTP_X_ETAG': 'd41d8cd98f00b204e9800998ecf8427e'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
+
     def test_PUT_account_update(self):
         bindsock = listen(('127.0.0.1', 0))
         def accept(return_code, expected_timestamp):
@@ -582,25 +600,25 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.PUT(req)
         # fill the container
         for i in range(3):
-            req = Request.blank('/sda1/p/a/xmlc/%s'%i, environ=
-                    {'REQUEST_METHOD': 'PUT',
-                    'HTTP_X_TIMESTAMP': '1',
-                    'HTTP_X_CONTENT_TYPE': 'text/plain',
-                    'HTTP_X_ETAG': 'x',
-                    'HTTP_X_SIZE': 0})
+            req = Request.blank('/sda1/p/a/xmlc/%s%%%02x' % (i, i + 1),
+                environ={'REQUEST_METHOD': 'PUT',
+                         'HTTP_X_TIMESTAMP': '1',
+                         'HTTP_X_CONTENT_TYPE': 'text/plain',
+                         'HTTP_X_ETAG': 'x',
+                         'HTTP_X_SIZE': 0})
             resp = self.controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
         xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
             '<container name="xmlc">' \
-                '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
+                '<object><name>0&#x1;</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
                     '<last_modified>1970-01-01T00:00:01' \
                     '</last_modified></object>' \
-                '<object><name>1</name><hash>x</hash><bytes>0</bytes>' \
+                '<object><name>1&#x2;</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
                     '<last_modified>1970-01-01T00:00:01' \
                     '</last_modified></object>' \
-                '<object><name>2</name><hash>x</hash><bytes>0</bytes>' \
+                '<object><name>2&#x3;</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
                     '<last_modified>1970-01-01T00:00:01' \
                     '</last_modified></object>' \
@@ -821,6 +839,17 @@ class TestContainerController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = self.controller.GET(req)
             self.assert_(resp.status_int in (204, 412), resp.status_int)
+
+    def test_params_no_null(self):
+        self.controller.PUT(Request.blank('/sda1/p/a/c',
+                            headers={'X-Timestamp': normalize_timestamp(1)},
+                            environ={'REQUEST_METHOD': 'PUT'}))
+        for param in ('delimiter', 'format', 'limit', 'marker', 'path',
+                      'prefix'):
+            req = Request.blank('/sda1/p/a/c?%s=\x00' % param,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = self.controller.GET(req)
+            self.assertEquals(resp.status_int, 400)
 
 
 if __name__ == '__main__':
