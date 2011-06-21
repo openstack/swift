@@ -392,11 +392,11 @@ class TestParseUserCreation(unittest.TestCase):
         })(FakeApp())
         self.assertEquals(auth_filter.users, {
             'admin:admin': {
-                'url': 'http://127.0.0.1:80/v1/AUTH_admin', 
+                'url': 'http://127.0.0.1:8080/v1/AUTH_admin', 
                 'groups': ['.admin', '.reseller_admin'], 
                 'key': 'admin'
             }, 'test:tester3': {
-                'url': 'http://127.0.0.1:80/v1/AUTH_test', 
+                'url': 'http://127.0.0.1:8080/v1/AUTH_test', 
                 'groups': [], 
                 'key': 'testing'
             },
