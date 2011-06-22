@@ -13,9 +13,9 @@ special manifest file is created that, when downloaded, sends all the segments
 concatenated as a single object. This also offers much greater upload speed
 with the possibility of parallel uploads of the segments.
 
-----------------------------------
+-------------------------------------
 Using ``swift`` for Segmented Objects
-----------------------------------
+-------------------------------------
 
 The quickest way to try out this feature is use the included ``swift`` Swift Tool.
 You can use the ``-S`` option to specify the segment size to use when splitting

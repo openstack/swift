@@ -73,5 +73,5 @@ use = egg:swift#container
 # sync_proxy = http://127.0.0.1:8888
 # Will sync, at most, each container once per interval
 # interval = 300
-# Maximum amount of time to spend syncing each container
+# Maximum amount of time to spend syncing each container per pass
 # container_time = 60

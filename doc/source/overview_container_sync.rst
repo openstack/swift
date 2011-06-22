@@ -14,10 +14,10 @@ synchronization key.
 
 .. note::
 
-    This does not sync standard object POSTs, as those do not cause container
-    updates. A workaround is to do X-Copy-From POSTs. We're considering
-    solutions to this limitation but leaving it as is for now since POSTs are
-    fairly uncommon.
+    Container sync will sync object POSTs only if the proxy server is set to
+    use "object_post_as_copy = true" which is the default. So-called fast
+    object posts, "object_post_as_copy = false" do not update the container
+    listings and therefore can't be detected for synchronization.
 
 --------------------------------------------
 Configuring a Cluster's Allowable Sync Hosts
@@ -64,9 +64,9 @@ requests. Here are examples with DevAuth and Swauth::
 The default of 127.0.0.1 is just so no configuration is required for SAIO
 setups -- for testing.
 
-----------------------------------------------
-Using ``st`` to set up synchronized containers
-----------------------------------------------
+----------------------------------------------------------
+Using the ``swift`` tool to set up synchronized containers
+----------------------------------------------------------
 
 .. note::
 
@@ -77,7 +77,7 @@ You simply tell each container where to sync to and give it a secret
 synchronization key. First, let's get the account details for our two cluster
 accounts::
 
-    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing stat -v
+    $ swift -A http://cluster1/auth/v1.0 -U test:tester -K testing stat -v
     StorageURL: http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e
     Auth Token: AUTH_tkd5359e46ff9e419fa193dbd367f3cd19
        Account: AUTH_208d1854-e475-4500-b315-81de645d060e
@@ -85,7 +85,7 @@ accounts::
        Objects: 0
          Bytes: 0
 
-    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 stat -v
+    $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 stat -v
     StorageURL: http://cluster2/v1/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c
     Auth Token: AUTH_tk816a1aaf403c49adb92ecfca2f88e430
        Account: AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c
@@ -96,7 +96,7 @@ accounts::
 Now, let's make our first container and tell it to synchronize to a second
 we'll make next::
 
-    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing post \
+    $ swift -A http://cluster1/auth/v1.0 -U test:tester -K testing post \
       -t 'http://cluster2/v1/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
       -k 'secret' container1
 
@@ -105,28 +105,28 @@ cluster2 we retrieved above plus the container name. The ``-k`` specifies the
 secret key the two containers will share for synchronization. Now, we'll do
 something similar for the second cluster's container::
 
-    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 post \
+    $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 post \
       -t 'http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e/container1' \
       -k 'secret' container2
 
 That's it. Now we can upload a bunch of stuff to the first container and watch
 as it gets synchronized over to the second::
 
-    $ st -A http://cluster1/auth/v1.0 -U test:tester -K testing \
+    $ swift -A http://cluster1/auth/v1.0 -U test:tester -K testing \
       upload container1 .
     photo002.png
     photo004.png
     photo001.png
     photo003.png
 
-    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
+    $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
       list container2
 
     [Nothing there yet, so we wait a bit...]
     [If you're an operator running SAIO and just testing, you may need to
      run 'swift-init container-sync once' to perform a sync scan.]
 
-    $ st -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
+    $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
       list container2
     photo001.png
     photo002.png
@@ -141,7 +141,7 @@ They'd all need to share the same secret synchronization key.
 Using curl (or other tools) instead
 -----------------------------------
 
-So what's ``st`` doing behind the scenes? Nothing overly complicated. It
+So what's ``swift`` doing behind the scenes? Nothing overly complicated. It
 translates the ``-t <value>`` option into an ``X-Container-Sync-To: <value>``
 header and the ``-k <value>`` option into an ``X-Container-Sync-Key: <value>``
 header.
@@ -172,10 +172,10 @@ to the other container.
 
 .. note::
 
-    This does not sync standard object POSTs, as those do not cause
-    container row updates. A workaround is to do X-Copy-From POSTs. We're
-    considering solutions to this limitation but leaving it as is for now
-    since POSTs are fairly uncommon.
+    Container sync will sync object POSTs only if the proxy server is set to
+    use "object_post_as_copy = true" which is the default. So-called fast
+    object posts, "object_post_as_copy = false" do not update the container
+    listings and therefore can't be detected for synchronization.
 
 The actual syncing is slightly more complicated to make use of the three
 (or number-of-replicas) main nodes for a container without each trying to

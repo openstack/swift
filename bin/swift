@@ -155,6 +155,8 @@ def http_connection(url, proxy=None):
     Make an HTTPConnection or HTTPSConnection
 
     :param url: url to connect to
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :returns: tuple of (parsed url, connection object)
     :raises ClientException: Unable to handle protocol scheme
     """
@@ -587,18 +589,27 @@ def put_object(url, token=None, container=None, name=None, contents=None,
     Put an object
 
     :param url: storage URL
-    :param token: auth token
-    :param container: container name that the object is in
-    :param name: object name to put
-    :param contents: a string or a file like object to read object data from
+    :param token: auth token; if None, no token will be sent
+    :param container: container name that the object is in; if None, the
+                      container name is expected to be part of the url
+    :param name: object name to put; if None, the object name is expected to be
+                 part of the url
+    :param contents: a string or a file like object to read object data from;
+                     if None, a zero-byte put will be done
     :param content_length: value to send as content-length header; also limits
-                           the amount read from contents
-    :param etag: etag of contents
-    :param chunk_size: chunk size of data to write
-    :param content_type: value to send as content-type header
-    :param headers: additional headers to include in the request
+                           the amount read from contents; if None, it will be
+                           computed via the contents or chunked transfer
+                           encoding will be used
+    :param etag: etag of contents; if None, no etag will be sent
+    :param chunk_size: chunk size of data to write; default 65536
+    :param content_type: value to send as content-type header; if None, no
+                         content-type will be set (remote end will likely try
+                         to auto-detect it)
+    :param headers: additional headers to include in the request, if any
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :returns: etag from server response
     :raises ClientException: HTTP PUT request failed
     """
@@ -698,11 +709,16 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
     Delete object
 
     :param url: storage URL
-    :param token: auth token
-    :param container: container name that the object is in
-    :param name: object name to delete
+    :param token: auth token; if None, no token will be sent
+    :param container: container name that the object is in; if None, the
+                      container name is expected to be part of the url
+    :param name: object name to delete; if None, the object name is expected to
+                 be part of the url
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
+    :param headers: additional headers to include in the request
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :raises ClientException: HTTP DELETE request failed
     """
     if http_conn:
