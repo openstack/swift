@@ -144,12 +144,12 @@ def drop_buffer_cache(fd, offset, length):
     """
     global _posix_fadvise
     if _posix_fadvise is None:
-        _posix_fadvise = load_libc_function('posix_fadvise')
+        _posix_fadvise = load_libc_function('posix_fadvise64')
     # 4 means "POSIX_FADV_DONTNEED"
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                         ctypes.c_uint64(length), 4)
     if ret != 0:
-        logging.warn("posix_fadvise(%s, %s, %s, 4) -> %s"
+        logging.warn("posix_fadvise64(%s, %s, %s, 4) -> %s"
                      % (fd, offset, length, ret))
 
 
