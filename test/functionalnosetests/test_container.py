@@ -522,6 +522,50 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 201)
 
+    def test_name_control_chars(self):
+        if skip:
+            raise SkipTest
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s%%00test' % (parsed.path, self.name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(put)
+        resp.read()
+        # NULLs not allowed
+        self.assertEquals(resp.status, 412)
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s%%01test' % (parsed.path, self.name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(put)
+        resp.read()
+        # 0x01 allowed
+        self.assertTrue(resp.status in (201, 202))
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/object%%01test' %
+                (parsed.path, self.name), '',
+                {'X-Auth-Token': token, 'Content-Length': '0'})
+            return check_response(conn)
+
+        resp = retry(put)
+        resp.read()
+        self.assertTrue(resp.status in (201, 202))
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', '%s/%s?format=xml' % (parsed.path, self.name),
+                '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(get)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertTrue('<name>object&#x1;test</name>' in body)
+
 
 if __name__ == '__main__':
     unittest.main()
