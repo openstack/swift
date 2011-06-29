@@ -78,10 +78,10 @@ class ContainerSync(Daemon):
 
     .. note::
 
-        This does not sync standard object POSTs, as those do not cause
-        container row updates. A workaround is to do X-Copy-From POSTs. We're
-        considering solutions to this limitation but leaving it as is for now
-        since POSTs are fairly uncommon.
+        Container sync will sync object POSTs only if the proxy server is set
+        to use "object_post_as_copy = true" which is the default. So-called
+        fast object posts, "object_post_as_copy = false" do not update the
+        container listings and therefore can't be detected for synchronization.
 
     The actual syncing is slightly more complicated to make use of the three
     (or number-of-replicas) main nodes for a container without each trying to
