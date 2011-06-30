@@ -2045,8 +2045,8 @@ class TestObjectController(unittest.TestCase):
             proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
-            req = Request.blank('/a/c/o', {}, headers={
-                'Transfer-Encoding': 'chunked',
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                headers={'Transfer-Encoding': 'chunked',
                 'Content-Type': 'foo/bar'})
 
             req.body_file = ChunkedFile(10)
@@ -2058,8 +2058,8 @@ class TestObjectController(unittest.TestCase):
             # test 413 entity to large
             from swift.proxy import server
             proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
-            req = Request.blank('/a/c/o', {}, headers={
-                'Transfer-Encoding': 'chunked',
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                headers={'Transfer-Encoding': 'chunked',
                 'Content-Type': 'foo/bar'})
             req.body_file = ChunkedFile(11)
             self.app.memcache.store = {}
