@@ -22,6 +22,7 @@ from StringIO import StringIO
 import simplejson
 import xml.dom.minidom
 from webob import Request
+from xml.parsers.expat import ExpatError
 
 from swift.account.server import AccountController, ACCOUNT_LISTING_LIMIT
 from swift.common.utils import normalize_timestamp
@@ -450,7 +451,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         self.controller.PUT(req)
-        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank('/sda1/p/a/c2%04',
+                            environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '2',
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
@@ -462,7 +464,15 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/xml')
         self.assertEquals(resp.status_int, 200)
-        dom = xml.dom.minidom.parseString(resp.body)
+        try:
+            dom = xml.dom.minidom.parseString(resp.body)
+        except ExpatError, err:
+            # Expat doesn't like control characters, which are XML 1.1
+            # compatible. Soooo, we have to replace them. We'll do a specific
+            # replace in this case, but real code that uses Expat will need
+            # something more resilient.
+            dom = xml.dom.minidom.parseString(
+                resp.body.replace('&#x4;', '\\x04'))
         self.assertEquals(dom.firstChild.nodeName, 'account')
         listing = \
             [n for n in dom.firstChild.childNodes if n.nodeName != '#text']
@@ -483,7 +493,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(sorted([n.nodeName for n in container]),
                           ['bytes', 'count', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
-        self.assertEquals(node.firstChild.nodeValue, 'c2')
+        self.assertEquals(node.firstChild.nodeValue, 'c2\\x04')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEquals(node.firstChild.nodeValue, '0')
         node = [n for n in container if n.nodeName == 'bytes'][0]
@@ -495,7 +505,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '2',
                                      'X-Timestamp': normalize_timestamp(0)})
         self.controller.PUT(req)
-        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank('/sda1/p/a/c2%04',
+                            environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '2',
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '3',
@@ -506,7 +517,15 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 200)
-        dom = xml.dom.minidom.parseString(resp.body)
+        try:
+            dom = xml.dom.minidom.parseString(resp.body)
+        except ExpatError, err:
+            # Expat doesn't like control characters, which are XML 1.1
+            # compatible. Soooo, we have to replace them. We'll do a specific
+            # replace in this case, but real code that uses Expat will need
+            # something more resilient.
+            dom = xml.dom.minidom.parseString(
+                resp.body.replace('&#x4;', '\\x04'))
         self.assertEquals(dom.firstChild.nodeName, 'account')
         listing = \
             [n for n in dom.firstChild.childNodes if n.nodeName != '#text']
@@ -526,7 +545,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(sorted([n.nodeName for n in container]),
                           ['bytes', 'count', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
-        self.assertEquals(node.firstChild.nodeValue, 'c2')
+        self.assertEquals(node.firstChild.nodeValue, 'c2\\x04')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEquals(node.firstChild.nodeValue, '3')
         node = [n for n in container if n.nodeName == 'bytes'][0]
@@ -958,6 +977,35 @@ class TestAccountController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = self.controller.GET(req)
             self.assert_(resp.status_int in (204, 412), resp.status_int)
+
+    def test_params_no_null(self):
+        self.controller.PUT(Request.blank('/sda1/p/a',
+                            headers={'X-Timestamp': normalize_timestamp(1)},
+                            environ={'REQUEST_METHOD': 'PUT'}))
+        for param in ('delimiter', 'format', 'limit', 'marker',
+                      'prefix'):
+            req = Request.blank('/sda1/p/a?%s=\x00' % param,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = self.controller.GET(req)
+            self.assertEquals(resp.status_int, 400)
+
+    def test_PUT_account_no_null(self):
+        req = Request.blank('/sda1/p/test\x00test',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_PUT_container_no_null(self):
+        req = Request.blank('/sda1/p/a',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/test\x00test',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_PUT_TIMESTAMP': '1',
+                     'HTTP_X_DELETE_TIMESTAMP': '0',
+                     'HTTP_X_OBJECT_COUNT': '0', 'HTTP_X_BYTES_USED': '0'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
 
 
 if __name__ == '__main__':

@@ -44,17 +44,6 @@ use = egg:swift#account
 # The replicator also performs reclamation
 # reclaim_age = 86400
 
-[account-stats]
-# You can override the default log routing for this app here (don't use set!):
-# log_name = account-stats
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# cf_account = AUTH_7abbc116-8a07-4b63-819d-02715d3e0f31
-# container_name = account_stats
-# proxy_server_conf = /etc/swift/proxy-server.conf
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):
 # log_name = account-auditor

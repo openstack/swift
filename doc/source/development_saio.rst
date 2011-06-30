@@ -630,7 +630,6 @@ Setting up scripts for running Swift
   #. `remakerings`
   #. `cd ~/swift/trunk; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
-  #. `recreateaccounts`
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`

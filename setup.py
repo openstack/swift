@@ -92,10 +92,6 @@ setup(
         'bin/swift-stats-report',
         'bin/swift-dispersion-populate', 'bin/swift-dispersion-report',
         'bin/swift-bench',
-        'bin/swift-log-uploader',
-        'bin/swift-log-stats-collector',
-        'bin/swift-account-stats-logger',
-        'bin/swift-container-stats-logger',
         ],
     entry_points={
         'paste.app_factory': [

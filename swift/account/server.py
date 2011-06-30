@@ -29,7 +29,7 @@ import simplejson
 
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, split_path, storage_directory
+    normalize_timestamp, split_path, storage_directory, XML_EXTRA_ENTITIES
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
@@ -79,6 +79,9 @@ class AccountController(object):
         try:
             drive, part, account, container = split_path(unquote(req.path),
                                                          3, 4)
+            if (account and not check_utf8(account)) or \
+                    (container and not check_utf8(container)):
+                raise ValueError('NULL characters not allowed in names')
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
@@ -201,8 +204,8 @@ class AccountController(object):
             marker = get_param(req, 'marker', '')
             end_marker = get_param(req, 'end_marker')
             query_format = get_param(req, 'format')
-        except UnicodeDecodeError, err:
-            return HTTPBadRequest(body='parameters not utf8',
+        except (UnicodeDecodeError, ValueError), err:
+            return HTTPBadRequest(body='parameters not utf8 or contain NULLs',
                                   content_type='text/plain', request=req)
         if query_format:
             req.accept = 'application/%s' % query_format.lower()
@@ -228,7 +231,7 @@ class AccountController(object):
             output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
                            '<account name="%s">' % account]
             for (name, object_count, bytes_used, is_subdir) in account_list:
-                name = saxutils.escape(name)
+                name = saxutils.escape(name, XML_EXTRA_ENTITIES)
                 if is_subdir:
                     output_list.append('<subdir name="%s" />' % name)
                 else:

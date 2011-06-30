@@ -542,5 +542,23 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
 
 
+class TestParseUserCreation(unittest.TestCase):
+    def test_parse_user_creation(self):
+        auth_filter = auth.filter_factory({
+            'user_test_tester3': 'testing',
+            'user_admin_admin': 'admin .admin .reseller_admin',
+        })(FakeApp())
+        self.assertEquals(auth_filter.users, {
+            'admin:admin': {
+                'url': 'http://127.0.0.1:8080/v1/AUTH_admin', 
+                'groups': ['.admin', '.reseller_admin'], 
+                'key': 'admin'
+            }, 'test:tester3': {
+                'url': 'http://127.0.0.1:8080/v1/AUTH_test', 
+                'groups': [], 
+                'key': 'testing'
+            },
+        })
+
 if __name__ == '__main__':
     unittest.main()

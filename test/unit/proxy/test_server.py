@@ -2045,8 +2045,8 @@ class TestObjectController(unittest.TestCase):
             proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
-            req = Request.blank('/a/c/o', {}, headers={
-                'Transfer-Encoding': 'chunked',
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                headers={'Transfer-Encoding': 'chunked',
                 'Content-Type': 'foo/bar'})
 
             req.body_file = ChunkedFile(10)
@@ -2058,8 +2058,8 @@ class TestObjectController(unittest.TestCase):
             # test 413 entity to large
             from swift.proxy import server
             proxy_server.http_connect = fake_http_connect(201, 201, 201, 201)
-            req = Request.blank('/a/c/o', {}, headers={
-                'Transfer-Encoding': 'chunked',
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                headers={'Transfer-Encoding': 'chunked',
                 'Content-Type': 'foo/bar'})
             req.body_file = ChunkedFile(11)
             self.app.memcache.store = {}
@@ -2104,6 +2104,20 @@ class TestObjectController(unittest.TestCase):
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
+            'Connection: close\r\nX-Auth-Token: t\r\n'
+            'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 412'
+        self.assertEquals(headers[:len(exp)], exp)
+
+    def test_chunked_put_bad_utf8_null(self):
+        # Check invalid utf-8
+        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+                 _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a%00 HTTP/1.1\r\nHost: localhost\r\n'
             'Connection: close\r\nX-Auth-Token: t\r\n'
             'Content-Length: 0\r\n\r\n')
         fd.flush()
