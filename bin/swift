@@ -160,16 +160,17 @@ def http_connection(url, proxy=None):
     :returns: tuple of (parsed url, connection object)
     :raises ClientException: Unable to handle protocol scheme
     """
-    parsed = urlparse(proxy or url)
+    parsed = urlparse(url)
+    proxy_parsed = urlparse(proxy) if proxy else None
     if parsed.scheme == 'http':
-        conn = HTTPConnection(parsed.netloc)
+        conn = HTTPConnection((proxy_parsed if proxy else parsed).netloc)
     elif parsed.scheme == 'https':
-        conn = HTTPSConnection(parsed.netloc)
+        conn = HTTPSConnection((proxy_parsed if proxy else parsed).netloc)
     else:
         raise ClientException('Cannot handle protocol scheme %s for url %s' %
-                              (parsed.scheme, repr(proxy or url)))
+                              (parsed.scheme, repr(url)))
     if proxy:
-        parsed = urlparse(url)
+        conn._set_tunnel(parsed.hostname, parsed.port)
     return parsed, conn
 
 
@@ -622,8 +623,6 @@ def put_object(url, token=None, container=None, name=None, contents=None,
         path = '%s/%s' % (path.rstrip('/'), quote(container))
     if name:
         path = '%s/%s' % (path.rstrip('/'), quote(name))
-    if proxy:
-        path = parsed.scheme + '://' + parsed.netloc + path
     if headers:
         headers = dict(headers)
     else:
@@ -736,8 +735,6 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
         headers = {}
     if token:
         headers['X-Auth-Token'] = token
-    if proxy:
-        path = parsed.scheme + '://' + parsed.netloc + path
     conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
     resp.read()
