@@ -46,16 +46,18 @@ container-server.conf file::
     # Maximum amount of time to spend syncing each container
     # container_time = 60
 
+Tracking sync progress, problems, and just general activity can only be
+achieved with log processing for this first release of container
+synchronization. In that light, you may wish to set the above `log_` options to
+direct the container-sync logs to a different file for easier monitoring.
+Additionally, it should be noted there is no way for an end user to detect sync
+progress or problems other than HEADing both containers and comparing the
+overall information.
+
 The authentication system also needs to be configured to allow synchronization
-requests. Here are examples with DevAuth and Swauth::
+requests. Here is an example with TempAuth::
 
-    [filter:auth]
-    # This is a comma separated list of hosts allowed to send
-    # X-Container-Sync-Key requests.
-    # allowed_sync_hosts = 127.0.0.1
-    allowed_sync_hosts = host1,host2,etc.
-
-    [filter:swauth]
+    [filter:tempauth]
     # This is a comma separated list of hosts allowed to send
     # X-Container-Sync-Key requests.
     # allowed_sync_hosts = 127.0.0.1

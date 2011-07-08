@@ -372,7 +372,7 @@ class ContainerSync(Daemon):
                             body = this_body
                     except ClientException, err:
                         # If any errors are not 404, make sure we report the
-                        # non-404 one. We don't want to mistankely assume the
+                        # non-404 one. We don't want to mistakenly assume the
                         # object no longer exists just because one says so and
                         # the others errored for some other reason.
                         if not exc or exc.http_status == 404:
@@ -399,18 +399,16 @@ class ContainerSync(Daemon):
         except ClientException, err:
             if err.http_status == 401:
                 self.logger.info(_('Unauth %(sync_from)r '
-                    '=> %(sync_to)r key: %(sync_key)r'),
+                    '=> %(sync_to)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
-                     'sync_to': sync_to,
-                     'sync_key': sync_key})
+                     'sync_to': sync_to})
             elif err.http_status == 404:
                 self.logger.info(_('Not found %(sync_from)r '
-                    '=> %(sync_to)r key: %(sync_key)r'),
+                    '=> %(sync_to)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
-                     'sync_to': sync_to,
-                     'sync_key': sync_key})
+                     'sync_to': sync_to})
             else:
                 self.logger.exception(
                     _('ERROR Syncing %(db_file)s %(row)s'),
