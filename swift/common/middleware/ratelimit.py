@@ -105,16 +105,16 @@ class RateLimitMiddleware(object):
         :param obj_name: object name from path
         """
         keys = []
-        if self.account_ratelimit and account_name and (
-                not (container_name or obj_name) or
-                (container_name and not obj_name and
-                 req_method in ('PUT', 'DELETE'))):
+        if self.account_ratelimit and \
+                account_name and container_name and not obj_name and \
+                req_method in ('PUT', 'DELETE'):
+            # account_ratelimit PUTs/DELETEs to acc_name/cont_name
             keys.append(("ratelimit/%s" % account_name,
                          self.account_ratelimit))
 
-        if account_name and container_name and (
-                (not obj_name and req_method in ('GET', 'HEAD')) or
-                (obj_name and req_method in ('PUT', 'DELETE'))):
+        if account_name and container_name and obj_name and \
+                req_method in ('PUT', 'DELETE'):
+            # container_ratelimit PUTs/DELETEs to acc_name/cont_name/obj_name
             container_size = None
             memcache_key = get_container_memcache_key(account_name,
                                                       container_name)

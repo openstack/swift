@@ -139,13 +139,16 @@ def mock_time():
 
 class TestRateLimit(unittest.TestCase):
 
-    def setUp(self):
+    def _reset_time(self):
         global time_ticker
         time_ticker = 0
+
+    def setUp(self):
         self.was_sleep = eventlet.sleep
         eventlet.sleep = mock_sleep
         self.was_time = time.time
         time.time = mock_time
+        self._reset_time()
 
     def tearDown(self):
         eventlet.sleep = self.was_sleep
@@ -186,31 +189,36 @@ class TestRateLimit(unittest.TestCase):
                                                 logger=FakeLogger())
         the_app.memcache_client = fake_memcache
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
-                    'GET', 'a', None, None)), 1)
+                    'DELETE', 'a', None, None)), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'POST', 'a', 'c', None)), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'PUT', 'a', 'c', None)), 1)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
-                    'GET', 'a', 'c', None)), 1)
+                    'DELETE', 'a', 'c', None)), 1)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'GET', 'a', 'c', 'o')), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'PUT', 'a', 'c', 'o')), 1)
 
-    def test_ratelimit(self):
+    def test_account_ratelimit(self):
         current_rate = 5
         num_calls = 50
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
-        req = Request.blank('/v/a')
-        req.environ['swift.cache'] = FakeMemcache()
-        make_app_call = lambda: self.test_ratelimit(req.environ,
-                                                    start_response)
-        begin = time.time()
-        self._run(make_app_call, num_calls, current_rate)
-        self.assertEquals(round(time.time() - begin, 1), 9.8)
+        for meth, exp_time in [('DELETE', 9.8), ('GET', 0),
+                           ('POST', 0), ('PUT', 9.8)]:
+            req = Request.blank('/v/a%s/c' % meth)
+            req.method = meth
+            req.environ['swift.cache'] = FakeMemcache()
+            make_app_call = lambda: self.test_ratelimit(req.environ,
+                                                        start_response)
+            begin = time.time()
+            self._run(make_app_call, num_calls, current_rate,
+                      check_time=bool(exp_time))
+            self.assertEquals(round(time.time() - begin, 1), exp_time)
+            self._reset_time()
 
     def test_ratelimit_set_incr(self):
         current_rate = 5
@@ -218,7 +226,8 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
-        req = Request.blank('/v/a')
+        req = Request.blank('/v/a/c')
+        req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].init_incr_return_neg = True
         make_app_call = lambda: self.test_ratelimit(req.environ,
@@ -306,7 +315,8 @@ class TestRateLimit(unittest.TestCase):
         self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
-        req = Request.blank('/v/a')
+        req = Request.blank('/v/a/c')
+        req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
 
         time_override = [0, 0, 0, 0, None]
@@ -335,7 +345,7 @@ class TestRateLimit(unittest.TestCase):
                                                 logger=FakeLogger())
         the_app.memcache_client = fake_memcache
         req = lambda: None
-        req.method = 'GET'
+        req.method = 'PUT'
 
         class rate_caller(Thread):
 
@@ -346,7 +356,7 @@ class TestRateLimit(unittest.TestCase):
             def run(self):
                 for j in range(num_calls):
                     self.result = the_app.handle_ratelimit(req, self.myname,
-                                                           None, None)
+                                                           'c', None)
 
         nt = 15
         begin = time.time()
@@ -360,45 +370,6 @@ class TestRateLimit(unittest.TestCase):
 
         time_took = time.time() - begin
         self.assertEquals(1.5, round(time_took, 1))
-
-    def test_ratelimit_acc_vrs_container(self):
-        conf_dict = {'clock_accuracy': 1000,
-                     'account_ratelimit': 10,
-                     'max_sleep_time_seconds': 4,
-                     'container_ratelimit_10': 6,
-                     'container_ratelimit_50': 2,
-                     'container_ratelimit_75': 1}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
-        ratelimit.http_connect = mock_http_connect(204)
-        req = Request.blank('/v/a/c')
-        req.environ['swift.cache'] = FakeMemcache()
-        cont_key = get_container_memcache_key('a', 'c')
-
-        class rate_caller(Thread):
-
-            def __init__(self, parent, name):
-                Thread.__init__(self)
-                self.parent = parent
-                self.name = name
-
-            def run(self):
-                self.result = self.parent.test_ratelimit(req.environ,
-                                                         start_response)
-
-        def runthreads(threads, nt):
-            for i in range(nt):
-                rc = rate_caller(self, "thread %s" % i)
-                rc.start()
-                threads.append(rc)
-            for thread in threads:
-                thread.join()
-        begin = time.time()
-        req.environ['swift.cache'].set(cont_key, {'container_size': 20})
-        begin = time.time()
-        threads = []
-        runthreads(threads, 3)
-        time_took = time.time() - begin
-        self.assertEquals(round(time_took, 1), .4)
 
     def test_call_invalid_path(self):
         env = {'REQUEST_METHOD': 'GET',
@@ -441,7 +412,8 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
-        req = Request.blank('/v/a')
+        req = Request.blank('/v/a/c')
+        req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].error_on_incr = True
         make_app_call = lambda: self.test_ratelimit(req.environ,
