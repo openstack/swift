@@ -107,13 +107,13 @@ class RateLimitMiddleware(object):
         keys = []
         if self.account_ratelimit and \
                 account_name and container_name and not obj_name and \
-                req_method in ('PUT', 'DELETE'):
+                req_method in ('PUT', 'DELETE', 'POST'):
             # account_ratelimit PUTs/DELETEs to acc_name/cont_name
             keys.append(("ratelimit/%s" % account_name,
                          self.account_ratelimit))
 
         if account_name and container_name and obj_name and \
-                req_method in ('PUT', 'DELETE'):
+                req_method in ('PUT', 'DELETE', 'POST', 'COPY'):
             # container_ratelimit PUTs/DELETEs to acc_name/cont_name/obj_name
             container_size = None
             memcache_key = get_container_memcache_key(account_name,

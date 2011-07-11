@@ -191,7 +191,7 @@ class TestRateLimit(unittest.TestCase):
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'DELETE', 'a', None, None)), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
-                    'POST', 'a', 'c', None)), 0)
+                    'POST', 'a', 'c', None)), 1)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'PUT', 'a', 'c', None)), 1)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
@@ -208,7 +208,7 @@ class TestRateLimit(unittest.TestCase):
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         for meth, exp_time in [('DELETE', 9.8), ('GET', 0),
-                           ('POST', 0), ('PUT', 9.8)]:
+                           ('POST', 9.8), ('PUT', 9.8)]:
             req = Request.blank('/v/a%s/c' % meth)
             req.method = meth
             req.environ['swift.cache'] = FakeMemcache()
