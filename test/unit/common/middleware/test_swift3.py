@@ -573,6 +573,15 @@ class TestSwift3(unittest.TestCase):
         verify('7506d97002c7d2de922cc0ec34af8846', '/bucket/object',
                 {'Content-Type': None, 'X-Amz-Something': 'test'})
 
+        verify('28f76d6162444a193b612cd6cb20e0be', '/bucket/object',
+                {'Content-Type': None,
+                 'X-Amz-Date': 'Mon, 11 Jul 2011 10:52:57 +0000',
+                 'Date': 'Tue, 12 Jul 2011 10:52:57 +0000'})
+
+        verify('ed6971e3eca5af4ee361f05d7c272e49', '/bucket/object',
+                {'Content-Type': None,
+                 'Date': 'Tue, 12 Jul 2011 10:52:57 +0000'})
+
         req1 = Request.blank('/', headers=
                 {'Content-Type': None, 'X-Amz-Something': 'test'})
         req2 = Request.blank('/', headers=
