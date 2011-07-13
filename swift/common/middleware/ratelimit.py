@@ -105,18 +105,15 @@ class RateLimitMiddleware(object):
         :param obj_name: object name from path
         """
         keys = []
-        limit_req_types = ['PUT', 'DELETE', 'POST']
         # COPYs are not limited
         if self.account_ratelimit and \
                 account_name and container_name and not obj_name and \
-                req_method in limit_req_types:
-            # account_ratelimit PUTs/DELETEs to acc_name/cont_name
+                req_method in ('PUT', 'DELETE'):
             keys.append(("ratelimit/%s" % account_name,
                          self.account_ratelimit))
 
         if account_name and container_name and obj_name and \
-                req_method in limit_req_types:
-            # container_ratelimit PUTs/DELETEs to acc_name/cont_name/obj_name
+                req_method in ('PUT', 'DELETE', 'POST'):
             container_size = None
             memcache_key = get_container_memcache_key(account_name,
                                                       container_name)
