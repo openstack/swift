@@ -330,7 +330,7 @@ class ContainerController(object):
                            '<last_modified>%s</last_modified></object>' % \
                            (name, etag, size, content_type, created_at))
             container_list = ''.join([
-                '<?xml version="1.0" encoding="UTF-8"?>\n',
+                '<?xml version="1.1" encoding="UTF-8"?>\n',
                 '<container name=%s>' % 
                     saxutils.quoteattr(container, XML_EXTRA_ENTITIES),
                 ''.join(xml_output), '</container>'])

@@ -228,7 +228,7 @@ class AccountController(object):
                         (name, object_count, bytes_used))
             account_list = '[' + ','.join(json_out) + ']'
         elif out_content_type.endswith('/xml'):
-            output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
+            output_list = ['<?xml version="1.1" encoding="UTF-8"?>',
                            '<account name="%s">' % account]
             for (name, object_count, bytes_used, is_subdir) in account_list:
                 name = saxutils.escape(name, XML_EXTRA_ENTITIES)
