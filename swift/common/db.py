@@ -932,23 +932,31 @@ class ContainerBroker(DatabaseBroker):
 
     def set_x_container_sync_points(self, sync_point1, sync_point2):
         with self.get() as conn:
+            orig_isolation_level = conn.isolation_level
             try:
-                self._set_x_container_sync_points(conn, sync_point1,
-                                                  sync_point2)
-            except sqlite3.OperationalError, err:
-                if 'no such column: x_container_sync_point' not in str(err):
-                    raise
-                conn.execute('''
-                    ALTER TABLE container_stat
-                    ADD COLUMN x_container_sync_point1 INTEGER DEFAULT -1
-                ''')
-                conn.execute('''
-                    ALTER TABLE container_stat
-                    ADD COLUMN x_container_sync_point2 INTEGER DEFAULT -1
-                ''')
-                self._set_x_container_sync_points(conn, sync_point1,
-                                                  sync_point2)
-            conn.commit()
+                # We turn off auto-transactions to ensure the alter table
+                # commands are part of the transaction.
+                conn.isolation_level = None
+                conn.execute('BEGIN')
+                try:
+                    self._set_x_container_sync_points(conn, sync_point1,
+                                                      sync_point2)
+                except sqlite3.OperationalError, err:
+                    if 'no such column: x_container_sync_point' not in str(err):
+                        raise
+                    conn.execute('''
+                        ALTER TABLE container_stat
+                        ADD COLUMN x_container_sync_point1 INTEGER DEFAULT -1
+                    ''')
+                    conn.execute('''
+                        ALTER TABLE container_stat
+                        ADD COLUMN x_container_sync_point2 INTEGER DEFAULT -1
+                    ''')
+                    self._set_x_container_sync_points(conn, sync_point1,
+                                                      sync_point2)
+                conn.execute('COMMIT')
+            finally:
+                conn.isolation_level = orig_isolation_level
 
     def _set_x_container_sync_points(self, conn, sync_point1, sync_point2):
         if sync_point1 is not None and sync_point2 is not None:
