@@ -213,6 +213,11 @@ class ContainerController(object):
                 if key.lower() in self.save_headers or
                    key.lower().startswith('x-container-meta-'))
             if metadata:
+                if 'X-Container-Sync-To' in metadata:
+                    if 'X-Container-Sync-To' not in broker.metadata or \
+                            metadata['X-Container-Sync-To'][0] != \
+                            broker.metadata['X-Container-Sync-To'][0]:
+                        broker.set_x_container_sync_points(-1, -1)
                 broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
             if resp:
@@ -403,6 +408,11 @@ class ContainerController(object):
             if key.lower() in self.save_headers or
                key.lower().startswith('x-container-meta-'))
         if metadata:
+            if 'X-Container-Sync-To' in metadata:
+                if 'X-Container-Sync-To' not in broker.metadata or \
+                        metadata['X-Container-Sync-To'][0] != \
+                        broker.metadata['X-Container-Sync-To'][0]:
+                    broker.set_x_container_sync_points(-1, -1)
             broker.update_metadata(metadata)
         return HTTPNoContent(request=req)
 
