@@ -611,9 +611,10 @@ class ObjectController(object):
            if_modified_since:
             file.close()
             return HTTPNotModified(request=request)
-        response = Response(content_type=file.metadata.get('Content-Type',
-                        'application/octet-stream'), app_iter=file,
+        response = Response(app_iter=file,
                         request=request, conditional_response=True)
+        response.headers['Content-Type'] = file.metadata.get('Content-Type',
+                'application/octet-stream')
         for key, value in file.metadata.iteritems():
             if key.lower().startswith('x-object-meta-') or \
                     key.lower() in self.allowed_headers:
@@ -651,8 +652,9 @@ class ObjectController(object):
         except (DiskFileError, DiskFileNotExist):
             file.quarantine()
             return HTTPNotFound(request=request)
-        response = Response(content_type=file.metadata['Content-Type'],
-                            request=request, conditional_response=True)
+        response = Response(request=request, conditional_response=True)
+        response.headers['Content-Type'] = file.metadata.get('Content-Type',
+                'application/octet-stream')
         for key, value in file.metadata.iteritems():
             if key.lower().startswith('x-object-meta-') or \
                     key.lower() in self.allowed_headers:

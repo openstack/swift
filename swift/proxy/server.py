@@ -901,7 +901,13 @@ class ObjectController(Controller):
             req.headers['X-Copy-From'] = '/%s/%s' % (self.container_name,
                 self.object_name)
             req.headers['X-Fresh-Metadata'] = 'true'
-            return self.PUT(req)
+            resp = self.PUT(req)
+            # Older editions returned 202 Accepted on object POSTs, so we'll
+            # convert any 201 Created responses to that for compatibility with
+            # picky clients.
+            if resp.status_int != 201:
+                return resp
+            return HTTPAccepted(request=req)
         else:
             error_response = check_metadata(req, 'object')
             if error_response:
