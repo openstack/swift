@@ -120,6 +120,13 @@ Additional Notes
   for the manifest itself, so this method was chosen to at least offer change
   detection.
 
+
+.. note::
+
+    If you are using the container sync feature you will need to ensure both
+    your manifest file and your segment files are synced if they happen to be
+    in different containers.
+
 -------
 History
 -------

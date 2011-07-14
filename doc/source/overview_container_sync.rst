@@ -19,6 +19,12 @@ synchronization key.
     object posts, "object_post_as_copy = false" do not update the container
     listings and therefore can't be detected for synchronization.
 
+.. note::
+
+    If you are using the large objects feature you will need to ensure both
+    your manifest file and your segment files are synced if they happen to be
+    in different containers.
+
 --------------------------------------------
 Configuring a Cluster's Allowable Sync Hosts
 --------------------------------------------
