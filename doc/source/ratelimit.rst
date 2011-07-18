@@ -35,8 +35,8 @@ rate_buffer_seconds      5          Number of seconds the rate counter can
                                     faster than listed rate). A larger number
                                     will result in larger spikes in rate but
                                     better average accuracy.
-account_ratelimit        0          If set, will limit PUT, DELETE, and POST
-                                    requests to /account_name/container_name.
+account_ratelimit        0          If set, will limit PUT and DELETE requests
+                                    to /account_name/container_name.
                                     Number is in requests per second.
 account_whitelist        ''         Comma separated lists of account names that
                                     will not be rate limited.
