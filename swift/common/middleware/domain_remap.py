@@ -45,6 +45,10 @@ class DomainRemapMiddleware(object):
     derive account and container names from elements in the domain name and
     put those derived values into the URL path (leaving the Host header
     unchanged).
+
+    Also note that using container sync with remapped domain names is not
+    advised. With container sync, you should use the true storage end points as
+    sync destinations.
     """
 
     def __init__(self, app, conf):

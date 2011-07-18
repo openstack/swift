@@ -13,9 +13,9 @@ special manifest file is created that, when downloaded, sends all the segments
 concatenated as a single object. This also offers much greater upload speed
 with the possibility of parallel uploads of the segments.
 
-----------------------------------
+-------------------------------------
 Using ``swift`` for Segmented Objects
-----------------------------------
+-------------------------------------
 
 The quickest way to try out this feature is use the included ``swift`` Swift Tool.
 You can use the ``-S`` option to specify the segment size to use when splitting
@@ -119,6 +119,13 @@ Additional Notes
   each segment independently. But, it's not feasible to generate such an ETag
   for the manifest itself, so this method was chosen to at least offer change
   detection.
+
+
+.. note::
+
+    If you are using the container sync feature you will need to ensure both
+    your manifest file and your segment files are synced if they happen to be
+    in different containers.
 
 -------
 History

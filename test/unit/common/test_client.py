@@ -155,8 +155,8 @@ class MockHttpTest(unittest.TestCase):
         def fake_http_connection(*args, **kwargs):
             _orig_http_connection = c.http_connection
 
-            def wrapper(url):
-                parsed, _conn = _orig_http_connection(url)
+            def wrapper(url, proxy=None):
+                parsed, _conn = _orig_http_connection(url, proxy=proxy)
                 conn = fake_http_connect(*args, **kwargs)()
 
                 def request(*args, **kwargs):
@@ -430,7 +430,7 @@ class TestConnection(MockHttpTest):
             def read(self, *args, **kwargs):
                 return ''
 
-        def local_http_connection(url):
+        def local_http_connection(url, proxy=None):
             parsed = urlparse(url)
             return parsed, LocalConnection()
 

@@ -61,8 +61,8 @@ def reset_environment():
                     print 'Giving up after %s retries.' % attempt
                     raise err
                 print err
-                print 'Retrying in 1 second...'
-                sleep(1)
+                print 'Retrying in 2 seconds...'
+                sleep(2)
     except BaseException, err:
         kill_pids(pids)
         raise err

@@ -32,7 +32,8 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, storage_directory, split_path, XML_EXTRA_ENTITIES
+    normalize_timestamp, storage_directory, split_path, urlparse, \
+    validate_sync_to, XML_EXTRA_ENTITIES
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -46,7 +47,8 @@ class ContainerController(object):
     """WSGI Controller for the container server."""
 
     # Ensure these are all lowercase
-    save_headers = ['x-container-read', 'x-container-write']
+    save_headers = ['x-container-read', 'x-container-write',
+                    'x-container-sync-key', 'x-container-sync-to']
 
     def __init__(self, conf):
         self.logger = get_logger(conf, log_route='container-server')
@@ -55,6 +57,9 @@ class ContainerController(object):
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
             ContainerBroker, self.mount_check, logger=self.logger)
 
@@ -178,6 +183,11 @@ class ContainerController(object):
                     not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=req,
                         content_type='text/plain')
+        if 'x-container-sync-to' in req.headers:
+            err = validate_sync_to(req.headers['x-container-sync-to'],
+                                   self.allowed_sync_hosts)
+            if err:
+                return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
@@ -203,6 +213,11 @@ class ContainerController(object):
                 if key.lower() in self.save_headers or
                    key.lower().startswith('x-container-meta-'))
             if metadata:
+                if 'X-Container-Sync-To' in metadata:
+                    if 'X-Container-Sync-To' not in broker.metadata or \
+                            metadata['X-Container-Sync-To'][0] != \
+                            broker.metadata['X-Container-Sync-To'][0]:
+                        broker.set_x_container_sync_points(-1, -1)
                 broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
             if resp:
@@ -236,7 +251,8 @@ class ContainerController(object):
         }
         headers.update((key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
-            if value != '')
+            if value != '' and (key.lower() in self.save_headers or
+                                key.lower().startswith('x-container-meta-')))
         return HTTPNoContent(request=req, headers=headers)
 
     def GET(self, req):
@@ -263,7 +279,8 @@ class ContainerController(object):
         }
         resp_headers.update((key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
-            if value != '')
+            if value != '' and (key.lower() in self.save_headers or
+                                key.lower().startswith('x-container-meta-')))
         try:
             path = get_param(req, 'path')
             prefix = get_param(req, 'prefix')
@@ -374,6 +391,11 @@ class ContainerController(object):
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing or bad timestamp',
                 request=req, content_type='text/plain')
+        if 'x-container-sync-to' in req.headers:
+            err = validate_sync_to(req.headers['x-container-sync-to'],
+                                   self.allowed_sync_hosts)
+            if err:
+                return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_container_broker(drive, part, account, container)
@@ -386,6 +408,11 @@ class ContainerController(object):
             if key.lower() in self.save_headers or
                key.lower().startswith('x-container-meta-'))
         if metadata:
+            if 'X-Container-Sync-To' in metadata:
+                if 'X-Container-Sync-To' not in broker.metadata or \
+                        metadata['X-Container-Sync-To'][0] != \
+                        broker.metadata['X-Container-Sync-To'][0]:
+                    broker.set_x_container_sync_points(-1, -1)
             broker.update_metadata(metadata)
         return HTTPNoContent(request=req)
 

@@ -42,7 +42,7 @@ from webob import Request, Response
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, ContextPool, get_logger, \
-    normalize_timestamp, split_path, TRUE_VALUES
+    get_remote_client, normalize_timestamp, split_path, TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -418,8 +418,8 @@ class Controller(object):
         :param account: account name for the container
         :param container: container name to look up
         :returns: tuple of (container partition, container nodes, container
-                  read acl, container write acl) or (None, None, None, None) if
-                  the container does not exist
+                  read acl, container write acl, container sync key) or (None,
+                  None, None, None, None) if the container does not exist
         """
         partition, nodes = self.app.container_ring.get_nodes(
                 account, container)
@@ -431,15 +431,17 @@ class Controller(object):
                 status = cache_value['status']
                 read_acl = cache_value['read_acl']
                 write_acl = cache_value['write_acl']
+                sync_key = cache_value.get('sync_key')
                 if status == 200:
-                    return partition, nodes, read_acl, write_acl
+                    return partition, nodes, read_acl, write_acl, sync_key
                 elif status == 404:
-                    return None, None, None, None
+                    return None, None, None, None, None
         if not self.account_info(account, autocreate=account_autocreate)[1]:
-            return None, None, None, None
+            return None, None, None, None, None
         result_code = 0
         read_acl = None
         write_acl = None
+        sync_key = None
         container_size = None
         attempts_left = self.app.container_ring.replica_count
         headers = {'x-trans-id': self.trans_id}
@@ -455,6 +457,7 @@ class Controller(object):
                         result_code = 200
                         read_acl = resp.getheader('x-container-read')
                         write_acl = resp.getheader('x-container-write')
+                        sync_key = resp.getheader('x-container-sync-key')
                         container_size = \
                             resp.getheader('X-Container-Object-Count')
                         break
@@ -483,11 +486,12 @@ class Controller(object):
                                   {'status': result_code,
                                    'read_acl': read_acl,
                                    'write_acl': write_acl,
+                                   'sync_key': sync_key,
                                    'container_size': container_size},
                                   timeout=cache_timeout)
         if result_code == 200:
-            return partition, nodes, read_acl, write_acl
-        return None, None, None, None
+            return partition, nodes, read_acl, write_acl, sync_key
+        return None, None, None, None, None
 
     def iter_nodes(self, partition, nodes, ring):
         """
@@ -684,6 +688,9 @@ class Controller(object):
                         raise
                 res.app_iter = file_iter()
                 update_headers(res, source.getheaders())
+                # Used by container sync feature
+                res.environ['swift_x_timestamp'] = \
+                    source.getheader('x-timestamp')
                 update_headers(res, {'accept-ranges': 'bytes'})
                 res.status = source.status
                 res.content_length = source.getheader('Content-Length')
@@ -694,6 +701,9 @@ class Controller(object):
             elif 200 <= source.status <= 399:
                 res = status_map[source.status](request=req)
                 update_headers(res, source.getheaders())
+                # Used by container sync feature
+                res.environ['swift_x_timestamp'] = \
+                    source.getheader('x-timestamp')
                 update_headers(res, {'accept-ranges': 'bytes'})
                 if req.method == 'HEAD':
                     res.content_length = source.getheader('Content-Length')
@@ -902,7 +912,7 @@ class ObjectController(Controller):
             error_response = check_metadata(req, 'object')
             if error_response:
                 return error_response
-            container_partition, containers, _junk, req.acl = \
+            container_partition, containers, _junk, req.acl, _junk = \
                 self.container_info(self.account_name, self.container_name,
                     account_autocreate=self.app.account_autocreate)
             if 'swift.authorize' in req.environ:
@@ -960,7 +970,8 @@ class ObjectController(Controller):
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
-        container_partition, containers, _junk, req.acl = \
+        (container_partition, containers, _junk, req.acl,
+         req.environ['swift_sync_key']) = \
             self.container_info(self.account_name, self.container_name,
                 account_autocreate=self.app.account_autocreate)
         if 'swift.authorize' in req.environ:
@@ -971,7 +982,27 @@ class ObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+        # Used by container sync feature
+        if 'x-timestamp' in req.headers:
+            try:
+                req.headers['X-Timestamp'] = \
+                    normalize_timestamp(float(req.headers['x-timestamp']))
+                # For container sync PUTs, do a HEAD to see if we can
+                # shortcircuit
+                hreq = Request.blank(req.path_info,
+                                     environ={'REQUEST_METHOD': 'HEAD'})
+                self.GETorHEAD_base(hreq, _('Object'), partition, nodes,
+                    hreq.path_info, self.app.object_ring.replica_count)
+                if 'swift_x_timestamp' in hreq.environ and \
+                    float(hreq.environ['swift_x_timestamp']) >= \
+                        float(req.headers['x-timestamp']):
+                    return HTTPAccepted(request=req)
+            except ValueError:
+                return HTTPBadRequest(request=req, content_type='text/plain',
+                    body='X-Timestamp should be a UNIX timestamp float value; '
+                         'was %r' % req.headers['x-timestamp'])
+        else:
+            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         # Sometimes the 'content-type' header exists, but is set to None.
         content_type_manually_set = True
         if not req.headers.get('content-type'):
@@ -1151,7 +1182,8 @@ class ObjectController(Controller):
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        container_partition, containers, _junk, req.acl = \
+        (container_partition, containers, _junk, req.acl,
+         req.environ['swift_sync_key']) = \
             self.container_info(self.account_name, self.container_name)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -1161,7 +1193,17 @@ class ObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+        # Used by container sync feature
+        if 'x-timestamp' in req.headers:
+            try:
+                req.headers['X-Timestamp'] = \
+                    normalize_timestamp(float(req.headers['x-timestamp']))
+            except ValueError:
+                return HTTPBadRequest(request=req, content_type='text/plain',
+                    body='X-Timestamp should be a UNIX timestamp float value; '
+                         'was %r' % req.headers['x-timestamp'])
+        else:
+            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         headers = []
         for container in containers:
             nheaders = dict(req.headers.iteritems())
@@ -1207,7 +1249,8 @@ class ContainerController(Controller):
     server_type = _('Container')
 
     # Ensure these are all lowercase
-    pass_through_headers = ['x-container-read', 'x-container-write']
+    pass_through_headers = ['x-container-read', 'x-container-write',
+                            'x-container-sync-key', 'x-container-sync-to']
 
     def __init__(self, app, account_name, container_name, **kwargs):
         Controller.__init__(self, app)
@@ -1244,6 +1287,7 @@ class ContainerController(Controller):
               {'status': resp.status_int,
                'read_acl': resp.headers.get('x-container-read'),
                'write_acl': resp.headers.get('x-container-write'),
+               'sync_key': resp.headers.get('x-container-sync-key'),
                'container_size': resp.headers.get('x-container-object-count')},
                                   timeout=self.app.recheck_container_existence)
 
@@ -1252,6 +1296,11 @@ class ContainerController(Controller):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
+        if not req.environ.get('swift_owner', False):
+            for key in ('x-container-read', 'x-container-write',
+                        'x-container-sync-key', 'x-container-sync-to'):
+                if key in resp.headers:
+                    del resp.headers[key]
         return resp
 
     @public
@@ -1646,13 +1695,7 @@ class Application(BaseApplication):
         the_request = quote(unquote(req.path))
         if req.query_string:
             the_request = the_request + '?' + req.query_string
-        # remote user for zeus
-        client = req.headers.get('x-cluster-client-ip')
-        if not client and 'x-forwarded-for' in req.headers:
-            # remote user for other lbs
-            client = req.headers['x-forwarded-for'].split(',')[0].strip()
-        if not client:
-            client = req.remote_addr
+        client = get_remote_client(req)
         logged_headers = None
         if self.log_headers:
             logged_headers = '\n'.join('%s: %s' % (k, v)

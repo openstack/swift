@@ -27,11 +27,17 @@ validation.
 Swift will make calls to the auth system, giving the auth token to be
 validated. For a valid token, the auth system responds with an overall
 expiration in seconds from now. Swift will cache the token up to the expiration
-time. The included TempAuth also has the concept of admin and non-admin users
-within an account. Admin users can do anything within the account. Non-admin
-users can only perform operations per container based on the container's
-X-Container-Read and X-Container-Write ACLs. For more information on ACLs, see
-:mod:`swift.common.middleware.acl`
+time.
+
+The included TempAuth also has the concept of admin and non-admin users within
+an account. Admin users can do anything within the account. Non-admin users can
+only perform operations per container based on the container's X-Container-Read
+and X-Container-Write ACLs. For more information on ACLs, see
+:mod:`swift.common.middleware.acl`.
+
+Additionally, if the auth system sets the request environ's swift_owner key to
+True, the proxy will return additional header information in some requests,
+such as the X-Container-Sync-Key for a container GET or HEAD.
 
 The user starts a session by sending a ReST request to the auth system to
 receive the auth token and a URL to the Swift system.

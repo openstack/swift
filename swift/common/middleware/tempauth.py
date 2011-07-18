@@ -27,7 +27,8 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, get_logger, split_path
+from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
+    split_path
 
 
 class TempAuth(object):
@@ -70,6 +71,9 @@ class TempAuth(object):
         if self.auth_prefix[-1] != '/':
             self.auth_prefix += '/'
         self.token_life = int(conf.get('token_life', 86400))
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
         self.users = {}
         for conf_key in conf:
             if conf_key.startswith('user_'):
@@ -245,11 +249,20 @@ class TempAuth(object):
         if '.reseller_admin' in user_groups and \
                 account != self.reseller_prefix and \
                 account[len(self.reseller_prefix)] != '.':
+            req.environ['swift_owner'] = True
             return None
         if account in user_groups and \
                 (req.method not in ('DELETE', 'PUT') or container):
             # If the user is admin for the account and is not trying to do an
             # account DELETE or PUT...
+            req.environ['swift_owner'] = True
+            return None
+        if (req.environ.get('swift_sync_key') and
+            req.environ['swift_sync_key'] ==
+                req.headers.get('x-container-sync-key', None) and
+            'x-timestamp' in req.headers and
+            (req.remote_addr in self.allowed_sync_hosts or
+             get_remote_client(req) in self.allowed_sync_hosts)):
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):

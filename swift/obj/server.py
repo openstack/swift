@@ -500,6 +500,7 @@ class ObjectController(object):
             return error_response
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
+        orig_timestamp = file.metadata.get('X-Timestamp')
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
         upload_size = 0
@@ -544,13 +545,16 @@ class ObjectController(object):
                     metadata[header_caps] = request.headers[header_key]
             file.put(fd, tmppath, metadata)
         file.unlinkold(metadata['X-Timestamp'])
-        self.container_update('PUT', account, container, obj, request.headers,
-            {'x-size': file.metadata['Content-Length'],
-             'x-content-type': file.metadata['Content-Type'],
-             'x-timestamp': file.metadata['X-Timestamp'],
-             'x-etag': file.metadata['ETag'],
-             'x-trans-id': request.headers.get('x-trans-id', '-')},
-            device)
+        if not orig_timestamp or \
+                orig_timestamp < request.headers['x-timestamp']:
+            self.container_update('PUT', account, container, obj,
+                request.headers,
+                {'x-size': file.metadata['Content-Length'],
+                 'x-content-type': file.metadata['Content-Type'],
+                 'x-timestamp': file.metadata['X-Timestamp'],
+                 'x-etag': file.metadata['ETag'],
+                 'x-trans-id': request.headers.get('x-trans-id', '-')},
+                device)
         resp = HTTPCreated(request=request, etag=etag)
         return resp
 
@@ -657,6 +661,8 @@ class ObjectController(object):
                 response.headers[key] = value
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
+        # Needed for container sync feature
+        response.headers['X-Timestamp'] = file.metadata['X-Timestamp']
         response.content_length = file_size
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
@@ -680,6 +686,7 @@ class ObjectController(object):
         response_class = HTTPNoContent
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
+        orig_timestamp = file.metadata.get('X-Timestamp')
         if file.is_deleted():
             response_class = HTTPNotFound
         metadata = {
@@ -688,10 +695,12 @@ class ObjectController(object):
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.ts')
         file.unlinkold(metadata['X-Timestamp'])
-        self.container_update('DELETE', account, container, obj,
-            request.headers, {'x-timestamp': metadata['X-Timestamp'],
-            'x-trans-id': request.headers.get('x-trans-id', '-')},
-            device)
+        if not orig_timestamp or \
+                orig_timestamp < request.headers['x-timestamp']:
+            self.container_update('DELETE', account, container, obj,
+                request.headers, {'x-timestamp': metadata['X-Timestamp'],
+                'x-trans-id': request.headers.get('x-trans-id', '-')},
+                device)
         resp = response_class(request=request)
         return resp
 

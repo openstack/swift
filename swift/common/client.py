@@ -137,22 +137,27 @@ class ClientException(Exception):
         return b and '%s: %s' % (a, b) or a
 
 
-def http_connection(url):
+def http_connection(url, proxy=None):
     """
     Make an HTTPConnection or HTTPSConnection
 
     :param url: url to connect to
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :returns: tuple of (parsed url, connection object)
     :raises ClientException: Unable to handle protocol scheme
     """
     parsed = urlparse(url)
+    proxy_parsed = urlparse(proxy) if proxy else None
     if parsed.scheme == 'http':
-        conn = HTTPConnection(parsed.netloc)
+        conn = HTTPConnection((proxy_parsed if proxy else parsed).netloc)
     elif parsed.scheme == 'https':
-        conn = HTTPSConnection(parsed.netloc)
+        conn = HTTPSConnection((proxy_parsed if proxy else parsed).netloc)
     else:
         raise ClientException('Cannot handle protocol scheme %s for url %s' %
                               (parsed.scheme, repr(url)))
+    if proxy:
+        conn._set_tunnel(parsed.hostname, parsed.port)
     return parsed, conn
 
 
@@ -565,40 +570,60 @@ def head_object(url, token, container, name, http_conn=None):
     return resp_headers
 
 
-def put_object(url, token, container, name, contents, content_length=None,
-               etag=None, chunk_size=65536, content_type=None, headers=None,
-               http_conn=None):
+def put_object(url, token=None, container=None, name=None, contents=None,
+               content_length=None, etag=None, chunk_size=65536,
+               content_type=None, headers=None, http_conn=None, proxy=None):
     """
     Put an object
 
     :param url: storage URL
-    :param token: auth token
-    :param container: container name that the object is in
-    :param name: object name to put
-    :param contents: a string or a file like object to read object data from
+    :param token: auth token; if None, no token will be sent
+    :param container: container name that the object is in; if None, the
+                      container name is expected to be part of the url
+    :param name: object name to put; if None, the object name is expected to be
+                 part of the url
+    :param contents: a string or a file like object to read object data from;
+                     if None, a zero-byte put will be done
     :param content_length: value to send as content-length header; also limits
-                           the amount read from contents
-    :param etag: etag of contents
-    :param chunk_size: chunk size of data to write
-    :param content_type: value to send as content-type header
-    :param headers: additional headers to include in the request
+                           the amount read from contents; if None, it will be
+                           computed via the contents or chunked transfer
+                           encoding will be used
+    :param etag: etag of contents; if None, no etag will be sent
+    :param chunk_size: chunk size of data to write; default 65536
+    :param content_type: value to send as content-type header; if None, no
+                         content-type will be set (remote end will likely try
+                         to auto-detect it)
+    :param headers: additional headers to include in the request, if any
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :returns: etag from server response
     :raises ClientException: HTTP PUT request failed
     """
     if http_conn:
         parsed, conn = http_conn
     else:
-        parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    if not headers:
+        parsed, conn = http_connection(url, proxy=proxy)
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
         headers = {}
-    headers['X-Auth-Token'] = token
+    if token:
+        headers['X-Auth-Token'] = token
     if etag:
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
         headers['Content-Length'] = str(content_length)
+    else:
+        for n, v in headers.iteritems():
+            if n.lower() == 'content-length':
+                content_length = int(v)
     if content_type is not None:
         headers['Content-Type'] = content_type
     if not contents:
@@ -633,7 +658,7 @@ def put_object(url, token, container, name, contents, content_length=None,
         raise ClientException('Object PUT failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
                 http_status=resp.status, http_reason=resp.reason)
-    return resp.getheader('etag').strip('"')
+    return resp.getheader('etag', '').strip('"')
 
 
 def post_object(url, token, container, name, headers, http_conn=None):
@@ -664,24 +689,40 @@ def post_object(url, token, container, name, headers, http_conn=None):
                 http_status=resp.status, http_reason=resp.reason)
 
 
-def delete_object(url, token, container, name, http_conn=None):
+def delete_object(url, token=None, container=None, name=None, http_conn=None,
+                  headers=None, proxy=None):
     """
     Delete object
 
     :param url: storage URL
-    :param token: auth token
-    :param container: container name that the object is in
-    :param name: object name to delete
+    :param token: auth token; if None, no token will be sent
+    :param container: container name that the object is in; if None, the
+                      container name is expected to be part of the url
+    :param name: object name to delete; if None, the object name is expected to
+                 be part of the url
     :param http_conn: HTTP connection object (If None, it will create the
                       conn object)
+    :param headers: additional headers to include in the request
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
     :raises ClientException: HTTP DELETE request failed
     """
     if http_conn:
         parsed, conn = http_conn
     else:
-        parsed, conn = http_connection(url)
-    path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
-    conn.request('DELETE', path, '', {'X-Auth-Token': token})
+        parsed, conn = http_connection(url, proxy=proxy)
+    path = parsed.path
+    if container:
+        path = '%s/%s' % (path.rstrip('/'), quote(container))
+    if name:
+        path = '%s/%s' % (path.rstrip('/'), quote(name))
+    if headers:
+        headers = dict(headers)
+    else:
+        headers = {}
+    if token:
+        headers['X-Auth-Token'] = token
+    conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
     resp.read()
     if resp.status < 200 or resp.status >= 300:
