@@ -189,7 +189,7 @@ class ServiceController(Controller):
             % ("".join(['<Bucket><Name>%s</Name><CreationDate>' \
                          '2009-02-03T16:45:09.000Z</CreationDate></Bucket>' %
                          xml_escape(i['name']) for i in containers]))
-        resp = Response(status=200, content_type='text/xml', body=body)
+        resp = Response(status=200, content_type='application/xml', body=body)
         return resp
 
 
@@ -266,7 +266,7 @@ class BucketController(Controller):
                 "".join(['<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>'
                          % xml_escape(i['subdir'])
                          for i in objects[:max_keys] if 'subdir' in i])))
-        return Response(body=body, content_type='text/xml')
+        return Response(body=body, content_type='application/xml')
 
     def PUT(self, env, start_response):
         """
