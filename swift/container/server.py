@@ -32,7 +32,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, storage_directory, split_path, XML_EXTRA_ENTITIES
+    normalize_timestamp, storage_directory, split_path
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -167,10 +167,6 @@ class ContainerController(object):
         try:
             drive, part, account, container, obj = split_path(
                 unquote(req.path), 4, 5, True)
-            if (account and not check_utf8(account)) or \
-                    (container and not check_utf8(container)) or \
-                    (obj and not check_utf8(obj)):
-                raise ValueError('NULL characters not allowed in names')
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                 request=req)
@@ -281,7 +277,7 @@ class ContainerController(object):
                     return HTTPPreconditionFailed(request=req,
                         body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
             query_format = get_param(req, 'format')
-        except (UnicodeDecodeError, ValueError), err:
+        except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
         if query_format:
@@ -316,23 +312,21 @@ class ContainerController(object):
             xml_output = []
             for (name, created_at, size, content_type, etag) in container_list:
                 # escape name and format date here
-                name = saxutils.escape(name, XML_EXTRA_ENTITIES)
+                name = saxutils.escape(name)
                 created_at = datetime.utcfromtimestamp(
                     float(created_at)).isoformat()
                 if content_type is None:
                     xml_output.append('<subdir name="%s"><name>%s</name>'
                                       '</subdir>' % (name, name))
                 else:
-                    content_type = saxutils.escape(content_type,
-                                                   XML_EXTRA_ENTITIES)
+                    content_type = saxutils.escape(content_type)
                     xml_output.append('<object><name>%s</name><hash>%s</hash>'\
                            '<bytes>%d</bytes><content_type>%s</content_type>'\
                            '<last_modified>%s</last_modified></object>' % \
                            (name, etag, size, content_type, created_at))
             container_list = ''.join([
                 '<?xml version="1.0" encoding="UTF-8"?>\n',
-                '<container name=%s>' % 
-                    saxutils.quoteattr(container, XML_EXTRA_ENTITIES),
+                '<container name=%s>' % saxutils.quoteattr(container),
                 ''.join(xml_output), '</container>'])
         else:
             if not container_list:
