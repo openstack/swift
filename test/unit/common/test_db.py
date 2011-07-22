@@ -893,6 +893,23 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['object_count'], 0)
         self.assertEquals(info['bytes_used'], 0)
 
+        info = broker.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+
+    def test_set_x_syncs(self):
+        broker = ContainerBroker(':memory:', account='test1', container='test2')
+        broker.initialize(normalize_timestamp('1'))
+
+        info = broker.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+
+        broker.set_x_container_sync_points(1, 2)
+        info = broker.get_info()
+        self.assertEquals(info['x_container_sync_point1'], 1)
+        self.assertEquals(info['x_container_sync_point2'], 2)
+
     def test_get_report_info(self):
         broker = ContainerBroker(':memory:', account='test1', container='test2')
         broker.initialize(normalize_timestamp('1'))
@@ -1350,6 +1367,81 @@ class TestContainerBrokerBeforeMetadata(TestContainerBroker):
         broker.initialize(normalize_timestamp('1'))
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM container_stat')
+
+
+def prexsync_create_container_stat_table(self, conn, put_timestamp=None):
+    """
+    Copied from swift.common.db.ContainerBroker before the
+    x_container_sync_point[12] columns were added; used for testing with
+    TestContainerBrokerBeforeXSync.
+
+    Create the container_stat table which is specifc to the container DB.
+
+    :param conn: DB connection object
+    :param put_timestamp: put timestamp
+    """
+    if put_timestamp is None:
+        put_timestamp = normalize_timestamp(0)
+    conn.executescript("""
+        CREATE TABLE container_stat (
+            account TEXT,
+            container TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            object_count INTEGER,
+            bytes_used INTEGER,
+            reported_put_timestamp TEXT DEFAULT '0',
+            reported_delete_timestamp TEXT DEFAULT '0',
+            reported_object_count INTEGER DEFAULT 0,
+            reported_bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0',
+            metadata TEXT DEFAULT ''
+        );
+
+        INSERT INTO container_stat (object_count, bytes_used)
+            VALUES (0, 0);
+    """)
+    conn.execute('''
+        UPDATE container_stat
+        SET account = ?, container = ?, created_at = ?, id = ?,
+            put_timestamp = ?
+    ''', (self.account, self.container, normalize_timestamp(time()),
+          str(uuid4()), put_timestamp))
+
+
+class TestContainerBrokerBeforeXSync(TestContainerBroker):
+    """
+    Tests for swift.common.db.ContainerBroker against databases created before
+    the x_container_sync_point[12] columns were added.
+    """
+
+    def setUp(self):
+        self._imported_create_container_stat_table = \
+            ContainerBroker.create_container_stat_table
+        ContainerBroker.create_container_stat_table = \
+            prexsync_create_container_stat_table
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'))
+        exc = None
+        with broker.get() as conn:
+            try:
+                conn.execute('''SELECT x_container_sync_point1
+                                FROM container_stat''')
+            except BaseException, err:
+                exc = err
+        self.assert_('no such column: x_container_sync_point1' in str(exc))
+
+    def tearDown(self):
+        ContainerBroker.create_container_stat_table = \
+            self._imported_create_container_stat_table
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'))
+        with broker.get() as conn:
+            conn.execute('SELECT x_container_sync_point1 FROM container_stat')
 
 
 class TestAccountBroker(unittest.TestCase):

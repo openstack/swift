@@ -34,3 +34,10 @@ Container Auditor
     :undoc-members:
     :show-inheritance:
 
+Container Sync
+==============
+
+.. automodule:: swift.container.sync
+    :members:
+    :undoc-members:
+    :show-inheritance:

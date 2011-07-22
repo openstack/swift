@@ -80,7 +80,7 @@ setup(
         'bin/swift-account-audit', 'bin/swift-account-reaper',
         'bin/swift-account-replicator', 'bin/swift-account-server',
         'bin/swift-container-auditor',
-        'bin/swift-container-replicator',
+        'bin/swift-container-replicator', 'bin/swift-container-sync',
         'bin/swift-container-server', 'bin/swift-container-updater',
         'bin/swift-drive-audit', 'bin/swift-get-nodes',
         'bin/swift-init', 'bin/swift-object-auditor',

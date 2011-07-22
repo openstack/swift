@@ -666,7 +666,9 @@ class ContainerBroker(DatabaseBroker):
                 id TEXT,
                 status TEXT DEFAULT '',
                 status_changed_at TEXT DEFAULT '0',
-                metadata TEXT DEFAULT ''
+                metadata TEXT DEFAULT '',
+                x_container_sync_point1 INTEGER DEFAULT -1,
+                x_container_sync_point2 INTEGER DEFAULT -1
             );
 
             INSERT INTO container_stat (object_count, bytes_used)
@@ -886,7 +888,8 @@ class ContainerBroker(DatabaseBroker):
         :returns: dict with keys: account, container, created_at,
                   put_timestamp, delete_timestamp, object_count, bytes_used,
                   reported_put_timestamp, reported_delete_timestamp,
-                  reported_object_count, reported_bytes_used, hash, id
+                  reported_object_count, reported_bytes_used, hash, id,
+                  x_container_sync_point1, and x_container_sync_point2.
                   If include_metadata is set, metadata is included as a key
                   pointing to a dict of tuples of the metadata
         """
@@ -896,34 +899,82 @@ class ContainerBroker(DatabaseBroker):
             if not self.stale_reads_ok:
                 raise
         with self.get() as conn:
-            metadata = ''
-            if include_metadata:
-                metadata = ', metadata'
-            try:
-                data = conn.execute('''
-                    SELECT account, container, created_at, put_timestamp,
-                        delete_timestamp, object_count, bytes_used,
-                        reported_put_timestamp, reported_delete_timestamp,
-                        reported_object_count, reported_bytes_used, hash, id
-                        %s
-                    FROM container_stat
-                ''' % metadata).fetchone()
-            except sqlite3.OperationalError, err:
-                if 'no such column: metadata' not in str(err):
-                    raise
-                data = conn.execute('''
-                    SELECT account, container, created_at, put_timestamp,
-                        delete_timestamp, object_count, bytes_used,
-                        reported_put_timestamp, reported_delete_timestamp,
-                        reported_object_count, reported_bytes_used, hash, id
-                    FROM container_stat''').fetchone()
+            data = None
+            trailing1 = 'metadata'
+            trailing2 = 'x_container_sync_point1, x_container_sync_point2'
+            while not data:
+                try:
+                    data = conn.execute('''
+                        SELECT account, container, created_at, put_timestamp,
+                            delete_timestamp, object_count, bytes_used,
+                            reported_put_timestamp, reported_delete_timestamp,
+                            reported_object_count, reported_bytes_used, hash,
+                            id, %s, %s
+                        FROM container_stat
+                    ''' % (trailing1, trailing2)).fetchone()
+                except sqlite3.OperationalError, err:
+                    if 'no such column: metadata' in str(err):
+                        trailing1 = "'' as metadata"
+                    elif 'no such column: x_container_sync_point' in str(err):
+                        trailing2 = '-1 AS x_container_sync_point1, ' \
+                                    '-1 AS x_container_sync_point2'
+                    else:
+                        raise
             data = dict(data)
             if include_metadata:
                 try:
                     data['metadata'] = json.loads(data.get('metadata', ''))
                 except ValueError:
                     data['metadata'] = {}
+            elif 'metadata' in data:
+                del data['metadata']
             return data
+
+    def set_x_container_sync_points(self, sync_point1, sync_point2):
+        with self.get() as conn:
+            orig_isolation_level = conn.isolation_level
+            try:
+                # We turn off auto-transactions to ensure the alter table
+                # commands are part of the transaction.
+                conn.isolation_level = None
+                conn.execute('BEGIN')
+                try:
+                    self._set_x_container_sync_points(conn, sync_point1,
+                                                      sync_point2)
+                except sqlite3.OperationalError, err:
+                    if 'no such column: x_container_sync_point' not in str(err):
+                        raise
+                    conn.execute('''
+                        ALTER TABLE container_stat
+                        ADD COLUMN x_container_sync_point1 INTEGER DEFAULT -1
+                    ''')
+                    conn.execute('''
+                        ALTER TABLE container_stat
+                        ADD COLUMN x_container_sync_point2 INTEGER DEFAULT -1
+                    ''')
+                    self._set_x_container_sync_points(conn, sync_point1,
+                                                      sync_point2)
+                conn.execute('COMMIT')
+            finally:
+                conn.isolation_level = orig_isolation_level
+
+    def _set_x_container_sync_points(self, conn, sync_point1, sync_point2):
+        if sync_point1 is not None and sync_point2 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point1 = ?,
+                    x_container_sync_point2 = ?
+            ''', (sync_point1, sync_point2))
+        elif sync_point1 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point1 = ?
+            ''', (sync_point1,))
+        elif sync_point2 is not None:
+            conn.execute('''
+                UPDATE container_stat
+                SET x_container_sync_point2 = ?
+            ''', (sync_point2,))
 
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):

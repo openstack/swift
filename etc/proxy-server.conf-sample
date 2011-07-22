@@ -65,6 +65,9 @@ use = egg:swift#tempauth
 # to the auth subsystem, for granting tokens, etc.
 # auth_prefix = /auth/
 # token_life = 86400
+# This is a comma separated list of hosts allowed to send X-Container-Sync-Key
+# requests.
+# allowed_sync_hosts = 127.0.0.1
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 # There are special groups of:

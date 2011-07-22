@@ -768,6 +768,26 @@ log_name = yarr'''
         self.assertEquals(utils.human_readable(1237940039285380274899124224),
                           '1024Yi')
 
+    def test_validate_sync_to(self):
+        for goodurl in ('http://1.1.1.1/v1/a/c/o',
+                        'http://1.1.1.1:8080/a/c/o',
+                        'http://2.2.2.2/a/c/o',
+                        'https://1.1.1.1/v1/a/c/o'):
+            self.assertEquals(utils.validate_sync_to(goodurl,
+                                                     ['1.1.1.1', '2.2.2.2']),
+                              None)
+        for badurl in ('http://1.1.1.1',
+                       'httpq://1.1.1.1/v1/a/c/o',
+                       'http://1.1.1.1/v1/a/c/o?query',
+                       'http://1.1.1.1/v1/a/c/o#frag',
+                       'http://1.1.1.1/v1/a/c/o?query#frag',
+                       'http://1.1.1.1/v1/a/c/o?query=param',
+                       'http://1.1.1.1/v1/a/c/o?query=param#frag',
+                       'http://1.1.1.2/v1/a/c/o'):
+            self.assertNotEquals(utils.validate_sync_to(badurl,
+                                                       ['1.1.1.1', '2.2.2.2']),
+                                 None)
+
     def test_TRUE_VALUES(self):
         for v in utils.TRUE_VALUES:
             self.assertEquals(v, v.lower())

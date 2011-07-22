@@ -324,6 +324,76 @@ class TestContainerController(unittest.TestCase):
                 raise Exception(err)
         self.assert_(not got_exc)
 
+    def test_PUT_reset_container_sync(self):
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+        db.set_x_container_sync_points(123, 456)
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], 123)
+        self.assertEquals(info['x_container_sync_point2'], 456)
+        # Set to same value
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 202)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], 123)
+        self.assertEquals(info['x_container_sync_point2'], 456)
+        # Set to new value
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c2'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 202)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+
+    def test_POST_reset_container_sync(self):
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+        db.set_x_container_sync_points(123, 456)
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], 123)
+        self.assertEquals(info['x_container_sync_point2'], 456)
+        # Set to same value
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], 123)
+        self.assertEquals(info['x_container_sync_point2'], 456)
+        # Set to new value
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c2'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        info = db.get_info()
+        self.assertEquals(info['x_container_sync_point1'], -1)
+        self.assertEquals(info['x_container_sync_point2'], -1)
+
     def test_DELETE(self):
         req = Request.blank('/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
