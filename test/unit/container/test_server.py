@@ -608,7 +608,7 @@ class TestContainerController(unittest.TestCase):
                          'HTTP_X_SIZE': 0})
             resp = self.controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
-        xml_body = '<?xml version="1.1" encoding="UTF-8"?>\n' \
+        xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
             '<container name="xmlc">' \
                 '<object><name>0&#x1;</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
@@ -752,7 +752,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?prefix=US-&delimiter=-&format=xml',
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
-        self.assertEquals(resp.body, '<?xml version="1.1" encoding="UTF-8"?>'
+        self.assertEquals(resp.body, '<?xml version="1.0" encoding="UTF-8"?>'
             '\n<container name="c"><subdir name="US-OK-"><name>US-OK-</name></subdir>'
             '<subdir name="US-TX-"><name>US-TX-</name></subdir>'
             '<subdir name="US-UT-"><name>US-UT-</name></subdir></container>')
