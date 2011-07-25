@@ -42,7 +42,6 @@ from eventlet import greenio, GreenPool, sleep, Timeout, listen
 from eventlet.green import socket, subprocess, ssl, thread, threading
 import netifaces
 
-from swift.common.constraints import check_utf8
 from swift.common.exceptions import LockTimeout, MessageTimeout
 
 # logging doesn't import patched as cleanly as one would like
@@ -75,8 +74,6 @@ if hash_conf.read('/etc/swift/swift.conf'):
 # Used when reading config values
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
-# Used with xml.sax.saxutils.escape
-XML_EXTRA_ENTITIES = dict((chr(x), '&#x%x;' % x) for x in xrange(1, 0x20))
 
 def validate_configuration():
     if HASH_PATH_SUFFIX == '':
@@ -113,8 +110,8 @@ def get_param(req, name, default=None):
     :returns: HTTP request parameter value
     """
     value = req.str_params.get(name, default)
-    if value and not check_utf8(value):
-        raise ValueError('Not valid UTF-8 or contains NULL characters')
+    if value:
+        value.decode('utf8')    # Ensure UTF8ness
     return value
 
 

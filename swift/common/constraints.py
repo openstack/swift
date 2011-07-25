@@ -159,16 +159,13 @@ def check_float(string):
 
 def check_utf8(string):
     """
-    Validate if a string is valid UTF-8 and has no NULL characters.
+    Validate if a string is valid UTF-8.
 
     :param string: string to be validated
-    :returns: True if the string is valid utf-8 and has no NULL characters,
-              False otherwise
+    :returns: True if the string is valid utf-8, False otherwise
     """
     try:
         string.decode('UTF-8')
+        return True
     except UnicodeDecodeError:
         return False
-    if '\x00' in string:
-        return False
-    return True
