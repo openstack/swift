@@ -1,3 +1,24 @@
+swift (1.4.2)
+
+    * Removed stats/logging code from Swift [now in separate slogging project].
+
+    * Object POSTs are implemented as COPYs now by default (you can revert to
+      previous implementation with conf object_post_as_copy = false)
+
+    * You can specify X-Newest: true on GETs and HEADs to indicate you want
+      Swift to query all backend copies and return the newest version
+      retrieved.
+
+    * Object COPY requests now always copy the newest object they can find.
+
+    * Account and container GETs and HEADs now shuffle the nodes they use to
+      balance load.
+
+    * Fixed the infinite charset: utf-8 bug
+
+    * This fixes the bug that drop_buffer_cache() doesn't work on systems where
+      off_t isn't 64 bits.
+
 swift (1.4.1)
 
     * st renamed to swift
