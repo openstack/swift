@@ -272,7 +272,7 @@ class TestObjectReplicator(unittest.TestCase):
         def assertFileData(file_path, data):
             with open(file_path, 'r') as fp:
                 fdata = fp.read()
-                self.assertEquals(fdata, data)
+                self.assertEquals(pickle.loads(fdata), pickle.loads(data))
 
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
