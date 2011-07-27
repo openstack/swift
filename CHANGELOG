@@ -2,6 +2,12 @@ swift (1.4.2)
 
     * Removed stats/logging code from Swift [now in separate slogging project].
 
+    * Container Synchronization Feature - First Edition
+
+    * Fix swift3 authentication bug about the Date and X-Amz-Date handling.
+
+    * Changing ratelimiting so that it only limits PUTs/DELETEs.
+
     * Object POSTs are implemented as COPYs now by default (you can revert to
       previous implementation with conf object_post_as_copy = false)
 
