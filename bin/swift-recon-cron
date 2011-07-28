@@ -6,18 +6,19 @@
 # of high async pendings when the find takes a while.
 #todo: everything.
 
-SYSLOG_FACILITY="local0.error"
+SYSLOG_FACILITY="local2"
 ASYNC_PATH="/srv/node/sd[a-z]/async_pending/"
-RECON_CACHE_PATH="/var/cache/swift/object.recon"
+RECON_CACHE_PATH="/var/cache/swift"
 
 LOCKFILE="/var/lock/swift-recon-object.lock"
 if [ -e $LOCKFILE ]; then
     echo "NOTICE - $0 lock present - cron jobs overlapping ?" 
-    echo "$0 lock file present" | /usr/bin/logger -p $SYSLOG_FACILITY
+    echo "$0 lock file present" | /usr/bin/logger -p $SYSLOG_FACILITY.err
     exit 1
 else
     touch $LOCKFILE
 fi
+
 
 if [ -z "$1" ]; then
     LOGFILE="/var/log/swift/storage.log"
@@ -26,9 +27,13 @@ else
 fi
 
 if [ ! -r "$LOGFILE" ]; then
-    echo "$0: error $LOGFILE not readable" | /usr/bin/logger -p $SYSLOG_FACILITY
+    echo "$0: error $LOGFILE not readable" | /usr/bin/logger -p $SYSLOG_FACILITY.err
     rm $LOCKFILE
     exit 1
+fi
+
+if [ ! -d "$RECON_CACHE_PATH" ]; then
+    mkdir $RECON_CACHE_PATH
 fi
 
 TMPF=`/bin/mktemp`
@@ -41,6 +46,11 @@ objincoming=$(netstat -aln | egrep "tcp.*:6000.*:.*ESTABLISHED" -c)
 
 echo "{\"async_pending\":$asyncs, \"object_replication_time\":$objrep, \"object_established_conns\":$objincoming}" > $TMPF
 
-mv $TMPF $RECON_CACHE_PATH
+mv $TMPF $RECON_CACHE_PATH/object.recon
+if [ $? -ne 0 ]; then
+    echo "$0: $TMPF rename failed" | /usr/bin/logger -p $SYSLOG_FACILITY.err
+    rm -f $TMPF $LOCKFILE
+    exit 1
+fi
 rm -f $TMPF $LOCKFILE
 exit 0
