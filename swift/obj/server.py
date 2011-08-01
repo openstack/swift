@@ -21,7 +21,6 @@ import errno
 import os
 import time
 import traceback
-import uuid
 from datetime import datetime
 from hashlib import md5
 from tempfile import mkstemp
@@ -44,7 +43,8 @@ from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist
-from swift.obj.replicator import tpooled_get_hashes, invalidate_hash
+from swift.obj.replicator import tpooled_get_hashes, invalidate_hash, \
+    quarantine_renamer
 
 
 DATADIR = 'objects'
@@ -89,32 +89,6 @@ def write_metadata(fd, metadata):
         setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
         metastr = metastr[254:]
         key += 1
-
-
-def quarantine_renamer(device_path, corrupted_file_path):
-    """
-    In the case that a file is corrupted, move it to a quarantined
-    area to allow replication to fix it.
-
-    :params device_path: The path to the device the corrupted file is on.
-    :params corrupted_file_path: The path to the file you want quarantined.
-
-    :returns: path (str) of directory the file was moved to
-    :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
-                     exceptions from rename
-    """
-    from_dir = os.path.dirname(corrupted_file_path)
-    to_dir = os.path.join(device_path, 'quarantined',
-                          'objects', os.path.basename(from_dir))
-    invalidate_hash(os.path.dirname(from_dir))
-    try:
-        renamer(from_dir, to_dir)
-    except OSError, e:
-        if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-            raise
-        to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
-        renamer(from_dir, to_dir)
-    return to_dir
 
 
 class DiskFile(object):

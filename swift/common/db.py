@@ -270,6 +270,29 @@ class DatabaseBroker(object):
             yield conn
             conn.rollback()
             self.conn = conn
+        except sqlite3.DatabaseError, err:
+            try:
+                conn.close()
+            except:
+                pass
+            if 'database disk image is malformed' not in str(err):
+                raise
+            prefix_path = os.path.dirname(self.db_dir)
+            partition_path = os.path.dirname(prefix_path)
+            dbs_path = os.path.dirname(partition_path)
+            device_path = os.path.dirname(dbs_path)
+            quar_path = os.path.join(device_path, 'quarantined', self.db_type,
+                                     os.path.basename(self.db_dir))
+            try:
+                renamer(self.db_dir, quar_path)
+            except OSError, e:
+                if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+                quar_path = "%s-%s" % (quar_path, uuid4().hex)
+                renamer(self.db_dir, quar_path)
+            self.logger(_('Quarantined %s to %s due to malformed database') %
+                        (self.db_dir, quar_path))
+            raise err
         except Exception:
             conn.close()
             raise

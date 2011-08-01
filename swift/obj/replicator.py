@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import os
-from os.path import isdir, join
+from os.path import basename, dirname, isdir, join
 import random
 import shutil
 import time
@@ -22,6 +22,8 @@ import logging
 import hashlib
 import itertools
 import cPickle as pickle
+import errno
+import uuid
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
@@ -30,7 +32,7 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        compute_eta, get_logger, write_pickle
+        compute_eta, get_logger, write_pickle, renamer
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 
@@ -39,6 +41,31 @@ hubs.use_hub('poll')
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
+
+
+def quarantine_renamer(device_path, corrupted_file_path):
+    """
+    In the case that a file is corrupted, move it to a quarantined
+    area to allow replication to fix it.
+
+    :params device_path: The path to the device the corrupted file is on.
+    :params corrupted_file_path: The path to the file you want quarantined.
+
+    :returns: path (str) of directory the file was moved to
+    :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
+                     exceptions from rename
+    """
+    from_dir = dirname(corrupted_file_path)
+    to_dir = join(device_path, 'quarantined', 'objects', basename(from_dir))
+    invalidate_hash(dirname(from_dir))
+    try:
+        renamer(from_dir, to_dir)
+    except OSError, e:
+        if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+            raise
+        to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
+        renamer(from_dir, to_dir)
+    return to_dir
 
 
 def hash_suffix(path, reclaim_age):
@@ -50,7 +77,19 @@ def hash_suffix(path, reclaim_age):
     md5 = hashlib.md5()
     for hsh in sorted(os.listdir(path)):
         hsh_path = join(path, hsh)
-        files = os.listdir(hsh_path)
+        try:
+            files = os.listdir(hsh_path)
+        except OSError, err:
+            if err.ernno == errno.ENOTDIR:
+                partition_path = dirname(path)
+                objects_path = dirname(partition_path)
+                device_path = dirname(objects_path)
+                quar_path = quarantine_renamer(device_path, hsh_path)
+                logging.exception(
+                    _('Quarantined %s to %s because it is not a directory') %
+                    (hsh_path, quar_path))
+                continue
+            raise
         if len(files) == 1:
             if files[0].endswith('.ts'):
                 # remove tombstones older than reclaim_age
