@@ -203,6 +203,12 @@ class TestDatabaseBroker(unittest.TestCase):
         orig_renamer = swift.common.db.renamer
         try:
             swift.common.db.renamer = lambda a, b: b
+            qpath = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(self.testdir))))
+            if qpath:
+                qpath += '/quarantined/test/db'
+            else:
+                qpath = 'quarantined/test/db'
             # Test malformed database
             fp = open(os.path.join(self.testdir, '1.db'), 'wb')
             fp.write(EXAMPLE_MALFORMED_DB.decode('hex'))
@@ -215,9 +221,9 @@ class TestDatabaseBroker(unittest.TestCase):
                     conn.execute('SELECT * FROM test')
             except Exception, err:
                 exc = err
-            self.assertTrue(str(exc).startswith(
-                'Quarantined test/unit/common/db to quarantined/test/db'))
-            self.assertTrue(str(exc).endswith(' due to malformed database'))
+            self.assertEquals(str(exc),
+                'Quarantined %s to %s due to malformed database' %
+                (self.testdir, qpath))
             # Test corrupted database
             fp = open(os.path.join(self.testdir, '1.db'), 'wb')
             fp.write(EXAMPLE_CORRUPTED_DB.decode('hex'))
@@ -230,9 +236,9 @@ class TestDatabaseBroker(unittest.TestCase):
                     conn.execute('SELECT * FROM test')
             except Exception, err:
                 exc = err
-            self.assertTrue(str(exc).startswith(
-                'Quarantined test/unit/common/db to quarantined/test/db'))
-            self.assertTrue(str(exc).endswith(' due to corrupted database'))
+            self.assertEquals(str(exc),
+                'Quarantined %s to %s due to corrupted database' %
+                (self.testdir, qpath))
         finally:
             swift.common.db.renamer = orig_renamer
 
