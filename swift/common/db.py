@@ -22,6 +22,7 @@ import logging
 import operator
 import os
 from uuid import uuid4
+import sys
 import time
 import cPickle as pickle
 import errno
@@ -256,12 +257,40 @@ class DatabaseBroker(object):
             self._delete_db(conn, timestamp)
             conn.commit()
 
+    def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
+        if 'database disk image is malformed' in str(exc_value):
+            exc_hint = 'malformed'
+        elif 'file is encrypted or is not a database' in str(exc_value):
+            exc_hint = 'corrupted'
+        else:
+            raise exc_type, exc_value, exc_traceback
+        prefix_path = os.path.dirname(self.db_dir)
+        partition_path = os.path.dirname(prefix_path)
+        dbs_path = os.path.dirname(partition_path)
+        device_path = os.path.dirname(dbs_path)
+        quar_path = os.path.join(device_path, 'quarantined', self.db_type,
+                                 os.path.basename(self.db_dir))
+        try:
+            renamer(self.db_dir, quar_path)
+        except OSError, e:
+            if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            quar_path = "%s-%s" % (quar_path, uuid4().hex)
+            renamer(self.db_dir, quar_path)
+        detail = _('Quarantined %s to %s due to %s database') % \
+                 (self.db_dir, quar_path, exc_hint)
+        self.logger.error(detail)
+        raise sqlite3.DatabaseError(detail)
+
     @contextmanager
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
             if self.db_file != ':memory:' and os.path.exists(self.db_file):
-                self.conn = get_db_connection(self.db_file, self.timeout)
+                try:
+                    self.conn = get_db_connection(self.db_file, self.timeout)
+                except (sqlite3.DatabaseError, DatabaseConnectionError):
+                    self.possibly_quarantine(*sys.exc_info())
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         conn = self.conn
@@ -275,24 +304,7 @@ class DatabaseBroker(object):
                 conn.close()
             except:
                 pass
-            if 'database disk image is malformed' not in str(err):
-                raise
-            prefix_path = os.path.dirname(self.db_dir)
-            partition_path = os.path.dirname(prefix_path)
-            dbs_path = os.path.dirname(partition_path)
-            device_path = os.path.dirname(dbs_path)
-            quar_path = os.path.join(device_path, 'quarantined', self.db_type,
-                                     os.path.basename(self.db_dir))
-            try:
-                renamer(self.db_dir, quar_path)
-            except OSError, e:
-                if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                    raise
-                quar_path = "%s-%s" % (quar_path, uuid4().hex)
-                renamer(self.db_dir, quar_path)
-            self.logger(_('Quarantined %s to %s due to malformed database') %
-                        (self.db_dir, quar_path))
-            raise err
+            self.possibly_quarantine(*sys.exc_info())
         except Exception:
             conn.close()
             raise
