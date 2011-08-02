@@ -80,7 +80,7 @@ def hash_suffix(path, reclaim_age):
         try:
             files = os.listdir(hsh_path)
         except OSError, err:
-            if err.ernno == errno.ENOTDIR:
+            if err.errno == errno.ENOTDIR:
                 partition_path = dirname(path)
                 objects_path = dirname(partition_path)
                 device_path = dirname(objects_path)

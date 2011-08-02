@@ -258,6 +258,12 @@ class DatabaseBroker(object):
             conn.commit()
 
     def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
+        """
+        Checks the exception info to see if it indicates a quarantine situation
+        (malformed or corrupted database). If not, the original exception will
+        be reraised. If so, the database will be quarantined and a new
+        sqlite3.DatabaseError will be raised indicating the action taken.
+        """
         if 'database disk image is malformed' in str(exc_value):
             exc_hint = 'malformed'
         elif 'file is encrypted or is not a database' in str(exc_value):

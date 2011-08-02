@@ -205,6 +205,27 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEquals(hashed, 1)
         self.assert_('a83' in hashes)
 
+    def test_hash_suffix_hash_dir_is_file_quarantine(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(os.path.dirname(df.datadir))
+        open(df.datadir, 'wb').close()
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects, '0', data_dir)
+        orig_quarantine_renamer = object_replicator.quarantine_renamer
+        called = [False]
+
+        def wrapped(*args, **kwargs):
+            called[0] = True
+            return orig_quarantine_renamer(*args, **kwargs)
+
+        try:
+            object_replicator.quarantine_renamer = wrapped
+            object_replicator.hash_suffix(whole_path_from, 101)
+        finally:
+            object_replicator.quarantine_renamer = orig_quarantine_renamer
+        self.assertTrue(called[0])
+
     def test_hash_suffix_one_file(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
