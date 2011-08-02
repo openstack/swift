@@ -26,6 +26,13 @@ class ReconMiddleware(object):
     Recon middleware used for monitoring.
 
     /recon/load|mem|async... will return various system metrics.
+
+    Needs to be added to the pipeline and a requires a filter
+    declaration in the object-server.conf:
+
+    [filter:recon]
+    use = egg:swift#recon
+    recon_cache_path = /var/cache/swift
     """
 
     def __init__(self, app, conf, *args, **kwargs):
