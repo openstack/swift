@@ -12,6 +12,12 @@ from swift.common.utils import readconf
 setattr(__builtin__, '_', lambda x: x)
 
 
+# Work around what seems to be a Python bug.
+# c.f. https://bugs.launchpad.net/swift/+bug/820185.
+import logging
+logging.raiseExceptions = False
+
+
 def get_config():
     """
     Attempt to get a functional config dictionary.
