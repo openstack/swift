@@ -19,7 +19,7 @@ from __future__ import with_statement
 import hashlib
 import os
 import unittest
-from shutil import rmtree
+from shutil import rmtree, copy
 from StringIO import StringIO
 from time import sleep, time
 from uuid import uuid4
@@ -27,6 +27,7 @@ from uuid import uuid4
 import simplejson
 import sqlite3
 
+import swift.common.db
 from swift.common.db import AccountBroker, chexor, ContainerBroker, \
     DatabaseBroker, DatabaseConnectionError, dict_factory, get_db_connection
 from swift.common.utils import normalize_timestamp
@@ -199,6 +200,47 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             self.assertEquals(
                 [r[0] for r in conn.execute('SELECT * FROM test')], ['1'])
+        orig_renamer = swift.common.db.renamer
+        try:
+            swift.common.db.renamer = lambda a, b: b
+            qpath = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(self.testdir))))
+            if qpath:
+                qpath += '/quarantined/test/db'
+            else:
+                qpath = 'quarantined/test/db'
+            # Test malformed database
+            copy(os.path.join(os.path.dirname(__file__),
+                              'malformed_example.db'),
+                 os.path.join(self.testdir, '1.db'))
+            broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+            broker.db_type = 'test'
+            exc = None
+            try:
+                with broker.get() as conn:
+                    conn.execute('SELECT * FROM test')
+            except Exception, err:
+                exc = err
+            self.assertEquals(str(exc),
+                'Quarantined %s to %s due to malformed database' %
+                (self.testdir, qpath))
+            # Test corrupted database
+            copy(os.path.join(os.path.dirname(__file__),
+                              'corrupted_example.db'),
+                 os.path.join(self.testdir, '1.db'))
+            broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+            broker.db_type = 'test'
+            exc = None
+            try:
+                with broker.get() as conn:
+                    conn.execute('SELECT * FROM test')
+            except Exception, err:
+                exc = err
+            self.assertEquals(str(exc),
+                'Quarantined %s to %s due to corrupted database' %
+                (self.testdir, qpath))
+        finally:
+            swift.common.db.renamer = orig_renamer
 
     def test_lock(self):
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
