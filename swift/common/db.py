@@ -983,7 +983,8 @@ class ContainerBroker(DatabaseBroker):
                     self._set_x_container_sync_points(conn, sync_point1,
                                                       sync_point2)
                 except sqlite3.OperationalError, err:
-                    if 'no such column: x_container_sync_point' not in str(err):
+                    if 'no such column: x_container_sync_point' not in \
+                            str(err):
                         raise
                     conn.execute('''
                         ALTER TABLE container_stat
