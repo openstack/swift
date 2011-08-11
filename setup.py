@@ -92,6 +92,7 @@ setup(
         'bin/swift-stats-report',
         'bin/swift-dispersion-populate', 'bin/swift-dispersion-report',
         'bin/swift-bench',
+        'bin/swift-recon', 'bin/swift-recon-cron',
         ],
     entry_points={
         'paste.app_factory': [
@@ -110,6 +111,7 @@ setup(
             'swift3=swift.common.middleware.swift3:filter_factory',
             'staticweb=swift.common.middleware.staticweb:filter_factory',
             'tempauth=swift.common.middleware.tempauth:filter_factory',
+            'recon=swift.common.middleware.recon:filter_factory',
             ],
         },
     )
