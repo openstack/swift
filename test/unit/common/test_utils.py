@@ -409,12 +409,12 @@ class TestUtils(unittest.TestCase):
             logger.logger.removeHandler(handler)
             reset_loggers()
 
-    def test_txn_formatter(self):
+    def test_swift_log_formatter(self):
         # setup stream logging
         sio = StringIO()
         logger = utils.get_logger(None)
         handler = logging.StreamHandler(sio)
-        handler.setFormatter(utils.TxnFormatter())
+        handler.setFormatter(utils.SwiftLogFormatter())
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
@@ -443,6 +443,28 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(logger.txn_id, '12345')
             logger.warn('test 12345 test')
             self.assertEquals(strip_value(sio), 'test 12345 test\n')
+
+            # test client_ip
+            self.assertFalse(logger.client_ip)
+            logger.error('my error message')
+            log_msg = strip_value(sio)
+            self.assert_('my error message' in log_msg)
+            self.assert_('client_ip' not in log_msg)
+            logger.client_ip = '1.2.3.4'
+            logger.error('test')
+            log_msg = strip_value(sio)
+            self.assert_('client_ip' in log_msg)
+            self.assert_('1.2.3.4' in log_msg)
+            # test no client_ip on info message
+            self.assertEquals(logger.client_ip, '1.2.3.4')
+            logger.info('test')
+            log_msg = strip_value(sio)
+            self.assert_('client_ip' not in log_msg)
+            self.assert_('1.2.3.4' not in log_msg)
+            # test client_ip (and txn) already in message
+            self.assertEquals(logger.client_ip, '1.2.3.4')
+            logger.warn('test 1.2.3.4 test 12345')
+            self.assertEquals(strip_value(sio), 'test 1.2.3.4 test 12345\n')
         finally:
             logger.logger.removeHandler(handler)
             reset_loggers()

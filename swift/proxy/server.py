@@ -289,6 +289,7 @@ class Controller(object):
 
         :param node: dictionary of node to handle errors for
         :param msg: error message
+        :param req: request that triggered the error
         """
         self.error_increment(node)
         self.app.logger.error(_('%(msg)s %(ip)s:%(port)s'),
@@ -301,6 +302,7 @@ class Controller(object):
         :param node: dictionary of node to log the error for
         :param typ: server type
         :param additional_info: additional information to log
+        :param req: request that triggered the exception
         """
         self.app.logger.exception(
             _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
@@ -1645,6 +1647,7 @@ class BaseApplication(object):
             controller = controller(self, **path_parts)
             controller.trans_id = req.headers.get('x-trans-id', '-')
             self.logger.txn_id = req.headers.get('x-trans-id', None)
+            self.logger.client_ip = get_remote_client(req)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
