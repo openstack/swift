@@ -1,0 +1,56 @@
+#!/bin/bash
+
+#ghetto temporary cronjob to pull some of the stats for swift-recon
+#usage: swift-recon-cron /var/log/swift/storage.log 
+# run it as frequently as you like, will skip runs during periods
+# of high async pendings when the find takes a while.
+#todo: everything.
+
+SYSLOG_FACILITY="local2"
+ASYNC_PATH="/srv/node/sd[a-z]/async_pending/"
+RECON_CACHE_PATH="/var/cache/swift"
+
+LOCKFILE="/var/lock/swift-recon-object.lock"
+if [ -e $LOCKFILE ]; then
+    echo "NOTICE - $0 lock present - cron jobs overlapping ?" 
+    echo "$0 lock file present" | /usr/bin/logger -p $SYSLOG_FACILITY.err
+    exit 1
+else
+    touch $LOCKFILE
+fi
+
+
+if [ -z "$1" ]; then
+    LOGFILE="/var/log/swift/storage.log"
+else
+    LOGFILE=$1
+fi
+
+if [ ! -r "$LOGFILE" ]; then
+    echo "$0: error $LOGFILE not readable" | /usr/bin/logger -p $SYSLOG_FACILITY.err
+    rm $LOCKFILE
+    exit 1
+fi
+
+if [ ! -d "$RECON_CACHE_PATH" ]; then
+    mkdir $RECON_CACHE_PATH
+fi
+
+TMPF=`/bin/mktemp`
+
+asyncs=$(find $ASYNC_PATH -type f 2> /dev/null| wc -l)
+#asyncs=$(find /srv/[1-4]/node/sd[a-z]1/async_pending/ -type f 2> /dev/null| wc -l) #saio
+objrep=$(grep "Object replication complete." $LOGFILE  | tail -n 1 | awk '{print $9}' | sed -e 's/(//g')
+objincoming=$(netstat -aln | egrep "tcp.*:6000.*:.*ESTABLISHED" -c)
+#objtw=$(netstat -aln | egrep "tcp.*:6000.*:.*TIME_WAIT" -c)
+
+echo "{\"async_pending\":$asyncs, \"object_replication_time\":$objrep, \"object_established_conns\":$objincoming}" > $TMPF
+
+mv $TMPF $RECON_CACHE_PATH/object.recon
+if [ $? -ne 0 ]; then
+    echo "$0: $TMPF rename failed" | /usr/bin/logger -p $SYSLOG_FACILITY.err
+    rm -f $TMPF $LOCKFILE
+    exit 1
+fi
+rm -f $TMPF $LOCKFILE
+exit 0
