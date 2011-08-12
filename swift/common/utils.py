@@ -294,10 +294,12 @@ class LoggerFileObject(object):
 class LogAdapter(logging.LoggerAdapter, object):
     """
     A Logger like object which performs some reformatting on calls to
-    :meth:`exception`.  Can be used to store a threadlocal transaction id.
+    :meth:`exception`.  Can be used to store a threadlocal transaction id and
+    client ip.
     """
 
     _txn_id = threading.local()
+    _client_ip = threading.local()
 
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
@@ -313,6 +315,15 @@ class LogAdapter(logging.LoggerAdapter, object):
     def txn_id(self, value):
         self._txn_id.value = value
 
+    @property
+    def client_ip(self):
+        if hasattr(self._client_ip, 'value'):
+            return self._client_ip.value
+
+    @client_ip.setter
+    def client_ip(self, value):
+        self._client_ip.value = value
+
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
 
@@ -320,7 +331,8 @@ class LogAdapter(logging.LoggerAdapter, object):
         """
         Add extra info to message
         """
-        kwargs['extra'] = {'server': self.server, 'txn_id': self.txn_id}
+        kwargs['extra'] = {'server': self.server, 'txn_id': self.txn_id,
+                           'client_ip': self.client_ip}
         return msg, kwargs
 
     def notice(self, msg, *args, **kwargs):
@@ -365,7 +377,7 @@ class LogAdapter(logging.LoggerAdapter, object):
         call('%s: %s' % (msg, emsg), *args, **kwargs)
 
 
-class TxnFormatter(logging.Formatter):
+class SwiftLogFormatter(logging.Formatter):
     """
     Custom logging.Formatter will append txn_id to a log message if the record
     has one and the message does not.
@@ -376,6 +388,9 @@ class TxnFormatter(logging.Formatter):
         if (record.txn_id and record.levelno != logging.INFO and
             record.txn_id not in msg):
             msg = "%s (txn: %s)" % (msg, record.txn_id)
+        if (record.client_ip and record.levelno != logging.INFO and
+            record.client_ip not in msg):
+            msg = "%s (client_ip: %s)" % (msg, record.client_ip)
         return msg
 
 
@@ -406,7 +421,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     logger = logging.getLogger(log_route)
     logger.propagate = False
     # all new handlers will get the same formatter
-    formatter = TxnFormatter(fmt)
+    formatter = SwiftLogFormatter(fmt)
 
     # get_logger will only ever add one SysLog Handler to a logger
     if not hasattr(get_logger, 'handler4logger'):

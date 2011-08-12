@@ -1645,6 +1645,7 @@ class BaseApplication(object):
             controller = controller(self, **path_parts)
             controller.trans_id = req.headers.get('x-trans-id', '-')
             self.logger.txn_id = req.headers.get('x-trans-id', None)
+            self.logger.client_ip = get_remote_client(req)
             try:
                 handler = getattr(controller, req.method)
                 if not getattr(handler, 'publicly_accessible'):
