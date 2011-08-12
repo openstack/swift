@@ -88,7 +88,8 @@ def scout_quarantine(host):
     base_url = "http://%s:%s/recon/" % (host[0], host[1])
     url, content, status = scout(base_url, "quarantined")
     return url, content, status
-    
+
+
 def get_ringmd5(ringfile):
     stats = {}
     matches = 0
@@ -208,8 +209,8 @@ def load_check():
         else:
             print "Error: No hosts available or returned valid information."
     print "=" * 79
-    
-    
+
+
 def quarantine_check():
     objq = {}
     conq = {}
@@ -230,7 +231,7 @@ def quarantine_check():
             high = max(stats[item].values())
             total = sum(stats[item].values())
             average = total / len(stats[item])
-            print "[Quarantined %s] lowest: %d, highest: %d, avg: %d, total: %d" % \
+            print "[Quarantined %s] low: %d, high: %d, avg: %d, total: %d" % \
                 (item, low, high, average, total)
         else:
             print "Error: No hosts available or returned valid information."
@@ -317,7 +318,7 @@ def main():
     args.add_option('--swiftdir', default="/etc/swift",
         help="Default = /etc/swift")
     options, arguments = args.parse_args()
-    
+
     if len(sys.argv) <= 1:
         args.print_help()
 

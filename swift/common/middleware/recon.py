@@ -162,7 +162,9 @@ class ReconMiddleware(object):
             for qtype in qcounts:
                 qtgt = os.path.join(self.devices, device, qdir, qtype)
                 if os.path.exists(qtgt):
-                    qcounts[qtype] += os.lstat(qtgt).st_nlink
+                    linkcount = os.lstat(qtgt).st_nlink
+                    if linkcount > 2:
+                        qcounts[qtype] += linkcount-2
         return qcounts
 
     def GET(self, req):
