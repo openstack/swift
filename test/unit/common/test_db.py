@@ -206,9 +206,9 @@ class TestDatabaseBroker(unittest.TestCase):
             qpath = os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.dirname(self.testdir))))
             if qpath:
-                qpath += '/quarantined/test/db'
+                qpath += '/quarantined/tests/db'
             else:
-                qpath = 'quarantined/test/db'
+                qpath = 'quarantined/tests/db'
             # Test malformed database
             copy(os.path.join(os.path.dirname(__file__),
                               'malformed_example.db'),

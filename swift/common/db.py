@@ -274,8 +274,8 @@ class DatabaseBroker(object):
         partition_path = os.path.dirname(prefix_path)
         dbs_path = os.path.dirname(partition_path)
         device_path = os.path.dirname(dbs_path)
-        quar_path = os.path.join(device_path, 'quarantined', self.db_type,
-                                 os.path.basename(self.db_dir))
+        quar_path = os.path.join(device_path, 'quarantined',
+            self.db_type + 's', os.path.basename(self.db_dir))
         try:
             renamer(self.db_dir, quar_path)
         except OSError, e:
