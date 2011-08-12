@@ -154,6 +154,17 @@ class ReconMiddleware(object):
             sums[ringfile] = md5sum.hexdigest()
         return sums
 
+    def get_quarantine_count(self):
+        """get obj/container/account quarantine counts"""
+        qcounts = {"objects": 0, "containers": 0, "accounts": 0}
+        qdir = "quarantined"
+        for device in os.listdir(self.devices):
+            for qtype in qcounts:
+                qtgt = os.path.join(self.devices, device, qdir, qtype)
+                if os.path.exists(qtgt):
+                    qcounts[qtype] += os.lstat(qtgt).st_nlink
+        return qcounts
+
     def GET(self, req):
         error = False
         root, type = split_path(req.path, 1, 2, False)
@@ -186,6 +197,8 @@ class ReconMiddleware(object):
                 content = json.dumps(self.get_diskusage())
             elif type == "ringmd5":
                 content = json.dumps(self.get_ring_md5())
+            elif type == "quarantined":
+                content = json.dumps(self.get_quarantine_count())
             else:
                 content = "Invalid path: %s" % req.path
                 return Response(request=req, status="400 Bad Request", \

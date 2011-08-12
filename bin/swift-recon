@@ -11,6 +11,7 @@ from hashlib import md5
 import datetime
 import eventlet
 import optparse
+import sys
 import os
 
 VERBOSE = False
@@ -83,6 +84,11 @@ def scout_umount(host):
     return url, content, status
 
 
+def scout_quarantine(host):
+    base_url = "http://%s:%s/recon/" % (host[0], host[1])
+    url, content, status = scout(base_url, "quarantined")
+    return url, content, status
+    
 def get_ringmd5(ringfile):
     stats = {}
     matches = 0
@@ -137,12 +143,11 @@ def async_check():
         print "Async stats: low: %d, high: %d, avg: %d, total: %d" % (low,
             high, average, total)
     else:
-        print "Error: No hosts where available or returned valid information."
+        print "Error: No hosts available or returned valid information."
     print "=" * 79
 
 
 def umount_check():
-    ASYNC_COUNTER = 0
     stats = {}
     hosts = getdevices()
     pool = eventlet.GreenPool(20)
@@ -174,7 +179,7 @@ def replication_check():
         print "[Replication Times] shortest: %s, longest: %s, avg: %s" % \
             (low, high, average)
     else:
-        print "Error: No hosts where available or returned valid information."
+        print "Error: No hosts available or returned valid information."
     print "=" * 79
 
 
@@ -201,7 +206,34 @@ def load_check():
             print "[%s load average] lowest: %s, highest: %s, avg: %s" % \
                 (item, low, high, average)
         else:
-            print "Error: Hosts unavailable or returned valid information."
+            print "Error: No hosts available or returned valid information."
+    print "=" * 79
+    
+    
+def quarantine_check():
+    objq = {}
+    conq = {}
+    acctq = {}
+    hosts = getdevices()
+    pool = eventlet.GreenPool(20)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print "[%s] Checking quarantine dirs on %s hosts..." % (now, len(hosts))
+    for url, response, status in pool.imap(scout_quarantine, hosts):
+        if status == 200:
+            objq[url] = response['objects']
+            conq[url] = response['containers']
+            acctq[url] = response['accounts']
+    stats = {"objects": objq, "containers": conq, "accounts": acctq}
+    for item in stats:
+        if len(stats[item]) > 0:
+            low = min(stats[item].values())
+            high = max(stats[item].values())
+            total = sum(stats[item].values())
+            average = total / len(stats[item])
+            print "[Quarantined %s] lowest: %d, highest: %d, avg: %d, total: %d" % \
+                (item, low, high, average, total)
+        else:
+            print "Error: No hosts available or returned valid information."
     print "=" * 79
 
 
@@ -253,7 +285,7 @@ def disk_usage():
         print "Disk usage: lowest: %s%%, highest: %s%%, avg: %s%%" % \
             (low, high, average)
     else:
-        print "Error: No hosts where available or returned valid information."
+        print "Error: No hosts available or returned valid information."
     print "=" * 79
 
 
@@ -261,7 +293,7 @@ def main():
     global VERBOSE, SUPPRESS_ERRORS, swift_dir, pool
     print "=" * 79
     usage = '''
-    usage: %prog [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [-c] [--objmd5]
+    usage: %prog [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
     '''
     args = optparse.OptionParser(usage)
     args.add_option('--verbose', '-v', action="store_true",
@@ -278,13 +310,16 @@ def main():
         help="Get disk usage stats")
     args.add_option('--loadstats', '-l', action="store_true",
         help="Get cluster load average stats")
-    args.add_option('--connstats', '-c', action="store_true",
-        help="Get connection stats")
+    args.add_option('--quarantined', '-q', action="store_true",
+        help="Get cluster quarantine stats")
     args.add_option('--objmd5', action="store_true",
         help="Get md5sums of object.ring.gz and compare to local copy")
     args.add_option('--swiftdir', default="/etc/swift",
         help="Default = /etc/swift")
     options, arguments = args.parse_args()
+    
+    if len(sys.argv) <= 1:
+        args.print_help()
 
     swift_dir = options.swiftdir
 
@@ -303,6 +338,8 @@ def main():
         disk_usage()
     if options.objmd5:
         get_ringmd5(os.path.join(swift_dir, 'object.ring.gz'))
+    if options.quarantined:
+        quarantine_check()
 
 
 if __name__ == '__main__':
