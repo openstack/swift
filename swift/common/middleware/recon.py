@@ -164,7 +164,7 @@ class ReconMiddleware(object):
                 if os.path.exists(qtgt):
                     linkcount = os.lstat(qtgt).st_nlink
                     if linkcount > 2:
-                        qcounts[qtype] += linkcount-2
+                        qcounts[qtype] += linkcount - 2
         return qcounts
 
     def GET(self, req):
