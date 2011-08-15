@@ -30,7 +30,8 @@ from contextlib import contextmanager
 import ctypes
 import ctypes.util
 import struct
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
+    RawConfigParser
 from optparse import OptionParser
 from tempfile import mkstemp
 import cPickle as pickle
@@ -749,7 +750,7 @@ def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
 
-def readconf(conf, section_name=None, log_name=None, defaults=None):
+def readconf(conf, section_name=None, log_name=None, defaults=None, raw=False):
     """
     Read config file and return config items as a dict
 
@@ -763,7 +764,10 @@ def readconf(conf, section_name=None, log_name=None, defaults=None):
     """
     if defaults is None:
         defaults = {}
-    c = ConfigParser(defaults)
+    if raw:
+        c = RawConfigParser(defaults)
+    else:
+        c = ConfigParser(defaults)
     if hasattr(conf, 'readline'):
         c.readfp(conf)
     else:

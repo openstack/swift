@@ -188,3 +188,32 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     greenio.shutdown_safe(sock)
     sock.close()
     logger.notice('Exited')
+
+
+def make_pre_authed_request(self, env, method, path, body=None, headers=None,
+                            agent='Swift'):
+    """
+    Makes a new webob.Request based on the current env but with the
+    parameters specified. Note that this request will be preauthorized.
+
+    :param env: Current WSGI environment dictionary
+    :param method: HTTP method of new request
+    :param path: HTTP path of new request
+    :param body: HTTP body of new request; None by default
+    :param headers: Extra HTTP headers of new request; None by default
+
+    :returns: webob.Request object
+    (Stolen from Swauth: https://github.com/gholt/swauth)
+    """
+    newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': agent}
+    for name in ('swift.cache', 'HTTP_X_CF_TRANS_ID'):
+        if name in env:
+            newenv[name] = env[name]
+    newenv['swift.authorize'] = lambda req: None
+    if not headers:
+        headers = {}
+    if body:
+        return Request.blank(path, environ=newenv, body=body,
+                             headers=headers)
+    else:
+        return Request.blank(path, environ=newenv, headers=headers)
