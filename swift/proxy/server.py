@@ -819,13 +819,7 @@ class ObjectController(Controller):
                             yield obj
                         marker = sublisting[-1]['name']
 
-                headers = {
-                    'X-Object-Manifest': resp.headers['x-object-manifest'],
-                    'Content-Type': resp.content_type}
-                for key, value in resp.headers.iteritems():
-                    if key.lower().startswith('x-object-meta-'):
-                        headers[key] = value
-                resp = Response(headers=headers, request=req,
+                resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
                 if req.method == 'HEAD':
                     # These shenanigans are because webob translates the HEAD
@@ -859,20 +853,13 @@ class ObjectController(Controller):
                     content_length = 0
                     last_modified = resp.last_modified
                     etag = md5().hexdigest()
-                headers = {
-                    'X-Object-Manifest': resp.headers['x-object-manifest'],
-                    'Content-Type': resp.content_type,
-                    'Content-Length': content_length,
-                    'ETag': etag}
-                for key, value in resp.headers.iteritems():
-                    if key.lower().startswith('x-object-meta-'):
-                        headers[key] = value
-                resp = Response(headers=headers, request=req,
+                resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
                 resp.app_iter = SegmentedIterable(self, lcontainer, listing,
                                                   resp)
                 resp.content_length = content_length
                 resp.last_modified = last_modified
+                resp.etag = etag
             resp.headers['accept-ranges'] = 'bytes'
 
         return resp
