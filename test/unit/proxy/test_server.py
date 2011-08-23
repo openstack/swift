@@ -71,7 +71,8 @@ def setup():
     mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
     _orig_container_listing_limit = proxy_server.CONTAINER_LISTING_LIMIT
     conf = {'devices': _testdir, 'swift_dir': _testdir,
-            'mount_check': 'false'}
+            'mount_check': 'false', 'allowed_headers':
+            'content-encoding, x-object-manifest, content-disposition, foo'}
     prolis = listen(('localhost', 0))
     acc1lis = listen(('localhost', 0))
     acc2lis = listen(('localhost', 0))
@@ -2437,7 +2438,8 @@ class TestObjectController(unittest.TestCase):
         fd.write('PUT /v1/a/segmented/name HTTP/1.1\r\nHost: '
             'localhost\r\nConnection: close\r\nX-Storage-Token: '
             't\r\nContent-Length: 0\r\nX-Object-Manifest: '
-            'segmented/name/\r\nContent-Type: text/jibberish\r\n\r\n')
+            'segmented/name/\r\nContent-Type: text/jibberish\r\n'
+            'Foo: barbaz\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2454,6 +2456,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('X-Object-Manifest: segmented/name/' in headers)
         self.assert_('Content-Type: text/jibberish' in headers)
+        self.assert_('Foo: barbaz' in headers)
         body = fd.read()
         self.assertEquals(body, '1234 1234 1234 1234 1234 ')
         # Do it again but exceeding the container listing limit
