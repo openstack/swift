@@ -141,24 +141,39 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.execute('SELECT * FROM incoming_sync')
 
     def test_delete_db(self):
+        def init_stub(conn, put_timestamp):
+            conn.execute('CREATE TABLE test (one TEXT)')
+            conn.execute('CREATE TABLE test_stat (id TEXT)')
+            conn.execute('INSERT INTO test_stat (id) VALUES (?)',
+                        (str(uuid4),))
+            conn.execute('INSERT INTO test (one) VALUES ("1")')
+            conn.commit()
         stub_called = [False]
-        def stub(*args, **kwargs):
+        def delete_stub(*a, **kw):
             stub_called[0] = True
         broker = DatabaseBroker(':memory:')
-        broker._initialize = stub
+        broker.db_type = 'test'
+        broker._initialize = init_stub
+        # Initializes a good broker for us
         broker.initialize(normalize_timestamp('1'))
         self.assert_(broker.conn is not None)
-        broker._delete_db = stub
+        broker._delete_db = delete_stub
         stub_called[0] = False
         broker.delete_db('2')
         self.assert_(stub_called[0])
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-        broker._initialize = stub
+        broker.db_type = 'test'
+        broker._initialize = init_stub
         broker.initialize(normalize_timestamp('1'))
-        broker._delete_db = stub
+        broker._delete_db = delete_stub
         stub_called[0] = False
         broker.delete_db('2')
         self.assert_(stub_called[0])
+        # ensure that metadata was cleared
+        m2 = broker.metadata
+        self.assert_(not any(v[0] for v in m2.itervalues()))
+        self.assert_(all(v[1] == normalize_timestamp('2')
+                        for v in m2.itervalues()))
 
     def test_get(self):
         broker = DatabaseBroker(':memory:')

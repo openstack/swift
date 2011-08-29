@@ -253,6 +253,12 @@ class DatabaseBroker(object):
         :param timestamp: delete timestamp
         """
         timestamp = normalize_timestamp(timestamp)
+        # first, clear the metadata
+        cleared_meta = {}
+        for k in self.metadata.iterkeys():
+            cleared_meta[k] = ('', timestamp)
+        self.update_metadata(cleared_meta)
+        # then mark the db as deleted
         with self.get() as conn:
             self._delete_db(conn, timestamp)
             conn.commit()
