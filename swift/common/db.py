@@ -254,9 +254,8 @@ class DatabaseBroker(object):
         """
         timestamp = normalize_timestamp(timestamp)
         # first, clear the metadata
-        meta = self.metadata
         cleared_meta = {}
-        for k in meta.iterkeys():
+        for k in self.metadata.iterkeys():
             cleared_meta[k] = ('', timestamp)
         self.update_metadata(cleared_meta)
         # then mark the db as deleted
