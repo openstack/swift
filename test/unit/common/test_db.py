@@ -144,20 +144,18 @@ class TestDatabaseBroker(unittest.TestCase):
         stub_called = [False]
         def stub(*args, **kwargs):
             stub_called[0] = True
-        broker = DatabaseBroker(':memory:')
-        broker._initialize = stub
+        #broker = DatabaseBroker(':memory:')
+        # Initializes a good broker for us
+        broker = self.get_replication_info_tester(metadata=True)
         broker.initialize(normalize_timestamp('1'))
         self.assert_(broker.conn is not None)
         broker._delete_db = stub
         stub_called[0] = False
         broker.delete_db('2')
-        self.assert_(stub_called[0])
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-        broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
-        broker._delete_db = stub
-        stub_called[0] = False
-        broker.delete_db('2')
+        m2 = broker.metadata
+        self.assert_(not any(v[0] for v in m2.itervalues()))
+        self.assert_(all(v[1] == normalize_timestamp('2')
+                        for v in m2.itervalues()))
         self.assert_(stub_called[0])
 
     def test_get(self):
