@@ -182,6 +182,8 @@ def fake_http_connect(*code_iter, **kwargs):
                             self.etag or '"68b329da9893e34099c7d8ad5cb9c940"',
                        'x-works': 'yes',
                        }
+            if not self.timestamp:
+                del headers['x-timestamp']
             try:
                 if container_ts_iter.next() is False:
                     headers['x-container-timestamp'] = '1'
@@ -1079,6 +1081,7 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 200), 200, ('1', '3', '2'), '3')
             test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
             test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, (None, None, None), None)
 
     def test_GET_newest(self):
         with save_globals():
