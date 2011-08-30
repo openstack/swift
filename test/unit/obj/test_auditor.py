@@ -315,6 +315,24 @@ class TestAuditor(unittest.TestCase):
         my_auditor._sleep()
         self.assertEquals(round(time.time() - start, 2), 0.01)
 
+    def test_object_run_fast_track_zero_check_closed(self):
+        rat = [False]
+
+        class FakeFile(DiskFile):
+
+            def close(self, verify_file=True):
+                rat[0] = True
+                DiskFile.close(self, verify_file=verify_file)
+        self.setup_bad_zero_byte()
+        was_df = object_server.DiskFile
+        object_server.DiskFile = FakeFile
+        self.auditor.run_once(zero_byte_fps=50)
+        quarantine_path = os.path.join(self.devices,
+                                       'sda', 'quarantined', 'objects')
+        self.assertTrue(os.path.isdir(quarantine_path))
+        self.assertTrue(rat[0])
+        object_server.DiskFile = was_df
+
     def test_run_forever(self):
 
         class StopForever(Exception):

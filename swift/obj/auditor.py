@@ -134,31 +134,34 @@ class AuditorWorker(object):
             df = object_server.DiskFile(self.devices, device, partition,
                                         account, container, obj, self.logger,
                                         keep_data_fp=True)
-            if df.data_file is None:
-                # file is deleted, we found the tombstone
-                return
             try:
-                obj_size = df.get_data_file_size()
-            except DiskFileError, e:
-                raise AuditException(str(e))
-            except DiskFileNotExist:
-                return
-            if self.zero_byte_only_at_fps and obj_size:
-                self.passes += 1
-                return
-            for chunk in df:
-                self.bytes_running_time = ratelimit_sleep(
-                    self.bytes_running_time, self.max_bytes_per_second,
-                    incr_by=len(chunk))
-                self.bytes_processed += len(chunk)
-                self.total_bytes_processed += len(chunk)
-            df.close()
-            if df.quarantined_dir:
-                self.quarantines += 1
-                self.logger.error(
-                    _("ERROR Object %(path)s failed audit and will be "
-                      "quarantined: ETag and file's md5 do not match"),
-                    {'path': path})
+                if df.data_file is None:
+                    # file is deleted, we found the tombstone
+                    return
+                try:
+                    obj_size = df.get_data_file_size()
+                except DiskFileError, e:
+                    raise AuditException(str(e))
+                except DiskFileNotExist:
+                    return
+                if self.zero_byte_only_at_fps and obj_size:
+                    self.passes += 1
+                    return
+                for chunk in df:
+                    self.bytes_running_time = ratelimit_sleep(
+                        self.bytes_running_time, self.max_bytes_per_second,
+                        incr_by=len(chunk))
+                    self.bytes_processed += len(chunk)
+                    self.total_bytes_processed += len(chunk)
+                df.close()
+                if df.quarantined_dir:
+                    self.quarantines += 1
+                    self.logger.error(
+                        _("ERROR Object %(path)s failed audit and will be "
+                          "quarantined: ETag and file's md5 do not match"),
+                        {'path': path})
+            finally:
+                df.close(verify_file=False)
         except AuditException, err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
