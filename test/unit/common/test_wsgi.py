@@ -28,6 +28,7 @@ from StringIO import StringIO
 from collections import defaultdict
 
 from eventlet import sleep
+from webob import Request
 
 from swift.common import wsgi
 
@@ -173,6 +174,19 @@ class TestWSGI(unittest.TestCase):
             wsgi.sleep = old_sleep
             wsgi.time = old_time
 
+    def test_pre_auth_req(self):
+        class FakeReq(object):
+            @classmethod
+            def fake_blank(cls, path, environ={}, body='', headers={}):
+                self.assertEquals(environ['swift.authorize']('test'), None)
+                self.assertEquals(environ['HTTP_X_TRANS_ID'], '1234')
+        was_blank = Request.blank
+        Request.blank = FakeReq.fake_blank
+        wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},
+                                     'PUT', '/', body='tester', headers={})
+        wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},
+                                     'PUT', '/', headers={})
+        Request.blank = was_blank
 
 if __name__ == '__main__':
     unittest.main()

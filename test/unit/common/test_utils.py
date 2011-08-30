@@ -536,6 +536,27 @@ log_name = yarr'''
         os.unlink('/tmp/test')
         self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
 
+    def test_readconf_raw(self):
+        conf = '''[section1]
+foo = bar
+
+[section2]
+log_name = %(yarr)s'''
+        # setup a real file
+        with open('/tmp/test', 'wb') as f:
+            f.write(conf)
+        make_filename = lambda: '/tmp/test'
+        # setup a file stream
+        make_fp = lambda: StringIO(conf)
+        for conf_object_maker in (make_filename, make_fp):
+            result = utils.readconf(conf_object_maker(), raw=True)
+            expected = {'log_name': None,
+                        'section1': {'foo': 'bar'},
+                        'section2': {'log_name': '%(yarr)s'}}
+            self.assertEquals(result, expected)
+        os.unlink('/tmp/test')
+        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
+
     def test_drop_privileges(self):
         user = getuser()
         # over-ride os with mock
