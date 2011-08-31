@@ -325,13 +325,15 @@ class TestAuditor(unittest.TestCase):
                 DiskFile.close(self, verify_file=verify_file)
         self.setup_bad_zero_byte()
         was_df = object_server.DiskFile
-        object_server.DiskFile = FakeFile
-        self.auditor.run_once(zero_byte_fps=50)
-        quarantine_path = os.path.join(self.devices,
-                                       'sda', 'quarantined', 'objects')
-        self.assertTrue(os.path.isdir(quarantine_path))
-        self.assertTrue(rat[0])
-        object_server.DiskFile = was_df
+        try:
+            object_server.DiskFile = FakeFile
+            self.auditor.run_once(zero_byte_fps=50)
+            quarantine_path = os.path.join(self.devices,
+                                           'sda', 'quarantined', 'objects')
+            self.assertTrue(os.path.isdir(quarantine_path))
+            self.assertTrue(rat[0])
+        finally:
+            object_server.DiskFile = was_df
 
     def test_run_forever(self):
 
