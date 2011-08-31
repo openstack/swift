@@ -249,7 +249,6 @@ class ObjectReplicator(Daemon):
                 'recon_cache_path', '/var/cache/swift')
         self.recon_object = os.path.join(self.recon_cache_path, "object.recon")
 
-
     def _rsync(self, args):
         """
         Execute the rsync binary to replicate a partition.
