@@ -60,7 +60,7 @@ General OS configuration and partitioning for each node
 #. Install common Swift software prereqs::
 
         apt-get install python-software-properties
-        add-apt-repository ppa:swift-core/ppa
+        add-apt-repository ppa:swift-core/release
         apt-get update
         apt-get install swift openssh-server
 
