@@ -653,7 +653,6 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
     fd = os.open(filename, flags)
     try:
         with LockTimeout(timeout, filename):
-            attempt_lock = time.time()
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -661,9 +660,7 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
                 except IOError, err:
                     if err.errno != errno.EAGAIN:
                         raise
-                time.sleep(0.01)
-                if time.time() - attempt_lock > timeout:
-                    raise
+                sleep(0.01)
         mode = 'r+'
         if append:
             mode = 'a+'
@@ -1084,17 +1081,23 @@ def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
     :param cache_file: cache file to update
     :param lock_timeout: timeout (in seconds)
     """
-    try:
-        with lock_file(cache_file, lock_timeout, unlink=False) as cf:
+    with lock_file(cache_file, lock_timeout, unlink=False) as cf:
+        cache_entry = {}
+        try:
+            existing_entry = cf.readline()
+            if existing_entry:
+                cache_entry = simplejson.loads(existing_entry)
+        except ValueError:
+            #file doesn't have a valid entry, we'll recreate it
+            pass
+        cache_entry[cache_key] = cache_value
+        try:
+            with NamedTemporaryFile(delete=False) as tf:
+                tf.write(simplejson.dumps(cache_entry) + '\n')
+            os.rename(tf.name, cache_file)
+        finally:
             try:
-                cache_entry = simplejson.loads(cf.readline())
-                cache_entry[cache_key] = cache_value
-                with NamedTemporaryFile(delete=False) as tf:
-                    tf.write(simplejson.dumps(cache_entry) + '\n')
-                os.rename(tf.name, cache_file)
-            except ValueError:
-                #logging.exception(_('Exception decoding recon cache'))
-                raise
-    except Exception:
-        #logging.exception(_('Exception dumping recon cache'))
-        raise
+                os.unlink(tf.name)
+            except OSError, err:
+                if err.errno != errno.ENOENT:
+                    raise

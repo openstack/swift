@@ -24,7 +24,6 @@ import itertools
 import cPickle as pickle
 import errno
 import uuid
-from tempfile import NamedTemporaryFile
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
@@ -589,8 +588,6 @@ class ObjectReplicator(Daemon):
             try:
                 dump_recon_cache('object_replication_time', total, \
                     self.recon_object)
-            except ValueError:
-                self.logger.exception(_('Exception decoding recon cache'))
             except Exception:
                 self.logger.exception(_('Exception dumping recon cache'))
 
@@ -609,8 +606,6 @@ class ObjectReplicator(Daemon):
                 try:
                     dump_recon_cache('object_replication_time', total, \
                         self.recon_object)
-                except ValueError:
-                    self.logger.exception(_('Exception decoding recon cache'))
                 except Exception:
                     self.logger.exception(_('Exception dumping recon cache'))
             self.logger.debug(_('Replication sleeping for %s seconds.'),
