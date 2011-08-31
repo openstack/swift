@@ -24,6 +24,7 @@ import itertools
 import cPickle as pickle
 import errno
 import uuid
+from tempfile import NamedTemporaryFile
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
@@ -32,7 +33,7 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        compute_eta, get_logger, write_pickle, renamer
+        compute_eta, get_logger, write_pickle, renamer, dump_recon_cache
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 
@@ -243,6 +244,12 @@ class ObjectReplicator(Daemon):
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
+        self.recon_enable = conf.get(
+                'recon_enable', 'no').lower() in ('yes', 'true', 'on', '1')
+        self.recon_cache_path = conf.get(
+                'recon_cache_path', '/var/cache/swift')
+        self.recon_object = os.path.join(self.recon_cache_path, "object.recon")
+
 
     def _rsync(self, args):
         """
@@ -578,6 +585,14 @@ class ObjectReplicator(Daemon):
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object replication complete. (%.02f minutes)"), total)
+        if self.recon_enable:
+            try:
+                dump_recon_cache('object_replication_time', total, \
+                    self.recon_object)
+            except ValueError:
+                self.logger.exception(_('Exception decoding recon cache'))
+            except Exception:
+                self.logger.exception(_('Exception dumping recon cache'))
 
     def run_forever(self, *args, **kwargs):
         self.logger.info(_("Starting object replicator in daemon mode."))
@@ -590,6 +605,14 @@ class ObjectReplicator(Daemon):
             total = (time.time() - start) / 60
             self.logger.info(
                 _("Object replication complete. (%.02f minutes)"), total)
+            if self.recon_enable:
+                try:
+                    dump_recon_cache('object_replication_time', total, \
+                        self.recon_object)
+                except ValueError:
+                    self.logger.exception(_('Exception decoding recon cache'))
+                except Exception:
+                    self.logger.exception(_('Exception dumping recon cache'))
             self.logger.debug(_('Replication sleeping for %s seconds.'),
                 self.run_pause)
             sleep(self.run_pause)
