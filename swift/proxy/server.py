@@ -648,8 +648,9 @@ class Controller(object):
                     if source:
                         ts = float(source.getheader('x-put-timestamp') or
                                    source.getheader('x-timestamp') or 0)
-                        pts = float(possible_source.getheader('x-put-timestamp') or
-                                    possible_source.getheader('x-timestamp') or 0)
+                        pts = float(
+                            possible_source.getheader('x-put-timestamp') or
+                            possible_source.getheader('x-timestamp') or 0)
                         if pts > ts:
                             source = possible_source
                     else:
