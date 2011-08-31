@@ -182,6 +182,8 @@ def fake_http_connect(*code_iter, **kwargs):
                             self.etag or '"68b329da9893e34099c7d8ad5cb9c940"',
                        'x-works': 'yes',
                        }
+            if not self.timestamp:
+                del headers['x-timestamp']
             try:
                 if container_ts_iter.next() is False:
                     headers['x-container-timestamp'] = '1'
@@ -321,8 +323,8 @@ def save_globals():
         proxy_server.http_connect = orig_http_connect
         proxy_server.Controller.account_info = orig_account_info
 
-# tests
 
+# tests
 class TestController(unittest.TestCase):
 
     def setUp(self):
@@ -355,7 +357,8 @@ class TestController(unittest.TestCase):
             partition, nodes = self.controller.account_info(self.account)
             proxy_server.http_connect = fake_http_connect(201,
                                             raise_timeout_exc=True)
-            self.controller._make_request(nodes, partition, 'POST','/','','')
+            self.controller._make_request(nodes, partition, 'POST',
+                                            '/', '', '')
 
     # tests if 200 is cached and used
     def test_account_info_200(self):
@@ -713,7 +716,6 @@ class TestObjectController(unittest.TestCase):
             object_ring=FakeRing())
         monkey_patch_mimetools()
 
-
     def tearDown(self):
         proxy_server.CONTAINER_LISTING_LIMIT = _orig_container_listing_limit
 
@@ -758,6 +760,7 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', '', 'text/css',
                                                 'text/css', 'text/css']))
+
     def test_custom_mime_types_files(self):
         swift_dir = mkdtemp()
         try:
@@ -1079,6 +1082,8 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 200), 200, ('1', '3', '2'), '3')
             test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
             test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, (None, None, None), None)
+            test_status_map((200, 200, 200), 200, (None, None, '1'), '1')
 
     def test_GET_newest(self):
         with save_globals():
@@ -1102,6 +1107,8 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 200), 200, ('1', '3', '2'), '3')
             test_status_map((200, 200, 200), 200, ('1', '3', '1'), '3')
             test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, (None, None, None), None)
+            test_status_map((200, 200, 200), 200, (None, None, '1'), '1')
 
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
@@ -1124,6 +1131,7 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 200), 200, ('1', '3', '2'), '1')
             test_status_map((200, 200, 200), 200, ('1', '3', '1'), '1')
             test_status_map((200, 200, 200), 200, ('3', '3', '1'), '3')
+            test_status_map((200, 200, 200), 200, (None, '1', '2'), None)
 
     def test_POST_meta_val_len(self):
         with save_globals():
@@ -1433,7 +1441,7 @@ class TestObjectController(unittest.TestCase):
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
             'Object', etag='68b329da9893e34099c7d8ad5cb9c940')
         self.assertEquals(resp.etag, '68b329da9893e34099c7d8ad5cb9c940')
-    
+
     def test_proxy_passes_content_type(self):
         with save_globals():
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -2181,7 +2189,7 @@ class TestObjectController(unittest.TestCase):
         self.assert_('\r\nContent-Length: 0\r\n' in headers)
 
     def test_client_ip_logging(self):
-        # test that the client ip field in the log gets populated with the 
+        # test that the client ip field in the log gets populated with the
         # ip instead of being blank
         (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
                 _test_servers
@@ -2734,7 +2742,7 @@ class TestObjectController(unittest.TestCase):
                 self.assert_(res.client_disconnect)
             finally:
                 self.app.object_chunk_size = orig_object_chunk_size
-                
+
     def test_response_get_accept_ranges_header(self):
         with save_globals():
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -2756,7 +2764,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.HEAD(req)
             self.assert_('accept-ranges' in resp.headers)
             self.assertEquals(resp.headers['accept-ranges'], 'bytes')
-            
+
     def test_GET_calls_authorize(self):
         called = [False]
 
@@ -3137,7 +3145,7 @@ class TestContainerController(unittest.TestCase):
             res = controller.HEAD(req)
             self.assert_('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
-    
+
     def test_PUT_metadata(self):
         self.metadata_helper('PUT')
 
@@ -3473,7 +3481,7 @@ class TestAccountController(unittest.TestCase):
             res.body
             self.assert_(hasattr(res, 'bytes_transferred'))
             self.assertEquals(res.bytes_transferred, 2)
-            
+
     def test_response_get_accept_ranges_header(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
@@ -3483,7 +3491,7 @@ class TestAccountController(unittest.TestCase):
             res = controller.GET(req)
             self.assert_('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
-            
+
     def test_response_head_accept_ranges_header(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
@@ -3494,7 +3502,7 @@ class TestAccountController(unittest.TestCase):
             res.body
             self.assert_('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
-            
+
     def test_response_client_disconnect_attr(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')

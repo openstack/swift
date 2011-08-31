@@ -645,13 +645,15 @@ class Controller(object):
                 possible_source.status in (200, 206)) or \
                     200 <= possible_source.status <= 399:
                 if newest:
-                    ts = 0
                     if source:
                         ts = float(source.getheader('x-put-timestamp') or
                                    source.getheader('x-timestamp') or 0)
-                    pts = float(possible_source.getheader('x-put-timestamp') or
-                                possible_source.getheader('x-timestamp') or 0)
-                    if pts > ts:
+                        pts = float(
+                            possible_source.getheader('x-put-timestamp') or
+                            possible_source.getheader('x-timestamp') or 0)
+                        if pts > ts:
+                            source = possible_source
+                    else:
                         source = possible_source
                     continue
                 else:
