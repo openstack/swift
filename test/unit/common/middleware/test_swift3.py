@@ -17,6 +17,7 @@ import unittest
 from datetime import datetime
 import cgi
 import hashlib
+import rfc822
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized, HTTPCreated, HTTPNoContent,\
@@ -286,6 +287,9 @@ class TestSwift3(unittest.TestCase):
         for o in objects:
             if o.childNodes[0].nodeName == 'Key':
                 names.append(o.childNodes[0].childNodes[0].nodeValue)
+            if o.childNodes[1].nodeName == 'LastModified':
+                self.assertTrue(
+                    o.childNodes[1].childNodes[0].nodeValue.endswith('Z'))
 
         self.assertEquals(len(names), len(FakeAppBucket().objects))
         for i in FakeAppBucket().objects:
