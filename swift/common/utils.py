@@ -33,7 +33,11 @@ import struct
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
     RawConfigParser
 from optparse import OptionParser
-from tempfile import mkstemp
+from tempfile import mkstemp, NamedTemporaryFile
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
@@ -634,6 +638,46 @@ def lock_path(directory, timeout=10):
         os.close(fd)
 
 
+@contextmanager
+def lock_file(filename, timeout=10, append=False, unlink=True):
+    """
+    Context manager that acquires a lock on a file.  This will block until
+    the lock can be acquired, or the timeout time has expired (whichever occurs
+    first).
+
+    :param filename: file to be locked
+    :param timeout: timeout (in seconds)
+    :param append: True if file should be opened in append mode
+    :param unlink: True if the file should be unlinked at the end
+    """
+    flags = os.O_CREAT | os.O_RDWR
+    if append:
+        flags |= os.O_APPEND
+    fd = os.open(filename, flags)
+    try:
+        with LockTimeout(timeout, filename):
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except IOError, err:
+                    if err.errno != errno.EAGAIN:
+                        raise
+                sleep(0.01)
+        mode = 'r+'
+        if append:
+            mode = 'a+'
+        file_obj = os.fdopen(fd, mode)
+        yield file_obj
+    finally:
+        try:
+            file_obj.close()
+        except UnboundLocalError:
+            pass  # may have not actually opened the file
+        if unlink:
+            os.unlink(filename)
+
+
 def lock_parent_directory(filename, timeout=10):
     """
     Context manager that acquires a lock on the parent directory of the given
@@ -1030,3 +1074,33 @@ def human_readable(value):
     if index == -1:
         return '%d' % value
     return '%d%si' % (round(value), suffixes[index])
+
+
+def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
+    """Update recon cache values
+
+    :param cache_key: key to update
+    :param cache_value: value you want to set key too
+    :param cache_file: cache file to update
+    :param lock_timeout: timeout (in seconds)
+    """
+    with lock_file(cache_file, lock_timeout, unlink=False) as cf:
+        cache_entry = {}
+        try:
+            existing_entry = cf.readline()
+            if existing_entry:
+                cache_entry = json.loads(existing_entry)
+        except ValueError:
+            #file doesn't have a valid entry, we'll recreate it
+            pass
+        cache_entry[cache_key] = cache_value
+        try:
+            with NamedTemporaryFile(delete=False) as tf:
+                tf.write(json.dumps(cache_entry) + '\n')
+            os.rename(tf.name, cache_file)
+        finally:
+            try:
+                os.unlink(tf.name)
+            except OSError, err:
+                if err.errno != errno.ENOENT:
+                    raise
