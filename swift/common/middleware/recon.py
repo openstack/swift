@@ -17,7 +17,10 @@ from webob import Request, Response
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.common.constraints import check_mount
 from hashlib import md5
-import simplejson as json
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import os
 
 

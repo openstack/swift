@@ -34,7 +34,10 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
     RawConfigParser
 from optparse import OptionParser
 from tempfile import mkstemp, NamedTemporaryFile
-import simplejson
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
@@ -1086,14 +1089,14 @@ def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
         try:
             existing_entry = cf.readline()
             if existing_entry:
-                cache_entry = simplejson.loads(existing_entry)
+                cache_entry = json.loads(existing_entry)
         except ValueError:
             #file doesn't have a valid entry, we'll recreate it
             pass
         cache_entry[cache_key] = cache_value
         try:
             with NamedTemporaryFile(delete=False) as tf:
-                tf.write(simplejson.dumps(cache_entry) + '\n')
+                tf.write(json.dumps(cache_entry) + '\n')
             os.rename(tf.name, cache_file)
         finally:
             try:

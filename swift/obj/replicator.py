@@ -32,7 +32,8 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        compute_eta, get_logger, write_pickle, renamer, dump_recon_cache
+        compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
+        TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 
@@ -244,7 +245,7 @@ class ObjectReplicator(Daemon):
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_enable = conf.get(
-                'recon_enable', 'no').lower() in ('yes', 'true', 'on', '1')
+                'recon_enable', 'no').lower() in TRUE_VALUES
         self.recon_cache_path = conf.get(
                 'recon_cache_path', '/var/cache/swift')
         self.recon_object = os.path.join(self.recon_cache_path, "object.recon")

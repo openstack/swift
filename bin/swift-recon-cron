@@ -7,7 +7,10 @@ import os
 import sys
 import optparse
 from tempfile import NamedTemporaryFile
-import simplejson
+try:
+    import simplejson as json
+except ImportError:
+    import json
 from ConfigParser import ConfigParser
 from swift.common.utils import get_logger, dump_recon_cache
 
@@ -44,17 +47,18 @@ def main():
     try:
         os.mkdir("/var/lock/swift-recon-object-cron")
     except OSError as e:
-        logger.critical("%s" % e)
+        logger.critical(_(str(e)))
+        print str(e)
         sys.exit(1)
     asyncs = async_count(device_dir, logger)
     try:
-        dump_recon_cache('object_replication_time', total, cache_file)
-    except ValueError:
-        logger.exception(_('Exception decoding recon cache'))
+        dump_recon_cache('async_pending', asyncs, cache_file)
     except Exception:
         logger.exception(_('Exception dumping recon cache'))
-    os.rmdir("/var/lock/swift-recon-object-cron")
-
+    try:
+        os.rmdir("/var/lock/swift-recon-object-cron")
+    except Exception:
+        logger.exception(_('Exception remove cronjob lock'))
 
 if __name__ == '__main__':
     main()
