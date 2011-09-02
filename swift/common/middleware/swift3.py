@@ -267,7 +267,7 @@ class BucketController(Controller):
                 'true' if len(objects) == (max_keys + 1) else 'false',
                 max_keys,
                 xml_escape(self.container_name),
-                "".join(['<Contents><Key>%s</Key><LastModified>%s</LastModif'\
+                "".join(['<Contents><Key>%s</Key><LastModified>%sZ</LastModif'\
                         'ied><ETag>%s</ETag><Size>%s</Size><StorageClass>STA'\
                         'NDARD</StorageClass></Contents>' %
                         (xml_escape(i['name']), i['last_modified'], i['hash'],
