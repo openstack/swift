@@ -17,7 +17,6 @@ import unittest
 from datetime import datetime
 import cgi
 import hashlib
-import rfc822
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized, HTTPCreated, HTTPNoContent,\
