@@ -1,3 +1,27 @@
+swift (1.4.3)
+
+    * Additional quarantine catching code.
+
+    * Added client_ip to all proxy log lines not otherwise containing it.
+
+    * Content-Type is now application/xml for "GET services/bucket" swift3
+      middleware requests.
+
+    * Alpha release of the Swift Recon Experiment
+
+    * Fix last modified date for swift3 middleware.
+
+    * Fix to clear account/container metadata on account/container deletion.
+
+    * Fix for corner case regarding X-Newest.
+
+    * Fix for object auditor running out of file descriptors.
+
+    * Fix to return all proper headers for manifest objects.
+
+    * Fix to the swift tool to strip any leading slashes on file names when
+      uploading.
+
 swift (1.4.2)
 
     * Removed stats/logging code from Swift [now in separate slogging project].
