@@ -1,4 +1,4 @@
-#!/usr/bin/python -uO
+#! /usr/bin/env python
 # Copyright (c) 2010-2011 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,9 +28,9 @@ from swift.common.ring import RingBuilder
 
 
 MAJOR_VERSION = 1
-MINOR_VERSION = 2
-EXIT_RING_CHANGED = 0
-EXIT_RING_UNCHANGED = 1
+MINOR_VERSION = 3
+EXIT_SUCCESS = 0
+EXIT_WARNING = 1
 EXIT_ERROR = 2
 
 
@@ -146,7 +146,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         """
         if len(argv) < 6:
             print Commands.create.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         builder = RingBuilder(int(argv[3]), int(argv[4]), int(argv[5]))
         backup_dir = pathjoin(dirname(argv[1]), 'backups')
         try:
@@ -157,7 +157,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % time() + basename(argv[1])), 'wb'), protocol=2)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_CHANGED)
+        exit(EXIT_SUCCESS)
 
     def default():
         """
@@ -195,7 +195,7 @@ swift-ring-builder <builder_file>
                     (dev['id'], dev['zone'], dev['ip'], dev['port'],
                      dev['device'], dev['weight'], dev['parts'], balance,
                      dev['meta'])
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def search():
         """
@@ -206,7 +206,7 @@ swift-ring-builder <builder_file> search <search-value>
             print Commands.search.__doc__.strip()
             print
             print search_devs.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         devs = search_devs(builder, argv[3])
         if not devs:
             print 'No matching devices found'
@@ -228,7 +228,7 @@ swift-ring-builder <builder_file> search <search-value>
                 (dev['id'], dev['zone'], dev['ip'], dev['port'],
                  dev['device'], dev['weight'], dev['parts'], balance,
                  dev['meta'])
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def list_parts():
         """
@@ -244,7 +244,7 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
             print Commands.list_parts.__doc__.strip()
             print
             print search_devs.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         devs = []
         for arg in argv[3:]:
             devs.extend(search_devs(builder, arg) or [])
@@ -262,7 +262,7 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
         for index, parts in enumerate(matches):
             for part in parts:
                 print '%9d   %7d' % (part, builder.replicas - index)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def add():
         """
@@ -274,7 +274,7 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
         """
         if len(argv) < 5:
             print Commands.add.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
 
         if not argv[3].startswith('z'):
             print 'Invalid add value: %s' % argv[3]
@@ -348,7 +348,7 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
             print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
                   (zone, ip, port, device_name, meta, weight, next_dev_id)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def set_weight():
         """
@@ -361,7 +361,7 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
             print Commands.set_weight.__doc__.strip()
             print
             print search_devs.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         devs = search_devs(builder, argv[3])
         weight = float(argv[4])
         if not devs:
@@ -381,7 +381,7 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'weight set to %(weight)s' % dev
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def set_info():
         """
@@ -398,7 +398,7 @@ swift-ring-builder <builder_file> set_info <search-value>
             print Commands.set_info.__doc__.strip()
             print
             print search_devs.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         devs = search_devs(builder, argv[3])
         change_value = argv[4]
         change = []
@@ -463,7 +463,7 @@ swift-ring-builder <builder_file> set_info <search-value>
                 dev[key] = value
             print 'Device %s is now %s' % (orig_dev_string, format_device(dev))
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def remove():
         """
@@ -479,7 +479,7 @@ swift-ring-builder <builder_file> remove <search-value>
             print Commands.remove.__doc__.strip()
             print
             print search_devs.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         devs = search_devs(builder, argv[3])
         if not devs:
             print 'No matching devices found'
@@ -499,7 +499,7 @@ swift-ring-builder <builder_file> remove <search-value>
                   'marked for removal and will be removed next rebalance.' \
                   % dev
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def rebalance():
         """
@@ -514,14 +514,15 @@ swift-ring-builder <builder_file> rebalance
             print 'No partitions could be reassigned.'
             print 'Either none need to be or none can be due to ' \
                   'min_part_hours [%s].' % builder.min_part_hours
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_WARNING)
         if not devs_changed and abs(last_balance - balance) < 1:
             print 'Cowardly refusing to save rebalance as it did not change ' \
                   'at least 1%.'
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_WARNING)
         builder.validate()
         print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
               (parts, 100.0 * parts / builder.parts, balance)
+        status = EXIT_SUCCESS
         if balance > 5:
             print '-' * 79
             print 'NOTE: Balance of %.02f indicates you should push this ' % \
@@ -529,6 +530,7 @@ swift-ring-builder <builder_file> rebalance
             print '      ring, wait at least %d hours, and rebalance/repush.' \
                   % builder.min_part_hours
             print '-' * 79
+            status = EXIT_WARNING
         ts = time()
         pickle.dump(builder.get_ring().to_dict(),
                     GzipFile(pathjoin(backup_dir, '%d.' % ts +
@@ -538,7 +540,7 @@ swift-ring-builder <builder_file> rebalance
         pickle.dump(builder.get_ring().to_dict(), GzipFile(ring_file, 'wb'),
                     protocol=2)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_CHANGED)
+        exit(status)
 
     def validate():
         """
@@ -546,7 +548,7 @@ swift-ring-builder <builder_file> validate
     Just runs the validation routines on the ring.
         """
         builder.validate()
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def write_ring():
         """
@@ -568,12 +570,12 @@ swift-ring-builder <builder_file> write_ring
                     GzipFile(pathjoin(backup_dir, '%d.' % time() +
                         basename(ring_file)), 'wb'), protocol=2)
         pickle.dump(ring_data.to_dict(), GzipFile(ring_file, 'wb'), protocol=2)
-        exit(EXIT_RING_CHANGED)
+        exit(EXIT_SUCCESS)
 
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
     def set_min_part_hours():
         """
@@ -584,12 +586,12 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         """
         if len(argv) < 4:
             print Commands.set_min_part_hours.__doc__.strip()
-            exit(EXIT_RING_UNCHANGED)
+            exit(EXIT_ERROR)
         builder.change_min_part_hours(int(argv[3]))
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is now set to %s' % argv[3]
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
-        exit(EXIT_RING_UNCHANGED)
+        exit(EXIT_SUCCESS)
 
 
 if __name__ == '__main__':
@@ -609,9 +611,11 @@ if __name__ == '__main__':
         for line in wrap(' '.join(cmds), 79, initial_indent='Quick list: ',
                          subsequent_indent='            '):
             print line
-        print 'Exit codes: 0 = ring changed, 1 = ring did not change, ' \
-              '2 = error'
-        exit(EXIT_RING_UNCHANGED)
+        print ('Exit codes: 0 = operation successful\n'
+               '            1 = operation completed with warnings\n' \
+               '            2 = error'
+              )
+        exit(EXIT_SUCCESS)
 
     if exists(argv[1]):
         try:
