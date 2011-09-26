@@ -22,7 +22,7 @@ def getdevices():
     #todo , fitler by zone[s]
     ring_file = "/etc/swift/object.ring.gz"
     ring_data = Ring(ring_file)
-    ips = set((n['ip'], n['port']) for n in ring_data.devs)
+    ips = set((n['ip'], n['port']) for n in ring_data.devs if n)
     return ips
 
 
@@ -269,7 +269,7 @@ def disk_usage():
             averages.append(average)
             for percent in stats[url]:
                 percents[percent] = percents.get(percent, 0) + 1
-    else:
+        else:
             print "-> %s: Error. No drive info available." % url
 
     if len(lows) > 0:
