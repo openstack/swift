@@ -163,7 +163,7 @@ These tools need direct access to the entire cluster and to the ring files
 swift-dispersion-populate and swift-dispersion-report use the same
 configuration file, /etc/swift/dispersion.conf. Example conf file::
 
-    [stats]
+    [dispersion]
     auth_url = http://saio:11000/auth/v1.0
     auth_user = test:tester
     auth_key = testing
