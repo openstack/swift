@@ -71,7 +71,7 @@ user and 401 Unauthorized for an unauthenticated request. For example, here's
 an authorize function that only allows GETs (in this case you'd probably return
 405 Method Not Allowed, but ignore that for the moment).::
 
-    from webob import HTTPForbidden, HTTPUnauthorized
+    from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 
     def authorize(req):
@@ -87,7 +87,7 @@ middleware as authentication and authorization are often paired together. But,
 you could create separate authorization middleware that simply sets the
 callback before passing on the request. To continue our example above::
 
-    from webob import HTTPForbidden, HTTPUnauthorized
+    from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -138,7 +138,7 @@ control string set to same value as the authenticated user string. Note that
 you probably wouldn't do this exactly as the access control string represents a
 list rather than a single user, but it'll suffice for this example::
 
-    from webob import HTTPForbidden, HTTPUnauthorized
+    from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -185,7 +185,7 @@ Let's continue our example to use parse_acl and referrer_allowed. Now we'll
 only allow GETs after a referrer check and any requests after a group check::
 
     from swift.common.middleware.acl import parse_acl, referrer_allowed
-    from webob import HTTPForbidden, HTTPUnauthorized
+    from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -234,7 +234,7 @@ standard Swift format. Let's improve our example by making use of that::
 
     from swift.common.middleware.acl import \
         clean_acl, parse_acl, referrer_allowed
-    from webob import HTTPForbidden, HTTPUnauthorized
+    from webob.exc import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
