@@ -17,8 +17,9 @@ import os
 import unittest
 from shutil import rmtree
 
-from swift.common.ring import RingBuilder, RingData
+from swift.common import exceptions
 from swift.common import ring
+from swift.common.ring import RingBuilder, RingData
 
 class TestRingBuilder(unittest.TestCase):
 
@@ -68,7 +69,7 @@ class TestRingBuilder(unittest.TestCase):
         dev = \
             {'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1', 'port': 10000}
         rb.add_dev(dev)
-        self.assertRaises(Exception, rb.add_dev, dev)
+        self.assertRaises(exceptions.DuplicateDeviceError, rb.add_dev, dev)
 
     def test_set_dev_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -252,13 +253,13 @@ class TestRingBuilder(unittest.TestCase):
 
         # Test not all partitions doubly accounted for
         rb.devs[1]['parts'] -= 1
-        self.assertRaises(Exception, rb.validate)
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb.devs[1]['parts'] += 1
 
         # Test duplicate device for partition
         orig_dev_id = rb._replica2part2dev[0][0]
         rb._replica2part2dev[0][0] = rb._replica2part2dev[1][0]
-        self.assertRaises(Exception, rb.validate)
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb._replica2part2dev[0][0] = orig_dev_id
 
         # Test duplicate zone for partition
@@ -282,7 +283,7 @@ class TestRingBuilder(unittest.TestCase):
                     break
             if orig_replica is not None:
                 break
-        self.assertRaises(Exception, rb.validate)
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb._replica2part2dev[orig_replica][orig_partition] = orig_device
 
         # Tests that validate can handle 'holes' in .devs

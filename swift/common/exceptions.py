@@ -60,3 +60,19 @@ class DriveNotMounted(Exception):
 
 class LockTimeout(MessageTimeout):
     pass
+
+
+class RingBuilderError(Exception):
+    pass
+
+
+class RingValidationError(RingBuilderError):
+    pass
+
+
+class EmptyRingError(RingBuilderError):
+    pass
+
+
+class DuplicateDeviceError(RingBuilderError):
+    pass

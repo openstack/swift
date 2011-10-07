@@ -24,6 +24,7 @@ from sys import argv, exit, modules
 from textwrap import wrap
 from time import time
 
+from swift.common import exceptions
 from swift.common.ring import RingBuilder
 
 
@@ -494,7 +495,21 @@ swift-ring-builder <builder_file> remove <search-value>
                 print 'Aborting device removals'
                 exit(EXIT_ERROR)
         for dev in devs:
-            builder.remove_dev(dev['id'])
+            try:
+                builder.remove_dev(dev['id'])
+            except exceptions.RingBuilderError, e:
+                print '-' * 79
+                print ("An error occurred while removing device with id %d\n"
+                       "This usually means that you attempted to remove the\n"
+                       "last device in a ring. If this is the case, consider\n"
+                       "creating a new ring instead.\n"
+                       "The on-disk ring builder is unchanged\n"
+                       "Original exception message: %s" %
+                       (dev['id'], e.message)
+                       )
+                print '-' * 79
+                exit(EXIT_ERROR)
+
             print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_"%(meta)s" ' \
                   'marked for removal and will be removed next rebalance.' \
                   % dev
@@ -508,8 +523,18 @@ swift-ring-builder <builder_file> rebalance
     recently reassigned.
         """
         devs_changed = builder.devs_changed
-        last_balance = builder.get_balance()
-        parts, balance = builder.rebalance()
+        try:
+            last_balance = builder.get_balance()
+            parts, balance = builder.rebalance()
+        except exceptions.RingBuilderError, e:
+            print '-' * 79
+            print ("An error has occurred during ring validation. Common\n"
+                   "causes of failure are rings that are empty or do not\n"
+                   "have enough devices to accommodate the replica count.\n"
+                   "Original exception message:\n %s" % e.message
+                   )
+            print '-' * 79
+            exit(EXIT_ERROR)
         if not parts:
             print 'No partitions could be reassigned.'
             print 'Either none need to be or none can be due to ' \
@@ -519,7 +544,17 @@ swift-ring-builder <builder_file> rebalance
             print 'Cowardly refusing to save rebalance as it did not change ' \
                   'at least 1%.'
             exit(EXIT_WARNING)
-        builder.validate()
+        try:
+            builder.validate()
+        except exceptions.RingValidationError, e:
+            print '-' * 79
+            print ("An error has occurred during ring validation. Common\n"
+                   "causes of failure are rings that are empty or do not\n"
+                   "have enough devices to accommodate the replica count.\n"
+                   "Original exception message:\n %s" % e.message
+                   )
+            print '-' * 79
+            exit(EXIT_ERROR)
         print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
               (parts, 100.0 * parts / builder.parts, balance)
         status = EXIT_SUCCESS

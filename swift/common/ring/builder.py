@@ -17,6 +17,7 @@ from array import array
 from random import randint, shuffle
 from time import time
 
+from swift.common import exceptions
 from swift.common.ring import RingData
 
 
@@ -68,6 +69,15 @@ class RingBuilder(object):
         self._last_part_gather_start = 0
         self._remove_devs = []
         self._ring = None
+
+    def weighted_parts(self):
+        try:
+            return self.parts * self.replicas / \
+                     sum(d['weight'] for d in self.devs if d is not None)
+        except ZeroDivisionError:
+            raise exceptions.EmptyRingError('There are no devices in this '
+                                            'ring, or all devices have been '
+                                            'deleted')
 
     def copy_from(self, builder):
         if hasattr(builder, 'devs'):
@@ -177,7 +187,8 @@ class RingBuilder(object):
         :param dev: device dict
         """
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
-            raise Exception('Duplicate device id: %d' % dev['id'])
+            raise exceptions.DuplicateDeviceError(
+                    'Duplicate device id: %d' % dev['id'])
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
         dev['weight'] = float(dev['weight'])
@@ -273,11 +284,11 @@ class RingBuilder(object):
         :param stats: if True, check distribution of partitions across devices
         :returns: if stats is True, a tuple of (device usage, worst stat), else
                   (None, None)
-        :raises Exception: problem was found with the ring.
+        :raises RingValidationError: problem was found with the ring.
         """
         if sum(d['parts'] for d in self.devs if d is not None) != \
                 self.parts * self.replicas:
-            raise Exception(
+            raise exceptions.RingValidationError(
                 'All partitions are not double accounted for: %d != %d' %
                 (sum(d['parts'] for d in self.devs if d is not None),
                  self.parts * self.replicas))
@@ -291,7 +302,7 @@ class RingBuilder(object):
                     dev_usage[dev_id] += 1
                 zone = self.devs[dev_id]['zone']
                 if zone in zones:
-                    raise Exception(
+                    raise exceptions.RingValidationError(
                         'Partition %d not in %d distinct zones. ' \
                         'Zones were: %s' %
                         (part, self.replicas,
@@ -299,8 +310,7 @@ class RingBuilder(object):
                           for r in xrange(self.replicas)]))
                 zones[zone] = True
         if stats:
-            weighted_parts = self.parts * self.replicas / \
-                sum(d['weight'] for d in self.devs if d is not None)
+            weighted_parts = self.weighted_parts()
             worst = 0
             for dev in self.devs:
                 if dev is None:
@@ -328,9 +338,8 @@ class RingBuilder(object):
 
         :returns: balance of the ring
         """
-        weighted_parts = self.parts * self.replicas / \
-                         sum(d['weight'] for d in self.devs if d is not None)
         balance = 0
+        weighted_parts = self.weighted_parts()
         for dev in self.devs:
             if dev is None:
                 continue
@@ -370,8 +379,8 @@ class RingBuilder(object):
         used to sort the devices according to "most wanted" during rebalancing
         to best distribute partitions.
         """
-        weighted_parts = self.parts * self.replicas / \
-                         sum(d['weight'] for d in self.devs if d is not None)
+        weighted_parts = self.weighted_parts()
+
         for dev in self.devs:
             if dev is not None:
                 if not dev['weight']:
