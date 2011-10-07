@@ -194,6 +194,32 @@ class TestRingBuilder(unittest.TestCase):
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEquals(counts[3], 256)
 
+    def test_add_rebalance_add_rebalance_delete_rebalance(self):
+        """ Test for https://bugs.launchpad.net/swift/+bug/845952 """
+        # min_part of 0 to allow for rapid rebalancing
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sda1'})
+
+        rb.rebalance()
+
+        rb.add_dev({'id': 3, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10004, 'device': 'sda1'})
+        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10005, 'device': 'sda1'})
+
+        rb.rebalance()
+
+        rb.remove_dev(1)
+
+        rb.rebalance()
+
     def test_validate(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',

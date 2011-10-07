@@ -440,6 +440,7 @@ class RingBuilder(object):
         Returns an array('I') of partitions to be reassigned by gathering them
         from removed devices and overweight devices.
         """
+        removed_dev_parts = set()
         reassign_parts = array('I')
         if self._remove_devs:
             dev_ids = [d['id'] for d in self._remove_devs if d['parts']]
@@ -450,7 +451,8 @@ class RingBuilder(object):
                         if part2dev[part] in dev_ids:
                             part2dev[part] = 0xffff
                             self._last_part_moves[part] = 0
-                            reassign_parts.append(part)
+                            removed_dev_parts.add(part)
+
         start = self._last_part_gather_start / 4 + randint(0, self.parts / 2)
         self._last_part_gather_start = start
         for replica in xrange(self.replicas):
@@ -459,6 +461,8 @@ class RingBuilder(object):
                 for part in half:
                     if self._last_part_moves[part] < self.min_part_hours:
                         continue
+                    if part in removed_dev_parts:
+                        continue
                     dev = self.devs[part2dev[part]]
                     if dev['parts_wanted'] < 0:
                         part2dev[part] = 0xffff
@@ -466,6 +470,8 @@ class RingBuilder(object):
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         reassign_parts.append(part)
+
+        reassign_parts.extend(removed_dev_parts)
         shuffle(reassign_parts)
         return reassign_parts
 
