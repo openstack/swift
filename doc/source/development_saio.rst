@@ -270,6 +270,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
+        account_autocreate = true
 
         [filter:tempauth]
         use = egg:swift#tempauth
