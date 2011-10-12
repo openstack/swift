@@ -1,0 +1,121 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift
+\- Openstack-swift swift tool 
+
+.SH SYNOPSIS
+.LP
+.B swift
+[options] <command> [args]
+
+.SH DESCRIPTION 
+.PP
+The swift tool is a command line interface script for communicating with 
+an openstack-swift object storage environment. It allows one to perform 
+several types of operations.
+
+.SH COMMANDS
+.PP 
+
+\fBstat\fR [\fIcontainer\fR] [\fIobject\fR]
+.RS 4
+Displays information for the account, container, or object depending on the args given (if any).
+.RE
+
+\fBlist\fR [\fIcommand-options\fR] [\fIcontainer\fR]
+.RS 4
+Lists the containers for the account or the objects for a container. The -p or --prefix is an option that will only list items beginning 
+with that prefix. The -d or --delimiter is option (for container listings only) 
+that will roll up items with the given delimiter (see Cloud Files general 
+documentation for what this means).
+.RE    
+
+\fBupload\fR [\fIcommand-options\fR] container file_or_directory [\fIfile_or_directory\fR] [...]
+.RS 4
+Uploads to the given container the files and directories specified by the 
+remaining args. The -c or --changed is an option that will only upload files 
+that have changed since the last upload. The -S <size> or --segment-size <size> 
+and --leave-segments are options as well (see --help for more).
+.RE
+
+\fBpost\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR]
+.RS 4
+Updates meta information for the account, container, or object depending
+on the args given. If the container is not found, it will be created
+automatically; but this is not true for accounts and objects. Containers 
+also allow the -r (or --read-acl) and -w (or --write-acl) options. The -m
+or --meta option is allowed on all and used to define the user meta data
+items to set in the form Name:Value. This option can be repeated. 
+\fBExample\fR: post -m Color:Blue -m Size:Large
+.RE    
+    
+\fBdownload\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR] [\fIobject\fR] [...]
+.RS 4
+Downloads everything in the account (with --all), or everything in a
+container, or a list of objects depending on the args given. For a single
+object download, you may use the -o [--output] <filename> option to
+redirect the output to a specific file or if "-" then just redirect to stdout.
+.RE
+
+\fBdelete\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR] [\fIobject\fR] [...]
+.RS 4
+Deletes everything in the account (with --all), or everything in a container,
+or a list of objects depending on the args given. Segments of manifest objects
+will be deleted as well, unless you specify the --leave-segments option.
+.RE 
+
+.SH OPTIONS
+.PD 0 
+.IP "--version              Show program's version number and exit"
+.IP "-h, --help             Show this help message and exit"
+.IP "-s, --snet             Use SERVICENET internal network"
+.IP "-v, --verbose          Print more info"
+.IP "-q, --quiet            Suppress status output"
+.IP "-A AUTH, --auth=AUTH   URL for obtaining an auth token "
+.IP "-U USER, --user=USER   User name for obtaining an auth token"
+.IP "-K KEY, --key=KEY      Key for obtaining an auth token"
+.PD 
+
+.SH EXAMPLE
+.PP 
+swift -A https://127.0.0.1:443/auth/v1.0 -U swiftops:swiftops -K swiftops stat
+
+.RS 2
+.PD 0 
+.IP "Account: AUTH_43b42dae-dc0b-4a4b-ac55-97de614d6e6e"
+.IP "Containers: 1"
+.IP "Objects: 1"
+.IP "Bytes: 1124"
+.IP "Accept-Ranges: bytes"
+.IP "X-Trans-Id: txb21186a9eef64ed295a1e95896a0fc72"
+.PD 
+.RE 
+
+  
+.SH DOCUMENTATION
+.LP
+More in depth documentation about Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org
+
+
+.LP 
+

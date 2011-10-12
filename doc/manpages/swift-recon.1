@@ -1,0 +1,109 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-recon 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-recon
+\- Openstack-swift recon middleware cli tool
+
+.SH SYNOPSIS
+.LP
+.B swift-recon 
+\ [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
+ 
+.SH DESCRIPTION 
+.PP
+The swift-recon cli tool can be used to retrieve various metrics and telemetry information about
+a cluster that has been collected by the swift-recon middleware. 
+
+In order to make use of the swift-recon middleware, update the object-server.conf file and 
+enable the recon middleware by adding a pipeline entry and setting its option(s). You can view 
+more information in the example section below.
+
+
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB-h, --help\fR"
+show this help message and exit
+.IP "\fB-v, --verbose\fR"
+Print verbose information
+.IP "\fB--suppress\fR"
+Suppress most connection related errors
+.IP "\fB-a, --async\fR"
+Get async stats
+.IP "\fB-r, --replication\fR"
+Get replication stats
+.IP "\fB-u, --unmounted\fR"
+Check cluster for unmounted devices
+.IP "\fB-d, --diskusage\fR"
+Get disk usage stats
+.IP "\fB-l, --loadstats\fR"
+Get cluster load average stats
+.IP "\fB-q, --quarantined\fR"
+Get cluster quarantine stats
+.IP "\fB--objmd5\fR"
+Get md5sums of object.ring.gz and compare to local copy
+.IP "\fB--all\fR"
+Perform all checks. Equivalent to -arudlq --objmd5
+.IP "\fB-z ZONE, --zone=ZONE\fR"
+Only query servers in specified zone
+.IP "\fB--swiftdir=PATH\fR"
+Default = /etc/swift
+.PD
+.RE  
+
+
+
+.SH EXAMPLE
+.LP
+.PD 0
+.RS 0
+.IP "ubuntu:~$ swift-recon -q --zone 3"
+.IP "==============================================================================="
+.IP "[2011-10-18 19:36:00] Checking quarantine dirs on 1 hosts... "
+.IP "[Quarantined objects] low: 4, high: 4, avg: 4, total: 4 "
+.IP "[Quarantined accounts] low: 0, high: 0, avg: 0, total: 0 "
+.IP "[Quarantined containers] low: 0, high: 0, avg: 0, total: 0 "
+.IP "==============================================================================="
+.RE
+
+.RS 0
+Finally if you also wish to track asynchronous pending’s you will need to setup a 
+cronjob to run the swift-recon-cron script periodically:
+
+.IP "*/5 * * * * swift /usr/bin/swift-recon-cron /etc/swift/object-server.conf"
+.RE
+
+
+
+
+.SH DOCUMENTATION
+.LP
+More documentation about Openstack-Swift can be found at 
+.BI http://swift.openstack.org/index.html 
+Also more specific documentation about swift-recon can be found at 
+.BI http://swift.openstack.org/admin_guide.html#cluster-telemetry-and-monitoring
+
+
+
+.SH "SEE ALSO"
+.BR object-server.conf(5),
+
+

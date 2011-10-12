@@ -1,0 +1,448 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH proxy-server.conf 5 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B proxy-server.conf
+\- configuration file for the openstack-swift proxy server 
+
+
+
+.SH SYNOPSIS
+.LP
+.B proxy-server.conf
+
+
+
+.SH DESCRIPTION 
+.PP
+This is the configuration file used by the proxy server and other proxy middlewares.
+
+The configuration file follows the python-pastedeploy syntax. The file is divided
+into sections, which are enclosed by square brackets. Each section will contain a 
+certain number of key/value parameters which are described later. 
+
+Any line that begins with a '#' symbol is ignored. 
+
+You can find more information about python-pastedeploy configuration format at 
+\fIhttp://pythonpaste.org/deploy/#config-format\fR
+
+
+
+.SH GLOBAL SECTION
+.PD 1 
+.RS 0
+This is indicated by section named [DEFAULT]. Below are the parameters that 
+are acceptable within this section. 
+
+.IP "\fBbind_ip\fR"
+IP address the proxy server should bind to. The default is 0.0.0.0 which will make 
+it bind to all available addresses.
+.IP "\fBbind_port\fR" 
+TCP port the proxy server should bind to. The default is 80. 
+.IP \fBbacklog\fR 
+TCP backlog.  Maximum number of allowed pending connections. The default value is 4096. 
+.IP \fBworkers\fR 
+Number of container server workers to fork. The default is 1. 
+.IP \fBuser\fR 
+The system user that the container server will run as. The default is swift. 
+.IP \fBswift_dir\fR 
+Swift configuration directory. The default is /etc/swift.
+.IP \fBcert_file\fR 
+Location of the SSL certificate file. The default path is /etc/swift/proxy.crt. This is 
+disabled by default.  
+.IP \fBkey_file\fR 
+Location of the SSL certificate key file. The default path is /etc/swift/proxy.key. This is 
+disabled by default. 
+.IP \fBlog_name\fR 
+Label used when logging. The default is swift.
+.IP \fBlog_facility\fR 
+Syslog log facility. The default is LOG_LOCAL0.
+.IP \fBlog_level\fR 
+Logging level. The default is INFO.
+.RE
+.PD
+
+
+
+.SH PIPELINE SECTION
+.PD 1 
+.RS 0
+This is indicated by section name [pipeline:main]. Below are the parameters that
+are acceptable within this section. 
+
+.IP "\fBpipeline\fR"
+It is used when you need apply a number of filters. It is a list of filters 
+ended by an application. The default should be \fB"catch_errors healthcheck 
+cache ratelimit tempauth proxy-server"\fR
+.RE
+.PD
+
+
+
+.SH FILTER SECTION
+.PD 1 
+.RS 0
+Any section that has its name prefixed by "filter:" indicates a filter section.
+Filters are used to specify configuration parameters for specific swift middlewares.
+Below are the filters available and respective acceptable parameters. 
+.IP "\fB[filter:healthcheck]\fR"
+.RE
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy for the healthcheck middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#healthcheck\fR.
+.RE
+
+
+.RS 0
+.IP "\fB[filter:tempauth]\fR"
+.RE
+.RS 3
+.IP \fBuse\fR 
+Entry point for paste.deploy for the tempauth middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#tempauth\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is tempauth.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR "
+Enables the ability to log request headers. The default is False.
+.IP \fBreseller_prefix\fR
+The reseller prefix will verify a token begins with this prefix before even
+attempting to validate it. Also, with authorization, only Swift storage accounts 
+with this prefix will be authorized by this middleware. Useful if multiple auth 
+systems are in use for one Swift cluster. The default is AUTH.
+.IP \fBauth_prefix\fR 
+The auth prefix will cause requests beginning with this prefix to be routed 
+to the auth subsystem, for granting tokens, etc. The default is /auth/.
+.IP \fBtoken_life\fR 
+This is the time in seconds before the token expires. The default is 86400.
+.IP \fBallowed_sync_hosts\fR 
+This is a comma separated list of hosts allowed to send X-Container-Sync-Key requests.
+.IP \fBuser_<account>_<user>\fR 
+Lastly, you need to list all the accounts/users you want here. The format is: 
+user_<account>_<user> = <key> [group] [group] [...] [storage_url] 
+
+There are special groups of: \fI.reseller_admin\fR who can do anything to any account for this auth
+and also \fI.admin\fR who can do anything within the account.
+
+If neither of these groups are specified, the user can only access containers that 
+have been explicitly allowed for them by a \fI.admin\fR or \fI.reseller_admin\fR.
+The trailing optional storage_url allows you to specify an alternate url to hand 
+back to the user upon authentication. If not specified, this defaults to 
+\fIhttp[s]://<ip>:<port>/v1/<reseller_prefix>_<account>\fR where http or https depends 
+on whether cert_file is specified in the [DEFAULT] section, <ip> and <port> are based 
+on the [DEFAULT] section's bind_ip and bind_port (falling back to 127.0.0.1 and 8080), 
+<reseller_prefix> is from this section, and <account> is from the user_<account>_<user> name. 
+
+Here are example entries, required for running the tests:
+.RE
+
+.PD 0
+.RS 10.IP "user_admin_admin = admin .admin .reseller_admin"
+.IP "user_test_tester = testing .admin"
+.IP "user_test2_tester2 = testing2 .admin"
+.IP "user_test_tester3 = testing3"
+.RE
+.PD 
+
+.RS 0
+.IP "\fB[filter:healthcheck]\fR"
+.RE
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the healthcheck middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#healthcheck\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is healthcheck.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR "
+Enables the ability to log request headers. The default is False.
+.RE
+
+
+
+.RS 0
+.IP "\fB[filter:cache]\fR"
+.RE
+
+Caching middleware that manages caching in swift.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the memcache middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#memcache\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is memcache.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR "
+Enables the ability to log request headers. The default is False.
+.IP \fBmemcache_servers\fR
+The memcache servers that are available. This can be a list separated by commas. The default 
+is 127.0.0.1:11211.
+.RE
+
+
+
+.RS 0
+.IP "\fB[filter:ratelimit]\fR"
+.RE
+
+Rate limits requests on both an Account and Container level.  Limits are configurable.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the ratelimit middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#ratelimit\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is ratelimit.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR "
+Enables the ability to log request headers. The default is False.
+.IP \fBclock_accuracy\fR
+This should represent how accurate the proxy servers' system clocks are with each other. 
+1000 means that all the proxies' clock are accurate to each other within 1 millisecond. 
+No ratelimit should be higher than the clock accuracy. The default is 1000.
+.IP \fBmax_sleep_time_seconds\fR
+App will immediately return a 498 response if the necessary sleep time ever exceeds  
+the given max_sleep_time_seconds. The default is 60 seconds.
+.IP \fBlog_sleep_time_seconds\fR
+To allow visibility into rate limiting set this value > 0 and all sleeps greater than 
+the number will be logged. If set to 0 means disabled. The default is 0.
+.IP \fBrate_buffer_seconds\fR
+Number of seconds the rate counter can drop and be allowed to catch up 
+(at a faster than listed rate). A larger number will result in larger spikes in 
+rate but better average accuracy. The default is 5.
+.IP \fBaccount_ratelimit\fR
+If set, will limit PUT and DELETE requests to /account_name/container_name. Number is 
+in requests per second. If set to 0 means disabled. The default is 0.
+.IP \fBaccount_whitelist\fR
+Comma separated lists of account names that will not be rate limited. The default is ''.
+.IP \fBaccount_blacklist\fR
+Comma separated lists of account names that will not be allowed. Returns a 497 response.
+The default is ''.
+.IP \fBcontainer_ratelimit_size\fR
+When set with container_limit_x = r: for containers of size x, limit requests per second 
+to r. Will limit PUT, DELETE, and POST requests to /a/c/o. The default is ''.
+.RE
+
+
+
+.RS 0
+.IP "\fB[filter:domain_remap]\fR"
+.RE
+
+Middleware that translates container and account parts of a domain topath parameters that the proxy server understands.  
+
+\fIcontainer.account.storageurl/object\fR gets translated to 
+\fIcontainer.account.storageurl/path_root/account/container/object\fR
+
+\fIaccount.storageurl/path_root/container/object\fR gets translated to
+\fIaccount.storageurl/path_root/account/container/object\fR
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the domain_remap middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#domain_remap\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is domain_remap.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR"
+Enables the ability to log request headers. The default is False.
+.IP \fBstorage_domain\fR 
+The domain to be used by the middleware. 
+.IP \fBpath_root\fR
+The path root value for the storage URL. The default is v1.
+.IP \fBreseller_prefixes\fR
+Browsers can convert a host header to lowercase, so check that reseller 
+prefix on the account is the correct case. This is done by comparing the 
+items in the reseller_prefixes config option to the found prefix. If they 
+match except for case, the item from reseller_prefixes will be used 
+instead of the found reseller prefix. The reseller_prefixes list is exclusive. 
+If defined, any request with an account prefix not in that list will be ignored 
+by this middleware. Defaults to 'AUTH'.
+.RE
+
+
+
+.RS 0 
+.IP "\fB[filter:catch_errors]\fR"
+.RE
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the catch_errors middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#catch_errors\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is catch_errors.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR"
+Enables the ability to log request headers. The default is False.
+.RE
+
+
+
+.RS 0 
+.IP "\fB[filter:cname_lookup]\fR"
+.RE
+
+Note: this middleware requires python-dnspython
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the cname_lookup middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#cname_lookup\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is cname_lookup.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR"
+Enables the ability to log request headers. The default is False.
+.IP \fBstorage_domain\fR 
+The domain to be used by the middleware. 
+.IP \fBlookup_depth\fR
+How deep in the CNAME chain to look for something that matches the storage domain. 
+The default is 1.
+.RE
+
+
+
+.RS 0 
+.IP "\fB[filter:staticweb]\fR"
+.RE
+
+Note: Put staticweb just after your auth filter(s) in the pipeline
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the staticweb middleware. This is the reference to the installed python egg. 
+The default is \fBegg:swift#staticweb\fR.
+.IP \fBcache_timeout\fR
+Seconds to cache container x-container-meta-web-* header values. The default is 300 seconds.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is staticweb.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_headers\fR"
+Enables the ability to log request headers. The default is False.
+.IP "\fBset access_log_name\fR"
+Label used when logging. The default is staticweb.
+.IP "\fBset access_log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset access_log_level\fR "
+Logging level. The default is INFO.
+.RE
+
+.PD
+
+
+
+
+.SH APP SECTION
+.PD 1 
+.RS 0
+This is indicated by section name [app:proxy-server]. Below are the parameters
+that are acceptable within this section.
+.IP \fBuse\fR
+Entry point for paste.deploy for the proxy server. This is the reference to the installed python egg. 
+The default is \fBegg:swift#proxy\fR.
+.IP "\fBset log_name\fR 
+Label used when logging. The default is proxy-server.
+.IP "\fBset log_facility\fR 
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fB set log_level\fR 
+Logging level. The default is INFO.
+.IP "\fBset access_log_name\fR"
+Label used when logging. The default is proxy-server.
+.IP "\fBset access_log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset access_log_level\fR "
+Logging level. The default is INFO.
+.IP "\fB set log_requests\fR 
+Enables request logging. The default is False.
+.IP \fBrecheck_account_existence\fR
+Cache timeout in seconds to send memcached for account existence. The default is 60 seconds.
+.IP \fBrecheck_container_existence\fR
+Cache timeout in seconds to send memcached for container existence. The default is 60 seconds.
+.IP \fBobject_chunk_size\fR
+Chunk size to read from object servers. The default is 8192.
+.IP \fBclient_chunk_size\fR
+Chunk size to read from clients. The default is 8192.
+.IP \fBnode_timeout\fR 
+Request timeout to external services. The default is 10 seconds. 
+.IP \fBclient_timeoutt\fR 
+Timeout to read one chunk from a client. The default is 60 seconds. 
+.IP \fBconn_timeout\fR 
+Connection timeout to external services. The default is 0.5 seconds. 
+.IP \fBerror_suppression_interval\fR 
+Time in seconds that must elapse since the last error for a node to 
+be considered no longer error limited. The default is 60 seconds.
+.IP \fBerror_suppression_limit\fR 
+Error count to consider a node error limited. The default is 10. 
+.IP \fBallow_account_management\fR 
+Whether account PUTs and DELETEs are even callable. If set to 'true' any authorized 
+user may create and delete accounts; if 'false' no one, even authorized, can. The default 
+is false. 
+.IP \fBobject_post_as_copy\fR 
+Set object_post_as_copy = false to turn on fast posts where only the metadata changes 
+are stored as new and the original data file is kept in place. This makes for quicker 
+posts; but since the container metadata isn't updated in this mode, features like 
+container sync won't be able to sync posts. The default is True.
+.IP \fBaccount_autocreate\fR 
+If set to 'true' authorized accounts that do not yet exist within the Swift cluster 
+will be automatically created. The default is set to false.
+.RE
+.PD
+
+
+ 
+.SH DOCUMENTATION
+.LP
+More in depth documentation about the swift-proxy-server and
+also Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/admin_guide.html 
+and 
+.BI http://swift.openstack.org
+
+
+.SH "SEE ALSO"
+.BR swift-proxy-server(1),
+
+

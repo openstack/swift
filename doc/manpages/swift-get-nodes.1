@@ -1,0 +1,78 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-get-nodes 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-get-nodes
+\- Openstack-swift get-nodes tool
+
+.SH SYNOPSIS
+.LP
+.B swift-get-nodes 
+\ <ring.gz> <account> [<container>] [<object>]
+ 
+.SH DESCRIPTION 
+.PP
+The swift-get-nodes tool can be used to find out the location where
+a particular account, container or object item is located within the 
+swift cluster nodes. For example, if you have the account hash and a container 
+name that belongs to that account, you can use swift-get-nodes to lookup 
+where the container resides by using the container ring.
+
+.RS 0
+.IP "\fIExample:\fR"
+.RE
+
+.RS 4
+.PD 0 
+.IP "$ swift-get-nodes /etc/swift/account.ring.gz MyAccount-12ac01446be2"
+
+.PD 0
+.IP "Account     MyAccount-12ac01446be2"
+.IP "Container   None"
+.IP "Object      None"
+
+.IP "Partition 221082"
+.IP "Hash d7e6ba68cfdce0f0e4ca7890e46cacce"
+
+.IP "Server:Port Device      172.24.24.29:6002 sdd"
+.IP "Server:Port Device      172.24.24.27:6002 sdr"
+.IP "Server:Port Device      172.24.24.32:6002 sde"
+.IP "Server:Port Device      172.24.24.26:6002 sdv    [Handoff]"
+
+.IP "curl -I -XHEAD http://172.24.24.29:6002/sdd/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.27:6002/sdr/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.32:6002/sde/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.26:6002/sdv/221082/MyAccount-12ac01446be2 # [Handoff]"
+
+.IP "ssh 172.24.24.29 ls -lah /srv/node/sdd/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/ "
+.IP "ssh 172.24.24.27 ls -lah /srv/node/sdr/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/".IP "ssh 172.24.24.32 ls -lah /srv/node/sde/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/".IP "ssh 172.24.24.26 ls -lah /srv/node/sdv/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/ # [Handoff] "
+.PD 
+.RE 
+
+.SH DOCUMENTATION
+.LP
+More documentation about Openstack-Swift can be found at 
+.BI http://swift.openstack.org/index.html
+
+
+
+.SH "SEE ALSO"
+.BR swift-object-info(1),
+.BR swift-ring-builder(1)

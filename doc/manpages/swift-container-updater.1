@@ -1,0 +1,80 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-container-updater 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-container-updater
+\- Openstack-swift container updater
+
+.SH SYNOPSIS
+.LP
+.B swift-container-updater 
+[CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
+
+.SH DESCRIPTION 
+.PP
+The container updater is responsible for updating container information in the account database. 
+It will walk the container path in the system looking for container DBs and sending updates
+to the account server as needed as it goes along. 
+
+There are times when account data can not be immediately updated. This usually occurs 
+during failure scenarios or periods of high load. This is where an eventual consistency 
+window will most likely come in to play. 
+
+In practice, the consistency window is only as large as the frequency at which 
+the updater runs and may not even be noticed as the proxy server will route 
+listing requests to the first account server which responds. The server under
+load may not be the one that serves subsequent listing requests – one of the other
+two replicas may handle the listing.
+
+The options are as follows:
+
+.RS 4
+.PD 0
+.IP "-v"
+.IP "--verbose"
+.RS 4
+.IP "log to console"
+.RE
+.IP "-o"
+.IP "--once"
+.RS 4
+.IP "only run one pass of daemon" 
+.RE
+.PD      	
+.RE
+       
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift-container-updater
+and also about Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+
+.SH FILES
+.IP "\fI/usr/share/doc/swift-container/container-server.conf-sample\fR" 0
+Sample configuration file for swift-container services 
+
+.IP "\fI/etc/init.d/swift-container-updater\fR" 0
+Container updater init.d script	
+
+
+
+.SH "SEE ALSO"
+.BR container-server.conf(5)

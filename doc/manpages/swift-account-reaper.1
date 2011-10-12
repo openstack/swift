@@ -1,0 +1,77 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-account-reaper 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-account-reaper
+\- Openstack-swift account reaper
+
+.SH SYNOPSIS
+.LP
+.B swift-account-reaper 
+[CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
+
+.SH DESCRIPTION 
+.PP
+Removes data from status=DELETED accounts. These are accounts that have
+been asked to be removed by the reseller via services remove_storage_account
+XMLRPC call. 
+.PP
+The account is not deleted immediately by the services call, but instead
+the account is simply marked for deletion by setting the status column in
+the account_stat table of the account database. This account reaper scans
+for such accounts and removes the data in the background. The background
+deletion process will occur on the primary account server for the account.
+
+The options are as follows:
+
+.RS 4
+.PD 0
+.IP "-v"
+.IP "--verbose"
+.RS 4
+.IP "log to console"
+.RE
+.IP "-o"
+.IP "--once"
+.RS 4
+.IP "only run one pass of daemon" 
+.RE
+.PD      	
+.RE
+
+    
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift-object-auditor 
+and also about Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+
+.SH FILES
+.IP "\fI/usr/share/doc/swift-account/account-server.conf-sample\fR" 0
+Sample configuration file for swift-account services 
+
+.IP "\fI/etc/init.d/swift-account-reaper\fR" 0
+Account reaper init.d script	
+
+
+
+.SH "SEE ALSO"
+.BR account-server.conf(5)

@@ -1,0 +1,60 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-container-sync 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-container-sync
+\- Openstack-swift container sync
+
+.SH SYNOPSIS
+.LP
+.B swift-container-sync
+[CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
+
+.SH DESCRIPTION 
+.PP
+Swift has a feature where all the contents of a container can be mirrored to
+another container through background synchronization. Swift cluster operators
+configure their cluster to allow/accept sync requests to/from other clusters,
+and the user specifies where to sync their container to along with a secret 
+synchronization key.
+.PP
+The swift-container-sync does the job of sending updates to the remote container.
+This is done by scanning the local devices for container databases and checking
+for x-container-sync-to and x-container-sync-key metadata values. If they exist,
+newer rows since the last sync will trigger PUTs or DELETEs to the other container.
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift-container-sync
+and also about Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/overview_container_sync.html
+and 
+.BI http://docs.openstack.org
+
+.SH FILES
+.IP "\fI/usr/share/doc/swift-container/container-server.conf-sample\fR" 0
+Sample configuration file for swift-container server
+
+
+.LP 
+
+.SH "SEE ALSO"
+.BR container-server.conf(5)

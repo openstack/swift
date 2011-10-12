@@ -1,0 +1,63 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-object-server 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-object-server
+\- Openstack-swift object server.
+
+.SH SYNOPSIS
+.LP
+.B swift-object-server
+[CONFIG] [-h|--help] [-v|--verbose]
+
+.SH DESCRIPTION 
+.PP
+The Object Server is a very simple blob storage server that can store, retrieve
+and delete objects stored on local devices. Objects are stored as binary files 
+on the filesystem with metadata stored in the file's extended attributes (xattrs).
+This requires that the underlying filesystem choice for object servers support 
+xattrs on files. Some filesystems, like ext3, have xattrs turned off by default. 
+Each object is stored using a path derived from the object name's hash and the operation's
+timestamp. Last write always wins, and ensures that the latest object version will be
+served. A deletion is also treated as a version of the file (a 0 byte file ending with
+".ts", which stands for tombstone). This ensures that deleted files are replicated 
+correctly and older versions don't magically reappear due to failure scenarios.
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift-object-server
+and also about Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org
+
+.SH FILES
+.IP "\fI/usr/share/doc/swift-object/object-server.conf-sample\fR" 0
+Sample configuration file for swift-object server
+.IP "\fI/usr/share/doc/swift-object/rsyncd.conf-sample\fR" 0
+Sample rsyncd configuration file for usage with swift-object
+.IP "\fI/etc/init.d/swift-object\fR" 0
+Object server init.d script	
+
+
+
+.SH "SEE ALSO"
+.BR object-server.conf(5)

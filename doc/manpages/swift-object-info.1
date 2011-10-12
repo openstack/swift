@@ -1,0 +1,55 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-object-info 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-object-info
+\- Openstack-swift object-info tool
+
+.SH SYNOPSIS
+.LP
+.B swift-object-info
+[OBJECT_FILE] 
+
+.SH DESCRIPTION 
+.PP
+This is a very simple swift tool that allows a swiftop engineer to retrieve 
+information about an object that is located on the storage node. One calls 
+the tool with a given object file as it is stored on the storage node system. 
+It will then return several information about that object such as; 
+
+.PD 0
+.IP	"- Account it belongs to"
+.IP  "- Container "
+.IP  "- Object hash "
+.IP  "- Location on the ring "
+.IP  "- Content Type "
+.IP  "- timestamp "
+.IP  "- Etag "
+.IP  "- Content Length "
+.IP  "- User Metadata "
+.PD 
+    
+.SH DOCUMENTATION
+.LP
+More documentation about Openstack-Swift can be found at 
+.BI http://swift.openstack.org/index.html
+
+.SH "SEE ALSO"
+.BR swift-get-nodes(1),
