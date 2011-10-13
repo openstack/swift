@@ -465,7 +465,7 @@ class TempAuth(object):
             getattr(req, 'bytes_transferred', 0) or '-',
             getattr(response, 'bytes_transferred', 0) or '-',
             req.headers.get('etag', '-'),
-            req.headers.get('x-trans-id', '-'), logged_headers or '-',
+            req.environ.get('swift.trans_id', '-'), logged_headers or '-',
             trans_time)))
 
 

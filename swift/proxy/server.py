@@ -1632,8 +1632,13 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
 
             controller = controller(self, **path_parts)
-            controller.trans_id = req.headers.get('x-trans-id', '-')
-            self.logger.txn_id = req.headers.get('x-trans-id', None)
+            if 'swift.trans_id' not in req.environ:
+                # if this wasn't set by an earlier middleware, set it now
+                trans_id = 'tx' + uuid.uuid4().hex
+                req.environ['swift.trans_id'] = trans_id
+                self.logger.txn_id = trans_id
+            req.headers['x-trans-id'] = req.environ['swift.trans_id']
+            controller.trans_id = req.environ['swift.trans_id']
             self.logger.client_ip = get_remote_client(req)
             try:
                 handler = getattr(controller, req.method)
@@ -1708,10 +1713,12 @@ class Application(BaseApplication):
                 getattr(req, 'bytes_transferred', 0) or '-',
                 getattr(response, 'bytes_transferred', 0) or '-',
                 req.headers.get('etag', '-'),
-                req.headers.get('x-trans-id', '-'),
+                req.environ.get('swift.trans_id', '-'),
                 logged_headers or '-',
                 trans_time,
             )))
+        # done with this transaction
+        self.access_logger.txn_id = None
 
 
 def app_factory(global_conf, **local_conf):
