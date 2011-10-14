@@ -155,8 +155,8 @@ class RateLimitMiddleware(object):
             if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
                 # treat as no-op decrement time
                 self.memcache_client.decr(key, delta=time_per_request_m)
-                raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %s" %
-                                           need_to_sleep_m)
+                raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %.2f" %
+                    (float(need_to_sleep_m) / self.clock_accuracy))
 
             return float(need_to_sleep_m) / self.clock_accuracy
         except MemcacheConnectionError:
@@ -172,7 +172,8 @@ class RateLimitMiddleware(object):
         :param obj_name: object name from path
         '''
         if account_name in self.ratelimit_blacklist:
-            self.logger.error(_('Returning 497 because of blacklisting'))
+            self.logger.error(_('Returning 497 because of blacklisting: %s'),
+                              account_name)
             eventlet.sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
                 body='Your account has been blacklisted', request=req)
@@ -192,8 +193,10 @@ class RateLimitMiddleware(object):
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
             except MaxSleepTimeHitError, e:
-                self.logger.error(_('Returning 498 because of ops rate '
-                            'limiting (Max Sleep) %s') % str(e))
+                self.logger.error(_('Returning 498 for %(meth)s to '
+                    '%(acc)s/%(cont)s/%(obj)s . Ratelimit (Max Sleep) %(e)s'),
+                    {'meth': req.method, 'acc': account_name,
+                     'cont': container_name, 'obj': obj_name, 'e': str(e)})
                 error_resp = Response(status='498 Rate Limited',
                                       body='Slow down', request=req)
                 return error_resp
