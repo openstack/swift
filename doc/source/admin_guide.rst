@@ -222,6 +222,101 @@ place and then rerun the dispersion report::
     Sample represents 1.00% of the object partition space
 
 
+--------------------------------
+Cluster Telemetry and Monitoring
+--------------------------------
+
+Various metrics and telemetry can be obtained from the object servers using
+the recon server middleware and the swift-recon cli. To do so update your 
+object-server.conf to enable the recon middleware by adding a pipeline entry
+and setting its one option::
+
+    [pipeline:main]
+    pipeline = recon object-server
+    
+    [filter:recon]
+    use = egg:swift#recon
+    recon_cache_path = /var/cache/swift
+
+The recon_cache_path simply sets the directory where stats for a few items will
+be stored. Depending on the method of deployment you may need to create this
+directory manually and ensure that swift has read/write.
+
+If you wish to enable reporting of replication times you can enable recon 
+support in the object-replicator section of the object-server.conf::
+
+    [object-replicator]
+    ...
+    recon_enable = yes
+    recon_cache_path = /var/cache/swift
+    
+Finally if you also wish to track asynchronous pending's you will need to setup
+a cronjob to run the swift-recon-cron script periodically::
+
+    */5 * * * * swift /usr/bin/swift-recon-cron /etc/swift/object-server.conf
+   
+Once enabled a GET request for "/recon/<metric>" to the object server will 
+return a json formatted response::
+
+    fhines@ubuntu:~$ curl -i http://localhost:6030/recon/async
+    HTTP/1.1 200 OK
+    Content-Type: application/json
+    Content-Length: 20
+    Date: Tue, 18 Oct 2011 21:03:01 GMT
+
+    {"async_pending": 0}
+
+The following metrics and telemetry are currently exposed:
+
+==================  ====================================================
+Request URI         Description
+------------------  ----------------------------------------------------
+/recon/load         returns 1,5, and 15 minute load average
+/recon/async        returns count of async pending
+/recon/mem          returns /proc/meminfo
+/recon/replication  returns last logged object replication time
+/recon/mounted      returns *ALL* currently mounted filesystems
+/recon/unmounted    returns all unmounted drives if mount_check = True
+/recon/diskusage    returns disk utilization for storage devices
+/recon/ringmd5      returns object/container/account ring md5sums
+/recon/quarantined  returns # of quarantined objects/accounts/containers
+==================  ====================================================
+
+This information can also be queried via the swift-recon command line utility::
+
+    fhines@ubuntu:~$ swift-recon -h
+    ===============================================================================
+    Usage: 
+        usage: swift-recon [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
+    
+
+    Options:
+      -h, --help            show this help message and exit
+      -v, --verbose         Print verbose info
+      --suppress            Suppress most connection related errors
+      -a, --async           Get async stats
+      -r, --replication     Get replication stats
+      -u, --unmounted       Check cluster for unmounted devices
+      -d, --diskusage       Get disk usage stats
+      -l, --loadstats       Get cluster load average stats
+      -q, --quarantined     Get cluster quarantine stats
+      --objmd5              Get md5sums of object.ring.gz and compare to local
+                            copy
+      --all                 Perform all checks. Equivalent to -arudlq --objmd5
+      -z ZONE, --zone=ZONE  Only query servers in specified zone
+      --swiftdir=SWIFTDIR   Default = /etc/swift
+
+For example, to obtain quarantine stats from all hosts in zone "3"::
+
+    fhines@ubuntu:~$ swift-recon -q --zone 3
+    ===============================================================================
+    [2011-10-18 19:36:00] Checking quarantine dirs on 1 hosts...
+    [Quarantined objects] low: 4, high: 4, avg: 4, total: 4
+    [Quarantined accounts] low: 0, high: 0, avg: 0, total: 0
+    [Quarantined containers] low: 0, high: 0, avg: 0, total: 0
+    ===============================================================================
+
+
 ------------------------
 Debugging Tips and Tools
 ------------------------

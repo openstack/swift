@@ -98,6 +98,15 @@ Healthcheck
     :members:
     :show-inheritance:
 
+.. _recon:
+
+Recon
+===========
+
+.. automodule:: swift.common.middleware.recon
+    :members:
+    :show-inheritance:
+
 .. _memecached:
 
 MemCacheD

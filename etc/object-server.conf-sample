@@ -13,7 +13,7 @@
 # log_level = INFO
 
 [pipeline:main]
-pipeline = object-server
+pipeline = recon object-server
 
 [app:object-server]
 use = egg:swift#object
@@ -35,6 +35,10 @@ use = egg:swift#object
 # Content-Type, etag, Content-Length, or deleted
 # allowed_headers = Content-Encoding, Content-Disposition, X-Object-Manifest
 
+[filter:recon]
+use = egg:swift#recon
+recon_cache_path = /var/cache/swift
+
 [object-replicator]
 # You can override the default log routing for this app here (don't use set!):
 # log_name = object-replicator
@@ -55,6 +59,9 @@ use = egg:swift#object
 # lockup_timeout = 1800
 # The replicator also performs reclamation
 # reclaim_age = 604800
+# enable logging of replication stats for recon
+# recon_enable = no
+# recon_cache_path = /var/cache/swift
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):
