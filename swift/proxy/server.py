@@ -887,8 +887,8 @@ class ObjectController(Controller):
             req.path_info = '/%s/%s/%s' % (self.account_name,
                 self.container_name, self.object_name)
             req.headers['Content-Length'] = 0
-            req.headers['X-Copy-From'] = '/%s/%s' % (self.container_name,
-                self.object_name)
+            req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
+                self.object_name))
             req.headers['X-Fresh-Metadata'] = 'true'
             resp = self.PUT(req)
             # Older editions returned 202 Accepted on object POSTs, so we'll
@@ -1228,7 +1228,7 @@ class ObjectController(Controller):
         req.method = 'PUT'
         req.path_info = '/' + self.account_name + dest
         req.headers['Content-Length'] = 0
-        req.headers['X-Copy-From'] = source
+        req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']
         return self.PUT(req)
 

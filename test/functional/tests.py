@@ -801,9 +801,9 @@ class TestFile(Base):
     env = TestFileEnv
     set_up = False
 
-    """
     def testCopy(self):
-        source_filename = Utils.create_name()
+        # makes sure to test encoded characters"
+        source_filename = 'dealde%2Fl04 011e%204c8df/flash.png'
         file = self.env.container.file(source_filename)
 
         metadata = {}
@@ -811,6 +811,7 @@ class TestFile(Base):
             metadata[Utils.create_name()] = Utils.create_name()
 
         data = file.write_random()
+        file.sync_metadata(metadata)
 
         dest_cont = self.env.account.container(Utils.create_name())
         self.assert_(dest_cont.create())
@@ -887,12 +888,6 @@ class TestFile(Base):
             cfg={'destination': Utils.create_name()}))
         self.assert_status(412)
 
-        # extra slash
-        self.assert_(not file.copy(Utils.create_name(), Utils.create_name(),
-            cfg={'destination': '/%s/%s/%s' % (Utils.create_name(),
-            Utils.create_name(), Utils.create_name())}))
-        self.assert_status(412)
-
     def testCopyFromHeader(self):
         source_filename = Utils.create_name()
         file = self.env.container.file(source_filename)
@@ -952,7 +947,6 @@ class TestFile(Base):
                 hdrs={'X-Copy-From': '%s%s/%s' % (prefix,
                 self.env.container.name, source_filename)})
             self.assert_status(404)
-    """
 
     def testNameLimit(self):
         limit = 1024
