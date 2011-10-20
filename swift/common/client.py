@@ -306,7 +306,7 @@ def post_account(url, token, headers, http_conn=None):
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Account POST failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
-                http_port=conn.port, http_path=path, http_status=resp.status,
+                http_port=conn.port, http_path=parsed.path, http_status=resp.status,
                 http_reason=resp.reason)
 
 
