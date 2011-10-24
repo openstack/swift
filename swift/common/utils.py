@@ -303,8 +303,7 @@ class LogAdapter(logging.LoggerAdapter, object):
     client ip.
     """
 
-    _txn_id = threading.local()
-    _client_ip = threading.local()
+    _cls_thread_local = threading.local()
 
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
@@ -313,21 +312,21 @@ class LogAdapter(logging.LoggerAdapter, object):
 
     @property
     def txn_id(self):
-        if hasattr(self._txn_id, 'value'):
-            return self._txn_id.value
+        if hasattr(self._cls_thread_local, 'txn_id'):
+            return self._cls_thread_local.txn_id
 
     @txn_id.setter
     def txn_id(self, value):
-        self._txn_id.value = value
+        self._cls_thread_local.txn_id = value
 
     @property
     def client_ip(self):
-        if hasattr(self._client_ip, 'value'):
-            return self._client_ip.value
+        if hasattr(self._cls_thread_local, 'client_ip'):
+            return self._cls_thread_local.client_ip
 
     @client_ip.setter
     def client_ip(self, value):
-        self._client_ip.value = value
+        self._cls_thread_local.client_ip = value
 
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()

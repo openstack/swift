@@ -207,7 +207,7 @@ def make_pre_authed_request(env, method, path, body=None, headers=None,
     (Stolen from Swauth: https://github.com/gholt/swauth)
     """
     newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': agent}
-    for name in ('swift.cache', 'HTTP_X_TRANS_ID'):
+    for name in ('swift.cache', 'swift.trans_id'):
         if name in env:
             newenv[name] = env[name]
     newenv['swift.authorize'] = lambda req: None

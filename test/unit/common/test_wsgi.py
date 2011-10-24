@@ -179,7 +179,7 @@ class TestWSGI(unittest.TestCase):
             @classmethod
             def fake_blank(cls, path, environ={}, body='', headers={}):
                 self.assertEquals(environ['swift.authorize']('test'), None)
-                self.assertEquals(environ['HTTP_X_TRANS_ID'], '1234')
+                self.assertFalse('HTTP_X_TRANS_ID' in environ)
         was_blank = Request.blank
         Request.blank = FakeReq.fake_blank
         wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},

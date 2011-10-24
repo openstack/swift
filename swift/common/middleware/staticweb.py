@@ -214,7 +214,7 @@ class StaticWeb(object):
         """
         new_env = {'REQUEST_METHOD': 'GET',
             'HTTP_USER_AGENT': '%s StaticWeb' % env.get('HTTP_USER_AGENT')}
-        for name in ('eventlet.posthooks', 'HTTP_X_CF_TRANS_ID', 'REMOTE_USER',
+        for name in ('eventlet.posthooks', 'swift.trans_id', 'REMOTE_USER',
                      'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
                      'SERVER_PROTOCOL', 'swift.cache'):
             if name in env:
@@ -532,7 +532,7 @@ class StaticWeb(object):
             '-',
             '-',
             env.get('HTTP_ETAG', '-'),
-            env.get('HTTP_X_CF_TRANS_ID', '-'),
+            env.get('swift.trans_id', '-'),
             logged_headers or '-',
             trans_time)))
 
