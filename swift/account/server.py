@@ -48,6 +48,8 @@ class AccountController(object):
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
             self.mount_check, logger=self.logger)
+        self.auto_create_account_prefix = \
+            conf.get('auto_create_account_prefix') or '.'
 
     def _get_account_broker(self, drive, part, account):
         hsh = hash_path(account)
@@ -88,6 +90,10 @@ class AccountController(object):
         if container:   # put account container
             if 'x-trans-id' in req.headers:
                 broker.pending_timeout = 3
+            if account.startswith(self.auto_create_account_prefix) and \
+                    not os.path.exists(broker.db_file):
+                broker.initialize(normalize_timestamp(
+                    req.headers.get('x-timestamp') or time.time()))
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
                 return HTTPNotFound(request=req)

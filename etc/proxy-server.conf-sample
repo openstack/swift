@@ -7,6 +7,7 @@
 # user = swift
 # cert_file = /etc/swift/proxy.crt
 # key_file = /etc/swift/proxy.key
+# expiring_objects_container_divisor = 86400
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0

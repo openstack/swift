@@ -362,12 +362,68 @@ class ObjectController(object):
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
-        default_allowed_headers = 'content-encoding, x-object-manifest, ' \
-                                  'content-disposition'
+        default_allowed_headers = '''
+            content-disposition,
+            content-encoding,
+            x-delete-at,
+            x-object-manifest,
+        '''
         self.allowed_headers = set(i.strip().lower() for i in \
                 conf.get('allowed_headers', \
                 default_allowed_headers).split(',') if i.strip() and \
                 i.strip().lower() not in DISALLOWED_HEADERS)
+        self.expiring_objects_account = \
+            (conf.get('auto_create_account_prefix') or '.') + \
+            'expiring_objects'
+        self.expiring_objects_container_divisor = \
+            int(conf.get('expiring_objects_container_divisor') or 86400)
+
+    def async_update(self, op, account, container, obj, host, partition,
+                     contdevice, headers_out, objdevice):
+        """
+        Sends or saves an async update.
+
+        :param op: operation performed (ex: 'PUT', or 'DELETE')
+        :param account: account name for the object
+        :param container: container name for the object
+        :param obj: object name
+        :param host: host that the container is on
+        :param partition: partition that the container is on
+        :param contdevice: device name that the container is on
+        :param headers_out: dictionary of headers to send in the container
+                            request
+        :param objdevice: device name that the object is in
+        """
+        full_path = '/%s/%s/%s' % (account, container, obj)
+        if all([host, partition, contdevice]):
+            try:
+                with ConnectionTimeout(self.conn_timeout):
+                    ip, port = host.rsplit(':', 1)
+                    conn = http_connect(ip, port, contdevice, partition, op,
+                            full_path, headers_out)
+                with Timeout(self.node_timeout):
+                    response = conn.getresponse()
+                    response.read()
+                    if 200 <= response.status < 300:
+                        return
+                    else:
+                        self.logger.error(_('ERROR Container update failed '
+                            '(saving for async update later): %(status)d '
+                            'response from %(ip)s:%(port)s/%(dev)s'),
+                            {'status': response.status, 'ip': ip, 'port': port,
+                             'dev': contdevice})
+            except (Exception, TimeoutError):
+                self.logger.exception(_('ERROR container update failed with '
+                    '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
+                    {'ip': ip, 'port': port, 'dev': contdevice})
+        async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
+        ohash = hash_path(account, container, obj)
+        write_pickle(
+            {'op': op, 'account': account, 'container': container,
+                'obj': obj, 'headers': headers_out},
+            os.path.join(async_dir, ohash[-3:], ohash + '-' +
+                normalize_timestamp(headers_out['x-timestamp'])),
+            os.path.join(self.devices, objdevice, 'tmp'))
 
     def container_update(self, op, account, container, obj, headers_in,
                          headers_out, objdevice):
@@ -388,35 +444,36 @@ class ObjectController(object):
         contdevice = headers_in.get('X-Container-Device', None)
         if not all([host, partition, contdevice]):
             return
-        full_path = '/%s/%s/%s' % (account, container, obj)
-        try:
-            with ConnectionTimeout(self.conn_timeout):
-                ip, port = host.rsplit(':', 1)
-                conn = http_connect(ip, port, contdevice, partition, op,
-                        full_path, headers_out)
-            with Timeout(self.node_timeout):
-                response = conn.getresponse()
-                response.read()
-                if 200 <= response.status < 300:
-                    return
-                else:
-                    self.logger.error(_('ERROR Container update failed '
-                        '(saving for async update later): %(status)d '
-                        'response from %(ip)s:%(port)s/%(dev)s'),
-                        {'status': response.status, 'ip': ip, 'port': port,
-                         'dev': contdevice})
-        except (Exception, TimeoutError):
-            self.logger.exception(_('ERROR container update failed with '
-                '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
-                {'ip': ip, 'port': port, 'dev': contdevice})
-        async_dir = os.path.join(self.devices, objdevice, ASYNCDIR)
-        ohash = hash_path(account, container, obj)
-        write_pickle(
-            {'op': op, 'account': account, 'container': container,
-                'obj': obj, 'headers': headers_out},
-            os.path.join(async_dir, ohash[-3:], ohash + '-' +
-                normalize_timestamp(headers_out['x-timestamp'])),
-            os.path.join(self.devices, objdevice, 'tmp'))
+        self.async_update(op, account, container, obj, host, partition,
+                          contdevice, headers_out, objdevice)
+
+    def delete_at_update(self, op, delete_at, account, container, obj,
+                         headers_in, objdevice):
+        """
+        Update the expiring objects container when objects are updated.
+
+        :param op: operation performed (ex: 'PUT', or 'DELETE')
+        :param account: account name for the object
+        :param container: container name for the object
+        :param obj: object name
+        :param headers_in: dictionary of headers from the original request
+        :param objdevice: device name that the object is in
+        """
+        host = partition = contdevice = None
+        headers_out = {'x-timestamp': headers_in['x-timestamp'],
+                       'x-trans-id': headers_in.get('x-trans-id', '-')}
+        if op != 'DELETE':
+            host = headers_in.get('X-Delete-At-Host', None)
+            partition = headers_in.get('X-Delete-At-Partition', None)
+            contdevice = headers_in.get('X-Delete-At-Device', None)
+            headers_out['x-size'] = '0'
+            headers_out['x-content-type'] = 'text/plain'
+            headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
+        self.async_update(op, self.expiring_objects_account,
+            str(delete_at / self.expiring_objects_container_divisor *
+                self.expiring_objects_container_divisor),
+            '%s-%s/%s/%s' % (delete_at, account, container, obj),
+            host, partition, contdevice, headers_out, objdevice)
 
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
@@ -430,11 +487,18 @@ class ObjectController(object):
                     not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
                         content_type='text/plain')
+        new_delete_at = int(request.headers.get('X-Delete-At') or 0)
+        if new_delete_at and new_delete_at < time.time():
+            return HTTPBadRequest(body='X-Delete-At in past', request=request,
+                                  content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
 
+        if 'X-Delete-At' in file.metadata and \
+                int(file.metadata['X-Delete-At']) <= time.time():
+            return HTTPNotFound(request=request)
         if file.is_deleted():
             response_class = HTTPNotFound
         else:
@@ -451,6 +515,14 @@ class ObjectController(object):
             if header_key in request.headers:
                 header_caps = header_key.title()
                 metadata[header_caps] = request.headers[header_key]
+        old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
+        if old_delete_at != new_delete_at:
+            if new_delete_at:
+                self.delete_at_update('PUT', new_delete_at, account, container,
+                                      obj, request.headers, device)
+            if old_delete_at:
+                self.delete_at_update('DELETE', old_delete_at, account,
+                                      container, obj, request.headers, device)
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.meta')
         return response_class(request=request)
@@ -472,6 +544,10 @@ class ObjectController(object):
         error_response = check_object_creation(request, obj)
         if error_response:
             return error_response
+        new_delete_at = int(request.headers.get('X-Delete-At') or 0)
+        if new_delete_at and new_delete_at < time.time():
+            return HTTPBadRequest(body='X-Delete-At in past', request=request,
+                                  content_type='text/plain')
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         orig_timestamp = file.metadata.get('X-Timestamp')
@@ -517,6 +593,14 @@ class ObjectController(object):
                 if header_key in request.headers:
                     header_caps = header_key.title()
                     metadata[header_caps] = request.headers[header_key]
+            old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
+            if old_delete_at != new_delete_at:
+                if new_delete_at:
+                    self.delete_at_update('PUT', new_delete_at, account,
+                        container, obj, request.headers, device)
+                if old_delete_at:
+                    self.delete_at_update('DELETE', old_delete_at, account,
+                        container, obj, request.headers, device)
             file.put(fd, tmppath, metadata)
         file.unlinkold(metadata['X-Timestamp'])
         if not orig_timestamp or \
@@ -545,7 +629,8 @@ class ObjectController(object):
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, keep_data_fp=True,
                         disk_chunk_size=self.disk_chunk_size)
-        if file.is_deleted():
+        if file.is_deleted() or ('X-Delete-At' in file.metadata and
+                int(file.metadata['X-Delete-At']) <= time.time()):
             if request.headers.get('if-match') == '*':
                 return HTTPPreconditionFailed(request=request)
             else:
@@ -619,7 +704,8 @@ class ObjectController(object):
             return Response(status='507 %s is not mounted' % device)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
-        if file.is_deleted():
+        if file.is_deleted() or ('X-Delete-At' in file.metadata and
+                int(file.metadata['X-Delete-At']) <= time.time()):
             return HTTPNotFound(request=request)
         try:
             file_size = file.get_data_file_size()
@@ -660,6 +746,11 @@ class ObjectController(object):
         response_class = HTTPNoContent
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
+        if 'x-if-delete-at' in request.headers and \
+                int(request.headers['x-if-delete-at']) != \
+                int(file.metadata.get('X-Delete-At') or 0):
+            return HTTPPreconditionFailed(request=request,
+                body='X-If-Delete-At and X-Delete-At do not match')
         orig_timestamp = file.metadata.get('X-Timestamp')
         if file.is_deleted():
             response_class = HTTPNotFound
@@ -667,6 +758,10 @@ class ObjectController(object):
             'X-Timestamp': request.headers['X-Timestamp'], 'deleted': True,
         }
         with file.mkstemp() as (fd, tmppath):
+            old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
+            if old_delete_at:
+                self.delete_at_update('DELETE', old_delete_at, account,
+                                      container, obj, request.headers, device)
             file.put(fd, tmppath, metadata, extension='.ts')
         file.unlinkold(metadata['X-Timestamp'])
         if not orig_timestamp or \

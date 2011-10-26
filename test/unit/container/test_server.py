@@ -892,6 +892,47 @@ class TestContainerController(unittest.TestCase):
             resp = self.controller.GET(req)
             self.assert_(resp.status_int in (204, 412), resp.status_int)
 
+    def test_put_auto_create(self):
+        headers = {'x-timestamp': normalize_timestamp(1),
+                   'x-size': '0',
+                   'x-content-type': 'text/plain',
+                   'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+
+        resp = self.controller.PUT(Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
+        resp = self.controller.PUT(Request.blank('/sda1/p/.a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 201)
+
+        resp = self.controller.PUT(Request.blank('/sda1/p/a/.c/o',
+            environ={'REQUEST_METHOD': 'PUT'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
+        resp = self.controller.PUT(Request.blank('/sda1/p/a/.c/.o',
+            environ={'REQUEST_METHOD': 'PUT'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
+    def test_delete_auto_create(self):
+        headers = {'x-timestamp': normalize_timestamp(1)}
+
+        resp = self.controller.DELETE(Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
+        resp = self.controller.DELETE(Request.blank('/sda1/p/.a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 204)
+
+        resp = self.controller.DELETE(Request.blank('/sda1/p/a/.c/o',
+            environ={'REQUEST_METHOD': 'DELETE'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
+        resp = self.controller.DELETE(Request.blank('/sda1/p/a/.c/.o',
+            environ={'REQUEST_METHOD': 'DELETE'}, headers=dict(headers)))
+        self.assertEquals(resp.status_int, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

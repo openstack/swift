@@ -34,6 +34,7 @@ from test.unit import _getxattr as getxattr
 from test.unit import _setxattr as setxattr
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
+from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
 from swift.common.exceptions import DiskFileNotExist
@@ -290,6 +291,7 @@ class TestObjectController(unittest.TestCase):
 
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
+        utils.HASH_PATH_SUFFIX = 'endcap'
         self.testdir = \
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
@@ -1481,6 +1483,555 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.GET(req)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.headers.get('x-object-manifest'), 'c/o/')
+
+    def test_async_update_http_connect(self):
+        given_args = []
+
+        def fake_http_connect(*args):
+            given_args.extend(args)
+            raise Exception('test')
+
+        orig_http_connect = object_server.http_connect
+        try:
+            object_server.http_connect = fake_http_connect
+            self.object_controller.async_update('PUT', 'a', 'c', 'o',
+                '127.0.0.1:1234', 1, 'sdc1',
+                {'x-timestamp': '1', 'x-out': 'set'}, 'sda1')
+        finally:
+            object_server.http_connect = orig_http_connect
+        self.assertEquals(given_args, ['127.0.0.1', '1234', 'sdc1', 1, 'PUT',
+            '/a/c/o', {'x-timestamp': '1', 'x-out': 'set'}])
+
+    def test_async_update_saves_on_exception(self):
+
+        def fake_http_connect(*args):
+            raise Exception('test')
+
+        orig_http_connect = object_server.http_connect
+        try:
+            object_server.http_connect = fake_http_connect
+            self.object_controller.async_update('PUT', 'a', 'c', 'o',
+                '127.0.0.1:1234', 1, 'sdc1',
+                {'x-timestamp': '1', 'x-out': 'set'}, 'sda1')
+        finally:
+            object_server.http_connect = orig_http_connect
+        self.assertEquals(
+            pickle.load(open(os.path.join(self.testdir, 'sda1',
+                'async_pending', 'a83',
+                '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
+            {'headers': {'x-timestamp': '1', 'x-out': 'set'}, 'account': 'a',
+             'container': 'c', 'obj': 'o', 'op': 'PUT'})
+
+    def test_async_update_saves_on_non_2xx(self):
+
+        def fake_http_connect(status):
+
+            class FakeConn(object):
+
+                def __init__(self, status):
+                    self.status = status
+
+                def getresponse(self):
+                    return self
+
+                def read(self):
+                    return ''
+
+            return lambda *args: FakeConn(status)
+
+        orig_http_connect = object_server.http_connect
+        try:
+            for status in (199, 300, 503):
+                object_server.http_connect = fake_http_connect(status)
+                self.object_controller.async_update('PUT', 'a', 'c', 'o',
+                    '127.0.0.1:1234', 1, 'sdc1',
+                    {'x-timestamp': '1', 'x-out': str(status)}, 'sda1')
+                self.assertEquals(
+                    pickle.load(open(os.path.join(self.testdir, 'sda1',
+                        'async_pending', 'a83',
+                        '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
+                    {'headers': {'x-timestamp': '1', 'x-out': str(status)},
+                     'account': 'a', 'container': 'c', 'obj': 'o',
+                     'op': 'PUT'})
+        finally:
+            object_server.http_connect = orig_http_connect
+
+    def test_async_update_does_not_save_on_2xx(self):
+
+        def fake_http_connect(status):
+
+            class FakeConn(object):
+
+                def __init__(self, status):
+                    self.status = status
+
+                def getresponse(self):
+                    return self
+
+                def read(self):
+                    return ''
+
+            return lambda *args: FakeConn(status)
+
+        orig_http_connect = object_server.http_connect
+        try:
+            for status in (200, 299):
+                object_server.http_connect = fake_http_connect(status)
+                self.object_controller.async_update('PUT', 'a', 'c', 'o',
+                    '127.0.0.1:1234', 1, 'sdc1',
+                    {'x-timestamp': '1', 'x-out': str(status)}, 'sda1')
+                self.assertFalse(
+                    os.path.exists(os.path.join(self.testdir, 'sda1',
+                        'async_pending', 'a83',
+                        '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000')))
+        finally:
+            object_server.http_connect = orig_http_connect
+
+    def test_delete_at_update_put(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
+            {'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, ['PUT', '.expiring_objects', '0',
+            '2-a/c/o', None, None, None,
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1',
+             'x-trans-id': '-'},
+            'sda1'])
+
+    def test_delete_at_update_put_with_info(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
+            {'x-timestamp': '1', 'X-Delete-At-Host': '127.0.0.1:1234',
+             'X-Delete-At-Partition': '3', 'X-Delete-At-Device': 'sdc1'},
+            'sda1')
+        self.assertEquals(given_args, ['PUT', '.expiring_objects', '0',
+            '2-a/c/o', '127.0.0.1:1234', '3', 'sdc1',
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1',
+             'x-trans-id': '-'},
+            'sda1'])
+
+    def test_delete_at_update_delete(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
+            {'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, ['DELETE', '.expiring_objects', '0',
+            '2-a/c/o', None, None, None,
+            {'x-timestamp': '1', 'x-trans-id': '-'}, 'sda1'])
+
+    def test_POST_calls_delete_at(self):
+        given_args = []
+
+        def fake_delete_at_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.delete_at_update = fake_delete_at_update
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(given_args, [])
+
+        sleep(.00001)
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(given_args, [])
+
+        sleep(.00001)
+        timestamp1 = normalize_timestamp(time())
+        delete_at_timestamp1 = str(int(time() + 1000))
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'application/x-test',
+                     'X-Delete-At': delete_at_timestamp1})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(given_args, [
+            'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
+            {'X-Delete-At': delete_at_timestamp1,
+             'Content-Type': 'application/x-test',
+             'X-Timestamp': timestamp1,
+             'Host': 'localhost:80'},
+            'sda1'])
+
+        while given_args:
+            given_args.pop()
+
+        sleep(.00001)
+        timestamp2 = normalize_timestamp(time())
+        delete_at_timestamp2 = str(int(time() + 2000))
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Type': 'application/x-test',
+                     'X-Delete-At': delete_at_timestamp2})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(given_args, [
+            'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
+            {'X-Delete-At': delete_at_timestamp2,
+             'Content-Type': 'application/x-test',
+             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
+            'sda1',
+            'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
+            # This 2 timestamp is okay because it's ignored since it's just
+            # part of the current request headers. The above 1 timestamp is the
+            # important one.
+            {'X-Delete-At': delete_at_timestamp2,
+             'Content-Type': 'application/x-test',
+             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
+            'sda1'])
+
+    def test_PUT_calls_delete_at(self):
+        given_args = []
+
+        def fake_delete_at_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.delete_at_update = fake_delete_at_update
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(given_args, [])
+
+        sleep(.00001)
+        timestamp1 = normalize_timestamp(time())
+        delete_at_timestamp1 = str(int(time() + 1000))
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream',
+                     'X-Delete-At': delete_at_timestamp1})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(given_args, [
+            'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
+            {'X-Delete-At': delete_at_timestamp1,
+             'Content-Length': '4',
+             'Content-Type': 'application/octet-stream',
+             'X-Timestamp': timestamp1,
+             'Host': 'localhost:80'},
+            'sda1'])
+
+        while given_args:
+            given_args.pop()
+
+        sleep(.00001)
+        timestamp2 = normalize_timestamp(time())
+        delete_at_timestamp2 = str(int(time() + 2000))
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream',
+                     'X-Delete-At': delete_at_timestamp2})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(given_args, [
+            'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
+            {'X-Delete-At': delete_at_timestamp2,
+             'Content-Length': '4',
+             'Content-Type': 'application/octet-stream',
+             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
+            'sda1',
+            'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
+            # This 2 timestamp is okay because it's ignored since it's just
+            # part of the current request headers. The above 1 timestamp is the
+            # important one.
+            {'X-Delete-At': delete_at_timestamp2,
+             'Content-Length': '4',
+             'Content-Type': 'application/octet-stream',
+             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
+            'sda1'])
+
+    def test_GET_but_expired(self):
+        test_time = time() + 10000
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+                     'X-Delete-At': str(int(test_time + 100)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': normalize_timestamp(test_time)})
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 200)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
+                     'X-Delete-At': str(int(time() + 1)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': normalize_timestamp(test_time)})
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 200)
+
+        orig_time = object_server.time.time
+        try:
+            t = time() + 2
+            object_server.time.time = lambda: t
+            req = Request.blank('/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'X-Timestamp': normalize_timestamp(t)})
+            resp = self.object_controller.GET(req)
+            self.assertEquals(resp.status_int, 404)
+        finally:
+            object_server.time.time = orig_time
+
+    def test_HEAD_but_expired(self):
+        test_time = time() + 10000
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+                     'X-Delete-At': str(int(test_time + 100)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'X-Timestamp': normalize_timestamp(test_time)})
+        resp = self.object_controller.HEAD(req)
+        self.assertEquals(resp.status_int, 200)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
+                     'X-Delete-At': str(int(time() + 1)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'X-Timestamp': normalize_timestamp(test_time)})
+        resp = self.object_controller.HEAD(req)
+        self.assertEquals(resp.status_int, 200)
+
+        orig_time = object_server.time.time
+        try:
+            t = time() + 2
+            object_server.time.time = lambda: t
+            req = Request.blank('/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'HEAD'},
+                headers={'X-Timestamp': normalize_timestamp(time())})
+            resp = self.object_controller.HEAD(req)
+            self.assertEquals(resp.status_int, 404)
+        finally:
+            object_server.time.time = orig_time
+
+    def test_POST_but_expired(self):
+        test_time = time() + 10000
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+                     'X-Delete-At': str(int(test_time + 100)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 1500)})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
+                     'X-Delete-At': str(int(time() + 1)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        orig_time = object_server.time.time
+        try:
+            t = time() + 2
+            object_server.time.time = lambda: t
+            req = Request.blank('/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': normalize_timestamp(time())})
+            resp = self.object_controller.POST(req)
+            self.assertEquals(resp.status_int, 404)
+        finally:
+            object_server.time.time = orig_time
+
+    def test_DELETE_if_delete_at(self):
+        test_time = time() + 10000
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 99),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 98)})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 204)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 97),
+                     'X-Delete-At': str(int(test_time - 1)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 95),
+                     'X-If-Delete-At': str(int(test_time))})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 412)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 95)})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 204)
+
+        delete_at_timestamp = str(int(test_time - 1))
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 94),
+                     'X-Delete-At': delete_at_timestamp,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
+                     'X-If-Delete-At': str(int(test_time))})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 412)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
+                     'X-If-Delete-At': delete_at_timestamp})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_DELETE_calls_delete_at(self):
+        given_args = []
+
+        def fake_delete_at_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.delete_at_update = fake_delete_at_update
+
+        timestamp1 = normalize_timestamp(time())
+        delete_at_timestamp1 = str(int(time() + 1000))
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream',
+                     'X-Delete-At': delete_at_timestamp1})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        self.assertEquals(given_args, [
+            'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
+            {'X-Delete-At': delete_at_timestamp1,
+             'Content-Length': '4',
+             'Content-Type': 'application/octet-stream',
+             'X-Timestamp': timestamp1,
+             'Host': 'localhost:80'},
+            'sda1'])
+
+        while given_args:
+            given_args.pop()
+
+        sleep(.00001)
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Type': 'application/octet-stream'})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(given_args, [
+            'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
+            {'Content-Type': 'application/octet-stream',
+             'Host': 'localhost:80', 'X-Timestamp': timestamp2},
+            'sda1'])
+
+    def test_PUT_delete_at_in_past(self):
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'X-Delete-At': str(int(time() - 1)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
+        self.assertTrue('X-Delete-At in past' in resp.body)
+
+    def test_POST_delete_at_in_past(self):
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(time() + 1),
+                     'X-Delete-At': str(int(time() - 1))})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 400)
+        self.assertTrue('X-Delete-At in past' in resp.body)
 
 
 if __name__ == '__main__':

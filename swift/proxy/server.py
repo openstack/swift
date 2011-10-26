@@ -64,7 +64,8 @@ def update_headers(response, headers):
         if name == 'etag':
             response.headers[name] = value.replace('"', '')
         elif name not in ('date', 'content-length', 'content-type',
-                          'connection', 'x-timestamp', 'x-put-timestamp'):
+                          'connection', 'x-timestamp', 'x-put-timestamp',
+                          'x-delete-after'):
             response.headers[name] = value
 
 
@@ -882,6 +883,14 @@ class ObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
+        if 'x-delete-after' in req.headers:
+            try:
+                x_delete_after = int(req.headers['x-delete-after'])
+            except ValueError:
+                    return HTTPBadRequest(request=req,
+                                          content_type='text/plain',
+                                          body='Non-integer X-Delete-After')
+            req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
         if self.app.object_post_as_copy:
             req.method = 'PUT'
             req.path_info = '/%s/%s/%s' % (self.account_name,
@@ -910,6 +919,24 @@ class ObjectController(Controller):
                     return aresp
             if not containers:
                 return HTTPNotFound(request=req)
+            if 'x-delete-at' in req.headers:
+                try:
+                    x_delete_at = int(req.headers['x-delete-at'])
+                    if x_delete_at < time.time():
+                        return HTTPBadRequest(body='X-Delete-At in past',
+                            request=req, content_type='text/plain')
+                except ValueError:
+                    return HTTPBadRequest(request=req,
+                                          content_type='text/plain',
+                                          body='Non-integer X-Delete-At')
+                delete_at_container = str(x_delete_at /
+                    self.app.expiring_objects_container_divisor *
+                    self.app.expiring_objects_container_divisor)
+                delete_at_part, delete_at_nodes = \
+                    self.app.container_ring.get_nodes(
+                        self.app.expiring_objects_account, delete_at_container)
+            else:
+                delete_at_part = delete_at_nodes = None
             partition, nodes = self.app.object_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
             req.headers['X-Timestamp'] = normalize_timestamp(time.time())
@@ -919,6 +946,11 @@ class ObjectController(Controller):
                 nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
                 nheaders['X-Container-Partition'] = container_partition
                 nheaders['X-Container-Device'] = container['device']
+                if delete_at_nodes:
+                    node = delete_at_nodes.pop(0)
+                    nheaders['X-Delete-At-Host'] = '%(ip)s:%(port)s' % node
+                    nheaders['X-Delete-At-Partition'] = delete_at_part
+                    nheaders['X-Delete-At-Device'] = node['device']
                 headers.append(nheaders)
             return self.make_requests(req, self.app.object_ring,
                     partition, 'POST', req.path_info, headers)
@@ -969,6 +1001,31 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
+        if 'x-delete-after' in req.headers:
+            try:
+                x_delete_after = int(req.headers['x-delete-after'])
+            except ValueError:
+                    return HTTPBadRequest(request=req,
+                                          content_type='text/plain',
+                                          body='Non-integer X-Delete-After')
+            req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
+        if 'x-delete-at' in req.headers:
+            try:
+                x_delete_at = int(req.headers['x-delete-at'])
+                if x_delete_at < time.time():
+                    return HTTPBadRequest(body='X-Delete-At in past',
+                        request=req, content_type='text/plain')
+            except ValueError:
+                return HTTPBadRequest(request=req, content_type='text/plain',
+                                      body='Non-integer X-Delete-At')
+            delete_at_container = str(x_delete_at /
+                self.app.expiring_objects_container_divisor *
+                self.app.expiring_objects_container_divisor)
+            delete_at_part, delete_at_nodes = \
+                self.app.container_ring.get_nodes(
+                    self.app.expiring_objects_account, delete_at_container)
+        else:
+            delete_at_part = delete_at_nodes = None
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # Used by container sync feature
@@ -1064,6 +1121,11 @@ class ObjectController(Controller):
             nheaders['X-Container-Partition'] = container_partition
             nheaders['X-Container-Device'] = container['device']
             nheaders['Expect'] = '100-continue'
+            if delete_at_nodes:
+                node = delete_at_nodes.pop(0)
+                nheaders['X-Delete-At-Host'] = '%(ip)s:%(port)s' % node
+                nheaders['X-Delete-At-Partition'] = delete_at_part
+                nheaders['X-Delete-At-Device'] = node['device']
             pile.spawn(self._connect_put_node, node_iter, partition,
                         req.path_info, nheaders)
         conns = [conn for conn in pile if conn]
@@ -1549,6 +1611,11 @@ class BaseApplication(object):
                        [os.path.join(swift_dir, 'mime.types')])
         self.account_autocreate = \
             conf.get('account_autocreate', 'no').lower() in TRUE_VALUES
+        self.expiring_objects_account = \
+            (conf.get('auto_create_account_prefix') or '.') + \
+            'expiring_objects'
+        self.expiring_objects_container_divisor = \
+            int(conf.get('expiring_objects_container_divisor') or 86400)
 
     def get_controller(self, path):
         """

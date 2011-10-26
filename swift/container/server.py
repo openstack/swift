@@ -61,6 +61,8 @@ class ContainerController(object):
             if h.strip()]
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
             ContainerBroker, self.mount_check, logger=self.logger)
+        self.auto_create_account_prefix = \
+            conf.get('auto_create_account_prefix') or '.'
 
     def _get_container_broker(self, drive, part, account, container):
         """
@@ -145,6 +147,10 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_container_broker(drive, part, account, container)
+        if account.startswith(self.auto_create_account_prefix) and obj and \
+                not os.path.exists(broker.db_file):
+            broker.initialize(normalize_timestamp(
+                req.headers.get('x-timestamp') or time.time()))
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
@@ -188,6 +194,9 @@ class ContainerController(object):
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
+            if account.startswith(self.auto_create_account_prefix) and \
+                    not os.path.exists(broker.db_file):
+                broker.initialize(timestamp)
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
             broker.put_object(obj, timestamp, int(req.headers['x-size']),

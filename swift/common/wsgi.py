@@ -204,6 +204,7 @@ def make_pre_authed_request(env, method, path, body=None, headers=None,
     :param headers: Extra HTTP headers of new request; None by default
 
     :returns: webob.Request object
+
     (Stolen from Swauth: https://github.com/gholt/swauth)
     """
     newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': agent}

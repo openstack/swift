@@ -45,6 +45,7 @@ Overview and Concepts
     ratelimit
     overview_large_objects
     overview_container_sync
+    overview_expiring_objects
 
 Developer Documentation
 =======================
