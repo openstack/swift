@@ -28,7 +28,7 @@ Installing dependencies and the core code
   #. `apt-get install python-software-properties`
   #. `add-apt-repository ppa:swift-core/ppa`
   #. `apt-get update`
-  #. `apt-get install curl gcc bzr memcached python-configobj
+  #. `apt-get install curl gcc git-core memcached python-configobj
      python-coverage python-dev python-nose python-setuptools python-simplejson
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy python-netifaces`
@@ -229,19 +229,10 @@ Getting the code and setting up test environment
 
 Sample configuration files are provided with all defaults in line-by-line comments. 
 
-Do these commands as you on guest. The bazaar configuration is optional; you can always do a bzr branch command regardless of whether you have a Launchpad account:
+Do these commands as you on guest. 
 
   #. `mkdir ~/bin`
-  #. (optional) `mkdir ~/.bazaar`
-  #. (optional) Create `~/.bazaar/bazaar.conf`::
-
-        [DEFAULT]
-                email = Your Name <your-email-address>
-  #. (optional) If you are using launchpad to get the code or make changes, run
-     `bzr launchpad-login <launchpad_id>`
-  #. Create the swift repo with `bzr init-repo swift`
-  #. Check out a bzr branch of swift, for example:
-     `cd ~/swift; bzr branch lp:swift trunk`
+  #. Check out the swift repo with `git clone https://github.com/openstack/swift.git`
   #. Build a development installation of swift, for example: 
      `cd ~/swift/trunk; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
@@ -629,15 +620,15 @@ Setting up scripts for running Swift
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
-  #. `cd ~/swift/trunk; ./.unittests`
+  #. `cd ~/swift; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
-  #. `cp ~/swift/trunk/test/functional/sample.conf /etc/swift/func_test.conf`
-  #. `cd ~/swift/trunk; ./.functests` (Note: functional tests will first delete
+  #. `cp ~/swift/test/functional/sample.conf /etc/swift/func_test.conf`
+  #. `cd ~/swift; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
-  #. `cd ~/swift/trunk; ./.probetests` (Note: probe tests will reset your
+  #. `cd ~/swift; ./.probetests` (Note: probe tests will reset your
      environment as they call `resetswift` for each test.)
 
 If you plan to work on documentation (and who doesn't?!):
