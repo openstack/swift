@@ -24,7 +24,8 @@ from xml.sax import saxutils
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
-    HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, HTTPPreconditionFailed
+    HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
+    HTTPPreconditionFailed, HTTPConflict
 import simplejson
 
 from swift.common.db import AccountBroker
