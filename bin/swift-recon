@@ -262,7 +262,7 @@ def disk_usage(hosts):
             lows.append(low)
             averages.append(average)
             for percent in stats[url]:
-                percents[percent] = percents.get(percent, 0) + 1
+                percents[int(percent)] = percents.get(int(percent), 0) + 1
         else:
             print "-> %s: Error. No drive info available." % url
 
