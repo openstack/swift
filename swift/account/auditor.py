@@ -22,6 +22,8 @@ from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, audit_location_generator
 from swift.common.daemon import Daemon
 
+from eventlet import Timeout
+
 
 class AccountAuditor(Daemon):
     """Audit accounts."""
@@ -98,7 +100,7 @@ class AccountAuditor(Daemon):
                 info = broker.get_info()
                 self.account_passes += 1
                 self.logger.debug(_('Audit passed for %s') % broker.db_file)
-        except Exception:
+        except (Exception, Timeout):
             self.account_failures += 1
             self.logger.exception(_('ERROR Could not get account info %s'),
                 (broker.db_file))

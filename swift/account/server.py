@@ -21,6 +21,7 @@ import traceback
 from urllib import unquote
 from xml.sax import saxutils
 
+from eventlet import Timeout
 from webob import Request, Response
 from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
@@ -312,7 +313,7 @@ class AccountController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except Exception:
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())

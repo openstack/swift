@@ -18,7 +18,7 @@ from sys import exc_info
 from time import time
 from urllib import quote
 
-from eventlet import sleep, TimeoutError
+from eventlet import sleep, Timeout
 from paste.deploy import loadapp
 from webob import Request
 
@@ -99,20 +99,20 @@ class ObjectExpirer(Daemon):
                         self.delete_actual_object(actual_obj, timestamp)
                         self.delete_object(container, obj)
                         self.report_objects += 1
-                    except (Exception, TimeoutError), err:
+                    except (Exception, Timeout), err:
                         self.logger.exception(
                             _('Exception while deleting object %s %s %s') %
                             (container, obj, str(err)))
                     self.report()
                 try:
                     self.delete_container(container)
-                except (Exception, TimeoutError), err:
+                except (Exception, Timeout), err:
                     self.logger.exception(
                         _('Exception while deleting container %s %s') %
                         (container, str(err)))
             self.logger.debug(_('Run end'))
             self.report(final=True)
-        except (Exception, TimeoutError):
+        except (Exception, Timeout):
             self.logger.exception(_('Unhandled exception'))
 
     def run_forever(self, *args, **kwargs):
@@ -129,7 +129,7 @@ class ObjectExpirer(Daemon):
             begin = time()
             try:
                 self.run_once()
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.logger.exception(_('Unhandled exception'))
             elapsed = time() - begin
             if elapsed < self.interval:
@@ -146,7 +146,7 @@ class ObjectExpirer(Daemon):
                 if resp.status_int in acceptable_statuses or \
                         resp.status_int // 100 in acceptable_statuses:
                     return resp
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 exc_type, exc_value, exc_traceback = exc_info()
             sleep(2 ** (attempt + 1))
         if resp:

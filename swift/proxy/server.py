@@ -31,7 +31,7 @@ import functools
 from hashlib import md5
 from random import shuffle
 
-from eventlet import sleep, GreenPile, Queue, TimeoutError
+from eventlet import sleep, GreenPile, Queue, Timeout
 from eventlet.timeout import Timeout
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPMethodNotAllowed, \
     HTTPNotFound, HTTPPreconditionFailed, \
@@ -174,7 +174,7 @@ class SegmentedIterable(object):
             self.segment_iter = resp.app_iter
         except StopIteration:
             raise
-        except Exception, err:
+        except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_('ERROR: While '
                     'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
@@ -207,7 +207,7 @@ class SegmentedIterable(object):
                 yield chunk
         except StopIteration:
             raise
-        except Exception, err:
+        except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_('ERROR: While '
                     'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
@@ -254,7 +254,7 @@ class SegmentedIterable(object):
                 yield chunk
         except StopIteration:
             raise
-        except Exception, err:
+        except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_('ERROR: While '
                     'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
@@ -385,7 +385,7 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
         if result_code == 404 and autocreate:
@@ -475,7 +475,7 @@ class Controller(object):
                         attempts_left -= 1
                         if attempts_left <= 0:
                             break
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.exception_occurred(node, _('Container'),
                     _('Trying to get container info for %s') % path)
         if self.app.memcache and result_code in (200, 404):
@@ -626,7 +626,7 @@ class Controller(object):
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
                     possible_source = conn.getresponse()
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.exception_occurred(node, server_type,
                     _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
@@ -685,7 +685,7 @@ class Controller(object):
                     except GeneratorExit:
                         res.client_disconnect = True
                         self.app.logger.warn(_('Client disconnected on read'))
-                    except (Exception, TimeoutError):
+                    except (Exception, Timeout):
                         self.exception_occurred(node, _('Object'),
                             _('Trying to read during GET of %s') % req.path)
                         raise
@@ -1173,7 +1173,7 @@ class ObjectController(Controller):
             self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             return HTTPRequestTimeout(request=req)
-        except Exception:
+        except (Exception, Timeout):
             req.client_disconnect = True
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
@@ -1201,7 +1201,7 @@ class ObjectController(Controller):
                             'body': bodies[-1][:1024], 'path': req.path})
                     elif 200 <= response.status < 300:
                         etags.add(response.getheader('etag').strip('"'))
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.exception_occurred(conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
@@ -1663,7 +1663,7 @@ class BaseApplication(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except Exception:
+        except (Exception, Timeout):
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
             start_response('500 Server Error',
@@ -1733,7 +1733,7 @@ class BaseApplication(object):
                     if not getattr(handler, 'delay_denial', None):
                         return resp
             return handler(req)
-        except Exception:
+        except (Exception, Timeout):
             self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)
 

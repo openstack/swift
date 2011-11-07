@@ -588,7 +588,7 @@ class ObjectReplicator(Daemon):
             try:
                 dump_recon_cache('object_replication_time', total, \
                     self.recon_object)
-            except Exception:
+            except (Exception, Timeout):
                 self.logger.exception(_('Exception dumping recon cache'))
 
     def run_forever(self, *args, **kwargs):
@@ -606,7 +606,7 @@ class ObjectReplicator(Daemon):
                 try:
                     dump_recon_cache('object_replication_time', total, \
                         self.recon_object)
-                except Exception:
+                except (Exception, Timeout):
                     self.logger.exception(_('Exception dumping recon cache'))
             self.logger.debug(_('Replication sleeping for %s seconds.'),
                 self.run_pause)

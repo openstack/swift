@@ -33,7 +33,7 @@ from tempfile import TemporaryFile, NamedTemporaryFile
 
 from eventlet import sleep
 
-from swift.common.exceptions import TimeoutError, MessageTimeout, \
+from swift.common.exceptions import Timeout, MessageTimeout, \
         ConnectionTimeout
 from swift.common import utils
 
@@ -338,7 +338,7 @@ class TestUtils(unittest.TestCase):
         def log_exception(exc):
             try:
                 raise exc
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 logger.exception('blah')
         try:
             # establish base case

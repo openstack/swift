@@ -21,7 +21,7 @@ import time
 from random import random, shuffle
 from tempfile import mkstemp
 
-from eventlet import spawn, patcher, Timeout, TimeoutError
+from eventlet import spawn, patcher, Timeout
 
 from swift.container.server import DATADIR
 from swift.common.bufferedhttp import http_connect
@@ -262,7 +262,7 @@ class ContainerUpdater(Daemon):
                              'X-Object-Count': count,
                              'X-Bytes-Used': bytes,
                              'X-Account-Override-Deleted': 'yes'})
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR account update failed with '
                     '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
                 return 500
@@ -271,7 +271,7 @@ class ContainerUpdater(Daemon):
                 resp = conn.getresponse()
                 resp.read()
                 return resp.status
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)

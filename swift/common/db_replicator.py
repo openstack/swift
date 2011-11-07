@@ -23,7 +23,7 @@ import shutil
 import uuid
 import errno
 
-from eventlet import GreenPool, sleep, Timeout, TimeoutError
+from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
 import simplejson
 from webob import Response
@@ -90,7 +90,7 @@ class ReplConnection(BufferedHTTPConnection):
             response = self.getresponse()
             response.data = response.read()
             return response
-        except Exception:
+        except (Exception, Timeout):
             self.logger.exception(
                 _('ERROR reading HTTP response from %s'), self.node)
             return None
@@ -331,7 +331,7 @@ class Replicator(Daemon):
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
-        except Exception, e:
+        except (Exception, Timeout), e:
             if 'no such table' in str(e):
                 self.logger.error(_('Quarantining DB %s'), object_file)
                 quarantine_db(broker.db_file, broker.db_type)
@@ -370,7 +370,7 @@ class Replicator(Daemon):
             except DriveNotMounted:
                 repl_nodes.append(more_nodes.next())
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
                         ' %(node)s'), {'file': object_file, 'node': node})
             self.stats['success' if success else 'failure'] += 1
@@ -443,7 +443,7 @@ class Replicator(Daemon):
         while True:
             try:
                 self.run_once()
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR trying to replicate'))
             sleep(self.run_pause)
 
@@ -487,7 +487,7 @@ class ReplicatorRpc(object):
         timemark = time.time()
         try:
             info = broker.get_replication_info()
-        except Exception, e:
+        except (Exception, Timeout), e:
             if 'no such table' in str(e):
                 self.logger.error(_("Quarantining DB %s") % broker.db_file)
                 quarantine_db(broker.db_file, broker.db_type)

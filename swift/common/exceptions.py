@@ -13,17 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import TimeoutError
+from eventlet import Timeout
 
 
-class MessageTimeout(TimeoutError):
+class MessageTimeout(Timeout):
 
     def __init__(self, seconds=None, msg=None):
-        TimeoutError.__init__(self, seconds=seconds)
+        Timeout.__init__(self, seconds=seconds)
         self.msg = msg
 
     def __str__(self):
-        return '%s: %s' % (TimeoutError.__str__(self), self.msg)
+        return '%s: %s' % (Timeout.__str__(self), self.msg)
 
 
 class AuditException(Exception):
@@ -42,15 +42,15 @@ class AuthException(Exception):
     pass
 
 
-class ChunkReadTimeout(TimeoutError):
+class ChunkReadTimeout(Timeout):
     pass
 
 
-class ChunkWriteTimeout(TimeoutError):
+class ChunkWriteTimeout(Timeout):
     pass
 
 
-class ConnectionTimeout(TimeoutError):
+class ConnectionTimeout(Timeout):
     pass
 
 

@@ -33,8 +33,7 @@ from hashlib import md5
 from tempfile import mkdtemp
 
 import eventlet
-from eventlet import sleep, spawn, TimeoutError, util, wsgi, listen
-from eventlet.timeout import Timeout
+from eventlet import sleep, spawn, Timeout, util, wsgi, listen
 import simplejson
 from webob import Request, Response
 from webob.exc import HTTPNotFound, HTTPUnauthorized
@@ -166,7 +165,7 @@ def fake_http_connect(*code_iter, **kwargs):
             if kwargs.get('raise_exc'):
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
-                raise TimeoutError()
+                raise Timeout()
             return self
 
         def getexpect(self):

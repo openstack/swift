@@ -33,7 +33,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
-from eventlet import sleep, Timeout, TimeoutError, tpool
+from eventlet import sleep, Timeout, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, \
@@ -222,7 +222,7 @@ class DiskFile(object):
             try:
                 if verify_file:
                     self._handle_close_quarantine()
-            except Exception, e:
+            except (Exception, Timeout), e:
                 import traceback
                 self.logger.error(_('ERROR DiskFile %(data_file)s in '
                      '%(data_dir)s close failure: %(exc)s : %(stack)'),
@@ -412,7 +412,7 @@ class ObjectController(object):
                             'response from %(ip)s:%(port)s/%(dev)s'),
                             {'status': response.status, 'ip': ip, 'port': port,
                              'dev': contdevice})
-            except (Exception, TimeoutError):
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR container update failed with '
                     '%(ip)s:%(port)s/%(dev)s (saving for async update later)'),
                     {'ip': ip, 'port': port, 'dev': contdevice})
@@ -810,7 +810,7 @@ class ObjectController(object):
                     res = getattr(self, req.method)(req)
                 else:
                     res = HTTPMethodNotAllowed()
-            except Exception:
+            except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
