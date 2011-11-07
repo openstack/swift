@@ -27,9 +27,9 @@ And the following python libraries:
 Getting Swift
 -------------
 
-Swift's source code is hosted on launchpad and managed with bazaar.  The current trunk can be checked out with its launchpad alias:
+Swift's source code is hosted on github and managed with git.  The current trunk can be checked out like this:
 
-    ``bzr branch lp:swift``
+    ``git clone https://github.com/openstack/swift.git``
 
 A source tarball for the latest release of Swift is available on the `launchpad project page <https://launchpad.net/swift>`_.
 
