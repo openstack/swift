@@ -13,6 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# NOTE: swift_conn
+# You'll see swift_conn passed around a few places in this file. This is the
+# source httplib connection of whatever it is attached to.
+#   It is used when early termination of reading from the connection should
+# happen, such as when a range request is satisfied but there's still more the
+# source connection would like to send. To prevent having to read all the data
+# that could be left, the source connection can be .close() and then reads
+# commence to empty out any buffers.
+#   These shenanigans are to ensure all related objects can be garbage
+# collected. We've seen objects hang around forever otherwise.
+
 from __future__ import with_statement
 try:
     import simplejson as json
@@ -135,6 +146,8 @@ class SegmentedIterable(object):
         self.segment_peek = None
         self.seek = 0
         self.segment_iter = None
+        # See NOTE: swift_conn at top of file about this.
+        self.segment_iter_swift_conn = None
         self.position = 0
         self.response = response
         if not self.response:
@@ -172,6 +185,8 @@ class SegmentedIterable(object):
                 raise Exception(_('Could not load object segment %(path)s:' \
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             self.segment_iter = resp.app_iter
+            # See NOTE: swift_conn at top of file about this.
+            self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
         except StopIteration:
             raise
         except (Exception, Timeout), err:
@@ -252,6 +267,20 @@ class SegmentedIterable(object):
                         yield chunk[:length]
                         break
                 yield chunk
+            # See NOTE: swift_conn at top of file about this.
+            if self.segment_iter_swift_conn:
+                try:
+                    self.segment_iter_swift_conn.close()
+                except Exception:
+                    pass
+                self.segment_iter_swift_conn = None
+            if self.segment_iter:
+                try:
+                    while self.segment_iter.next():
+                        pass
+                except Exception:
+                    pass
+                self.segment_iter = None
         except StopIteration:
             raise
         except (Exception, Timeout), err:
@@ -626,6 +655,8 @@ class Controller(object):
                         query_string=req.query_string)
                 with Timeout(self.app.node_timeout):
                     possible_source = conn.getresponse()
+                    # See NOTE: swift_conn at top of file about this.
+                    possible_source.swift_conn = conn
             except (Exception, Timeout):
                 self.exception_occurred(node, server_type,
                     _('Trying to %(method)s %(path)s') %
@@ -690,6 +721,8 @@ class Controller(object):
                             _('Trying to read during GET of %s') % req.path)
                         raise
                 res.app_iter = file_iter()
+                # See NOTE: swift_conn at top of file about this.
+                res.swift_conn = source.swift_conn
                 update_headers(res, source.getheaders())
                 # Used by container sync feature
                 res.environ['swift_x_timestamp'] = \
