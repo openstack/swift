@@ -851,7 +851,7 @@ class ObjectController(Controller):
                     last_modified = datetime(*map(int, re.split('[^\d]',
                         last_modified)[:-1]))
                     etag = md5(
-                        '"'.join(o['hash'] for o in listing)).hexdigest()
+                        ''.join(o['hash'] for o in listing)).hexdigest()
                 else:
                     content_length = 0
                     last_modified = resp.last_modified

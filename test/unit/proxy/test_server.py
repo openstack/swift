@@ -2430,6 +2430,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEquals(headers[:len(exp)], exp)
         # Create the object segments
+        segment_etags = []
         for segment in xrange(5):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -2440,6 +2441,7 @@ class TestObjectController(unittest.TestCase):
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 201'
             self.assertEquals(headers[:len(exp)], exp)
+            segment_etags.append(md5('1234 ').hexdigest())
         # Create the object manifest file
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2465,6 +2467,8 @@ class TestObjectController(unittest.TestCase):
         self.assert_('X-Object-Manifest: segmented/name/' in headers)
         self.assert_('Content-Type: text/jibberish' in headers)
         self.assert_('Foo: barbaz' in headers)
+        expected_etag = md5(''.join(segment_etags)).hexdigest()
+        self.assert_('Etag: "%s"' % expected_etag in headers)
         body = fd.read()
         self.assertEquals(body, '1234 1234 1234 1234 1234 ')
         # Do it again but exceeding the container listing limit
