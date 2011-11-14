@@ -58,6 +58,9 @@ class BufferedHTTPResponse(HTTPResponse):
         self.will_close = _UNKNOWN      # conn will close at end of response
 
     def expect_response(self):
+        if self.fp:
+            self.fp.close()
+            self.fp = None
         self.fp = self.sock.makefile('rb', 0)
         version, status, reason = self._read_status()
         if status != CONTINUE:
@@ -69,6 +72,10 @@ class BufferedHTTPResponse(HTTPResponse):
             self.version = 11
             self.msg = HTTPMessage(self.fp, 0)
             self.msg.fp = None
+
+    def close(self):
+        HTTPResponse.close(self)
+        self.sock = None
 
 
 class BufferedHTTPConnection(HTTPConnection):
