@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from eventlet import Timeout
 from webob import Request
 from webob.exc import HTTPServerError
 import uuid
@@ -44,7 +45,7 @@ class CatchErrorMiddleware(object):
                 response_headers.append(trans_header)
                 return start_response(status, response_headers, exc_info)
             return self.app(env, my_start_response)
-        except Exception, err:
+        except (Exception, Timeout), err:
             self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',

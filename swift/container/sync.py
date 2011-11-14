@@ -18,7 +18,7 @@ from time import ctime, time
 from random import random, shuffle
 from struct import unpack_from
 
-from eventlet import sleep
+from eventlet import sleep, Timeout
 
 from swift.container import server as container_server
 from swift.common.client import ClientException, delete_object, put_object, \
@@ -322,7 +322,7 @@ class ContainerSync(Daemon):
                     sync_point1 = row['ROWID']
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
-        except Exception, err:
+        except (Exception, Timeout), err:
             self.container_failures += 1
             self.logger.exception(_('ERROR Syncing %s'), (broker.db_file))
 
@@ -415,7 +415,7 @@ class ContainerSync(Daemon):
                     {'db_file': broker.db_file, 'row': row})
             self.container_failures += 1
             return False
-        except Exception, err:
+        except (Exception, Timeout), err:
             self.logger.exception(
                 _('ERROR Syncing %(db_file)s %(row)s'),
                 {'db_file': broker.db_file, 'row': row})

@@ -21,8 +21,7 @@ from StringIO import StringIO
 from time import time
 from tempfile import mkdtemp
 
-from eventlet import spawn, TimeoutError, listen
-from eventlet.timeout import Timeout
+from eventlet import spawn, Timeout, listen
 import simplejson
 from webob import Request
 

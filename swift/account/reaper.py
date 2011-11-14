@@ -19,7 +19,7 @@ from logging import DEBUG
 from math import sqrt
 from time import time
 
-from eventlet import GreenPool, sleep
+from eventlet import GreenPool, sleep, Timeout
 
 from swift.account.server import DATADIR
 from swift.common.db import AccountBroker
@@ -233,12 +233,12 @@ class AccountReaper(Daemon):
                         self.container_pool.spawn(self.reap_container, account,
                                                   partition, nodes, container)
                     self.container_pool.waitall()
-                except Exception:
+                except (Exception, Timeout):
                     self.logger.exception(
                         _('Exception with containers for account %s'), account)
                 marker = containers[-1][0]
             log = 'Completed pass on account %s' % account
-        except Exception:
+        except (Exception, Timeout):
             self.logger.exception(
                 _('Exception with account %s'), account)
             log = _('Incomplete pass on account %s') % account
@@ -329,7 +329,7 @@ class AccountReaper(Daemon):
                     pool.spawn(self.reap_object, account, container, part,
                                nodes, obj['name'])
                 pool.waitall()
-            except Exception:
+            except (Exception, Timeout):
                 self.logger.exception(_('Exception with objects for container '
                     '%(container)s for account %(account)s'),
                     {'container': container, 'account': account})

@@ -15,8 +15,7 @@
 
 import unittest
 
-from eventlet import spawn, TimeoutError, listen
-from eventlet.timeout import Timeout
+from eventlet import spawn, Timeout, listen
 
 from swift.common import bufferedhttp
 

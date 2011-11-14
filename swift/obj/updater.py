@@ -20,7 +20,7 @@ import sys
 import time
 from random import random
 
-from eventlet import patcher, Timeout, TimeoutError
+from eventlet import patcher, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
@@ -214,7 +214,7 @@ class ObjectUpdater(Daemon):
                 resp = conn.getresponse()
                 resp.read()
                 return resp.status
-        except (Exception, TimeoutError):
+        except (Exception, Timeout):
             self.logger.exception(_('ERROR with remote server '
                 '%(ip)s:%(port)s/%(device)s'), node)
         return 500

@@ -17,6 +17,8 @@ import os
 import time
 from random import random
 
+from eventlet import Timeout
+
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, audit_location_generator
@@ -101,7 +103,7 @@ class ContainerAuditor(Daemon):
                 info = broker.get_info()
                 self.container_passes += 1
                 self.logger.debug(_('Audit passed for %s'), broker.db_file)
-        except Exception:
+        except (Exception, Timeout):
             self.container_failures += 1
             self.logger.exception(_('ERROR Could not get container info %s'),
                 (broker.db_file))

@@ -21,7 +21,7 @@ from hashlib import sha1
 import hmac
 import base64
 
-from eventlet import TimeoutError
+from eventlet import Timeout
 from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
@@ -300,7 +300,7 @@ class TempAuth(object):
                 response = self.handle_request(req)(env, start_response)
                 self.posthooklogger(env, req)
                 return response
-        except (Exception, TimeoutError):
+        except (Exception, Timeout):
             print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])

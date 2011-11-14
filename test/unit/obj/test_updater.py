@@ -22,8 +22,7 @@ from shutil import rmtree
 from time import time
 from distutils.dir_util import mkpath
 
-from eventlet import spawn, TimeoutError, listen
-from eventlet.timeout import Timeout
+from eventlet import spawn, Timeout, listen
 
 from swift.obj import updater as object_updater, server as object_server
 from swift.obj.server import ASYNCDIR

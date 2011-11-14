@@ -29,7 +29,7 @@ import errno
 from random import randint
 from tempfile import mkstemp
 
-from eventlet import sleep
+from eventlet import sleep, Timeout
 import simplejson as json
 import sqlite3
 
@@ -317,7 +317,7 @@ class DatabaseBroker(object):
             except:
                 pass
             self.possibly_quarantine(*sys.exc_info())
-        except Exception:
+        except (Exception, Timeout):
             conn.close()
             raise
 
@@ -336,13 +336,13 @@ class DatabaseBroker(object):
         conn.execute('BEGIN IMMEDIATE')
         try:
             yield True
-        except Exception:
+        except (Exception, Timeout):
             pass
         try:
             conn.execute('ROLLBACK')
             conn.isolation_level = orig_isolation_level
             self.conn = conn
-        except Exception:
+        except (Exception, Timeout):
             logging.exception(
                 _('Broker error trying to rollback locked connection'))
             conn.close()

@@ -19,6 +19,9 @@ import uuid
 import errno
 from hashlib import md5
 from random import random
+
+from eventlet import Timeout
+
 from swift.obj import server as object_server
 from swift.obj.replicator import invalidate_hash
 from swift.common.utils import get_logger, renamer, audit_location_generator, \
@@ -128,7 +131,7 @@ class AuditorWorker(object):
                 return
             try:
                 name = object_server.read_metadata(path)['name']
-            except Exception, exc:
+            except (Exception, Timeout), exc:
                 raise AuditException('Error when reading metadata: %s' % exc)
             _junk, account, container, obj = name.split('/', 3)
             df = object_server.DiskFile(self.devices, device, partition,
@@ -169,7 +172,7 @@ class AuditorWorker(object):
             object_server.quarantine_renamer(
                 os.path.join(self.devices, device), path)
             return
-        except Exception:
+        except (Exception, Timeout):
             self.errors += 1
             self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
