@@ -1,0 +1,120 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH swift-init 1 "8/26/2011" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B swift-init
+\- Openstack-swift swift-init tool
+
+.SH SYNOPSIS
+.LP
+.B swift-init
+ <server> [<server> ...] <command> [options]
+ 
+.SH DESCRIPTION 
+.PP
+The swift-init tool can be used to initialize all swift daemons available as part of
+openstack-swift. Instead of calling individual init.d scripts for each 
+swift daemon, one can just use swift-init. With swift-init you can initialize 
+just one swift service, such as the "proxy", or a combination of them. The tool also 
+allows one to use the keywords such as "all", "main" and "rest" for the <server> argument.
+
+
+\fBServers:\fR
+
+.PD 0
+.RS 4
+.IP "\fIproxy\fR" "4"
+.IP "    - Initializes the swift proxy daemon" 
+.RE
+
+.RS 4
+.IP "\fIobject\fR, \fIobject-replicator\fR, \fIobject-auditor\fR, \fIobject-updater\fR"
+.IP "    - Initialize the swift object daemons above"
+.RE
+
+.RS 4
+.IP "\fIcontainer\fR, \fIcontainer-update\fR, \fIcontainer-replicator\fR, \fIcontainer-auditor\fR"
+.IP "    - Initialize the swift container daemons above"
+.RE
+
+.RS 4
+.IP "\fIaccount\fR, \fIaccount-auditor\fR, \fIaccount-reaper\fR, \fIaccount-replicator\fR"
+.IP "    - Initializes the swift account daemons above"
+.RE
+
+.RS 4
+.IP "\fIall\fR"
+.IP "    - Initializes \fBall\fR the swift daemons"
+.RE
+
+.RS 4
+.IP "\fImain\fR"
+.IP "    - Initializes all the \fBmain\fR swift daemons "
+.IP "      (proxy, container, account and object servers)"
+.RE
+
+.RS 4
+.IP "\fIrest\fR"
+.IP "    - Initializes all the other \fBswift background daemons\fR such as"
+.IP "      (updater, replicator, auditor, reaper)"
+.RE
+.PD 
+
+
+\fBCommands:\fR
+
+.RS 4
+.PD 0
+.IP "\fIforce-reload\fR: \t\t alias for reload"
+.IP "\fIno-daemon\fR: \t\t start a server interactively"
+.IP "\fIno-wait\fR: \t\t\t spawn server and return immediately"
+.IP "\fIonce\fR: \t\t\t start server and run one pass on supporting daemons"
+.IP "\fIreload\fR: \t\t\t graceful shutdown then restart on supporting servers"
+.IP "\fIrestart\fR: \t\t\t stops then restarts server"
+.IP "\fIshutdown\fR: \t\t allow current requests to finish on supporting servers"
+.IP "\fIstart\fR: \t\t\t starts a server"
+.IP "\fIstatus\fR: \t\t\t display status of tracked pids for server"
+.IP "\fIstop\fR: \t\t\t stops a server"
+.PD 
+.RE
+
+
+
+\fBOptions:\fR
+.RS 4
+.PD 0 
+.IP "-h, --help \t\t\t show this help message and exit"
+.IP "-v, --verbose \t\t\t display verbose output"
+.IP "-w, --no-wait \t\t\t won't wait for server to start before returning
+.IP "-o, --once \t\t\t only run one pass of daemon
+.IP "-n, --no-daemon \t\t start server interactively
+.IP "-g, --graceful \t\t send SIGHUP to supporting servers
+.IP "-c N, --config-num=N \t send command to the Nth server only
+.PD 
+.RE
+
+
+.SH DOCUMENTATION
+.LP
+More documentation about Openstack-Swift can be found at 
+.BI http://swift.openstack.org/index.html
+
+
+
