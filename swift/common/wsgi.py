@@ -127,6 +127,11 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
 
     def run_server():
         wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
+        # Turn off logging requests by the underlying WSGI software.
+        wsgi.HttpProtocol.log_request = lambda *a: None
+        # Redirect logging other messages by the underlying WSGI software.
+        wsgi.HttpProtocol.log_message = \
+            lambda s, f, *a: logger.error('ERROR WSGI: ' + f % a)
         eventlet.hubs.use_hub('poll')
         eventlet.patcher.monkey_patch(all=False, socket=True)
         monkey_patch_mimetools()
