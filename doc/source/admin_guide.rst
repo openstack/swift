@@ -280,6 +280,7 @@ Request URI         Description
 /recon/diskusage    returns disk utilization for storage devices
 /recon/ringmd5      returns object/container/account ring md5sums
 /recon/quarantined  returns # of quarantined objects/accounts/containers
+/recon/sockstat     returns consumable info from /proc/net/sockstat|6
 ==================  ====================================================
 
 This information can also be queried via the swift-recon command line utility::
@@ -302,7 +303,9 @@ This information can also be queried via the swift-recon command line utility::
       -q, --quarantined     Get cluster quarantine stats
       --objmd5              Get md5sums of object.ring.gz and compare to local
                             copy
+      --sockstat            Get cluster socket usage stats
       --all                 Perform all checks. Equivalent to -arudlq --objmd5
+                            --socketstat
       -z ZONE, --zone=ZONE  Only query servers in specified zone
       --swiftdir=SWIFTDIR   Default = /etc/swift
 

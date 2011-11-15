@@ -92,6 +92,12 @@ def scout_quarantine(host):
     return url, content, status
 
 
+def scout_sockstat(host):
+    base_url = "http://%s:%s/recon/" % (host[0], host[1])
+    url, content, status = scout(base_url, "sockstat")
+    return url, content, status
+
+
 def get_ringmd5(hosts, ringfile):
     stats = {}
     matches = 0
@@ -233,6 +239,37 @@ def quarantine_check(hosts):
     print "=" * 79
 
 
+def socket_usage(hosts):
+    inuse4 = {}
+    mem = {}
+    inuse6 = {}
+    timewait = {}
+    orphan = {}
+    pool = eventlet.GreenPool(20)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print "[%s] Checking socket usage on %s hosts..." % (now, len(hosts))
+    for url, response, status in pool.imap(scout_sockstat, hosts):
+        if status == 200:
+            inuse4[url] = response['tcp_in_use']
+            mem[url] = response['tcp_mem_allocated_bytes']
+            inuse6[url] = response['tcp6_in_use']
+            timewait[url] = response['time_wait']
+            orphan[url] = response['orphan']
+    stats = {"tcp_in_use": inuse4, "tcp_mem_allocated_bytes": mem, \
+                "tcp6_in_use": inuse6, "time_wait": timewait, "orphan": orphan}
+    for item in stats:
+        if len(stats[item]) > 0:
+            low = min(stats[item].values())
+            high = max(stats[item].values())
+            total = sum(stats[item].values())
+            average = total / len(stats[item])
+            print "[%s] low: %d, high: %d, avg: %d, total: %d" % \
+                (item, low, high, average, total)
+        else:
+            print "Error: No hosts or info available."
+    print "=" * 79
+
+
 def disk_usage(hosts):
     stats = {}
     highs = []
@@ -309,10 +346,13 @@ def main():
         help="Get cluster quarantine stats")
     args.add_option('--objmd5', action="store_true",
         help="Get md5sums of object.ring.gz and compare to local copy")
+    args.add_option('--sockstat', action="store_true",
+        help="Get cluster socket usage stats")
     args.add_option('--all', action="store_true",
-        help="Perform all checks. Equivelent to -arudlq --objmd5")
+        help="Perform all checks. Equivalent to -arudlq --objmd5 --sockstat")
     args.add_option('--zone', '-z', type="int",
         help="Only query servers in specified zone")
+
     args.add_option('--swiftdir', default="/etc/swift",
         help="Default = /etc/swift")
     options, arguments = args.parse_args()
@@ -341,6 +381,7 @@ def main():
         disk_usage(hosts)
         get_ringmd5(hosts, obj_ring)
         quarantine_check(hosts)
+        socket_usage(hosts)
     else:
         if options.async:
             async_check(hosts)
@@ -356,6 +397,8 @@ def main():
             get_ringmd5(hosts, obj_ring)
         if options.quarantined:
             quarantine_check(hosts)
+        if options.sockstat:
+            socket_usage(hosts)
 
 
 if __name__ == '__main__':
