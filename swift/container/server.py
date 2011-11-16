@@ -306,10 +306,14 @@ class ContainerController(object):
                                   content_type='text/plain', request=req)
         if query_format:
             req.accept = 'application/%s' % query_format.lower()
-        out_content_type = req.accept.best_match(
-                                ['text/plain', 'application/json',
-                                 'application/xml', 'text/xml'],
-                                default_match='text/plain')
+        try:
+            out_content_type = req.accept.best_match(
+                                    ['text/plain', 'application/json',
+                                     'application/xml', 'text/xml'],
+                                    default_match='text/plain')
+        except AssertionError, err:
+            return HTTPBadRequest(body='bad accept header: %s' % req.accept,
+                                  content_type='text/plain', request=req)
         container_list = broker.list_objects_iter(limit, marker, end_marker,
                                                   prefix, delimiter, path)
         if out_content_type == 'application/json':

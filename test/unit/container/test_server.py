@@ -733,7 +733,24 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         result = [x['content_type'] for x in simplejson.loads(resp.body)]
         self.assertEquals(result, [u'\u2603', 'text/plain; "utf-8"'])
-
+        
+    def test_GET_accept_not_valid(self):
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+            'HTTP_X_TIMESTAMP': '0'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Put-Timestamp': '1',
+                                     'X-Delete-Timestamp': '0',
+                                     'X-Object-Count': '0',
+                                     'X-Bytes-Used': '0',
+                                     'X-Timestamp': normalize_timestamp(0)})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        req.accept = 'application/xml*'
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(resp.body, 'bad accept header: application/xml*')
+        
     def test_GET_limit(self):
         # make a container
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
