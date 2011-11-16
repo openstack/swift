@@ -16,6 +16,7 @@
 from webob import Request, Response
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.common.constraints import check_mount
+from resource import getpagesize
 from hashlib import md5
 try:
     import simplejson as json
@@ -170,6 +171,37 @@ class ReconMiddleware(object):
                         qcounts[qtype] += linkcount - 2
         return qcounts
 
+    def get_socket_info(self):
+        """
+        get info from /proc/net/sockstat and sockstat6
+
+        Note: The mem value is actually kernel pages, but we return bytes
+        allocated based on the systems page size.
+        """
+        sockstat = {}
+        try:
+            with open('/proc/net/sockstat') as proc_sockstat:
+                for entry in proc_sockstat:
+                    if entry.startswith("TCP: inuse"):
+                        tcpstats = entry.split()
+                        sockstat['tcp_in_use'] = int(tcpstats[2])
+                        sockstat['orphan'] = int(tcpstats[4])
+                        sockstat['time_wait'] = int(tcpstats[6])
+                        sockstat['tcp_mem_allocated_bytes'] = \
+                            int(tcpstats[10]) * getpagesize()
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                    raise
+        try:
+            with open('/proc/net/sockstat6') as proc_sockstat6:
+                for entry in proc_sockstat6:
+                    if entry.startswith("TCP6: inuse"):
+                        sockstat['tcp6_in_use'] = int(entry.split()[2])
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                raise
+        return sockstat
+
     def GET(self, req):
         error = False
         root, type = split_path(req.path, 1, 2, False)
@@ -204,6 +236,8 @@ class ReconMiddleware(object):
                 content = json.dumps(self.get_ring_md5())
             elif type == "quarantined":
                 content = json.dumps(self.get_quarantine_count())
+            elif type == "sockstat":
+                content = json.dumps(self.get_socket_info())
             else:
                 content = "Invalid path: %s" % req.path
                 return Response(request=req, status="400 Bad Request", \
