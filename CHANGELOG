@@ -1,3 +1,43 @@
+swift (1.4.4)
+
+    * Add sockstat info to recon.
+
+    * Fixed leak from SegmentedIterable.
+
+    * Fixed bufferedhttp to deref socks and fps.
+
+    * Add support for OS Auth API version 2.
+
+    * Make Eventlet's WSGI server log differently.
+
+    * Updated TimeoutError and except Exception refs.
+
+    * Fixed time-sensitive tests.
+
+    * Fixed object manifest etags.
+
+    * Fixes for swift-recon disk usage distribution graph.
+
+    * Adding new manpages for configuration files.
+
+    * Change bzr to swift in getting_started doc.
+
+    * Fixes the HTTPConflict import.
+
+    * Expiring Objects Support.
+
+    * Fixing bug with x-trans-id.
+
+    * Requote the source when doing a COPY.
+
+    * Add documentation for Swift Recon.
+
+    * Make drive audit regexes detect 4-letter drives.
+
+    * Adding what acc/cont/obj into the ratelimit error messages.
+
+    * Query only specific zone via swift-recon.
+
 swift (1.4.3)
 
     * Additional quarantine catching code.
