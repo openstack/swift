@@ -132,6 +132,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         # Redirect logging other messages by the underlying WSGI software.
         wsgi.HttpProtocol.log_message = \
             lambda s, f, *a: logger.error('ERROR WSGI: ' + f % a)
+        wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
         eventlet.hubs.use_hub('poll')
         eventlet.patcher.monkey_patch(all=False, socket=True)
         monkey_patch_mimetools()

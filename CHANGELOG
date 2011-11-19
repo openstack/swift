@@ -1,5 +1,7 @@
 swift (1.4.4)
 
+    * Fixes to prevent socket hoarding (memory leak)
+
     * Add sockstat info to recon.
 
     * Fixed leak from SegmentedIterable.
