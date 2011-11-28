@@ -144,6 +144,11 @@ class FakeAppObject(FakeApp):
     def __call__(self, env, start_response):
         if env['REQUEST_METHOD'] == 'GET' or env['REQUEST_METHOD'] == 'HEAD':
             if self.status == 200:
+                if 'HTTP_RANGE' in env:
+                    resp = Response(body=self.object_body,
+                                    conditional_response=True)
+                    iter = resp(env, start_response)
+                    return iter.pop()
                 start_response(Response().status)
                 start_response(self.response_headers)
                 if env['REQUEST_METHOD'] == 'GET':
@@ -463,6 +468,19 @@ class TestSwift3(unittest.TestCase):
 
     def test_object_GET(self):
         self._test_object_GETorHEAD('GET')
+
+    def test_object_GET_Range(self):
+        local_app = swift3.filter_factory({})(FakeAppObject())
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Range': 'bytes=0-3'})
+        resp = local_app(req.environ, local_app.app.do_start_response)
+        self.assertEquals(local_app.app.response_args[0].split()[0], '206')
+
+        headers = dict(local_app.app.response_args[1])
+        self.assertTrue('Content-Range' in  headers)
+        self.assertTrue(headers['Content-Range'].startswith('bytes 0-3'))
 
     def test_object_PUT_error(self):
         code = self._test_method_error(FakeAppObject, 'PUT',
