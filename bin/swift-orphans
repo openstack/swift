@@ -1,0 +1,105 @@
+#!/usr/bin/env python
+
+import optparse
+import os
+import signal
+import subprocess
+import sys
+
+
+if __name__ == '__main__':
+    parser = optparse.OptionParser(usage='''%prog [options]
+
+Lists and optionally kills orphaned Swift processes. This is done by scanning
+/var/run/swift for .pid files and listing any processes that look like Swift
+processes but aren't associated with the pids in those .pid files. Any Swift
+processes running with the 'once' parameter are ignored, as those are usually
+for full-speed audit scans and such.
+
+Example (sends SIGTERM to all orphaned Swift processes older than two hours):
+%prog -a 2 -k TERM
+        '''.strip())
+    parser.add_option('-a', '--age', dest='hours', type='int', default=24,
+        help='look for processes at least HOURS old; default: 24')
+    parser.add_option('-k', '--kill', dest='signal',
+        help='send SIGNAL to matched processes; default: just list process '
+             'information')
+    parser.add_option('-w', '--wide', dest='wide', default=False,
+        action='store_true', help="don't clip the listing at 80 characters")
+    (options, args) = parser.parse_args()
+
+    pids = []
+    for root, directories, files in os.walk('/var/run/swift'):
+        for name in files:
+            if name.endswith('.pid'):
+                pids.append(open(os.path.join(root, name)).read().strip())
+                pids.extend(subprocess.Popen(
+                    ['ps', '--ppid', pids[-1], '-o', 'pid', '--no-headers'],
+                    stdout=subprocess.PIPE).communicate()[0].split())
+
+    listing = []
+    for line in subprocess.Popen(
+            ['ps', '-eo', 'etime,pid,args', '--no-headers'],
+            stdout=subprocess.PIPE).communicate()[0].split('\n'):
+        if not line:
+            continue
+        hours = 0
+        try:
+            etime, pid, args = line.split(None, 2)
+        except ValueError:
+            sys.exit('Could not process ps line %r' % line)
+        if pid in pids:
+            continue
+        if (not args.startswith('/usr/bin/python /usr/bin/swift-') and
+            not args.startswith('/usr/bin/python /usr/local/bin/swift-')) or \
+                'swift-orphans' in args or \
+                'once' in args.split():
+            continue
+        args = args.split('-', 1)[1]
+        etime = etime.split('-')
+        if len(etime) == 2:
+            hours = int(etime[0]) * 24
+            etime = etime[1]
+        elif len(etime) == 1:
+            etime = etime[0]
+        else:
+            sys.exit('Could not process etime value from %r' % line)
+        etime = etime.split(':')
+        if len(etime) == 3:
+            hours += int(etime[0])
+        elif len(etime) != 2:
+            sys.exit('Could not process etime value from %r' % line)
+        if hours >= options.hours:
+            listing.append((str(hours), pid, args))
+
+    if not listing:
+        exit()
+
+    hours_len = len('Hours')
+    pid_len = len('PID')
+    args_len = len('Command')
+    for hours, pid, args in listing:
+        hours_len = max(hours_len, len(hours))
+        pid_len = max(pid_len, len(pid))
+        args_len = max(args_len, len(args))
+    args_len = min(args_len, 78 - hours_len - pid_len)
+
+    print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
+          ('Hours', 'PID', 'Command')
+    for hours, pid, args in listing:
+        print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
+              (hours, pid, args[:args_len])
+
+    if options.signal:
+        try:
+            signum = int(options.signal)
+        except ValueError:
+            signum = getattr(signal, options.signal.upper(),
+                         getattr(signal, 'SIG' + options.signal.upper(), None))
+        if not signum:
+            sys.exit('Could not translate %r to a signal number.' %
+                     options.signal)
+        print 'Sending processes %s (%d) signal...' % (options.signal, signum),
+        for hours, pid, args in listing:
+            os.kill(int(pid), signum)
+        print 'Done.'

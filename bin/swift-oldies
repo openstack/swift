@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+
+import optparse
+import os
+import signal
+import subprocess
+import sys
+
+
+if __name__ == '__main__':
+    parser = optparse.OptionParser(usage='''%prog [options]
+
+Lists old Swift processes.
+        '''.strip())
+    parser.add_option('-a', '--age', dest='hours', type='int', default=720,
+        help='look for processes at least HOURS old; default: 720 (30 days)')
+    (options, args) = parser.parse_args()
+
+    listing = []
+    for line in subprocess.Popen(
+            ['ps', '-eo', 'etime,pid,args', '--no-headers'],
+            stdout=subprocess.PIPE).communicate()[0].split('\n'):
+        if not line:
+            continue
+        hours = 0
+        try:
+            etime, pid, args = line.split(None, 2)
+        except ValueError:
+            sys.exit('Could not process ps line %r' % line)
+        if (not args.startswith('/usr/bin/python /usr/bin/swift-') and
+            not args.startswith('/usr/bin/python /usr/local/bin/swift-')):
+            continue
+        args = args.split('-', 1)[1]
+        etime = etime.split('-')
+        if len(etime) == 2:
+            hours = int(etime[0]) * 24
+            etime = etime[1]
+        elif len(etime) == 1:
+            etime = etime[0]
+        else:
+            sys.exit('Could not process etime value from %r' % line)
+        etime = etime.split(':')
+        if len(etime) == 3:
+            hours += int(etime[0])
+        elif len(etime) != 2:
+            sys.exit('Could not process etime value from %r' % line)
+        if hours >= options.hours:
+            listing.append((str(hours), pid, args))
+
+    if not listing:
+        exit()
+
+    hours_len = len('Hours')
+    pid_len = len('PID')
+    args_len = len('Command')
+    for hours, pid, args in listing:
+        hours_len = max(hours_len, len(hours))
+        pid_len = max(pid_len, len(pid))
+        args_len = max(args_len, len(args))
+    args_len = min(args_len, 78 - hours_len - pid_len)
+
+    print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
+          ('Hours', 'PID', 'Command')
+    for hours, pid, args in listing:
+        print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
+              (hours, pid, args[:args_len])

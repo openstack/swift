@@ -57,7 +57,8 @@ setup(
         'bin/swift-stats-report',
         'bin/swift-dispersion-populate', 'bin/swift-dispersion-report',
         'bin/swift-bench',
-        'bin/swift-recon', 'bin/swift-recon-cron',
+        'bin/swift-recon', 'bin/swift-recon-cron', 'bin/swift-orphans',
+        'bin/swift-oldies'
         ],
     entry_points={
         'paste.app_factory': [

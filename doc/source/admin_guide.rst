@@ -373,3 +373,25 @@ run this command as follows:
 `swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
 "-z" means to only check for zero-byte files at 1000 files per second.
 
+-------------
+Swift Orphans
+-------------
+
+Swift Orphans are processes left over after a reload of a Swift server.
+
+For example, when upgrading a proxy server you would probaby finish with a `swift-init proxy-server reload` or `/etc/init.d/swift-proxy reload`. This kills the parent proxy server process and leaves the child processes running to finish processing whatever requests they might be handling at the time. It then starts up a new parent proxy server process and its children to handle new incoming requests. This allows zero-downtime upgrades with no impact to existing requests.
+
+The orphaned child processes may take a while to exit, depending on the length of the requests they were handling. However, sometimes an old process can be hung up due to some bug or hardware issue. In these cases, these orphaned processes will hang around forever. `swift-orphans` can be used to find and kill these orphans.
+
+`swift-orphans` with no arguments will just list the orphans it finds that were started more than 24 hours ago. You shouldn't really check for orphans until 24 hours after you perform a reload, as some requests can take a long time to process. `swift-orphans -k TERM` will send the SIG_TERM signal to the orphans processes, or you can `kill -TERM` the pids yourself if you prefer.
+
+You can run `swift-orphans --help` for more options.
+
+
+------------
+Swift Oldies
+------------
+
+Swift Oldies are processes that have just been around for a long time. There's nothing necessarily wrong with this, but it might indicate a hung process if you regularly upgrade and reload/restart services. You might have so many servers that you don't notice when a reload/restart fails, `swift-oldies` can help with this.
+
+For example, if you upgraded and reloaded/restarted everything 2 days ago, and you've already cleaned up any orphans with `swift-orphans`, you can run `swift-oldies -a 48` to find any Swift processes still around that were started more than 2 days ago and then investigate them accordingly.
