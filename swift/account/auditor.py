@@ -44,21 +44,23 @@ class AccountAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            all_locs = audit_location_generator(self.devices,
-                                                account_server.DATADIR,
-                                                mount_check=self.mount_check,
-                                                logger=self.logger)
-            for path, device, partition in all_locs:
-                self.account_audit(path)
-                if time.time() - reported >= 3600:  # once an hour
-                    self.logger.info(_('Since %(time)s: Account audits: '
-                        '%(passed)s passed audit, %(failed)s failed audit'),
-                          {'time': time.ctime(reported),
-                           'passed': self.account_passes,
-                           'failed': self.account_failures})
-                    reported = time.time()
-                    self.account_passes = 0
-                    self.account_failures = 0
+            try:
+                all_locs = audit_location_generator(self.devices,
+                    account_server.DATADIR, mount_check=self.mount_check,
+                    logger=self.logger)
+                for path, device, partition in all_locs:
+                    self.account_audit(path)
+                    if time.time() - reported >= 3600:  # once an hour
+                        self.logger.info(_('Since %(time)s: Account audits: '
+                           '%(passed)s passed audit, %(failed)s failed audit'),
+                              {'time': time.ctime(reported),
+                               'passed': self.account_passes,
+                               'failed': self.account_failures})
+                        reported = time.time()
+                        self.account_passes = 0
+                        self.account_failures = 0
+            except (Exception, Timeout):
+                self.logger.exception(_('ERROR auditing'))
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)

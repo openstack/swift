@@ -45,22 +45,24 @@ class ContainerAuditor(Daemon):
         time.sleep(random() * self.interval)
         while True:
             begin = time.time()
-            all_locs = audit_location_generator(self.devices,
-                                                container_server.DATADIR,
-                                                mount_check=self.mount_check,
-                                                logger=self.logger)
-            for path, device, partition in all_locs:
-                self.container_audit(path)
-                if time.time() - reported >= 3600:  # once an hour
-                    self.logger.info(
-                        _('Since %(time)s: Container audits: %(pass)s passed '
-                          'audit, %(fail)s failed audit'),
-                        {'time': time.ctime(reported),
-                         'pass': self.container_passes,
-                         'fail': self.container_failures})
-                    reported = time.time()
-                    self.container_passes = 0
-                    self.container_failures = 0
+            try:
+                all_locs = audit_location_generator(self.devices,
+                    container_server.DATADIR, mount_check=self.mount_check,
+                    logger=self.logger)
+                for path, device, partition in all_locs:
+                    self.container_audit(path)
+                    if time.time() - reported >= 3600:  # once an hour
+                        self.logger.info(
+                            _('Since %(time)s: Container audits: %(pass)s '
+                              'passed audit, %(fail)s failed audit'),
+                            {'time': time.ctime(reported),
+                             'pass': self.container_passes,
+                             'fail': self.container_failures})
+                        reported = time.time()
+                        self.container_passes = 0
+                        self.container_failures = 0
+            except (Exception, Timeout):
+                self.logger.exception(_('ERROR auditing'))
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)

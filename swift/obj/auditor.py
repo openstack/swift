@@ -204,7 +204,10 @@ class ObjectAuditor(Daemon):
         if parent:
             kwargs['zero_byte_fps'] = zbo_fps or self.conf_zero_byte_fps
         while True:
-            self.run_once(**kwargs)
+            try:
+                self.run_once(**kwargs)
+            except (Exception, Timeout):
+                self.logger.exception(_('ERROR auditing'))
             self._sleep()
 
     def run_once(self, *args, **kwargs):
