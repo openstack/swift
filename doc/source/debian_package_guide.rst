@@ -56,7 +56,7 @@ Instructions for Building Debian Packages for Swift
 * Add swift-core/ppa repository and install prerequisites. As root::
 
        apt-get install python-software-properties
-       add-apt-repository ppa:swift-core/ppa
+       add-apt-repository ppa:swift-core/release
        apt-get update
        apt-get install curl gcc bzr python-configobj python-coverage python-dev python-nose python-setuptools python-simplejson python-xattr python-webob python-eventlet python-greenlet debhelper python-sphinx python-all python-openssl python-pastedeploy python-netifaces bzr-builddeb
 
@@ -100,7 +100,7 @@ Instructions for Deploying Debian Packages for Swift
 
   #. Setup the swift ppa::
  
-       add-apt-repository ppa:swift-core/ppa
+       add-apt-repository ppa:swift-core/release
        apt-get update
 
   #. Install dependencies::

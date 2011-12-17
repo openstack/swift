@@ -26,7 +26,7 @@ Installing dependencies and the core code
 * As root on guest (you'll have to log in as you, then `sudo su -`):
 
   #. `apt-get install python-software-properties`
-  #. `add-apt-repository ppa:swift-core/ppa`
+  #. `add-apt-repository ppa:swift-core/release`
   #. `apt-get update`
   #. `apt-get install curl gcc git-core memcached python-configobj
      python-coverage python-dev python-nose python-setuptools python-simplejson
