@@ -199,14 +199,16 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
         return hashed, hashes
 
 
-# Hack to work around Eventlet's tpool not catching and reraising Timeouts. We
-# return the Timeout, Timeout if it's raised, the caller looks for it and
-# reraises it if found.
 def tpooled_get_hashes(*args, **kwargs):
+    """
+    Hack to work around Eventlet's tpool not catching and reraising Timeouts.
+    We return the Timeout, None if it's raised, the caller looks for it
+    and reraises it if found.
+    """
     try:
         return get_hashes(*args, **kwargs)
     except Timeout, err:
-        return err, err
+        return err, None
 
 
 class ObjectReplicator(Daemon):
@@ -422,12 +424,13 @@ class ObjectReplicator(Daemon):
                             local_hash[suffix] != remote_hash.get(suffix, -1)]
                     if not suffixes:
                         continue
-                    hashed, local_hash = tpool.execute(tpooled_get_hashes,
+                    hashed, recalc_hash = tpool.execute(tpooled_get_hashes,
                         job['path'], recalculate=suffixes,
                         reclaim_age=self.reclaim_age)
                     # See tpooled_get_hashes "Hack".
                     if isinstance(hashed, BaseException):
                         raise hashed
+                    local_hash = recalc_hash
                     suffixes = [suffix for suffix in local_hash if
                             local_hash[suffix] != remote_hash.get(suffix, -1)]
                     self.rsync(node, job, suffixes)
