@@ -69,6 +69,11 @@ use = egg:swift#tempauth
 # This is a comma separated list of hosts allowed to send X-Container-Sync-Key
 # requests.
 # allowed_sync_hosts = 127.0.0.1
+# This allows middleware higher in the WSGI pipeline to override auth
+# processing, useful for middleware such as tempurl and formpost. If you know
+# you're not going to use such middleware and you want a bit of extra security,
+# you can set this to false.
+# allow_overrides = true
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 # There are special groups of:
@@ -185,3 +190,33 @@ use = egg:swift#staticweb
 # set access_log_facility = LOG_LOCAL0
 # set access_log_level = INFO
 # set log_headers = False
+
+# Note: Put tempurl just before your auth filter(s) in the pipeline
+[filter:tempurl]
+use = egg:swift#tempurl
+#
+# The headers to remove from incoming requests. Simply a whitespace delimited
+# list of header names and names can optionally end with '*' to indicate a
+# prefix match. incoming_allow_headers is a list of exceptions to these
+# removals.
+# incoming_remove_headers = x-timestamp
+#
+# The headers allowed as exceptions to incoming_remove_headers. Simply a
+# whitespace delimited list of header names and names can optionally end with
+# '*' to indicate a prefix match.
+# incoming_allow_headers =
+#
+# The headers to remove from outgoing responses. Simply a whitespace delimited
+# list of header names and names can optionally end with '*' to indicate a
+# prefix match. outgoing_allow_headers is a list of exceptions to these
+# removals.
+# outgoing_remove_headers = x-object-meta-*
+#
+# The headers allowed as exceptions to outgoing_remove_headers. Simply a
+# whitespace delimited list of header names and names can optionally end with
+# '*' to indicate a prefix match.
+# outgoing_allow_headers = x-object-meta-public-*
+
+# Note: Put formpost just before your auth filter(s) in the pipeline
+[filter:formpost]
+use = egg:swift#formpost

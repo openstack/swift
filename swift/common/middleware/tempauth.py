@@ -28,7 +28,7 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
-    split_path
+    split_path, TRUE_VALUES
 
 
 class TempAuth(object):
@@ -79,6 +79,8 @@ class TempAuth(object):
         self.allowed_sync_hosts = [h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
+        self.allow_overrides = \
+            conf.get('allow_overrides', 't').lower() in TRUE_VALUES
         self.users = {}
         for conf_key in conf:
             if conf_key.startswith('user_'):
@@ -120,6 +122,8 @@ class TempAuth(object):
         will be routed through the internal auth request handler (self.handle).
         This is to handle granting tokens, etc.
         """
+        if self.allow_overrides and env.get('swift.authorize_override', False):
+            return self.app(env, start_response)
         if env.get('PATH_INFO', '').startswith(self.auth_prefix):
             return self.handle(env, start_response)
         s3 = env.get('HTTP_AUTHORIZATION')

@@ -143,3 +143,17 @@ StaticWeb
 .. automodule:: swift.common.middleware.staticweb
     :members:
     :show-inheritance:
+
+TempURL
+=======
+
+.. automodule:: swift.common.middleware.tempurl
+    :members:
+    :show-inheritance:
+
+FormPost
+========
+
+.. automodule:: swift.common.middleware.formpost
+    :members:
+    :show-inheritance:

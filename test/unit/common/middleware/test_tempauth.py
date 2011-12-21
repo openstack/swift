@@ -150,6 +150,32 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.environ['swift.authorize'],
                           self.test_auth.authorize)
 
+    def test_override_asked_for_but_not_allowed(self):
+        self.test_auth = \
+            auth.filter_factory({'allow_overrides': 'false'})(FakeApp())
+        req = self._make_request('/v1/AUTH_account',
+                                 environ={'swift.authorize_override': True})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 401)
+        self.assertEquals(resp.environ['swift.authorize'],
+                          self.test_auth.authorize)
+
+    def test_override_asked_for_and_allowed(self):
+        self.test_auth = \
+            auth.filter_factory({'allow_overrides': 'true'})(FakeApp())
+        req = self._make_request('/v1/AUTH_account',
+                                 environ={'swift.authorize_override': True})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertTrue('swift.authorize' not in resp.environ)
+
+    def test_override_default_allowed(self):
+        req = self._make_request('/v1/AUTH_account',
+                                 environ={'swift.authorize_override': True})
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 404)
+        self.assertTrue('swift.authorize' not in resp.environ)
+
     def test_auth_deny_non_reseller_prefix(self):
         resp = self._make_request('/v1/BLAH_account',
             headers={'X-Auth-Token': 'BLAH_t'}).get_response(self.test_auth)
