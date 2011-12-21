@@ -56,9 +56,11 @@ class FakeMemcache(object):
 class FakeApp(object):
 
     def __init__(self, status_headers_body_iter=None):
+        self.calls = 0
         self.get_c4_called = False
 
     def __call__(self, env, start_response):
+        self.calls += 1
         if env['PATH_INFO'] == '/':
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1':
@@ -129,7 +131,9 @@ class FakeApp(object):
                            'x-container-meta-web-listings': 't',
                            'x-container-meta-web-listings-css': 'listing.css'})
         elif env['PATH_INFO'] == '/v1/a/c4/one.txt':
-            return Response(status='200 Ok', body='1')(env, start_response)
+            return Response(status='200 Ok',
+                headers={'x-object-meta-test': 'value'},
+                body='1')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c4/two.txt':
             return Response(status='503 Service Unavailable')(env,
                                                               start_response)
@@ -295,7 +299,8 @@ class FakeApp(object):
 class TestStaticWeb(unittest.TestCase):
 
     def setUp(self):
-        self.test_staticweb = staticweb.filter_factory({})(FakeApp())
+        self.app = FakeApp()
+        self.test_staticweb = staticweb.filter_factory({})(self.app)
 
     def test_app_set(self):
         app = FakeApp()
@@ -504,6 +509,15 @@ class TestStaticWeb(unittest.TestCase):
     def test_container7listing(self):
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
+
+    def test_subrequest_once_if_possible(self):
+        resp = Request.blank(
+                '/v1/a/c4/one.txt').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['x-object-meta-test'], 'value')
+        self.assertEquals(resp.body, '1')
+        self.assertEquals(self.app.calls, 1)
+        
 
 
 if __name__ == '__main__':

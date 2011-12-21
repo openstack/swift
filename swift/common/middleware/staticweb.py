@@ -402,7 +402,9 @@ class StaticWeb(object):
         resp = self.app(tmp_env, self._start_response)
         status_int = self._get_status_int()
         if status_int // 100 in (2, 3):
-            return self.app(env, start_response)
+            start_response(self._response_status, self._response_headers,
+                           self._response_exc_info)
+            return resp
         if status_int != 404:
             return self._error_response(resp, env, start_response)
         self._get_container_info(env, start_response)
