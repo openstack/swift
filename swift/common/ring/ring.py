@@ -120,7 +120,8 @@ class Ring(object):
                 to assign to this device
         zone    integer indicating which zone the device is in; a given
                 partition will not be assigned to multiple devices within the
-                same zone ip the ip address of the device
+                same zone
+        ip      the ip address of the device
         port    the tcp port of the device
         device  the device's name on disk (sdb1, for example)
         meta    general use 'extra' field; for example: the online date, the
