@@ -731,11 +731,11 @@ def iter_devices_partitions(devices_dir, item_type):
     :param item_type: One of 'accounts', 'containers', or 'objects'
     :returns: Each iteration returns a tuple of (device, partition)
     """
-    devices = os.listdir(devices_dir)
+    devices = listdir(devices_dir)
     shuffle(devices)
     devices_partitions = []
     for device in devices:
-        partitions = os.listdir(os.path.join(devices_dir, device, item_type))
+        partitions = listdir(os.path.join(devices_dir, device, item_type))
         shuffle(partitions)
         devices_partitions.append((device, iter(partitions)))
     yielded = True
@@ -757,7 +757,7 @@ def unlink_older_than(path, mtime):
     :mtime: timestamp of oldest file to keep
     """
     if os.path.exists(path):
-        for fname in os.listdir(path):
+        for fname in listdir(path):
             fpath = os.path.join(path, fname)
             try:
                 if os.path.getmtime(fpath) < mtime:
@@ -929,7 +929,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                     on devices
     :param logger: a logger object
     '''
-    device_dir = os.listdir(devices)
+    device_dir = listdir(devices)
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dir)
     for device in device_dir:
@@ -942,22 +942,22 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
         datadir_path = os.path.join(devices, device, datadir)
         if not os.path.exists(datadir_path):
             continue
-        partitions = os.listdir(datadir_path)
+        partitions = listdir(datadir_path)
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
             if not os.path.isdir(part_path):
                 continue
-            suffixes = os.listdir(part_path)
+            suffixes = listdir(part_path)
             for suffix in suffixes:
                 suff_path = os.path.join(part_path, suffix)
                 if not os.path.isdir(suff_path):
                     continue
-                hashes = os.listdir(suff_path)
+                hashes = listdir(suff_path)
                 for hsh in hashes:
                     hash_path = os.path.join(suff_path, hsh)
                     if not os.path.isdir(hash_path):
                         continue
-                    for fname in sorted(os.listdir(hash_path),
+                    for fname in sorted(listdir(hash_path),
                                         reverse=True):
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
@@ -1106,3 +1106,12 @@ def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
             except OSError, err:
                 if err.errno != errno.ENOENT:
                     raise
+
+
+def listdir(path):
+    try:
+        return os.listdir(path)
+    except OSError, err:
+        if err.errno != errno.ENOENT:
+            raise
+    return []
