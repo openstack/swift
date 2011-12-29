@@ -368,9 +368,9 @@ class ObjectController(object):
             x-delete-at,
             x-object-manifest,
         '''
-        self.allowed_headers = set(i.strip().lower() for i in \
-                conf.get('allowed_headers', \
-                default_allowed_headers).split(',') if i.strip() and \
+        self.allowed_headers = set(i.strip().lower() for i in
+                conf.get('allowed_headers',
+                default_allowed_headers).split(',') if i.strip() and
                 i.strip().lower() not in DISALLOWED_HEADERS)
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \

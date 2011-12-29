@@ -31,7 +31,8 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, storage_directory, split_path, validate_sync_to
+    normalize_timestamp, storage_directory, split_path, validate_sync_to, \
+    TRUE_VALUES
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -52,7 +53,7 @@ class ContainerController(object):
         self.logger = get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+                              TRUE_VALUES
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.allowed_sync_hosts = [h.strip()
@@ -62,6 +63,8 @@ class ContainerController(object):
             ContainerBroker, self.mount_check, logger=self.logger)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
+        if conf.get('allow_versions', 'f').lower() in TRUE_VALUES:
+            self.save_headers.append('x-versions-location')
 
     def _get_container_broker(self, drive, part, account, container):
         """

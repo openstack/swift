@@ -76,3 +76,17 @@ class EmptyRingError(RingBuilderError):
 
 class DuplicateDeviceError(RingBuilderError):
     pass
+
+
+class ListingIterError(Exception):
+    pass
+
+
+class ListingIterNotFound(ListingIterError):
+    pass
+
+
+class ListingIterNotAuthorized(ListingIterError):
+
+    def __init__(self, aresp):
+        self.aresp = aresp

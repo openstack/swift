@@ -44,6 +44,7 @@ Overview and Concepts
     overview_replication
     ratelimit
     overview_large_objects
+    overview_object_versioning
     overview_container_sync
     overview_expiring_objects
 

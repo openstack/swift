@@ -27,6 +27,7 @@ use = egg:swift#container
 # set log_requests = True
 # node_timeout = 3
 # conn_timeout = 0.5
+# allow_versions = False
 
 [container-replicator]
 # You can override the default log routing for this app here (don't use set!):
