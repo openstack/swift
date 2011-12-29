@@ -1220,6 +1220,9 @@ def st_download(options, args, print_queue, error_queue):
     parser.add_option('-a', '--all', action='store_true', dest='yes_all',
         default=False, help='Indicates that you really want to download '
         'everything in the account')
+    parser.add_option('-m', '--marker', dest='marker',
+        default='', help='Marker to use when starting a container or '
+        'account download')
     parser.add_option('-o', '--output', dest='out_file', help='For a single '
         'file download, stream the output to an alternate location ')
     (options, args) = parse_args(parser, args)
@@ -1311,7 +1314,7 @@ def st_download(options, args, print_queue, error_queue):
 
     def _download_container(container, conn):
         try:
-            marker = ''
+            marker = options.marker
             while True:
                 objects = [o['name'] for o in
                            conn.get_container(container, marker=marker)[1]]
@@ -1337,7 +1340,7 @@ def st_download(options, args, print_queue, error_queue):
     if not args:
         conn = create_connection()
         try:
-            marker = ''
+            marker = options.marker
             while True:
                 containers = [c['name']
                               for c in conn.get_account(marker=marker)[1]]
