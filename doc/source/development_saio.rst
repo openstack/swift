@@ -234,7 +234,7 @@ Do these commands as you on guest.
   #. `mkdir ~/bin`
   #. Check out the swift repo with `git clone https://github.com/openstack/swift.git`
   #. Build a development installation of swift, for example: 
-     `cd ~/swift/trunk; sudo python setup.py develop`
+     `cd ~/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
