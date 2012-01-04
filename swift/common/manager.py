@@ -32,7 +32,7 @@ RUN_DIR = '/var/run/swift'
 # auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
     'container-replicator', 'container-server', 'container-sync',
-    'container-updater', 'object-auditor', 'object-server',
+    'container-updater', 'object-auditor', 'object-server', 'object-expirer',
     'object-replicator', 'object-updater', 'proxy-server',
     'account-replicator', 'account-reaper']
 MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
@@ -40,6 +40,9 @@ MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
 GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
 START_ONCE_SERVERS = REST_SERVERS
+# These are servers that match a type (account-*, container-*, object-*) but
+# don't use that type-server.conf file and instead use their own.
+STANDALONE_SERVERS = ['object-expirer']
 
 KILL_WAIT = 15  # seconds to wait for servers to die
 WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
@@ -356,10 +359,15 @@ class Server():
         :returns: the conf_file for this pid_file
 
         """
-        return pid_file.replace(
-            os.path.normpath(RUN_DIR), SWIFT_DIR, 1).replace(
-                self.server, '%s-server' % self.type, 1).rsplit(
-                    '.pid', 1)[0] + '.conf'
+        if self.server in STANDALONE_SERVERS:
+            return pid_file.replace(
+                os.path.normpath(RUN_DIR), SWIFT_DIR, 1).rsplit(
+                        '.pid', 1)[0] + '.conf'
+        else:
+            return pid_file.replace(
+                os.path.normpath(RUN_DIR), SWIFT_DIR, 1).replace(
+                    self.server, '%s-server' % self.type, 1).rsplit(
+                        '.pid', 1)[0] + '.conf'
 
     def conf_files(self, **kwargs):
         """Get conf files for this server
@@ -368,8 +376,12 @@ class Server():
 
         :returns: list of conf files
         """
-        found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
-                                      '.conf')
+        if self.server in STANDALONE_SERVERS:
+            found_conf_files = search_tree(SWIFT_DIR, self.server + '*',
+                                           '.conf')
+        else:
+            found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
+                                          '.conf')
         number = kwargs.get('number')
         if number:
             try:

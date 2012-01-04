@@ -324,6 +324,11 @@ class TestServer(unittest.TestCase):
         pid_file = self.join_run_dir(
             'container-auditor/1/container-auditor.pid')
         self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
+        server_name = manager.STANDALONE_SERVERS[0]
+        server = manager.Server(server_name)
+        conf_file = self.join_swift_dir(server_name + '.conf')
+        pid_file = self.join_run_dir(server_name + '.pid')
+        self.assertEquals(conf_file, server.get_conf_file_name(pid_file))
 
     def test_conf_files(self):
         # test get single conf file
@@ -416,6 +421,18 @@ class TestServer(unittest.TestCase):
                     self.assert_(c1 in pop_stream(f))
             finally:
                 sys.stdout = old_stdout
+
+        # test standalone conf file
+        server_name = manager.STANDALONE_SERVERS[0]
+        conf_files = (server_name + '.conf',)
+        with temptree(conf_files) as t:
+            manager.SWIFT_DIR = t
+            server = manager.Server(server_name)
+            conf_files = server.conf_files()
+            self.assertEquals(len(conf_files), 1)
+            conf_file = conf_files[0]
+            conf = self.join_swift_dir(server_name + '.conf')
+            self.assertEquals(conf_file, conf)
 
     def test_iter_pid_files(self):
         """
