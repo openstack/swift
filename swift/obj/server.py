@@ -644,7 +644,7 @@ class ObjectController(object):
                 file.metadata['ETag'] not in request.if_match:
             file.close()
             return HTTPPreconditionFailed(request=request)
-        if request.headers.get('if-none-match') != None:
+        if request.headers.get('if-none-match') is not None:
             if file.metadata['ETag'] in request.if_none_match:
                 resp = HTTPNotModified(request=request)
                 resp.etag = file.metadata['ETag']

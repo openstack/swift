@@ -145,6 +145,6 @@ class MockTrue(object):
     def __repr__(*args, **kwargs):
         return repr(True)
     def __eq__(self, other):
-        return other == True
+        return other is True
     def __ne__(self, other):
-        return other != True
+        return other is not True

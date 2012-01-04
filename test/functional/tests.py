@@ -81,7 +81,7 @@ class Utils:
 
     @classmethod
     def create_utf8_name(cls, length=None):
-        if length == None:
+        if length is None:
             length = 15
         else:
             length = int(length)
@@ -271,7 +271,7 @@ class TestAccount(Base):
             containers = self.env.account.containers(
                 parms={'format':format,'marker':containers[-1]})
             self.assertEquals(len(containers), 0)
-            if format == None:
+            if format is None:
                 self.assert_status(204)
             else:
                 self.assert_status(200)
@@ -320,7 +320,7 @@ class TestAccountNoContainers(Base):
             self.assert_(not self.env.account.containers(
                 parms={'format':format}))
 
-            if format == None:
+            if format is None:
                 self.assert_status(204)
             else:
                 self.assert_status(200)
@@ -529,7 +529,7 @@ class TestContainer(Base):
                 parms={'format':format,'marker':files[-1]})
             self.assertEquals(len(files), 0)
 
-            if format == None:
+            if format is None:
                 self.assert_status(204)
             else:
                 self.assert_status(200)

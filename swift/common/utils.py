@@ -852,7 +852,7 @@ def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     :param tmp: path to tmp to use, defaults to None
     :param pickle_protocol: protocol to pickle the obj with, defaults to 0
     """
-    if tmp == None:
+    if tmp is None:
         tmp = os.path.dirname(dest)
     fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
     with os.fdopen(fd, 'wb') as fo:

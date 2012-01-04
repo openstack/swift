@@ -607,7 +607,7 @@ class TestContainerBroker(unittest.TestCase):
                 raise Exception('OMG')
         except Exception:
             pass
-        self.assert_(broker.conn == None)
+        self.assert_(broker.conn is None)
 
     def test_empty(self):
         """ Test swift.common.db.ContainerBroker.empty """
@@ -1535,7 +1535,7 @@ class TestAccountBroker(unittest.TestCase):
                 raise Exception('OMG')
         except Exception:
             pass
-        self.assert_(broker.conn == None)
+        self.assert_(broker.conn is None)
 
     def test_empty(self):
         """ Test swift.common.db.AccountBroker.empty """

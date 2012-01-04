@@ -321,7 +321,7 @@ class Account(Base):
         format = parms.get('format', None)
         if format not in [None, 'json', 'xml']:
             raise RequestError('Invalid format: %s' % format)
-        if format == None and parms.has_key('format'):
+        if format is None and parms.has_key('format'):
             del parms['format']
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
@@ -410,7 +410,7 @@ class Container(Base):
         format = parms.get('format', None)
         if format not in [None, 'json', 'xml']:
             raise RequestError('Invalid format: %s' % format)
-        if format == None and parms.has_key('format'):
+        if format is None and parms.has_key('format'):
             del parms['format']
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
@@ -591,7 +591,7 @@ class File(Base):
 
     @classmethod
     def random_data(cls, size=None):
-        if size == None:
+        if size is None:
             size = random.randint(1, 32768)
         fd = open('/dev/urandom', 'r')
         data = fd.read(size)
@@ -674,9 +674,9 @@ class File(Base):
         return True
 
     def chunked_write(self, data=None, hdrs={}, parms={}, cfg={}):
-        if data != None and self.chunked_write_in_progress:
+        if data is not None and self.chunked_write_in_progress:
             self.conn.put_data(data, True)
-        elif data != None:
+        elif data is not None:
             self.chunked_write_in_progress = True
 
             headers = self.make_headers(cfg=cfg)
