@@ -566,12 +566,15 @@ def whataremyips():
     """
     addresses = []
     for interface in netifaces.interfaces():
-        iface_data = netifaces.ifaddresses(interface)
-        for family in iface_data:
-            if family not in (netifaces.AF_INET, netifaces.AF_INET6):
-                continue
-            for address in iface_data[family]:
-                addresses.append(address['addr'])
+        try:
+            iface_data = netifaces.ifaddresses(interface)
+            for family in iface_data:
+                if family not in (netifaces.AF_INET, netifaces.AF_INET6):
+                    continue
+                for address in iface_data[family]:
+                    addresses.append(address['addr'])
+        except ValueError:
+            pass
     return addresses
 
 
