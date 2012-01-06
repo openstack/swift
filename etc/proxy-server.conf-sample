@@ -104,8 +104,10 @@ use = egg:swift#memcache
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_headers = False
-# Default for memcache_servers is below, but you can specify multiple servers
-# with the format: 10.1.2.3:11211,10.1.2.4:11211
+# Default for memcache_servers is to try to read the property from
+# memcache.conf (see memcache.conf-sample) or lacking that file, it will
+# default to the value below. You can specify multiple servers separated with
+# commas, as in: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211
 
 [filter:ratelimit]

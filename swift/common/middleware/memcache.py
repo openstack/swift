@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
 from swift.common.memcached import MemcacheRing
 
 
@@ -23,9 +26,21 @@ class MemcacheMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.memcache = MemcacheRing([s.strip() for s in
-            conf.get('memcache_servers', '127.0.0.1:11211').split(',')
-            if s.strip()])
+        self.memcache_servers = conf.get('memcache_servers')
+        if not self.memcache_servers:
+            path = os.path.join(conf.get('swift_dir', '/etc/swift'),
+                                'memcache.conf')
+            memcache_conf = ConfigParser()
+            if memcache_conf.read(path):
+                try:
+                    self.memcache_servers = \
+                        memcache_conf.get('memcache', 'memcache_servers')
+                except (NoSectionError, NoOptionError):
+                    pass
+        if not self.memcache_servers:
+            self.memcache_servers = '127.0.0.1:11211'
+        self.memcache = MemcacheRing(
+            [s.strip() for s in self.memcache_servers.split(',') if s.strip()])
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache
