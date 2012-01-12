@@ -27,6 +27,8 @@ import time
 from bisect import bisect
 from hashlib import md5
 
+DEFAULT_MEMCACHED_PORT = 11211
+
 CONN_TIMEOUT = 0.3
 IO_TIMEOUT = 2.0
 PICKLE_FLAG = 1
@@ -104,7 +106,11 @@ class MemcacheRing(object):
                 yield server, fp, sock
             except IndexError:
                 try:
-                    host, port = server.split(':')
+                    if ':' in server:
+                        host, port = server.split(':')
+                    else:
+                        host = server
+                        port = DEFAULT_MEMCACHED_PORT
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     sock.settimeout(self._connect_timeout)

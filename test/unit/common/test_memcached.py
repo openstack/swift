@@ -21,6 +21,7 @@ import logging
 import socket
 import time
 import unittest
+from uuid import uuid4
 
 from swift.common import memcached
 
@@ -137,10 +138,25 @@ class TestMemcached(unittest.TestCase):
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock2.bind(('127.0.0.1', 0))
         sock2.listen(1)
-        sock2ipport = '%s:%s' % sock2.getsockname()
-        memcache_client = memcached.MemcacheRing([sock1ipport, sock2ipport])
-        for conn in memcache_client._get_conns('40000000000000000000000000000000'):
-            self.assert_('%s:%s' % conn[2].getpeername() in (sock1ipport, sock2ipport))
+        orig_port = memcached.DEFAULT_MEMCACHED_PORT
+        try:
+            sock2ip, memcached.DEFAULT_MEMCACHED_PORT = sock2.getsockname()
+            sock2ipport = '%s:%s' % (sock2ip, memcached.DEFAULT_MEMCACHED_PORT)
+            # We're deliberately using sock2ip (no port) here to test that the
+            # default port is used.
+            memcache_client = memcached.MemcacheRing([sock1ipport, sock2ip])
+            one = two = True
+            while one or two:  # Run until we match hosts one and two
+                key = uuid4().hex
+                for conn in memcache_client._get_conns(key):
+                    peeripport = '%s:%s' % conn[2].getpeername()
+                    self.assert_(peeripport in (sock1ipport, sock2ipport))
+                    if peeripport == sock1ipport:
+                        one = False
+                    if peeripport == sock2ipport:
+                        two = False
+        finally:
+            memcached.DEFAULT_MEMCACHED_PORT = orig_port
 
     def test_set_get(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
