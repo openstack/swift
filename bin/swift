@@ -248,11 +248,11 @@ def _get_auth_v2_0(url, user, key, snet):
         url = None
         catalogs = body['access']['serviceCatalog']
         for service in catalogs:
-            if service['name'] == 'swift':
+            if service['type'] == 'object-store':
                 url = service['endpoints'][0]['publicURL']
         token_id = body['access']['token']['id']
         if not url:
-            raise ClientException("There is no swift endpoint " \
+            raise ClientException("There is no object-store endpoint " \
                                   "on this auth server.")
     except(KeyError, IndexError):
         raise ClientException("Error while getting answers from auth server")
