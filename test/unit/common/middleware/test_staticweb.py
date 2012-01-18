@@ -269,7 +269,7 @@ class FakeApp(object):
                   "hash":"c85c1dcd19cf5cbac84e6043c31bb63e", "bytes":20,
                   "content_type":"text/plain",
                   "last_modified":"2011-03-24T04:27:52.734140"},
-                 {"name":"subdir/omgomg.txt",
+                 {"name":"subdir/\u2603.txt",
                   "hash":"7337d028c093130898d937c319cc9865", "bytes":72981,
                   "content_type":"text/plain",
                   "last_modified":"2011-03-24T04:27:52.735460"},
@@ -290,7 +290,7 @@ class FakeApp(object):
                             'Content-Type': 'text/plain; charset=utf-8'})
             body = '\n'.join(['401error.html', '404error.html', 'index.html',
                               'listing.css', 'one.txt', 'subdir/1.txt',
-                              'subdir/2.txt', 'subdir/omgomg.txt', 'subdir2',
+                              'subdir/2.txt', u'subdir/\u2603.txt', 'subdir2',
                               'subdir3/subsubdir/index.html', 'two.txt'])
         return Response(status='200 Ok', headers=headers,
                         body=body)(env, start_response)
@@ -480,6 +480,8 @@ class TestStaticWeb(unittest.TestCase):
         self.assert_('</style>' not in resp.body)
         self.assert_('<link' in resp.body)
         self.assert_('listing.css' in resp.body)
+        self.assertEquals(resp.headers['content-type'],
+                          'text/html; charset=UTF-8')
 
     def test_container4onetxt(self):
         resp = Request.blank(
