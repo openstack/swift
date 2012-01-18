@@ -32,6 +32,7 @@ import simplejson
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
     normalize_timestamp, split_path, storage_directory
+from swift.common.lfs import get_lfs
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
@@ -50,6 +51,7 @@ class AccountController(object):
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
             self.mount_check, logger=self.logger)
+        self.storage = get_lfs(conf, DATADIR, self.logger)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
 
@@ -66,6 +68,9 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
+        obj_path = os.path.join(self.root, drive, DATADIR, part)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         if 'x-timestamp' not in req.headers or \
@@ -86,6 +91,9 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
+        obj_path = os.path.join(self.root, drive, DATADIR, part)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
@@ -145,6 +153,9 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
+        obj_path = os.path.join(self.root, drive, DATADIR, part)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
@@ -176,6 +187,9 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
+        obj_path = os.path.join(self.root, drive, DATADIR, part)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)
@@ -270,6 +284,9 @@ class AccountController(object):
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         drive, partition, hash = post_args
+        obj_path = os.path.join(self.root, drive, DATADIR, partition)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, partition)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         try:
@@ -291,6 +308,9 @@ class AccountController(object):
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing or bad timestamp',
                 request=req, content_type='text/plain')
+        obj_path = os.path.join(self.root, drive, DATADIR, part)
+        if not os.path.exists(obj_path):
+            self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
             return Response(status='507 %s is not mounted' % drive)
         broker = self._get_account_broker(drive, part, account)

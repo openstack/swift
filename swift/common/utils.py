@@ -60,6 +60,8 @@ NOTICE = 25
 logging._levelNames[NOTICE] = 'NOTICE'
 SysLogHandler.priority_map['NOTICE'] = 'notice'
 
+deployed_os = os.uname()[0]
+
 # These are lazily pulled from libc elsewhere
 _sys_fallocate = None
 _posix_fadvise = None
@@ -129,7 +131,11 @@ def fallocate(fd, size):
     """
     global _sys_fallocate
     if _sys_fallocate is None:
-        _sys_fallocate = load_libc_function('fallocate')
+        if deployed_os == 'Linux':
+            fallocate_func = 'fallocate'
+        else:
+            fallocate_func = 'posix_fallocate'
+        _sys_fallocate = load_libc_function(fallocate_func)
     if size > 0:
         # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
         ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
@@ -195,9 +201,12 @@ def renamer(old, new):
     try:
         mkdirs(os.path.dirname(new))
         os.rename(old, new)
-    except OSError:
+    except OSError, err:
         mkdirs(os.path.dirname(new))
-        os.rename(old, new)
+        if err.errno == errno.EXDEV:
+            subprocess.call(['mv', old, new])
+        else:
+            os.rename(old, new)
 
 
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
@@ -436,7 +445,12 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     # facility for this logger will be set by last call wins
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
                        SysLogHandler.LOG_LOCAL0)
-    handler = SysLogHandler(address='/dev/log', facility=facility)
+    if deployed_os == 'Linux':
+        handler = SysLogHandler(address='/dev/log', facility=facility)
+    else:
+        # In Solaris, /dev/log is a stream device, but python expects it to be
+        # a unix domain socket. So we use the default UDP port address.
+        handler = SysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     get_logger.handler4logger[logger] = handler
@@ -614,19 +628,27 @@ def hash_path(account, container=None, object=None, raw_digest=False):
 
 
 @contextmanager
-def lock_path(directory, timeout=10):
+def lock_path(lock_path, timeout=10):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
     first).
 
-    :param directory: directory to be locked
+    In Solaris, for locking exclusively, file or directory has to be opened in
+    Write mode. Python doesn't allow directories to be opened in Write Mode. So
+    in solaris, we workaround by locking a hidden file in the directory.
+
+    :param lock_path: path to be locked
     :param timeout: timeout (in seconds)
     """
-    mkdirs(directory)
-    fd = os.open(directory, os.O_RDONLY)
+    mkdirs(lock_path)
+    if deployed_os == 'Linux':
+        fd = os.open(lock_path, os.O_RDONLY)
+    else:
+        lock_path = '%s/.lock' % lock_path
+        fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT)
     try:
-        with LockTimeout(timeout, directory):
+        with LockTimeout(timeout, lock_path):
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
