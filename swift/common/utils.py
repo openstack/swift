@@ -475,7 +475,7 @@ def drop_privileges(user):
     except OSError:
         pass
     os.chdir('/')  # in case you need to rmdir on where you started the daemon
-    os.umask(0)  # ensure files are created with the correct privileges
+    os.umask(022)  # ensure files are created with the correct privileges
 
 
 def capture_stdio(logger, **kwargs):
