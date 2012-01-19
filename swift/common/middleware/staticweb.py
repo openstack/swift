@@ -116,13 +116,22 @@ except ImportError:
 
 import cgi
 import time
-from urllib import unquote, quote
+from urllib import unquote, quote as urllib_quote
 
 from webob import Response, Request
 from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
                                split_path, TRUE_VALUES
+
+
+def quote(value, safe='/'):
+    """
+    Patched version of urllib.quote that encodes utf-8 strings before quoting
+    """
+    if isinstance(value, unicode):
+        value = value.encode('utf-8')
+    return urllib_quote(value, safe)
 
 
 class StaticWeb(object):
@@ -289,7 +298,7 @@ class StaticWeb(object):
         if not listing:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        headers = {'Content-Type': 'text/html'}
+        headers = {'Content-Type': 'text/html; charset=UTF-8'}
         body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
                 'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                '<html>\n' \
