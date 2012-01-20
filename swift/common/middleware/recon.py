@@ -13,8 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
+import os
+
 from webob import Request, Response
-from swift.common.utils import split_path, cache_from_env, get_logger
+from swift.common.utils import split_path, get_logger
 from swift.common.constraints import check_mount
 from resource import getpagesize
 from hashlib import md5
@@ -22,7 +25,6 @@ try:
     import simplejson as json
 except ImportError:
     import json
-import os
 
 
 class ReconMiddleware(object):
