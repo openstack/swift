@@ -109,45 +109,6 @@ class TestJsonImport(unittest.TestCase):
         else:
             self.assertEquals(loads, c.json_loads)
 
-    def test_no_json(self):
-        # first break simplejson
-        try:
-            import simplejson
-        except ImportError:
-            # not installed, so we don't have to break it for these tests
-            pass
-        else:
-            delattr(simplejson, 'loads')
-
-        # then break json
-        try:
-            import json
-        except ImportError:
-            # not installed, so we don't have to break it for these tests
-            _orig_dumps = None
-        else:
-            # before we break json, grab a copy of the orig_dumps function
-            _orig_dumps = json.dumps
-            delattr(json, 'loads')
-            reload(c)
-
-        if _orig_dumps:
-            # basic test of swift.common.client.json_loads using json.loads
-            data = {
-                'string': 'value',
-                'int': 0,
-                'bool': True,
-                'none': None,
-            }
-            json_string = _orig_dumps(data)
-        else:
-            # even more basic test using a hand encoded json string
-            data = ['value1', 'value2']
-            json_string = "['value1', 'value2']"
-
-        self.assertEquals(data, c.json_loads(json_string))
-        self.assertRaises(AttributeError, c.json_loads, self)
-
 
 class MockHttpTest(unittest.TestCase):
 
