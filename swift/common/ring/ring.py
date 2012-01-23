@@ -80,6 +80,15 @@ class Ring(object):
         """Number of partitions in the ring."""
         return len(self._replica2part2dev_id[0])
 
+    def _get_partion_devices(self, part):
+        """Returns list of partion devices."""
+        devices = [r[part] for r in self._replica2part2dev_id]
+        devs = []
+        for d in devices:
+            if d not in devs:
+                devs.append(d)
+        return [self.devs[d] for d in devs]
+
     def has_changed(self):
         """
         Check to see if the ring on disk is different than the current one in
@@ -100,7 +109,7 @@ class Ring(object):
         """
         if time() > self._rtime:
             self._reload()
-        return [self.devs[r[part]] for r in self._replica2part2dev_id]
+        return self._get_partion_devices(part)
 
     def get_nodes(self, account, container=None, obj=None):
         """
@@ -113,26 +122,27 @@ class Ring(object):
 
         Each node dict will have at least the following keys:
 
-        ======  ===============================================================
-        id      unique integer identifier amongst devices
-        weight  a float of the relative weight of this device as compared to
-                others; this indicates how many partitions the builder will try
-                to assign to this device
-        zone    integer indicating which zone the device is in; a given
-                partition will not be assigned to multiple devices within the
-                same zone
-        ip      the ip address of the device
-        port    the tcp port of the device
-        device  the device's name on disk (sdb1, for example)
-        meta    general use 'extra' field; for example: the online date, the
-                hardware description
-        ======  ===============================================================
+        =============  ========================================================
+        id             unique integer identifier amongst devices
+        weight         a float of the relative weight of this device as
+                       compared to others; this indicates how many partitions
+                       the builder will try to assign to this device
+        zone           integer indicating which zone the device is in; a given
+                       partition will not be assigned to multiple devices
+                       within the same zone
+        ip             the ip address of the device
+        port           the tcp port of the device
+        device         the device's name on disk (sdb1, for example)
+        mirror_copies  a number of device mirrors
+        meta           general use 'extra' field; for example: the online date,
+                       the hardware description
+        =============  ========================================================
         """
         key = hash_path(account, container, obj, raw_digest=True)
         if time() > self._rtime:
             self._reload()
         part = unpack_from('>I', key)[0] >> self._part_shift
-        return part, [self.devs[r[part]] for r in self._replica2part2dev_id]
+        return part, self._get_partion_devices(part)
 
     def get_more_nodes(self, part):
         """
@@ -147,7 +157,8 @@ class Ring(object):
             self._reload()
         zones = sorted(self.zone2devs.keys())
         for part2dev_id in self._replica2part2dev_id:
-            zones.remove(self.devs[part2dev_id[part]]['zone'])
+            if self.devs[part2dev_id[part]]['zone'] in zones:
+                zones.remove(self.devs[part2dev_id[part]]['zone'])
         while zones:
             zone = zones.pop(part % len(zones))
             weighted_node = None

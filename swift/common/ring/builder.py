@@ -16,10 +16,17 @@
 from array import array
 from random import randint, shuffle
 from time import time
+from math import ceil
 
 from swift.common import exceptions
 from swift.common.ring import RingData
 
+NO_DEVICE = 0xffff
+
+DEV_DEFAULT = (
+    ('mirrored_parts', 0),
+    ('mirror_copies', 1)
+)
 
 class RingBuilder(object):
     """
@@ -71,9 +78,18 @@ class RingBuilder(object):
         self._ring = None
 
     def weighted_parts(self):
+        """
+        Returns weight of partition. For mirrored devices weight multiplied with
+        min(mirror_copies, max_dev_repeat_count). Weight of not mirrored device
+        is still just dev['weight'], hence the value of weighted_parts will
+        remain as in the previous implementation.
+        """
         try:
-            return self.parts * self.replicas / \
-                     sum(d['weight'] for d in self.devs if d is not None)
+            max_dev_repeat_count = self.max_dev_repeat_count
+            return self.parts * self.replicas /\
+                   sum(dev['weight'] * min(dev['mirror_copies'],
+                       max_dev_repeat_count) for dev in self.devs
+                   if dev is not None)
         except ZeroDivisionError:
             raise exceptions.EmptyRingError('There are no devices in this '
                                             'ring, or all devices have been '
@@ -106,6 +122,10 @@ class RingBuilder(object):
             self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
             self._remove_devs = builder['_remove_devs']
+        for dev in self.devs:
+            for key, value in DEV_DEFAULT:
+                if key not in dev:
+                    dev[key] = value
         self._ring = None
 
     def to_dict(self):
@@ -166,20 +186,21 @@ class RingBuilder(object):
         Add a device to the ring. This device dict should have a minimum of the
         following keys:
 
-        ======  ===============================================================
-        id      unique integer identifier amongst devices
-        weight  a float of the relative weight of this device as compared to
-                others; this indicates how many partitions the builder will try
-                to assign to this device
-        zone    integer indicating which zone the device is in; a given
-                partition will not be assigned to multiple devices within the
-                same zone
-        ip      the ip address of the device
-        port    the tcp port of the device
-        device  the device's name on disk (sdb1, for example)
-        meta    general use 'extra' field; for example: the online date, the
-                hardware description
-        ======  ===============================================================
+        =============  ========================================================
+        id             unique integer identifier amongst devices
+        weight         a float of the relative weight of this device as compared
+                       to others; this indicates how many partitions the builder
+                       will try to assign to this device
+        zone           integer indicating which zone the device is in; a given
+                       partition will not be assigned to multiple devices within
+                       the same zone ip the ip address of the device
+        ip             the ip address of the device
+        port           the tcp port of the device
+        device         the device's name on disk (sdb1, for example)
+        mirror_copies  a number of device mirrors
+        meta           general use 'extra' field; for example: the online date,
+                       the hardware description
+        =============  ========================================================
 
         .. note::
             This will not rebalance the ring immediately as you may want to
@@ -194,6 +215,9 @@ class RingBuilder(object):
             self.devs.append(None)
         dev['weight'] = float(dev['weight'])
         dev['parts'] = 0
+        if 'mirror_copies' not in dev:
+            dev['mirror_copies'] = 1
+        dev['mirrored_parts'] = 0
         self.devs[dev['id']] = dev
         self._set_parts_wanted()
         self.devs_changed = True
@@ -287,11 +311,13 @@ class RingBuilder(object):
                   (None, None)
         :raises RingValidationError: problem was found with the ring.
         """
-        if sum(d['parts'] for d in self.devs if d is not None) != \
+        if sum(d['parts'] + d['mirrored_parts'] for d in self.devs
+            if d is not None) != \
                 self.parts * self.replicas:
             raise exceptions.RingValidationError(
                 'All partitions are not double accounted for: %d != %d' %
-                (sum(d['parts'] for d in self.devs if d is not None),
+                (sum(d['parts'] + d['mirrored_parts'] for d in self.devs
+                    if d is not None),
                  self.parts * self.replicas))
         if stats:
             dev_usage = array('I', (0 for _junk in xrange(len(self.devs))))
@@ -302,7 +328,7 @@ class RingBuilder(object):
                 if stats:
                     dev_usage[dev_id] += 1
                 zone = self.devs[dev_id]['zone']
-                if zone in zones:
+                if zone in zones and self.devs[dev_id]['mirror_copies'] == 1:
                     raise exceptions.RingValidationError(
                         'Partition %d not in %d distinct zones. ' \
                         'Zones were: %s' %
@@ -371,7 +397,65 @@ class RingBuilder(object):
         :param part: partition to get devices for
         :returns: list of device dicts
         """
-        return [self.devs[r[part]] for r in self._replica2part2dev]
+        return [self.devs[d] for d in
+                set([r[part] for r in self._replica2part2dev])]
+
+    @property
+    def max_dev_repeat_count(self):
+        """
+        If ring have mirrored devices, then we will try to reduce network copy
+        by repeating mirrored device in the partition replicas list. This method
+        return value that represents the maximum number of appearance of a
+        device in a partition, it used to increase parts_wanted of mirrored
+        device.
+
+                             | Example 1 | Example 2 |
+        ----------------------------------------------
+        replicas             |     3     |     3     |
+        ----------------------------------------------
+        dev 1: mirror copies |     1     |     2     |
+        ----------------------------------------------
+        dev 2: mirror copies |     1     |     2     |
+        ----------------------------------------------
+        dev 3: mirror copies |     2     |     2     |
+        ----------------------------------------------
+
+                     | Example 1 | Example 2 |
+                     |      partitions       |
+                     | 0 ...     | 0 1 2 ... |
+        --------------------------------------
+                   0 | 1 ...     | 1 1 2 ... |
+        replica    1 | 2 ...     | 2 1 2 ... |
+                   2 | 3 ...     | 3 2 3 ... |
+        --------------------------------------
+        network cp   | 3 ...     | 3 2 2 ... |
+        mirror cp    | 2 ...     | 5 4 4 ... |
+        dev repeat   | 1 ...     | 1 2 2 ... |
+        --------------------------------------
+        max dev rep. |     1     |     2     |
+
+        :returns: maximum device repeat in partition replicas list
+        """
+        max_dev_repeat_count = 1
+        mir_dev = [dev for dev in self.devs if dev is not None
+            and dev['mirror_copies'] > 1]
+        if mir_dev:
+            # Minimal mirror copies
+            min_dev_mirror = min([dev['mirror_copies'] for dev in mir_dev])
+            # Minimal network replicas
+            min_nw_replicas = int(ceil(float(self.replicas) / min_dev_mirror))
+            if min_nw_replicas < 2:
+                min_nw_replicas = 2
+            if len(mir_dev) > min_nw_replicas:
+                mir_dev.sort(key=lambda x: x['mirror_copies'], reverse=True)
+                max_mirror = mir_dev[0]['mirror_copies']
+                sum_copies = sum([d['mirror_copies']
+                                  for d in mir_dev[0:min_nw_replicas]])
+                while (sum_copies - max_mirror) < (self.replicas - 1):
+                    sum_copies += mir_dev[min_nw_replicas]['mirror_copies']
+                    min_nw_replicas += 1
+                max_dev_repeat_count = self.replicas - min_nw_replicas + 1
+        return max_dev_repeat_count
 
     def _set_parts_wanted(self):
         """
@@ -381,14 +465,37 @@ class RingBuilder(object):
         to best distribute partitions.
         """
         weighted_parts = self.weighted_parts()
+        max_dev_repeat_count = self.max_dev_repeat_count
 
         for dev in self.devs:
             if dev is not None:
                 if not dev['weight']:
                     dev['parts_wanted'] = self.parts * -2
                 else:
-                    dev['parts_wanted'] = \
-                        int(weighted_parts * dev['weight']) - dev['parts']
+                    dev['parts_wanted'] =\
+                    int(weighted_parts * dev['weight'] *
+                        min(max_dev_repeat_count,
+                            dev['mirror_copies'])) - dev['parts']
+
+    def _update_available_devs(self, dev, available_devs, initial=True):
+        """
+        Update device partions information, and then insert it into
+        available_devs list based on new value of device parts_wanted.
+        """
+        dev['parts_wanted'] -= 1
+        dev['parts'] += 1
+        sort =  0 if initial else self.parts
+        sort += dev['parts_wanted']
+        dev['sort_key'] = '%08x.%04x' % (sort, randint(0, NO_DEVICE))
+        index = 0
+        end = len(available_devs)
+        while index < end:
+            mid = (index + end) // 2
+            if dev['sort_key'] < available_devs[mid]['sort_key']:
+                end = mid
+            else:
+                index = mid + 1
+        available_devs.insert(index, dev)
 
     def _initial_balance(self):
         """
@@ -400,34 +507,47 @@ class RingBuilder(object):
         restrictions.
         """
         for dev in self.devs:
-            dev['sort_key'] = \
-                '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
+            dev['sort_key'] =\
+            '%08x.%04x' % (dev['parts_wanted'], randint(0, NO_DEVICE))
         available_devs = sorted((d for d in self.devs if d is not None),
-                                key=lambda x: x['sort_key'])
-        self._replica2part2dev = \
-            [array('H') for _junk in xrange(self.replicas)]
+            key=lambda x: x['sort_key'])
+        self._replica2part2dev =\
+        [array('H') for _junk in xrange(self.replicas)]
         for _junk in xrange(self.parts):
             other_zones = array('H')
+            part_copies = 0
+            copies = []
             for replica in xrange(self.replicas):
                 index = len(available_devs) - 1
                 while available_devs[index]['zone'] in other_zones:
                     index -= 1
                 dev = available_devs.pop(index)
                 self._replica2part2dev[replica].append(dev['id'])
-                dev['parts_wanted'] -= 1
-                dev['parts'] += 1
-                dev['sort_key'] = \
-                    '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
-                index = 0
-                end = len(available_devs)
-                while index < end:
-                    mid = (index + end) // 2
-                    if dev['sort_key'] < available_devs[mid]['sort_key']:
-                        end = mid
-                    else:
-                        index = mid + 1
-                available_devs.insert(index, dev)
+                self._update_available_devs(dev, available_devs)
                 other_zones.append(dev['zone'])
+                part_copies += dev['mirror_copies']
+                copies.append(dev['mirror_copies'])
+                min_mirror_copies = min(copies)
+                if self.replicas > 1 and min_mirror_copies > 1:
+                    min_part_nw_replicas = int(ceil(float(self.replicas) /
+                                                    min_mirror_copies))
+                    if min_part_nw_replicas < 2:
+                        min_part_nw_replicas = 2
+                    max_mirror_copies = max(copies)
+                    if len(copies) >= min_part_nw_replicas and\
+                       (part_copies - max_mirror_copies) >= (self.replicas - 1):
+                        for r in xrange(replica + 1, self.replicas):
+                            for i, copy in enumerate(copies):
+                                if copy > 1:
+                                    copies[i] -= 1
+                                    dev = self.devs[self._replica2part2dev[i][-1]]
+                                    index = available_devs.index(dev)
+                                    available_devs.pop(index)
+                                    self._update_available_devs(dev, available_devs)
+                                    self._replica2part2dev[r].append(dev['id'])
+                                    dev['mirrored_parts'] += 1
+                                    break
+                        break
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
         for dev in self.devs:
@@ -445,6 +565,22 @@ class RingBuilder(object):
                 min(self._last_part_moves[part] + elapsed_hours, 0xff)
         self._last_part_moves_epoch = int(time())
 
+    def _unassign_dev(self, part, dev):
+        """
+        Unassign device from partition and update partion _last_part_moves.
+        """
+        mirror_copies = 0
+        for replica in xrange(self.replicas):
+            part2dev = self._replica2part2dev[replica]
+            if part2dev[part] == dev['id']:
+                part2dev[part] = NO_DEVICE
+                dev['parts_wanted'] += 1
+                dev['parts'] -= 1
+                if mirror_copies > 0:
+                    dev['mirrored_parts'] -= 1
+                mirror_copies += 1
+        self._last_part_moves[part] = 0
+
     def _gather_reassign_parts(self):
         """
         Returns an array('I') of partitions to be reassigned by gathering them
@@ -459,7 +595,7 @@ class RingBuilder(object):
                     part2dev = self._replica2part2dev[replica]
                     for part in xrange(self.parts):
                         if part2dev[part] in dev_ids:
-                            part2dev[part] = 0xffff
+                            part2dev[part] = NO_DEVICE
                             self._last_part_moves[part] = 0
                             removed_dev_parts.add(part)
 
@@ -475,10 +611,7 @@ class RingBuilder(object):
                         continue
                     dev = self.devs[part2dev[part]]
                     if dev['parts_wanted'] < 0:
-                        part2dev[part] = 0xffff
-                        self._last_part_moves[part] = 0
-                        dev['parts_wanted'] += 1
-                        dev['parts'] -= 1
+                        self._unassign_dev(part, dev)
                         reassign_parts.append(part)
 
         reassign_parts.extend(removed_dev_parts)
@@ -495,38 +628,88 @@ class RingBuilder(object):
         """
         for dev in self.devs:
             if dev is not None:
-                dev['sort_key'] = '%08x.%04x' % (self.parts +
-                                    dev['parts_wanted'], randint(0, 0xffff))
-        available_devs = \
-            sorted((d for d in self.devs if d is not None and d['weight']),
-                   key=lambda x: x['sort_key'])
+                dev['sort_key'] = '%08x.%04x' % (
+                    self.parts + dev['parts_wanted'], randint(0, NO_DEVICE))
+        available_devs =\
+        sorted((d for d in self.devs if d is not None and d['weight']),
+            key=lambda x: x['sort_key'])
+
         for part in reassign_parts:
             other_zones = array('H')
-            replace = None
+            replace = []
+            copies = []
+            part_copies = 0
+            replaced = []
+            devices = []
             for replica in xrange(self.replicas):
-                if self._replica2part2dev[replica][part] == 0xffff:
-                    replace = replica
+                if self._replica2part2dev[replica][part] == NO_DEVICE:
+                    replace.append(replica)
+                    copies.append(None)
+                    devices.append(None)
                 else:
-                    other_zones.append(self.devs[
-                        self._replica2part2dev[replica][part]]['zone'])
-            index = len(available_devs) - 1
-            while available_devs[index]['zone'] in other_zones:
-                index -= 1
-            dev = available_devs.pop(index)
-            self._replica2part2dev[replace][part] = dev['id']
-            dev['parts_wanted'] -= 1
-            dev['parts'] += 1
-            dev['sort_key'] = '%08x.%04x' % (self.parts + dev['parts_wanted'],
-                                             randint(0, 0xffff))
-            index = 0
-            end = len(available_devs)
-            while index < end:
-                mid = (index + end) // 2
-                if dev['sort_key'] < available_devs[mid]['sort_key']:
-                    end = mid
-                else:
-                    index = mid + 1
-            available_devs.insert(index, dev)
+                    dev = self.devs[self._replica2part2dev[replica][part]]
+                    if dev['id'] in devices:
+                        copies[devices.index(dev['id'])] -= 1
+                        copies.append(None)
+                        continue
+                    copies.append(dev['mirror_copies'])
+                    devices.append(dev['id'])
+                    other_zones.append(dev['zone'])
+                    part_copies += dev['mirror_copies']
+            for replica in replace:
+                index = len(available_devs) - 1
+                while available_devs[index]['zone'] in other_zones:
+                    index -= 1
+                dev = available_devs.pop(index)
+                self._replica2part2dev[replica][part] = dev['id']
+                self._update_available_devs(dev, available_devs, initial=False)
+                other_zones.append(dev['zone'])
+
+                copies[replica] = dev['mirror_copies']
+                part_copies += dev['mirror_copies']
+                replaced.append(replica)
+
+                act_copies = [c for c in copies if c is not None]
+                min_dev_mirror = min(act_copies)
+
+                if self.replicas > 1 and min_dev_mirror > 1:
+                    min_part_nw_replicas = int(ceil(float(self.replicas) /
+                                                    min_dev_mirror))
+                    if min_part_nw_replicas < 2:
+                        min_part_nw_replicas = 2
+                    max_dev_mirror = max(act_copies)
+                    if len(act_copies) >= min_part_nw_replicas and\
+                       (part_copies - max_dev_mirror) >= (self.replicas - 1):
+                        for r in replace:
+                            if self._replica2part2dev[r][part] != NO_DEVICE:
+                                continue
+                            asigned = False
+                            for rep in replaced:
+                                if copies[rep] > 1:
+                                    copies[rep] -= 1
+                                    dev = self.devs[self._replica2part2dev[rep][part]]
+                                    index = available_devs.index(dev)
+                                    available_devs.pop(index)
+                                    self._replica2part2dev[r][part] = dev['id']
+                                    self._update_available_devs(dev,
+                                        available_devs, initial=False)
+                                    dev['mirrored_parts'] =\
+                                        dev.get('mirrored_parts', 0) + 1
+                                    asigned = True
+                                    break
+                            if asigned:
+                                continue
+                            for i, copy in enumerate(copies):
+                                if copy > 1:
+                                    copies[i] -= 1
+                                    dev = self.devs[self._replica2part2dev[i][part]]
+                                    self._replica2part2dev[r][part] = dev['id']
+                                    dev['parts_wanted'] -= 1
+                                    dev['parts'] += 1
+                                    dev['mirrored_parts'] =\
+                                        dev.get('mirrored_parts', 0) + 1
+                                    break
+                        break
         for dev in self.devs:
             if dev is not None:
                 del dev['sort_key']

@@ -178,9 +178,8 @@ swift-ring-builder <builder_file>
               'reassigned is %s' % builder.min_part_hours
         if builder.devs:
             print 'Devices:    id  zone      ip address  port      name ' \
-                  'weight partitions balance meta'
-            weighted_parts = builder.parts * builder.replicas / \
-                sum(d['weight'] for d in builder.devs if d is not None)
+                  'weight partitions mirror part. balance mirror meta'
+            weighted_parts = builder.weighted_parts()
             for dev in builder.devs:
                 if dev is None:
                     continue
@@ -191,10 +190,12 @@ swift-ring-builder <builder_file>
                         balance = 0
                 else:
                     balance = 100.0 * dev['parts'] / \
-                              (dev['weight'] * weighted_parts) - 100.0
-                print '         %5d %5d %15s %5d %9s %6.02f %10s %7.02f %s' % \
+                        (dev['weight'] * min(dev['mirror_copies'],
+                         builder.max_dev_repeat_count) * weighted_parts) - 100.0
+                print '         %5d %5d %15s %5d %9s %6.02f %10s %12s %7.02f %6d %s' % \
                     (dev['id'], dev['zone'], dev['ip'], dev['port'],
-                     dev['device'], dev['weight'], dev['parts'], balance,
+                     dev['device'], dev['weight'], dev['parts'] - dev.get('mirrored_parts', 0),
+                     dev.get('mirrored_parts', 0), balance, dev.get('mirror_copies', 1),
                      dev['meta'])
         exit(EXIT_SUCCESS)
 
@@ -225,10 +226,10 @@ swift-ring-builder <builder_file> search <search-value>
             else:
                 balance = 100.0 * dev['parts'] / \
                           (dev['weight'] * weighted_parts) - 100.0
-            print '         %5d %5d %15s %5d %9s %6.02f %10s %7.02f %s' % \
+            print '         %5d %5d %15s %5d %9s %6d %6.02f %10s %7.02f %s' % \
                 (dev['id'], dev['zone'], dev['ip'], dev['port'],
-                 dev['device'], dev['weight'], dev['parts'], balance,
-                 dev['meta'])
+                 dev['device'], dev.get('mirror_copies', 1), dev['weight'],
+                 dev['parts'], balance, dev['meta'])
         exit(EXIT_SUCCESS)
 
     def list_parts():
@@ -267,7 +268,7 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
 
     def add():
         """
-swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
+swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>:<mirror>_<meta>
                                       <wght>
     Adds a device to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
@@ -316,10 +317,17 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
             print 'Invalid add value: %s' % argv[3]
             exit(EXIT_ERROR)
         i = 1
-        while i < len(rest) and rest[i] != '_':
+        while i < len(rest) and rest[i] != '_' and rest[i] != ':':
             i += 1
         device_name = rest[1:i]
         rest = rest[i:]
+
+        mirror_copies = 1
+        if rest.startswith(':'):
+            i = rest.find('_')
+            if (i == -1):
+                i = len(rest)
+            mirror_copies = int(rest[1:i])
 
         meta = ''
         if rest.startswith('_'):
@@ -341,13 +349,13 @@ swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta>
             next_dev_id = max(d['id'] for d in builder.devs if d) + 1
         builder.add_dev({'id': next_dev_id, 'zone': zone, 'ip': ip,
                          'port': port, 'device': device_name, 'weight': weight,
-                         'meta': meta})
+                         'meta': meta, 'mirror_copies': mirror_copies})
         if ':' in ip:
-            print 'Device z%s-[%s]:%s/%s_"%s" with %s weight got id %s' % \
-                  (zone, ip, port, device_name, meta, weight, next_dev_id)
+            print 'Device z%s-[%s]:%s/%s_"%s" with %s weight and %s mirror got id %s' % \
+                    (zone, ip, port, device_name, meta, weight, mirror_copies, next_dev_id)
         else:
-            print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
-                  (zone, ip, port, device_name, meta, weight, next_dev_id)
+            print 'Device z%s-%s:%s/%s_"%s" with %s weight and %s mirror got id %s' % \
+                  (zone, ip, port, device_name, meta, weight, mirror_copies, next_dev_id)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 

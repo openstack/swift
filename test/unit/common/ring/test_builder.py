@@ -195,6 +195,54 @@ class TestRingBuilder(unittest.TestCase):
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEquals(counts[3], 256)
 
+    def test_rerebalance_mirrored(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1', 'mirror_copies': 2})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1', 'mirror_copies': 2})
+        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sda1', 'mirror_copies': 2})
+        rb.rebalance()
+        self.assertEqual(rb.max_dev_repeat_count, 2)
+        r = rb.get_ring()
+        counts = {}
+        for part2dev_id in r._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                counts[dev_id] = counts.get(dev_id, 0) + 1
+        self.assertEquals(counts, {0: 256, 1: 256, 2: 256})
+        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10003, 'device': 'sda1', 'mirror_copies': 1})
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()
+        r = rb.get_ring()
+        counts = {}
+        for part2dev_id in r._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                counts[dev_id] = counts.get(dev_id, 0) + 1
+        for i in xrange(3):
+            self.assertTrue(counts[i] > counts[3])
+            self.assertTrue(counts[i] in range(219, 223))
+        self.assertTrue(counts[3] in range(105, 110))
+        rb.remove_dev(3)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()
+        r = rb.get_ring()
+        counts = {}
+        for part2dev_id in r._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                counts[dev_id] = counts.get(dev_id, 0) + 1
+        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10003, 'device': 'sda1', 'mirror_copies': 2})
+        rb.rebalance()
+        r = rb.get_ring()
+        counts = {}
+        for part2dev_id in r._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                counts[dev_id] = counts.get(dev_id, 0) + 1
+        for i in counts:
+            self.assertTrue(counts[i] in range(190, 195))
+
     def test_add_rebalance_add_rebalance_delete_rebalance(self):
         """ Test for https://bugs.launchpad.net/swift/+bug/845952 """
         # min_part of 0 to allow for rapid rebalancing
@@ -301,6 +349,50 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
 
+    def test_max_mirror_dev_repeat_count(self):
+        def add_devs(rb, mirror_copies):
+            for i, mc in enumerate(mirror_copies):
+                rb.add_dev({'id': i, 'zone': i, 'weight': 1, 'ip': '127.0.0.1',
+                            'port': 10000 + i, 'device': 'sda1',
+                            'mirror_copies': mc})
+
+        rb = ring.RingBuilder(8, 2, 0)
+        add_devs(rb, [2] * 2)
+        self.assertEqual(rb.max_dev_repeat_count, 1)
+
+        for i in range(3, 0, -1):
+            rb = ring.RingBuilder(8, 3, 0)
+            add_devs(rb, [2] * (3 - i) + [1] * i)
+            self.assertEqual(rb.max_dev_repeat_count, 1)
+
+        rb = ring.RingBuilder(8, 3, 0)
+        add_devs(rb, [3] * 2 + [1])
+        self.assertEqual(rb.max_dev_repeat_count, 1)
+
+        rb = ring.RingBuilder(8, 3, 0)
+        add_devs(rb, [2] * 3)
+        self.assertEqual(rb.max_dev_repeat_count, 2)
+
+        rb = ring.RingBuilder(8, 3, 0)
+        add_devs(rb, [3] * 3)
+        self.assertEqual(rb.max_dev_repeat_count, 2)
+
+        for i in range(3, 1, -1):
+            rb = ring.RingBuilder(8, 4, 0)
+            add_devs(rb, [2] * (4 - i) + [1] * i)
+            self.assertEqual(rb.max_dev_repeat_count, 1)
+
+        rb = ring.RingBuilder(8, 4, 0)
+        add_devs(rb, [2] * 3 + [1])
+        self.assertEqual(rb.max_dev_repeat_count, 2)
+
+        rb = ring.RingBuilder(8, 4, 0)
+        add_devs(rb, [2] * 4)
+        self.assertEqual(rb.max_dev_repeat_count, 2)
+
+        rb = ring.RingBuilder(8, 4, 0)
+        add_devs(rb, [3] * 4)
+        self.assertEqual(rb.max_dev_repeat_count, 3)
 
 if __name__ == '__main__':
     unittest.main()
