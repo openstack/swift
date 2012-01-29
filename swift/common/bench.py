@@ -21,7 +21,7 @@ from contextlib import contextmanager
 import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest
 
-from swift.common.utils import TRUE_VALUES, urlparse
+from swift.common.utils import TRUE_VALUES
 from swift.common import client
 from swift.common import direct_client
 
@@ -105,7 +105,6 @@ class Bench(object):
 
     def run(self):
         pool = eventlet.GreenPool(self.concurrency)
-        events = []
         self.beginbeat = self.heartbeat = time.time()
         self.heartbeat -= 13    # just to get the first report quicker
         self.failures = 0

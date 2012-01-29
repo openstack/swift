@@ -26,7 +26,6 @@ import sys
 import time
 import cPickle as pickle
 import errno
-from random import randint
 from tempfile import mkstemp
 
 from eventlet import sleep, Timeout
@@ -311,7 +310,7 @@ class DatabaseBroker(object):
             yield conn
             conn.rollback()
             self.conn = conn
-        except sqlite3.DatabaseError, err:
+        except sqlite3.DatabaseError:
             try:
                 conn.close()
             except:

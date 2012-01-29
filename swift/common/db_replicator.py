@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from __future__ import with_statement
-import sys
 import os
 import random
 import math
@@ -31,7 +30,7 @@ from webob.exc import HTTPNotFound, HTTPNoContent, HTTPAccepted, \
     HTTPInsufficientStorage, HTTPBadRequest
 
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
-    renamer, mkdirs, lock_parent_directory, unlink_older_than, LoggerFileObject
+    renamer, mkdirs, lock_parent_directory, unlink_older_than
 from swift.common import ring
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout

@@ -18,7 +18,6 @@
 import errno
 import os
 import signal
-import sys
 import time
 import mimetools
 

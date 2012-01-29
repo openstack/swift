@@ -21,7 +21,7 @@ through the proxy.
 import socket
 from httplib import HTTPException
 from time import time
-from urllib import quote as _quote, unquote
+from urllib import quote as _quote
 
 from eventlet import sleep, Timeout
 

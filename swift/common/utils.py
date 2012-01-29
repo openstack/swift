@@ -19,17 +19,14 @@ import errno
 import fcntl
 import os
 import pwd
-import signal
 import sys
 import time
-import mimetools
 from hashlib import md5
 from random import shuffle
 from urllib import quote
 from contextlib import contextmanager
 import ctypes
 import ctypes.util
-import struct
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
     RawConfigParser
 from optparse import OptionParser
@@ -43,8 +40,8 @@ import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 
 import eventlet
-from eventlet import greenio, GreenPool, sleep, Timeout, listen
-from eventlet.green import socket, subprocess, ssl, thread, threading
+from eventlet import GreenPool, sleep
+from eventlet.green import socket, threading
 import netifaces
 
 from swift.common.exceptions import LockTimeout, MessageTimeout

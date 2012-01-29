@@ -253,7 +253,7 @@ class TempURL(object):
                         already = True
                         break
                 if not already:
-                    headers.append(('Content-Disposition', 
+                    headers.append(('Content-Disposition',
                         'attachment; filename=%s' %
                             (quote(basename(env['PATH_INFO'])))))
             return start_response(status, headers, exc_info)

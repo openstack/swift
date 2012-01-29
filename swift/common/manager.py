@@ -19,7 +19,6 @@ import errno
 import os
 import resource
 import signal
-import sys
 import time
 import subprocess
 import re

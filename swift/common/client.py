@@ -17,10 +17,7 @@
 Cloud Files client library used internally
 """
 import socket
-from cStringIO import StringIO
-from re import compile, DOTALL
-from tokenize import generate_tokens, STRING, NAME, OP
-from urllib import quote as _quote, unquote
+from urllib import quote as _quote
 from urlparse import urlparse, urlunparse
 
 try:

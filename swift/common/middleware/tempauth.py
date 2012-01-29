@@ -98,7 +98,6 @@ class TempAuth(object):
                     url += ip
                     url += ':' + conf.get('bind_port', '8080') + '/v1/' + \
                            self.reseller_prefix + conf_key.split('_')[1]
-                groups = values
                 self.users[conf_key.split('_', 1)[1].replace('_', ':')] = {
                     'key': key, 'url': url, 'groups': values}
 
