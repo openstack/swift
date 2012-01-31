@@ -1,0 +1,5 @@
+coverage
+nose
+nosexcover
+openstack.nose_plugin
+pep8==0.6.1
