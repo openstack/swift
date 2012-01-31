@@ -706,6 +706,23 @@ class TestProxyServer(unittest.TestCase):
         resp = app.handle_request(req)
         self.assert_(called[0])
 
+    def test_negative_content_length(self):
+        swift_dir = mkdtemp()
+        try:
+            baseapp = proxy_server.BaseApplication({'swift_dir': swift_dir},
+                FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
+                FakeRing())
+            resp = baseapp.handle_request(
+                Request.blank('/', environ={'CONTENT_LENGTH': '-1'}))
+            self.assertEquals(resp.status, '400 Bad Request')
+            self.assertEquals(resp.body, 'Invalid Content-Length')
+            resp = baseapp.handle_request(
+                Request.blank('/', environ={'CONTENT_LENGTH': '-123'}))
+            self.assertEquals(resp.status, '400 Bad Request')
+            self.assertEquals(resp.body, 'Invalid Content-Length')
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
+
 
 class TestObjectController(unittest.TestCase):
 

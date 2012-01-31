@@ -1807,6 +1807,9 @@ class BaseApplication(object):
         :param req: webob.Request object
         """
         try:
+            if req.content_length and req.content_length < 0:
+                return HTTPBadRequest(request=req,
+                                      body='Invalid Content-Length')
             try:
                 controller, path_parts = self.get_controller(req.path)
             except ValueError:
