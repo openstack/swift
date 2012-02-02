@@ -16,7 +16,7 @@
 
 from errno import EEXIST, ENOENT
 from hashlib import md5
-from optparse import OptionParser
+from optparse import OptionParser, SUPPRESS_HELP
 from os import environ, listdir, makedirs, utime
 from os.path import basename, dirname, getmtime, getsize, isdir, join
 from Queue import Empty, Queue
@@ -1828,6 +1828,24 @@ def parse_args(parser, args, enforce_requires=True):
     if not args:
         args = ['-h']
     (options, args) = parser.parse_args(args)
+
+    if (not (options.auth and options.user and options.key) or
+            environ.get('OS_AUTH_URL')):
+        # Use 2.0 auth if none of the old args are present
+        options.auth_version = "2.0"
+
+    # Use new-style args if old ones not present
+    if not options.auth and options.auth_url:
+        options.auth = options.auth_url
+    if not options.user and options.username:
+        options.user = options.username
+    if not options.key and options.password:
+        options.key = options.password
+
+    # Handle trailing '/' in URL
+    if not options.auth.endswith('/'):
+        options.auth += '/'
+
     if enforce_requires and \
             not (options.auth and options.user and options.key):
         exit('''
@@ -1872,6 +1890,15 @@ Example:
     parser.add_option('-K', '--key', dest='key',
                       default=environ.get('ST_KEY'),
                       help='Key for obtaining an auth token')
+    parser.add_option('--auth_url', dest='auth_url',
+                      default=environ.get('OS_AUTH_URL'),
+                      help=SUPPRESS_HELP)
+    parser.add_option('--username', dest='username',
+                      default=environ.get('OS_USERNAME'),
+                      help=SUPPRESS_HELP)
+    parser.add_option('--password', dest='password',
+                      default=environ.get('OS_PASSWORD'),
+                      help=SUPPRESS_HELP)
     parser.disable_interspersed_args()
     (options, args) = parse_args(parser, argv[1:], enforce_requires=False)
     parser.enable_interspersed_args()
