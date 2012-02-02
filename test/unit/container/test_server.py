@@ -566,17 +566,17 @@ class TestContainerController(unittest.TestCase):
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01"},
+                    "last_modified":"1970-01-01T00:00:01.000000"},
                     {"name":"1",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01"},
+                    "last_modified":"1970-01-01T00:00:01.000000"},
                     {"name":"2",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01"}]
+                    "last_modified":"1970-01-01T00:00:01.000000"}]
 
         req = Request.blank('/sda1/p/a/jsonc?format=json',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -644,6 +644,41 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.content_type, 'text/plain')
         self.assertEquals(resp.body, plain_body)
 
+    def test_GET_json_last_modified(self):
+        # make a container
+        req = Request.blank('/sda1/p/a/jsonc', environ={'REQUEST_METHOD': 'PUT',
+            'HTTP_X_TIMESTAMP': '0'})
+        resp = self.controller.PUT(req)
+        for i, d in [(0, 1.5),
+                     (1, 1.0),]:
+            req = Request.blank('/sda1/p/a/jsonc/%s'%i, environ=
+                    {'REQUEST_METHOD': 'PUT',
+                    'HTTP_X_TIMESTAMP': d,
+                    'HTTP_X_CONTENT_TYPE': 'text/plain',
+                    'HTTP_X_ETAG': 'x',
+                    'HTTP_X_SIZE': 0})
+            resp = self.controller.PUT(req)
+            self.assertEquals(resp.status_int, 201)
+        # test format
+        # last_modified format must be uniform, even when there are not msecs
+        json_body = [{"name":"0",
+                    "hash":"x",
+                    "bytes":0,
+                    "content_type":"text/plain",
+                    "last_modified":"1970-01-01T00:00:01.500000"},
+                    {"name":"1",
+                    "hash":"x",
+                    "bytes":0,
+                    "content_type":"text/plain",
+                    "last_modified":"1970-01-01T00:00:01.000000"},]
+
+        req = Request.blank('/sda1/p/a/jsonc?format=json',
+                environ={'REQUEST_METHOD': 'GET'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(eval(resp.body), json_body)
+        self.assertEquals(resp.charset, 'utf-8')
+
     def test_GET_xml(self):
         # make a container
         req = Request.blank('/sda1/p/a/xmlc', environ={'REQUEST_METHOD': 'PUT',
@@ -663,15 +698,15 @@ class TestContainerController(unittest.TestCase):
             '<container name="xmlc">' \
                 '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
                 '<object><name>1</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
                 '<object><name>2</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
             '</container>'
         # tests
@@ -841,9 +876,9 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(simplejson.loads(resp.body),
             [{"name":"US/OK","hash":"x","bytes":0,"content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01"},
+              "last_modified":"1970-01-01T00:00:01.000000"},
              {"name":"US/TX","hash":"x","bytes":0,"content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01"}])
+              "last_modified":"1970-01-01T00:00:01.000000"}])
 
     def test_through_call(self):
         inbuf = StringIO()

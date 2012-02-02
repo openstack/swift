@@ -326,6 +326,9 @@ class ContainerController(object):
                 name = simplejson.dumps(name)
                 created_at = datetime.utcfromtimestamp(
                     float(created_at)).isoformat()
+                # python isoformat() doesn't include msecs when zero
+                if len(created_at) < len("1970-01-01T00:00:00.000000"):
+                    created_at += ".000000"
                 if content_type is None:
                     json_out.append('{"subdir":%s}' % name)
                 else:
@@ -343,6 +346,9 @@ class ContainerController(object):
                 name = saxutils.escape(name)
                 created_at = datetime.utcfromtimestamp(
                     float(created_at)).isoformat()
+                # python isoformat() doesn't include msecs when zero
+                if len(created_at) < len("1970-01-01T00:00:00.000000"):
+                    created_at += ".000000"
                 if content_type is None:
                     xml_output.append('<subdir name="%s"><name>%s</name>'
                                       '</subdir>' % (name, name))
