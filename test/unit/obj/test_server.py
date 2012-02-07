@@ -27,7 +27,7 @@ from time import gmtime, sleep, strftime, time
 from tempfile import mkdtemp
 from hashlib import md5
 
-from eventlet import sleep, spawn, wsgi, listen
+from eventlet import sleep, spawn, wsgi, listen, Timeout
 from webob import Request
 from test.unit import FakeLogger
 from test.unit import _getxattr as getxattr
@@ -38,6 +38,7 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
 from swift.common.exceptions import DiskFileNotExist
+from swift.obj import replicator
 from eventlet import tpool
 
 
@@ -158,12 +159,12 @@ class TestDiskFile(unittest.TestCase):
             df.put(fd, tmppath, metadata, extension=extension)
             if invalid_type == 'ETag':
                 etag = md5()
-                etag.update('1' + '0' * (fsize-1))
+                etag.update('1' + '0' * (fsize - 1))
                 etag = etag.hexdigest()
                 metadata['ETag'] = etag
                 object_server.write_metadata(fd, metadata)
             if invalid_type == 'Content-Length':
-                metadata['Content-Length'] = fsize-1
+                metadata['Content-Length'] = fsize - 1
                 object_server.write_metadata(fd, metadata)
 
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
@@ -1115,7 +1116,7 @@ class TestObjectController(unittest.TestCase):
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                        os.path.basename(os.path.dirname(file.data_file)))
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
-        body = resp.body # actually does quarantining
+        body = resp.body  # actually does quarantining
         self.assertEquals(body, 'VERIFY')
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
@@ -2046,6 +2047,54 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 400)
         self.assertTrue('X-Delete-At in past' in resp.body)
 
+    def test_REPLICATE_works(self):
+
+        def fake_get_hashes(*args, **kwargs):
+            return 0, {1: 2}
+
+        def my_tpool_execute(*args, **kwargs):
+            func = args[0]
+            args = args[1:]
+            return func(*args, **kwargs)
+
+        was_get_hashes = replicator.get_hashes
+        replicator.get_hashes = fake_get_hashes
+        was_tpool_exe = tpool.execute
+        tpool.execute = my_tpool_execute
+        try:
+            req = Request.blank('/sda1/p/suff',
+                environ={'REQUEST_METHOD': 'REPLICATE'},
+                headers={})
+            resp = self.object_controller.REPLICATE(req)
+            self.assertEquals(resp.status_int, 200)
+            p_data = pickle.loads(resp.body)
+            self.assertEquals(p_data, {1: 2})
+        finally:
+            tpool.execute = was_tpool_exe
+            replicator.get_hashes = was_get_hashes
+
+    def test_REPLICATE_timeout(self):
+
+        def fake_get_hashes(*args, **kwargs):
+            raise Timeout()
+
+        def my_tpool_execute(*args, **kwargs):
+            func = args[0]
+            args = args[1:]
+            return func(*args, **kwargs)
+
+        was_get_hashes = replicator.get_hashes
+        replicator.get_hashes = fake_get_hashes
+        was_tpool_exe = tpool.execute
+        tpool.execute = my_tpool_execute
+        try:
+            req = Request.blank('/sda1/p/suff',
+                environ={'REQUEST_METHOD': 'REPLICATE'},
+                headers={})
+            self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
+        finally:
+            tpool.execute = was_tpool_exe
+            replicator.get_hashes = was_get_hashes
 
 if __name__ == '__main__':
     unittest.main()

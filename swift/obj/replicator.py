@@ -202,13 +202,13 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
 def tpooled_get_hashes(*args, **kwargs):
     """
     Hack to work around Eventlet's tpool not catching and reraising Timeouts.
-    We return the Timeout, None if it's raised, the caller looks for it
+    We return the Timeout, Timeout if it's raised, the caller looks for it
     and reraises it if found.
     """
     try:
         return get_hashes(*args, **kwargs)
     except Timeout, err:
-        return err, None
+        return err, err
 
 
 class ObjectReplicator(Daemon):
