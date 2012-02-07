@@ -74,7 +74,7 @@ class TestBufferedHTTP(unittest.TestCase):
             def __init__(self, hostport):
                 pass
 
-            def putrequest(self, method, path):
+            def putrequest(self, method, path, skip_host=0):
                 pass
 
             def putheader(self, header, *values):

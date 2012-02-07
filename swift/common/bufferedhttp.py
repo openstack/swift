@@ -135,7 +135,7 @@ def http_connect(ipaddr, port, device, partition, method, path,
     if query_string:
         path += '?' + query_string
     conn.path = path
-    conn.putrequest(method, path)
+    conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))
     if headers:
         for header, value in headers.iteritems():
             conn.putheader(header, str(value))
@@ -168,7 +168,7 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     if query_string:
         path += '?' + query_string
     conn.path = path
-    conn.putrequest(method, path)
+    conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))
     if headers:
         for header, value in headers.iteritems():
             conn.putheader(header, str(value))
