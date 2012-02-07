@@ -465,6 +465,8 @@ def drop_privileges(user):
     :param user: User name to change privileges to
     """
     user = pwd.getpwnam(user)
+    if os.geteuid() == 0:
+        os.setgroups([])
     os.setgid(user[3])
     os.setuid(user[2])
     try:

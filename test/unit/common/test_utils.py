@@ -55,7 +55,7 @@ class MockOs():
     def pass_func(self, *args, **kwargs):
         pass
 
-    chdir = setsid = setgid = setuid = umask = pass_func
+    setgroups = chdir = setsid = setgid = setuid = umask = pass_func
 
     def called_func(self, name, *args, **kwargs):
         self.called_funcs[name] = True
@@ -66,6 +66,10 @@ class MockOs():
 
     def dup2(self, source, target):
         self.closed_fds.append(target)
+
+    def geteuid(self):
+        '''Pretend we are running as root.'''
+        return 0
 
     def __getattr__(self, name):
         # I only over-ride portions of the os module
@@ -570,7 +574,8 @@ log_name = %(yarr)s'''
     def test_drop_privileges(self):
         user = getuser()
         # over-ride os with mock
-        required_func_calls = ('setgid', 'setuid', 'setsid', 'chdir', 'umask')
+        required_func_calls = ('setgroups', 'setgid', 'setuid', 'setsid',
+                               'chdir', 'umask')
         utils.os = MockOs(called_funcs=required_func_calls)
         # exercise the code
         utils.drop_privileges(user)
