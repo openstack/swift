@@ -1,3 +1,27 @@
+swift (1.4.6)
+
+    * TempURL and FormPost middleware added
+
+    * Added memcache.conf option
+
+    * Dropped eval-based json parser fallback
+
+    * Properly lose all groups when dropping privileges
+
+    * Fix permissions when creating files
+
+    * Fixed bug regarding negative Content-Length in requests
+
+    * Consistent formatting on Last-Modified response header
+
+    * Added timeout option to swift-recon
+
+    * Allow arguments to be passed to nosetest
+
+    * Removed tools/rfc.sh
+
+    * Other minor bug fixes
+
 swift (1.4.5)
 
     * New swift-orphans and swift-oldies command line tools to detect
