@@ -1,4 +1,4 @@
 #!/bin/bash
 
-nosetests test/functional --exe
-nosetests test/functionalnosetests --exe
+nosetests test/functional --exe $@
+nosetests test/functionalnosetests --exe $@
