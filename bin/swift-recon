@@ -16,6 +16,7 @@ import os
 
 VERBOSE = False
 SUPPRESS_ERRORS = False
+TIMEOUT = 5
 
 
 def get_devices(zone_filter, ring_file):
@@ -32,7 +33,7 @@ def scout(base_url, recon_type):
     global VERBOSE, SUPPRESS_ERRORS
     url = base_url + recon_type
     try:
-        body = urllib2.urlopen(url).read()
+        body = urllib2.urlopen(url, timeout=TIMEOUT).read()
         content = json.loads(body)
         if VERBOSE:
             print "-> %s: %s" % (url, content)
@@ -322,7 +323,7 @@ def disk_usage(hosts):
 
 
 def main():
-    global VERBOSE, SUPPRESS_ERRORS, swift_dir, pool
+    global VERBOSE, SUPPRESS_ERRORS, TIMEOUT, swift_dir, pool
     print "=" * 79
     usage = '''
     usage: %prog [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
@@ -352,6 +353,8 @@ def main():
         help="Perform all checks. Equivalent to -arudlq --objmd5 --sockstat")
     args.add_option('--zone', '-z', type="int",
         help="Only query servers in specified zone")
+    args.add_option('--timeout', '-t', type="int", metavar="SECONDS",
+        help="Time to wait for a response from a server")
 
     args.add_option('--swiftdir', default="/etc/swift",
         help="Default = /etc/swift")
@@ -372,6 +375,9 @@ def main():
         hosts = get_devices(options.zone, obj_ring)
     else:
         hosts = get_devices(None, obj_ring)
+
+    if options.timeout:
+        TIMEOUT = options.timeout
 
     if options.all:
         async_check(hosts)
