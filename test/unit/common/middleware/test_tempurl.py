@@ -108,6 +108,8 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         self.assertEquals(resp.headers['content-disposition'],
                           'attachment; filename=o')
+        self.assertEquals(resp.environ['swift.authorize_override'], True)
+        self.assertEquals(resp.environ['REMOTE_USER'], '.wsgi.tempurl')
 
     def test_put_not_allowed_by_get(self):
         method = 'GET'
@@ -139,6 +141,8 @@ class TestTempURL(unittest.TestCase):
         req.environ['swift.cache'].set('temp-url-key/a', key)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.environ['swift.authorize_override'], True)
+        self.assertEquals(resp.environ['REMOTE_USER'], '.wsgi.tempurl')
 
     def test_get_not_allowed_by_put(self):
         method = 'PUT'
@@ -226,6 +230,8 @@ class TestTempURL(unittest.TestCase):
         req.environ['swift.cache'].set('temp-url-key/a', key)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.environ['swift.authorize_override'], True)
+        self.assertEquals(resp.environ['REMOTE_USER'], '.wsgi.tempurl')
 
     def test_head_allowed_by_put(self):
         method = 'PUT'
@@ -241,6 +247,8 @@ class TestTempURL(unittest.TestCase):
         req.environ['swift.cache'].set('temp-url-key/a', key)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.environ['swift.authorize_override'], True)
+        self.assertEquals(resp.environ['REMOTE_USER'], '.wsgi.tempurl')
 
     def test_head_otherwise_not_allowed(self):
         method = 'PUT'
