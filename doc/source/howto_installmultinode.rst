@@ -135,6 +135,7 @@ Configure the Proxy node
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
+        account_autocreate = true
         
         [filter:tempauth]
         use = egg:swift#tempauth
