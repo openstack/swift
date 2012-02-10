@@ -33,18 +33,18 @@ The format of the form is::
 
 The <swift-url> is the URL to the Swift desination, such as::
 
-    https://swift-cluster.example.com/AUTH_account/container/object_prefix
+    https://swift-cluster.example.com/v1/AUTH_account/container/object_prefix
 
 The name of each file uploaded will be appended to the <swift-url>
 given. So, you can upload directly to the root of container with a
 url like::
 
-    https://swift-cluster.example.com/AUTH_account/container/
+    https://swift-cluster.example.com/v1/AUTH_account/container/
 
 Optionally, you can include an object prefix to better separate
 different users' uploads, such as::
 
-    https://swift-cluster.example.com/AUTH_account/container/object_prefix
+    https://swift-cluster.example.com/v1/AUTH_account/container/object_prefix
 
 Note the form method must be POST and the enctype must be set as
 "multipart/form-data".
@@ -84,6 +84,8 @@ sample code for computing the signature::
 
 The key is the value of the X-Account-Meta-Temp-URL-Key header on the
 account.
+
+Be certain to use the full path, from the /v1/ onward.
 
 The command line tool ``swift-form-signature`` may be used (mostly
 just when testing) to compute expires and signature.

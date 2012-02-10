@@ -45,15 +45,18 @@ seconds on /v1/AUTH_account/container/object::
     expires = int(time() + 60)
     path = '/v1/AUTH_account/container/object'
     key = 'mykey'
-    hmac_body = '%s\\n%s\\n%s\\n%s' % (method, expires, path, key)
+    hmac_body = '%s\\n%s\\n%s' % (method, expires, path)
     sig = hmac.new(key, hmac_body, sha1).hexdigest()
 
-Let's say the sig ends up equaling ee796f3a89cf82ef7a36ac75fed54b83
-and expires ends up 1323479485. Then, for example, the website could
-provide a link to::
+Be certain to use the full path, from the /v1/ onward.
+
+Let's say the sig ends up equaling
+da39a3ee5e6b4b0d3255bfef95601890afd80709 and expires ends up
+1323479485. Then, for example, the website could provide a link to::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object?
-    temp_url_sig=ee796f3a89cf82ef7a36ac75fed54b83&temp_url_expires=1323479485
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485
 
 Any alteration of the resource path or query arguments would result
 in 401 Unauthorized. Similary, a PUT where GET was the allowed method
