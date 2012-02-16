@@ -246,6 +246,7 @@ class TempURL(object):
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
+        env['REMOTE_USER'] = '.wsgi.tempurl'
 
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
@@ -332,6 +333,7 @@ class TempURL(object):
                     newenv[name] = env[name]
             newenv['swift.authorize'] = lambda req: None
             newenv['swift.authorize_override'] = True
+            newenv['REMOTE_USER'] = '.wsgi.tempurl'
             key = [None]
 
             def _start_response(status, response_headers, exc_info=None):

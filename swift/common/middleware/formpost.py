@@ -446,6 +446,7 @@ class FormPost(object):
             return '401 Unauthorized', 'invalid signature'
         subenv['swift.authorize'] = lambda req: None
         subenv['swift.authorize_override'] = True
+        subenv['REMOTE_USER'] = '.wsgi.formpost'
         substatus = [None]
 
         def _start_response(status, headers, exc_info=None):
@@ -484,6 +485,7 @@ class FormPost(object):
                     newenv[name] = env[name]
             newenv['swift.authorize'] = lambda req: None
             newenv['swift.authorize_override'] = True
+            newenv['REMOTE_USER'] = '.wsgi.formpost'
             key = [None]
 
             def _start_response(status, response_headers, exc_info=None):

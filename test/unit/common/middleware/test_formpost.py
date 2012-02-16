@@ -73,6 +73,10 @@ class FakeApp(object):
             body += chunk
         env['wsgi.input'] = StringIO(body)
         self.requests.append(Request.blank('', environ=env))
+        if env.get('swift.authorize_override') and \
+                env.get('REMOTE_USER') != '.wsgi.formpost':
+            raise Exception('Invalid REMOTE_USER %r with '
+                'swift.authorize_override' % (env.get('REMOTE_USER'),))
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](self.requests[-1])
             if resp:
