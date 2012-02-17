@@ -400,8 +400,9 @@ class RingBuilder(object):
         restrictions.
         """
         for dev in self.devs:
-            dev['sort_key'] = \
-                '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
+            if dev is not None:
+                dev['sort_key'] = \
+                    '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
         available_devs = sorted((d for d in self.devs if d is not None),
                                 key=lambda x: x['sort_key'])
         self._replica2part2dev = \
@@ -431,7 +432,8 @@ class RingBuilder(object):
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
         for dev in self.devs:
-            del dev['sort_key']
+            if dev is not None:
+                del dev['sort_key']
 
     def _update_last_part_moves(self):
         """
