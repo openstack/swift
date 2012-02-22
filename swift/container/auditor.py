@@ -44,6 +44,7 @@ class ContainerAuditor(Daemon):
         reported = time.time()
         time.sleep(random() * self.interval)
         while True:
+            self.logger.info(_('Begin container audit pass.'))
             begin = time.time()
             try:
                 all_locs = audit_location_generator(self.devices,
@@ -66,6 +67,8 @@ class ContainerAuditor(Daemon):
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
+            self.logger.info(
+                _('Container audit pass completed: %.02fs'), elapsed)
 
     def run_once(self, *args, **kwargs):
         """Run the container audit once."""
