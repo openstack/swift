@@ -6,8 +6,8 @@ SAIO - Swift All In One
 Instructions for setting up a development VM
 ---------------------------------------------
 
-This documents setting up a virtual machine for doing Swift development. The
-virtual machine will emulate running a four node Swift cluster.
+This section documents setting up a virtual machine for doing Swift development.
+The virtual machine will emulate running a four node Swift cluster.
 
 * Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
 
@@ -33,16 +33,31 @@ Installing dependencies and the core code
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy python-netifaces`
   #. Install anything else you want, like screen, ssh, vim, etc.
-  #. Next, choose either :ref:`partition-section` or :ref:`loopback-section`. 
 
+* On Fedora, log in as root and do:
+
+  #. `yum install openstack-swift openstack-swift-proxy
+     openstack-swift-account openstack-swift-container openstack-swift-object`
+  #. `yum install xinetd rsyncd`
+  #. `yum install memcached`
+  #. `yum install python-netifaces`
+
+  This installs all necessary dependencies, and also creates user `swift`
+  and group `swift`. So, `swift:swift` ought to be used in every place where
+  this manual calls for `<your-user-name>:<your-group-name>`.
+
+  Ensure that you are installing the version of Swift that corresponds to
+  this document. If not, enable the correct update repositories.
+
+Next, choose either :ref:`partition-section` or :ref:`loopback-section`. 
 
 .. _partition-section:
 
 Using a partition for storage
 =============================
 
-If you are going to use a separate partition for Swift data, be sure to add another device when
-  creating the VM, and follow these instructions. 
+If you are going to use a separate partition for Swift data, be sure to add
+another device when creating the VM, and follow these instructions. 
   
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
@@ -180,7 +195,23 @@ Setting up rsync
 
         RSYNC_ENABLE=true
 
+     On Fedora, edit the following line in /etc/xinetd.d/rsync::
+
+        disable = no
+
   #. `service rsync restart`
+
+------------------
+Starting memcached
+------------------
+
+On Fedora, make sure that memcached runs, running this if necessary:
+
+  * `systemctl enable memcached.service`
+  * `systemctl start memcached.service`
+
+If this is not done, tokens of tempauth expire immediately and accessing
+Swift with curl becomes impossible.
 
 ---------------------------------------------------
 Optional: Setting up rsyslog for individual logging
@@ -651,7 +682,7 @@ If all doesn't go as planned, and tests fail, or you can't auth, or something do
    look for errors (most likely python tracebacks).
 #. Make sure all of the server processes are running.  For the base
    functionality, the Proxy, Account, Container, and Object servers
-   should be running
+   should be running.
 #. If one of the servers are not running, and no errors are logged to syslog,
    it may be useful to try to start the server manually, for example: 
    `swift-object-server /etc/swift/object-server/1.conf` will start the 
