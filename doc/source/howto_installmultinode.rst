@@ -156,7 +156,7 @@ Configure the Proxy node
 
 #. Create the account, container and object rings. The builder command is basically creating a builder file with a few parameters. The parameter with the value of 18 represents 2 ^ 18th, the value that the partition will be sized to. Set this "partition power" value based on the total amount of storage you expect your entire ring to use. The value of 3 represents the number of replicas of each object, with the last value being the number of hours to restrict moving a partition more than once.
 
-::
+   ::
 
     cd /etc/swift
     swift-ring-builder account.builder create 18 3 1
@@ -333,19 +333,22 @@ Configure the Storage nodes
         [object-auditor]
         EOF
 
-#. Start the storage services. If you use this command, it will try to start every
-service for which a configuration file exists, and throw a warning for any
-configuration files which don't exist::
+#. Start the storage services. If you use this command, it will try to start
+   every service for which a configuration file exists, and throw a warning
+   for any configuration files which don't exist::
 
          swift-init all start
 
-Or, if you want to start them one at a time, run them as below. Note that if the
-server program in question generates any output on its stdout or stderr, swift-init
-has already redirected the command's output to /dev/null. If you encounter any
-difficulty, stop the server and run it by hand from the command line. Any server
-may be started using "swift-$SERVER-$SERVICE /etc/swift/$SERVER-config", where
-$SERVER might be object, continer, or account, and $SERVICE might be server,
-replicator, updater, or auditor.::
+   Or, if you want to start them one at a time, run them as below.
+   Note that if the server program in question generates any output on its
+   stdout or stderr, swift-init has already redirected the command's output
+   to /dev/null. If you encounter any difficulty, stop the server and run it
+   by hand from the command line. Any server may be started using
+   "swift-$SERVER-$SERVICE /etc/swift/$SERVER-config", where $SERVER might
+   be object, continer, or account, and $SERVICE might be server,
+   replicator, updater, or auditor.
+
+   ::
 
          swift-init object-server start
          swift-init object-replicator start
