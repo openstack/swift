@@ -307,8 +307,7 @@ class StaticWeb(object):
                cgi.escape(env['PATH_INFO'])
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
-                        'href="%s%s" />\n' % \
-                    ('../' * prefix.count('/'), quote(self._listings_css))
+                        'href="%s" />\n' % (self._build_css_path(prefix))
         else:
             body += '  <style type="text/css">\n' \
                     '   h1 {font-size: 1em; font-weight: bold;}\n' \
@@ -365,6 +364,19 @@ class StaticWeb(object):
         resp = Response(headers=headers, body=body)
         self._log_response(env, resp.status_int)
         return resp(env, start_response)
+
+    def _build_css_path(self, prefix=''):
+        """
+        Constructs a relative path from a given prefix within the container.
+        URLs and paths starting with '/' are not modified.
+
+        :param prefix: The prefix for the container listing.
+        """
+        if self._listings_css.startswith(('/', 'http://', 'https://')):
+            css_path = quote(self._listings_css, ':/')
+        else:
+            css_path = '../' * prefix.count('/') + quote(self._listings_css)
+        return css_path
 
     def _handle_container(self, env, start_response):
         """
