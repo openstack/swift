@@ -398,7 +398,6 @@ class Controller(object):
                             node['device'], partition, 'HEAD', path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    body = resp.read()
                     if 200 <= resp.status <= 299:
                         result_code = 200
                         break
@@ -484,7 +483,6 @@ class Controller(object):
                             node['device'], partition, 'HEAD', path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    body = resp.read()
                     if 200 <= resp.status <= 299:
                         result_code = 200
                         read_acl = resp.getheader('x-container-read')
