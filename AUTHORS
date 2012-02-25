@@ -5,52 +5,55 @@ IRC: #openstack on irc.freenode.net
 
 Original Authors
 ----------------
-Michael Barton
-John Dickinson
-Greg Holt
-Greg Lange
-Jay Payne
-Will Reese
-Chuck Thier
+Michael Barton (mike@weirdlooking.com)
+John Dickinson (me@not.mn)
+Greg Holt (gholt@rackspace.com)
+Greg Lange (greglange@gmail.com)
+Jay Payne (letterj@gmail.com)
+Will Reese (wreese@gmail.com)
+Chuck Thier (cthier@gmail.com)
 
 Contributors
 ------------
-Joe Arnold
-James E. Blair
-Chmouel Boudjnah
-Russell Bryant
-Devin Carlen
-Julien Danjou
-Gaurav B. Gangalwar
-Anne Gentle
-Clay Gerrard
-Mark Gius
-David Goetz
-Soren Hansen
-Florian Hines
-Paul Jimenez
-Brian K. Jones
-Morita Kazutaka
-Ed Leafe
-Zhong Yue Luo
-Dragos Manolescu
-Juan J. Martinez
-Donagh McCabe
-Ewan Mellor
-Stephen Milton
-Russ Nelson
-Maru Newby
-Colin Nicholson
-Felipe Reyes
-Brent Roskos
-Andrew Clay Shafer
-Scott Simpson
-Monty Taylor
-Caleb Tennis
-Fujita Tomonori
-Kapil Thangavelu
-Daniele Valeriani
-Chris Wedgwood
-Conrad Weidenkeller
-Doug Weimer
-Cory Wright
+Joe Arnold (joe@swiftstack.com)
+James E. Blair (james.blair@rackspace.com)
+Chmouel Boudjnah (chmouel@chmouel.com)
+Russell Bryant (rbryant@redhat.com)
+Devin Carlen (devin.carlen@gmail.com)
+Thierry Carrez (thierry@openstack.org)
+Julien Danjou (julien.danjou@enovance.com)
+Gaurav B. Gangalwar (gaurav@gluster.com)
+Anne Gentle (anne.gentle@rackspace.com)
+Clay Gerrard (clay.gerrard@rackspace.com)
+Mark Gius (launchpad@markgius.com)
+David Goetz (david.goetz@rackspace.com)
+Soren Hansen (soren@linux2go.dk)
+Florian Hines (florian.hines@gmail.com)
+Paul Jimenez (pj@place.org)
+Brian K. Jones (bkjones@gmail.com)
+Morita Kazutaka (morita.kazutaka@gmail.com)
+Ed Leafe (ed.leafe@rackspace.com)
+Zhong Yue Luo (lzyeval@gmail.com)
+Dragos Manolescu (dragosm@hp.com)
+Juan J. Martinez (juan@memset.com)
+Donagh McCabe (donagh.mccabe@hp.com)
+Ewan Mellor (ewan.mellor@citrix.com)
+Stephen Milton (milton@isomedia.com)
+Russ Nelson (russ@crynwr.com)
+Maru Newby (mnewby@internap.com)
+Colin Nicholson (colin.nicholson@iomart.com)
+Felipe Reyes (freyes@tty.cl)
+Brent Roskos (broskos@internap.com)
+Michael Shuler (mshuler@rackspace.com)
+Andrew Clay Shafer (andrew@cloudscaling.com)
+Scott Simpson (sasimpson@gmail.com)
+Monty Taylor (mordred@inaugust.com)
+Caleb Tennis (caleb.tennis@gmail.com)
+Fujita Tomonori (fujita.tomonori@lab.ntt.co.jp)
+Kapil Thangavelu (kapil.foss@gmail.com)
+Daniele Valeriani (daniele@dvaleriani.net)
+Chris Wedgwood (cw@f00f.org)
+Conrad Weidenkeller (conrad.weidenkeller@rackspace.com)
+Doug Weimer (dweimer@gmail.com)
+Cory Wright (cory.wright@rackspace.com)
+Pete Zaitcev (zaitcev@kotori.zaitcev.us)
