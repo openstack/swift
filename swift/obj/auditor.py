@@ -105,7 +105,8 @@ class AuditorWorker(object):
                 self.errors = 0
                 self.bytes_processed = 0
             time_auditing += (now - loop_time)
-        elapsed = time.time() - begin
+        # Avoid divide by zero during very short runs
+        elapsed = (time.time() - begin) or 0.000001
         self.logger.info(_(
             'Object audit (%(type)s) "%(mode)s" mode '
             'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
