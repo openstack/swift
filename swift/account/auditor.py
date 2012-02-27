@@ -43,6 +43,7 @@ class AccountAuditor(Daemon):
         reported = time.time()
         time.sleep(random() * self.interval)
         while True:
+            self.logger.info(_('Begin account audit pass'))
             begin = time.time()
             try:
                 all_locs = audit_location_generator(self.devices,
@@ -64,10 +65,12 @@ class AccountAuditor(Daemon):
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
+            self.logger.info(
+                _('Account audit pass completed: %.02fs'), elapsed)
 
     def run_once(self, *args, **kwargs):
         """Run the account audit once."""
-        self.logger.info('Begin account audit "once" mode')
+        self.logger.info(_('Begin account audit "once" mode'))
         begin = reported = time.time()
         all_locs = audit_location_generator(self.devices,
                                             account_server.DATADIR,
@@ -86,7 +89,7 @@ class AccountAuditor(Daemon):
                 self.account_failures = 0
         elapsed = time.time() - begin
         self.logger.info(
-            'Account audit "once" mode completed: %.02fs', elapsed)
+            _('Account audit "once" mode completed: %.02fs'), elapsed)
 
     def account_audit(self, path):
         """
