@@ -66,7 +66,7 @@ def direct_get_account(node, part, account, marker=None, limit=None,
         qs += '&delimiter=%s' % quote(delimiter)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string='format=json')
+                            'GET', path, query_string=qs)
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
@@ -154,7 +154,7 @@ def direct_get_container(node, part, account, container, marker=None,
         qs += '&delimiter=%s' % quote(delimiter)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string='format=json')
+                            'GET', path, query_string=qs)
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
