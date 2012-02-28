@@ -11,13 +11,13 @@ The virtual machine will emulate running a four node Swift cluster.
 
 * Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
 
-  - Ubuntu Server ISO: http://releases.ubuntu.com/lucid/ubuntu-10.04.2-server-amd64.iso (717 MB)
-  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/lucid/release/ubuntu-10.04.2-dvd-amd64.iso (4.2 GB)
+  - Ubuntu Server ISO: http://releases.ubuntu.com/lucid/ubuntu-10.04.4-server-amd64.iso (717 MB)
+  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/lucid/release/ubuntu-10.04.4-dvd-amd64.iso (4.2 GB)
   - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
 
-* Create guest virtual machine from the Ubuntu image. 
+* Create guest virtual machine from the Ubuntu image.
 
-Additional information about setting up a Swift development snapshot on other distributions is 
+Additional information about setting up a Swift development snapshot on other distributions is
 available on the wiki at http://wiki.openstack.org/SAIOInstructions.
 
 -----------------------------------------
@@ -49,7 +49,7 @@ Installing dependencies and the core code
   Ensure that you are installing the version of Swift that corresponds to
   this document. If not, enable the correct update repositories.
 
-Next, choose either :ref:`partition-section` or :ref:`loopback-section`. 
+Next, choose either :ref:`partition-section` or :ref:`loopback-section`.
 
 .. _partition-section:
 
@@ -57,8 +57,8 @@ Using a partition for storage
 =============================
 
 If you are going to use a separate partition for Swift data, be sure to add
-another device when creating the VM, and follow these instructions. 
-  
+another device when creating the VM, and follow these instructions.
+
   #. `fdisk /dev/sdb` (set up a single partition)
   #. `mkfs.xfs -i size=1024 /dev/sdb1`
   #. Edit `/etc/fstab` and add
@@ -75,7 +75,7 @@ another device when creating the VM, and follow these instructions.
 
         mkdir /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
-  #. Next, skip to :ref:`rsync-section`. 
+  #. Next, skip to :ref:`rsync-section`.
 
 
 .. _loopback-section:
@@ -83,10 +83,10 @@ another device when creating the VM, and follow these instructions.
 Using a loopback device for storage
 ===================================
 
-If you want to use a loopback device instead of another partition, follow these instructions. 
+If you want to use a loopback device instead of another partition, follow these instructions.
 
   #. `mkdir /srv`
-  #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000` 
+  #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000`
        (modify seek to make a larger or smaller partition)
   #. `mkfs.xfs -i size=1024 /srv/swift-disk`
   #. Edit `/etc/fstab` and add
@@ -247,7 +247,7 @@ Optional: Setting up rsyslog for individual logging
       local5.*                ~
 
   #. Edit /etc/rsyslog.conf and make the following change::
-      
+
       $PrivDropToGroup adm
 
   #. `mkdir -p /var/log/swift/hourly`
@@ -258,13 +258,13 @@ Optional: Setting up rsyslog for individual logging
 Getting the code and setting up test environment
 ------------------------------------------------
 
-Sample configuration files are provided with all defaults in line-by-line comments. 
+Sample configuration files are provided with all defaults in line-by-line comments.
 
-Do these commands as you on guest. 
+Do these commands as you on guest.
 
   #. `mkdir ~/bin`
   #. Check out the swift repo with `git clone https://github.com/openstack/swift.git`
-  #. Build a development installation of swift, for example: 
+  #. Build a development installation of swift, for example:
      `cd ~/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
@@ -272,13 +272,13 @@ Do these commands as you on guest.
         export PATH=${PATH}:~/bin
 
   #. `. ~/.bashrc`
-  
+
 ---------------------
 Configuring each node
 ---------------------
 
 Sample configuration files are provided with all defaults in line-by-line comments.
-  
+
   #. Create `/etc/swift/proxy-server.conf`::
 
         [DEFAULT]
@@ -288,7 +288,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [pipeline:main]
         pipeline = healthcheck cache tempauth proxy-server
-        
+
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
@@ -590,12 +590,12 @@ Sample configuration files are provided with all defaults in line-by-line commen
 Setting up scripts for running Swift
 ------------------------------------
 
-  #. Create `~/bin/resetswift.` 
+  #. Create `~/bin/resetswift.`
 
      If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
 
      If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
-  
+
         #!/bin/bash
 
         swift-init all stop
@@ -662,16 +662,17 @@ Setting up scripts for running Swift
   #. `cd ~/swift; ./.probetests` (Note: probe tests will reset your
      environment as they call `resetswift` for each test.)
 
-If you plan to work on documentation (and who doesn't?!):
+If you plan to work on documentation (and who doesn't?!) you must
+install Sphinx and then you can build the documentation:
 
 On Ubuntu:
-  #. `sudo apt-get install python-sphinx` installs Sphinx.
-  #. `python setup.py build_sphinx` builds the documentation.
+  #. `sudo apt-get install python-sphinx`
+  #. `python setup.py build_sphinx`
 
-On MacOS: 
-  #. `sudo easy_install -U sphinx` installs Sphinx.
-  #. `python setup.py build_sphinx` builds the documentation.
-  
+On MacOS:
+  #. `sudo easy_install -U sphinx`
+  #. `python setup.py build_sphinx`
+
 ----------------
 Debugging Issues
 ----------------
@@ -684,7 +685,7 @@ If all doesn't go as planned, and tests fail, or you can't auth, or something do
    functionality, the Proxy, Account, Container, and Object servers
    should be running.
 #. If one of the servers are not running, and no errors are logged to syslog,
-   it may be useful to try to start the server manually, for example: 
-   `swift-object-server /etc/swift/object-server/1.conf` will start the 
-   object server.  If there are problems not showing up in syslog, 
+   it may be useful to try to start the server manually, for example:
+   `swift-object-server /etc/swift/object-server/1.conf` will start the
+   object server.  If there are problems not showing up in syslog,
    then you will likely see the traceback on startup.
