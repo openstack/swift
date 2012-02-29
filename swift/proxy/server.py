@@ -1904,6 +1904,7 @@ class Application(BaseApplication):
                 req.environ.get('swift.trans_id', '-'),
                 logged_headers or '-',
                 trans_time,
+                req.environ.get('swift.source', '-'),
             )))
         # done with this transaction
         self.access_logger.txn_id = None

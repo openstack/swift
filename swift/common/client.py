@@ -343,7 +343,7 @@ def get_container(url, token, container, marker=None, limit=None,
     return resp_headers, json_loads(resp.read())
 
 
-def head_container(url, token, container, http_conn=None):
+def head_container(url, token, container, http_conn=None, headers=None):
     """
     Get container stats.
 
@@ -361,7 +361,10 @@ def head_container(url, token, container, http_conn=None):
     else:
         parsed, conn = http_connection(url)
     path = '%s/%s' % (parsed.path, quote(container))
-    conn.request('HEAD', path, '', {'X-Auth-Token': token})
+    req_headers = {'X-Auth-Token': token}
+    if headers:
+        req_headers.update(headers)
+    conn.request('HEAD', path, '', req_headers)
     resp = conn.getresponse()
     resp.read()
     if resp.status < 200 or resp.status >= 300:
