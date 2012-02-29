@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-report
+.B swift-dispersion-report [-j|--dump-json] [conf_file]
 
 .SH DESCRIPTION 
 .PP
@@ -54,6 +54,12 @@ same configuration file, /etc/swift/dispersion.conf . The account used by these
 tool should be a dedicated account for the dispersion stats and also have admin
 privileges. 
 
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB-j, --dump-json\fR"
+output dispersion report in json format
+
 .SH CONFIGURATION
 .PD 0 
 Example \fI/etc/swift/dispersion.conf\fR: 
@@ -67,6 +73,7 @@ Example \fI/etc/swift/dispersion.conf\fR:
 .IP "# dispersion_coverage = 1"
 .IP "# retries = 5"
 .IP "# concurrency = 25"
+.IP "# dump_json = no"
 .RE
 .PD 
 .SH EXAMPLE
