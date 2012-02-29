@@ -1117,3 +1117,23 @@ def listdir(path):
         if err.errno != errno.ENOENT:
             raise
     return []
+
+
+def strcmp_const_time(s1, s2):
+    """Constant-time string comparison.
+
+    :params s1: the first string
+    :params s2: the second string
+
+    :return: True if the strings are equal.
+
+    This function takes two strings and compares them.  It is intended to be
+    used when doing a comparison for authentication purposes to help guard
+    against timing attacks.
+    """
+    if len(s1) != len(s2):
+        return False
+    result = 0
+    for (a, b) in zip(s1, s2):
+        result |= ord(a) ^ ord(b)
+    return result == 0

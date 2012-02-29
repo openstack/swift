@@ -850,6 +850,11 @@ log_name = %(yarr)s'''
         for v in utils.TRUE_VALUES:
             self.assertEquals(v, v.lower())
 
+    def test_strcmp_const_time(self):
+        self.assertTrue(utils.strcmp_const_time('abc123', 'abc123'))
+        self.assertFalse(utils.strcmp_const_time('a', 'aaaaa'))
+        self.assertFalse(utils.strcmp_const_time('ABC123', 'abc123'))
+
 
 if __name__ == '__main__':
     unittest.main()
