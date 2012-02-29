@@ -126,6 +126,36 @@ class TestRingBuilder(unittest.TestCase):
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEquals(counts, {0: 256, 2: 256, 3: 256})
 
+    def test_remove_a_lot(self):
+        rb = ring.RingBuilder(3, 3, 1)
+        rb.add_dev({'id': 0, 'device': 'd0', 'ip': '10.0.0.1',
+                    'port': 6002, 'weight': 1000.0, 'zone': 1})
+        rb.add_dev({'id': 1, 'device': 'd1', 'ip': '10.0.0.2',
+                    'port': 6002, 'weight': 1000.0, 'zone': 2})
+        rb.add_dev({'id': 2, 'device': 'd2', 'ip': '10.0.0.3',
+                    'port': 6002, 'weight': 1000.0, 'zone': 3})
+        rb.add_dev({'id': 3, 'device': 'd3', 'ip': '10.0.0.1',
+                    'port': 6002, 'weight': 1000.0, 'zone': 1})
+        rb.add_dev({'id': 4, 'device': 'd4', 'ip': '10.0.0.2',
+                    'port': 6002, 'weight': 1000.0, 'zone': 2})
+        rb.add_dev({'id': 5, 'device': 'd5', 'ip': '10.0.0.3',
+                    'port': 6002, 'weight': 1000.0, 'zone': 3})
+        rb.rebalance()
+        rb.validate()
+
+        # this has to put more than 1/3 of the partitions in the
+        # cluster on removed devices in order to ensure that at least
+        # one partition has multiple replicas that need to move.
+        #
+        # (for an N-replica ring, it's more than 1/N of the
+        # partitions, of course)
+        rb.remove_dev(3)
+        rb.remove_dev(4)
+        rb.remove_dev(5)
+
+        rb.rebalance()
+        rb.validate()
+
     def test_shuffled_gather(self):
         if self._shuffled_gather_helper() and \
             self._shuffled_gather_helper():
