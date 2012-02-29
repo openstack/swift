@@ -1554,11 +1554,7 @@ def st_post(options, args, print_queue, error_queue):
         exit('-r, -w, -t, and -k options only allowed for containers')
     conn = get_conn(options)
     if not args:
-        headers = {}
-        for item in options.meta:
-            split_item = item.split(':')
-            headers['X-Account-Meta-' + split_item[0]] = \
-                len(split_item) > 1 and split_item[1]
+        headers = split_headers(options.meta, 'X-Account-Meta-', error_queue)
         try:
             conn.post_account(headers=headers)
         except ClientException, err:
@@ -1570,11 +1566,7 @@ def st_post(options, args, print_queue, error_queue):
             print >> stderr, 'WARNING: / in container name; you might have ' \
                              'meant %r instead of %r.' % \
                              (args[0].replace('/', ' ', 1), args[0])
-        headers = {}
-        for item in options.meta:
-            split_item = item.split(':')
-            headers['X-Container-Meta-' + split_item[0]] = \
-                len(split_item) > 1 and split_item[1]
+        headers = split_headers(options.meta, 'X-Container-Meta-', error_queue)
         if options.read_acl is not None:
             headers['X-Container-Read'] = options.read_acl
         if options.write_acl is not None:
@@ -1590,11 +1582,7 @@ def st_post(options, args, print_queue, error_queue):
                 raise
             conn.put_container(args[0], headers=headers)
     elif len(args) == 2:
-        headers = {}
-        for item in options.meta:
-            split_item = item.split(':')
-            headers['X-Object-Meta-' + split_item[0]] = \
-                len(split_item) > 1 and split_item[1]
+        headers = split_headers(options.meta, 'X-Object-Meta-', error_queue)
         try:
             conn.post_object(args[0], args[1], headers=headers)
         except ClientException, err:
@@ -1822,6 +1810,29 @@ def st_upload(options, args, print_queue, error_queue):
         if err.http_status != 404:
             raise
         error_queue.put('Account not found')
+
+
+def split_headers(options, prefix='', error_queue=None):
+    """
+    Splits 'Key: Value' strings and returns them as a dictionary.
+
+    :param options: An array of 'Key: Value' strings
+    :param prefix: String to prepend to all of the keys in the dictionary.
+    :param error_queue: Queue for thread safe error reporting.
+    """
+    headers = {}
+    for item in options:
+        split_item = item.split(':', 1)
+        if len(split_item) == 2:
+            headers[prefix + split_item[0]] = split_item[1]
+        else:
+            error_string = "Metadata parameter %s must contain a ':'.\n%s" \
+                           % (item, st_post_help)
+            if error_queue != None:
+                error_queue.put(error_string)
+            else:
+                exit(error_string)
+    return headers
 
 
 def parse_args(parser, args, enforce_requires=True):
