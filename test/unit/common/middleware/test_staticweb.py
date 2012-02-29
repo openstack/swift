@@ -182,11 +182,30 @@ class FakeApp(object):
             return self.listing(env, start_response,
                                 {'x-container-read': '.r:*',
                                  'x-container-meta-web-listings': 'f'})
+        elif env['PATH_INFO'] in ('/v1/a/c8', '/v1/a/c8/'):
+            return self.listing(env, start_response,
+                          {'x-container-read': '.r:*',
+                           'x-container-meta-web-error': 'error.html',
+                           'x-container-meta-web-listings': 't',
+                           'x-container-meta-web-listings-css': \
+                               'http://localhost/stylesheets/listing.css'})
+        elif env['PATH_INFO'] == '/v1/a/c8/subdir/':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] in ('/v1/a/c9', '/v1/a/c9/'):
+            return self.listing(env, start_response,
+                          {'x-container-read': '.r:*',
+                           'x-container-meta-web-error': 'error.html',
+                           'x-container-meta-web-listings': 't',
+                           'x-container-meta-web-listings-css': \
+                               '/absolute/listing.css'})
+        elif env['PATH_INFO'] == '/v1/a/c9/subdir/':
+            return Response(status='404 Not Found')(env, start_response)
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
 
     def listing(self, env, start_response, headers):
-        if env['PATH_INFO'] in ('/v1/a/c3', '/v1/a/c4') and \
+        if env['PATH_INFO'] in ('/v1/a/c3', '/v1/a/c4', '/v1/a/c8', \
+               '/v1/a/c9') and \
                env['QUERY_STRING'] == 'delimiter=/&format=json&prefix=subdir/':
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
@@ -417,6 +436,7 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 200)
         self.assert_('Listing of /v1/a/c4/' in resp.body)
+        self.assert_('href="listing.css"' in resp.body)
 
     def test_container4indexhtmlauthed(self):
         resp = Request.blank('/v1/a/c4').get_response(self.test_staticweb)
@@ -479,7 +499,7 @@ class TestStaticWeb(unittest.TestCase):
         self.assert_('Listing of /v1/a/c4/subdir/' in resp.body)
         self.assert_('</style>' not in resp.body)
         self.assert_('<link' in resp.body)
-        self.assert_('listing.css' in resp.body)
+        self.assert_('href="../listing.css"' in resp.body)
         self.assertEquals(resp.headers['content-type'],
                           'text/html; charset=UTF-8')
 
@@ -512,6 +532,40 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
 
+    def test_container8listingcss(self):
+        resp = Request.blank(
+                '/v1/a/c8/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assert_('Listing of /v1/a/c8/' in resp.body)
+        self.assert_('<link' in resp.body)
+        self.assert_(
+                'href="http://localhost/stylesheets/listing.css"' in resp.body)
+
+    def test_container8subdirlistingcss(self):
+        resp = Request.blank(
+                '/v1/a/c8/subdir/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assert_('Listing of /v1/a/c8/subdir/' in resp.body)
+        self.assert_('<link' in resp.body)
+        self.assert_(
+                'href="http://localhost/stylesheets/listing.css"' in resp.body)
+
+    def test_container9listingcss(self):
+        resp = Request.blank(
+                '/v1/a/c9/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assert_('Listing of /v1/a/c9/' in resp.body)
+        self.assert_('<link' in resp.body)
+        self.assert_('href="/absolute/listing.css"' in resp.body)
+
+    def test_container9subdirlistingcss(self):
+        resp = Request.blank(
+                '/v1/a/c9/subdir/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assert_('Listing of /v1/a/c9/subdir/' in resp.body)
+        self.assert_('<link' in resp.body)
+        self.assert_('href="/absolute/listing.css"' in resp.body)
+
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(
                 '/v1/a/c4/one.txt').get_response(self.test_staticweb)
@@ -519,8 +573,6 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.headers['x-object-meta-test'], 'value')
         self.assertEquals(resp.body, '1')
         self.assertEquals(self.app.calls, 1)
-        
-
 
 if __name__ == '__main__':
     unittest.main()
