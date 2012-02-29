@@ -1119,7 +1119,7 @@ def listdir(path):
     return []
 
 
-def strcmp_const_time(s1, s2):
+def streq_const_time(s1, s2):
     """Constant-time string comparison.
 
     :params s1: the first string

@@ -110,7 +110,7 @@ from time import gmtime, strftime, time
 from time import time
 from urllib import quote, unquote
 
-from swift.common.utils import get_logger, strcmp_const_time
+from swift.common.utils import get_logger, streq_const_time
 
 
 #: The size of data to read from the form at any given time.
@@ -442,7 +442,7 @@ class FormPost(object):
                         attributes.get('expires') or '0'
                     )
         sig = hmac.new(key, hmac_body, sha1).hexdigest()
-        if not strcmp_const_time(sig,(attributes.get('signature') or
+        if not streq_const_time(sig, (attributes.get('signature') or
                                       'invalid')):
             return '401 Unauthorized', 'invalid signature'
         subenv['swift.authorize'] = lambda req: None
