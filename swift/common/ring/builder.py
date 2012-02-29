@@ -502,31 +502,35 @@ class RingBuilder(object):
                    key=lambda x: x['sort_key'])
         for part in reassign_parts:
             other_zones = array('H')
-            replace = None
+            replace = []
             for replica in xrange(self.replicas):
                 if self._replica2part2dev[replica][part] == 0xffff:
-                    replace = replica
+                    replace.append(replica)
                 else:
                     other_zones.append(self.devs[
                         self._replica2part2dev[replica][part]]['zone'])
-            index = len(available_devs) - 1
-            while available_devs[index]['zone'] in other_zones:
-                index -= 1
-            dev = available_devs.pop(index)
-            self._replica2part2dev[replace][part] = dev['id']
-            dev['parts_wanted'] -= 1
-            dev['parts'] += 1
-            dev['sort_key'] = '%08x.%04x' % (self.parts + dev['parts_wanted'],
-                                             randint(0, 0xffff))
-            index = 0
-            end = len(available_devs)
-            while index < end:
-                mid = (index + end) // 2
-                if dev['sort_key'] < available_devs[mid]['sort_key']:
-                    end = mid
-                else:
-                    index = mid + 1
-            available_devs.insert(index, dev)
+
+            for replica in replace:
+                index = len(available_devs) - 1
+                while available_devs[index]['zone'] in other_zones:
+                    index -= 1
+                dev = available_devs.pop(index)
+                other_zones.append(dev['zone'])
+                self._replica2part2dev[replica][part] = dev['id']
+                dev['parts_wanted'] -= 1
+                dev['parts'] += 1
+                dev['sort_key'] = \
+                    '%08x.%04x' % (self.parts + dev['parts_wanted'],
+                                   randint(0, 0xffff))
+                index = 0
+                end = len(available_devs)
+                while index < end:
+                    mid = (index + end) // 2
+                    if dev['sort_key'] < available_devs[mid]['sort_key']:
+                        end = mid
+                    else:
+                        index = mid + 1
+                available_devs.insert(index, dev)
         for dev in self.devs:
             if dev is not None:
                 del dev['sort_key']
