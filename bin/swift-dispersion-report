@@ -14,29 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import csv
 import os
-import socket
 from ConfigParser import ConfigParser
-from httplib import HTTPException
 from optparse import OptionParser
-from sys import argv, exit, stdout, stderr
+from sys import exit, stdout, stderr
 from time import time
-from uuid import uuid4
+try:
+    import simplejson as json
+except ImportError:
+    import json
 
-from eventlet import GreenPool, hubs, patcher, sleep, Timeout
+from eventlet import GreenPool, hubs, patcher, Timeout
 from eventlet.pools import Pool
 
 from swift.common import direct_client
 from swift.common.client import ClientException, Connection, get_auth
 from swift.common.ring import Ring
-from swift.common.utils import compute_eta, get_time_units
+from swift.common.utils import compute_eta, get_time_units, TRUE_VALUES
 
 
 unmounted = []
+json_output = False
 
 
 def get_error_log(prefix):
+
     def error_log(msg_or_exc):
         global unmounted
         if hasattr(msg_or_exc, 'http_status') and \
@@ -98,10 +100,11 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             next_report[0] = time() + 5
             eta, eta_unit = compute_eta(begun, containers_queried[0],
                                         containers_listed)
-            print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
-                  'retries' % (containers_queried[0], containers_listed,
-                  round(eta), eta_unit, retries_done[0]),
-            stdout.flush()
+            if not json_output:
+                print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
+                      'retries' % (containers_queried[0], containers_listed,
+                      round(eta), eta_unit, retries_done[0]),
+                stdout.flush()
     container_parts = {}
     for container in containers:
         part, nodes = container_ring.get_nodes(account, container)
@@ -114,26 +117,37 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     copies_found = sum(a * b for a, b in enumerate(container_copies_found))
     value = 100.0 * copies_found / copies_expected
     elapsed, elapsed_unit = get_time_units(time() - begun)
-    print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
-          '%d%s, %d retries' % (containers_listed, round(elapsed),
-          elapsed_unit, retries_done[0])
-    if containers_listed - distinct_partitions:
-        print 'There were %d overlapping partitions' % (
-              containers_listed - distinct_partitions)
-    if container_copies_found[2]:
-        print 'There were %d partitions missing one copy.' % \
-              container_copies_found[2]
-    if container_copies_found[1]:
-        print '! There were %d partitions missing two copies.' % \
-              container_copies_found[1]
-    if container_copies_found[0]:
-        print '!!! There were %d partitions missing all copies.' % \
-              container_copies_found[0]
-    print '%.02f%% of container copies found (%d of %d)' % (
-          value, copies_found, copies_expected)
-    print 'Sample represents %.02f%% of the container partition space' % (
-          100.0 * distinct_partitions / container_ring.partition_count)
-    stdout.flush()
+    if not json_output:
+        print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
+              '%d%s, %d retries' % (containers_listed, round(elapsed),
+              elapsed_unit, retries_done[0])
+        if containers_listed - distinct_partitions:
+            print 'There were %d overlapping partitions' % (
+                  containers_listed - distinct_partitions)
+        if container_copies_found[2]:
+            print 'There were %d partitions missing one copy.' % \
+                  container_copies_found[2]
+        if container_copies_found[1]:
+            print '! There were %d partitions missing two copies.' % \
+                  container_copies_found[1]
+        if container_copies_found[0]:
+            print '!!! There were %d partitions missing all copies.' % \
+                  container_copies_found[0]
+        print '%.02f%% of container copies found (%d of %d)' % (
+              value, copies_found, copies_expected)
+        print 'Sample represents %.02f%% of the container partition space' % (
+              100.0 * distinct_partitions / container_ring.partition_count)
+        stdout.flush()
+        return None
+    else:
+        return {'retries:': retries_done[0],
+                'overlapping': containers_listed - distinct_partitions,
+                'missing_one': container_copies_found[2],
+                'missing_two': container_copies_found[1],
+                'missing_all': container_copies_found[0],
+                'pct_found': value,
+                'copies_found': copies_found,
+                'copies_expected': copies_expected}
 
 
 def object_dispersion_report(coropool, connpool, account, object_ring,
@@ -186,9 +200,10 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             next_report[0] = time() + 5
             eta, eta_unit = compute_eta(begun, objects_queried[0],
                                         objects_listed)
-            print '\r\x1B[KQuerying objects: %d of %d, %d%s left, %d ' \
-                  'retries' % (objects_queried[0], objects_listed, round(eta),
-                  eta_unit, retries_done[0]),
+            if not json_output:
+                print '\r\x1B[KQuerying objects: %d of %d, %d%s left, %d ' \
+                      'retries' % (objects_queried[0], objects_listed,
+                                   round(eta), eta_unit, retries_done[0]),
             stdout.flush()
     object_parts = {}
     for obj in objects:
@@ -202,37 +217,56 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     copies_found = sum(a * b for a, b in enumerate(object_copies_found))
     value = 100.0 * copies_found / copies_expected
     elapsed, elapsed_unit = get_time_units(time() - begun)
-    print '\r\x1B[KQueried %d objects for dispersion reporting, ' \
-          '%d%s, %d retries' % (objects_listed, round(elapsed),
-          elapsed_unit, retries_done[0])
-    if objects_listed - distinct_partitions:
-        print 'There were %d overlapping partitions' % (
-              objects_listed - distinct_partitions)
-    if object_copies_found[2]:
-        print 'There were %d partitions missing one copy.' % \
-              object_copies_found[2]
-    if object_copies_found[1]:
-        print '! There were %d partitions missing two copies.' % \
-              object_copies_found[1]
-    if object_copies_found[0]:
-        print '!!! There were %d partitions missing all copies.' % \
-              object_copies_found[0]
-    print '%.02f%% of object copies found (%d of %d)' % \
-                (value, copies_found, copies_expected)
-    print 'Sample represents %.02f%% of the object partition space' % (
-          100.0 * distinct_partitions / object_ring.partition_count)
-    stdout.flush()
+    if not json_output:
+        print '\r\x1B[KQueried %d objects for dispersion reporting, ' \
+              '%d%s, %d retries' % (objects_listed, round(elapsed),
+              elapsed_unit, retries_done[0])
+        if objects_listed - distinct_partitions:
+            print 'There were %d overlapping partitions' % (
+                  objects_listed - distinct_partitions)
+        if object_copies_found[2]:
+            print 'There were %d partitions missing one copy.' % \
+                  object_copies_found[2]
+        if object_copies_found[1]:
+            print '! There were %d partitions missing two copies.' % \
+                  object_copies_found[1]
+        if object_copies_found[0]:
+            print '!!! There were %d partitions missing all copies.' % \
+                  object_copies_found[0]
+        print '%.02f%% of object copies found (%d of %d)' % \
+                    (value, copies_found, copies_expected)
+        print 'Sample represents %.02f%% of the object partition space' % (
+              100.0 * distinct_partitions / object_ring.partition_count)
+        stdout.flush()
+        return None
+    else:
+        return {'retries:': retries_done[0],
+                'overlapping': objects_listed - distinct_partitions,
+                'missing_one': object_copies_found[2],
+                'missing_two': object_copies_found[1],
+                'missing_all': object_copies_found[0],
+                'pct_found': value,
+                'copies_found': copies_found,
+                'copies_expected': copies_expected}
 
 
 if __name__ == '__main__':
     patcher.monkey_patch()
     hubs.get_hub().debug_exceptions = False
 
+    parser = OptionParser(usage='''
+Usage: %prog [options] [conf_file]
+
+[conf_file] defaults to /etc/swift/stats.conf'''.strip())
+    parser.add_option('-j', '--dump-json', action='store_true', default=False,
+                      help='dump dispersion report in json format')
+
+    options, args = parser.parse_args()
+
     conffile = '/etc/swift/dispersion.conf'
-    if len(argv) == 2:
-        conffile = argv[1]
-    elif len(argv) > 2:
-        exit('Syntax: %s [conffile]' % argv[0])
+    if args:
+        conffile = args.pop(0)
+
     c = ConfigParser()
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
@@ -241,6 +275,8 @@ if __name__ == '__main__':
     dispersion_coverage = int(conf.get('dispersion_coverage', 1))
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
+    if options.dump_json or conf.get('dump_json', 'no').lower() in TRUE_VALUES:
+        json_output = True
 
     coropool = GreenPool(size=concurrency)
 
@@ -256,6 +292,11 @@ if __name__ == '__main__':
     container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
     object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
 
-    container_dispersion_report(coropool, connpool, account, container_ring,
-                                retries)
-    object_dispersion_report(coropool, connpool, account, object_ring, retries)
+    container_result = container_dispersion_report(coropool, connpool,
+                                                   account, container_ring,
+                                                   retries)
+    object_result = object_dispersion_report(coropool, connpool, account,
+                                             object_ring, retries)
+    if json_output:
+        print json.dumps({"container": container_result,
+                          "object": object_result})
