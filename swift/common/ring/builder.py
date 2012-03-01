@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from array import array
+from collections import defaultdict
 from random import randint, shuffle
 from time import time
 
@@ -449,11 +450,11 @@ class RingBuilder(object):
 
     def _gather_reassign_parts(self):
         """
-        Returns an array('I') of partitions to be reassigned by gathering them
-        from removed devices and overweight devices.
+        Returns a list of (partition, replicas) pairs to be reassigned
+        by gathering them from removed devices and overweight devices.
         """
-        removed_dev_parts = set()
-        reassign_parts = array('I')
+        reassign_parts = defaultdict(list)
+        removed_dev_parts = defaultdict(list)
         if self._remove_devs:
             dev_ids = [d['id'] for d in self._remove_devs if d['parts']]
             if dev_ids:
@@ -461,9 +462,8 @@ class RingBuilder(object):
                     part2dev = self._replica2part2dev[replica]
                     for part in xrange(self.parts):
                         if part2dev[part] in dev_ids:
-                            part2dev[part] = 0xffff
                             self._last_part_moves[part] = 0
-                            removed_dev_parts.add(part)
+                            removed_dev_parts[part].append(replica)
 
         start = self._last_part_gather_start / 4 + randint(0, self.parts / 2)
         self._last_part_gather_start = start
@@ -477,15 +477,16 @@ class RingBuilder(object):
                         continue
                     dev = self.devs[part2dev[part]]
                     if dev['parts_wanted'] < 0:
-                        part2dev[part] = 0xffff
                         self._last_part_moves[part] = 0
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
-                        reassign_parts.append(part)
+                        reassign_parts[part].append(replica)
 
-        reassign_parts.extend(removed_dev_parts)
-        shuffle(reassign_parts)
-        return reassign_parts
+        reassign_parts.update(removed_dev_parts)
+
+        reassign_parts_list = list(reassign_parts.iteritems())
+        shuffle(reassign_parts_list)
+        return reassign_parts_list
 
     def _reassign_parts(self, reassign_parts):
         """
@@ -502,11 +503,12 @@ class RingBuilder(object):
         available_devs = \
             sorted((d for d in self.devs if d is not None and d['weight']),
                    key=lambda x: x['sort_key'])
-        for part in reassign_parts:
+
+        for part, replace_replicas in reassign_parts:
             other_zones = array('H')
             replace = []
             for replica in xrange(self.replicas):
-                if self._replica2part2dev[replica][part] == 0xffff:
+                if replica in replace_replicas:
                     replace.append(replica)
                 else:
                     other_zones.append(self.devs[
