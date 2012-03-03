@@ -1854,7 +1854,7 @@ def parse_args(parser, args, enforce_requires=True):
         options.key = options.password
 
     # Handle trailing '/' in URL
-    if not options.auth.endswith('/'):
+    if options.auth and not options.auth.endswith('/'):
         options.auth += '/'
 
     if enforce_requires and \
