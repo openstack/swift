@@ -16,32 +16,12 @@
 # TODO: More tests
 import socket
 import unittest
-from StringIO import StringIO
 from urlparse import urlparse
 
 # TODO: mock http connection class with more control over headers
 from test.unit.proxy.test_server import fake_http_connect
 
 from swift.common import client as c
-
-
-class TestHttpHelpers(unittest.TestCase):
-
-    def test_quote(self):
-        value = 'standard string'
-        self.assertEquals('standard%20string', c.quote(value))
-        value = u'\u0075nicode string'
-        self.assertEquals('unicode%20string', c.quote(value))
-
-    def test_http_connection(self):
-        url = 'http://www.test.com'
-        _junk, conn = c.http_connection(url)
-        self.assertTrue(isinstance(conn, c.HTTPConnection))
-        url = 'https://www.test.com'
-        _junk, conn = c.http_connection(url)
-        self.assertTrue(isinstance(conn, c.HTTPSConnection))
-        url = 'ftp://www.test.com'
-        self.assertRaises(c.ClientException, c.http_connection, url)
 
 
 class TestClientException(unittest.TestCase):
@@ -115,6 +95,7 @@ class MockHttpTest(unittest.TestCase):
     def setUp(self):
         def fake_http_connection(*args, **kwargs):
             _orig_http_connection = c.http_connection
+            return_read = kwargs.get('return_read')
 
             def wrapper(url, proxy=None):
                 parsed, _conn = _orig_http_connection(url, proxy=proxy)
@@ -130,7 +111,7 @@ class MockHttpTest(unittest.TestCase):
                 def read(*args, **kwargs):
                     conn.has_been_read = True
                     return _orig_read(*args, **kwargs)
-                conn.read = read
+                conn.read = return_read or read
 
                 return parsed, conn
             return wrapper
@@ -138,6 +119,36 @@ class MockHttpTest(unittest.TestCase):
 
     def tearDown(self):
         reload(c)
+
+
+class TestHttpHelpers(MockHttpTest):
+
+    def test_quote(self):
+        value = 'standard string'
+        self.assertEquals('standard%20string', c.quote(value))
+        value = u'\u0075nicode string'
+        self.assertEquals('unicode%20string', c.quote(value))
+
+    def test_http_connection(self):
+        url = 'http://www.test.com'
+        _junk, conn = c.http_connection(url)
+        self.assertTrue(isinstance(conn, c.HTTPConnection))
+        url = 'https://www.test.com'
+        _junk, conn = c.http_connection(url)
+        self.assertTrue(isinstance(conn, c.HTTPSConnection))
+        url = 'ftp://www.test.com'
+        self.assertRaises(c.ClientException, c.http_connection, url)
+
+    def test_json_request(self):
+        def read(*args, **kwargs):
+            body = {'a': '1',
+                    'b': '2'}
+            return c.json_dumps(body)
+        c.http_connection = self.fake_http_connection(200, return_read=read)
+        url = 'http://www.test.com'
+        _junk, conn = c.json_request('GET', url, body={'username': 'user1',
+                                                       'password': 'secure'})
+        self.assertTrue(type(conn) is dict)
 
 # TODO: following tests are placeholders, need more tests, better coverage
 
@@ -149,6 +160,27 @@ class TestGetAuth(MockHttpTest):
         url, token = c.get_auth('http://www.test.com', 'asdf', 'asdf')
         self.assertEquals(url, None)
         self.assertEquals(token, None)
+
+    def test_auth_v1(self):
+        c.http_connection = self.fake_http_connection(200)
+        url, token = c.get_auth('http://www.test.com', 'asdf', 'asdf',
+                                auth_version="1.0")
+        self.assertEquals(url, None)
+        self.assertEquals(token, None)
+
+    def test_auth_v2(self):
+        def read(*args, **kwargs):
+            acct_url = 'http://127.0.01/AUTH_FOO'
+            body = {'access': {'serviceCatalog':
+                                   [{u'endpoints': [{'publicURL': acct_url}],
+                                     'type': 'object-store'}],
+                               'token': {'id': 'XXXXXXX'}}}
+            return c.json_dumps(body)
+        c.http_connection = self.fake_http_connection(200, return_read=read)
+        url, token = c.get_auth('http://www.test.com', 'asdf', 'asdf',
+                                auth_version="2.0")
+        self.assertTrue(url.startswith("http"))
+        self.assertTrue(token)
 
 
 class TestGetAccount(MockHttpTest):
