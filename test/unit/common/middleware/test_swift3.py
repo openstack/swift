@@ -261,7 +261,7 @@ class TestSwift3(unittest.TestCase):
         code = self._test_method_error(FakeAppBucket, 'GET', '/bucket', 401)
         self.assertEquals(code, 'AccessDenied')
         code = self._test_method_error(FakeAppBucket, 'GET', '/bucket', 404)
-        self.assertEquals(code, 'InvalidBucketName')
+        self.assertEquals(code, 'NoSuchBucket')
         code = self._test_method_error(FakeAppBucket, 'GET', '/bucket', 0)
         self.assertEquals(code, 'InvalidURI')
 
@@ -394,7 +394,7 @@ class TestSwift3(unittest.TestCase):
         code = self._test_method_error(FakeAppBucket, 'DELETE', '/bucket', 401)
         self.assertEquals(code, 'AccessDenied')
         code = self._test_method_error(FakeAppBucket, 'DELETE', '/bucket', 404)
-        self.assertEquals(code, 'InvalidBucketName')
+        self.assertEquals(code, 'NoSuchBucket')
         code = self._test_method_error(FakeAppBucket, 'DELETE', '/bucket', 409)
         self.assertEquals(code, 'BucketNotEmpty')
         code = self._test_method_error(FakeAppBucket, 'DELETE', '/bucket', 0)
@@ -470,7 +470,7 @@ class TestSwift3(unittest.TestCase):
         self.assertEquals(code, 'AccessDenied')
         code = self._test_method_error(FakeAppObject, 'PUT',
                                        '/bucket/object', 404)
-        self.assertEquals(code, 'InvalidBucketName')
+        self.assertEquals(code, 'NoSuchBucket')
         code = self._test_method_error(FakeAppObject, 'PUT',
                                        '/bucket/object', 0)
         self.assertEquals(code, 'InvalidURI')

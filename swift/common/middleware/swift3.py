@@ -240,7 +240,7 @@ class BucketController(Controller):
             if status == 401:
                 return get_err_response('AccessDenied')
             elif status == 404:
-                return get_err_response('InvalidBucketName')
+                return get_err_response('NoSuchBucket')
             else:
                 return get_err_response('InvalidURI')
 
@@ -311,7 +311,7 @@ class BucketController(Controller):
             if status == 401:
                 return get_err_response('AccessDenied')
             elif status == 404:
-                return get_err_response('InvalidBucketName')
+                return get_err_response('NoSuchBucket')
             elif status == 409:
                 return get_err_response('BucketNotEmpty')
             else:
@@ -397,7 +397,7 @@ class ObjectController(Controller):
             if status == 401:
                 return get_err_response('AccessDenied')
             elif status == 404:
-                return get_err_response('InvalidBucketName')
+                return get_err_response('NoSuchBucket')
             else:
                 return get_err_response('InvalidURI')
 
