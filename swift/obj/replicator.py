@@ -455,7 +455,8 @@ class ObjectReplicator(Daemon):
         Logs various stats for the currently running replication pass.
         """
         if self.replication_count:
-            rate = self.replication_count / (time.time() - self.start)
+            elapsed = (time.time() - self.start) or 0.000001
+            rate = self.replication_count / elapsed
             self.logger.info(_("%(replicated)d/%(total)d (%(percentage).2f%%)"
                 " partitions replicated in %(time).2fs (%(rate).2f/sec, "
                 "%(remaining)s remaining)"),
