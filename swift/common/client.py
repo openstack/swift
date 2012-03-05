@@ -709,7 +709,7 @@ class Connection(object):
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
                  preauthtoken=None, snet=False, starting_backoff=1):
         """
-        :param authurl: authenitcation URL
+        :param authurl: authentication URL
         :param user: user name to authenticate as
         :param key: key/password to authenticate with
         :param retries: Number of times to retry the request before failing
