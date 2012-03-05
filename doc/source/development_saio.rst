@@ -38,9 +38,9 @@ Installing dependencies and the core code
 
   #. `yum install openstack-swift openstack-swift-proxy
      openstack-swift-account openstack-swift-container openstack-swift-object`
-  #. `yum install xinetd rsyncd`
+  #. `yum install xinetd rsync`
   #. `yum install memcached`
-  #. `yum install python-netifaces`
+  #. `yum install python-netifaces python-nose`
 
   This installs all necessary dependencies, and also creates user `swift`
   and group `swift`. So, `swift:swift` ought to be used in every place where
@@ -191,7 +191,7 @@ Setting up rsync
         read only = false
         lock file = /var/lock/object6040.lock
 
-  #. Edit the following line in /etc/default/rsync::
+  #. On Ubuntu, edit the following line in /etc/default/rsync::
 
         RSYNC_ENABLE=true
 
@@ -199,7 +199,7 @@ Setting up rsync
 
         disable = no
 
-  #. `service rsync restart`
+  #. On Ubuntu `service rsync restart`
 
 ------------------
 Starting memcached
