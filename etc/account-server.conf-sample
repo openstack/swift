@@ -32,8 +32,9 @@ use = egg:swift#account
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # per_diff = 1000
+# max_diffs = 100
 # concurrency = 8
-# run_pause = 30
+# interval = 30
 # How long without an error before a node's error count is reset. This will
 # also be how long before a node is reenabled after suppression is triggered.
 # error_suppression_interval = 60
