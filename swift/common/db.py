@@ -1442,21 +1442,28 @@ class AccountBroker(DatabaseBroker):
         if self.db_file == ':memory:':
             self.merge_items([record])
             return
-        commit = False
-        with lock_parent_directory(self.pending_file, self.pending_timeout):
-            with open(self.pending_file, 'a+b') as fp:
-                # Colons aren't used in base64 encoding; so they are our
-                # delimiter
-                fp.write(':')
-                fp.write(pickle.dumps(
-                    (name, put_timestamp, delete_timestamp, object_count,
-                     bytes_used, deleted),
-                    protocol=PICKLE_PROTOCOL).encode('base64'))
-                fp.flush()
-                if fp.tell() > PENDING_CAP:
-                    commit = True
-        if commit:
-            self._commit_puts()
+        if not os.path.exists(self.db_file):
+            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        pending_size = 0
+        try:
+            pending_size = os.path.getsize(self.pending_file)
+        except OSError, err:
+            if err.errno != errno.ENOENT:
+                raise
+        if pending_size > PENDING_CAP:
+            self._commit_puts([record])
+        else:
+            with lock_parent_directory(self.pending_file,
+                                       self.pending_timeout):
+                with open(self.pending_file, 'a+b') as fp:
+                    # Colons aren't used in base64 encoding; so they are our
+                    # delimiter
+                    fp.write(':')
+                    fp.write(pickle.dumps(
+                        (name, put_timestamp, delete_timestamp, object_count,
+                         bytes_used, deleted),
+                        protocol=PICKLE_PROTOCOL).encode('base64'))
+                    fp.flush()
 
     def can_delete_db(self, cutoff):
         """
