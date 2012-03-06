@@ -71,8 +71,6 @@ setup(
         'bin/swift-recon',
         'bin/swift-recon-cron',
         'bin/swift-ring-builder',
-        'bin/swift-stats-populate',
-        'bin/swift-stats-report',
         'bin/swift-temp-url',
     ],
     entry_points={
