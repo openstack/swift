@@ -1,3 +1,21 @@
+swift (1.4.7)
+
+    * Improvements to account and container replication.
+
+    * Fix for account servers allowing .pending to exist before .db.
+
+    * Fixed possible key-guessing exploit in formpost.
+
+    * Fixed bug in ring builder when removing a large percentage of devices.
+
+    * Swift CLI tool now supports openstack-standard CLI flags.
+
+    * New JSON output option for swift-dispersion-report.
+
+    * Removed old stats tools.
+
+    * Other bug fixes and documentation updates.
+
 swift (1.4.6)
 
     * TempURL and FormPost middleware added
