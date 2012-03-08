@@ -1099,7 +1099,8 @@ def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
             pass
         cache_entry[cache_key] = cache_value
         try:
-            with NamedTemporaryFile(delete=False) as tf:
+            with NamedTemporaryFile(dir=os.path.dirname(cache_file),
+                                    delete=False) as tf:
                 tf.write(json.dumps(cache_entry) + '\n')
             os.rename(tf.name, cache_file)
         finally:
