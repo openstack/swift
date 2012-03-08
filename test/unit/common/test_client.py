@@ -170,9 +170,15 @@ class TestHeadAccount(MockHttpTest):
         self.assertEquals(type(value), dict)
 
     def test_server_error(self):
-        c.http_connection = self.fake_http_connection(500)
+        body = 'c' * 65
+        c.http_connection = self.fake_http_connection(500, body=body)
         self.assertRaises(c.ClientException, c.head_account,
                           'http://www.tests.com', 'asdf')
+        try:
+            value = c.head_account('http://www.tests.com', 'asdf')
+        except c.ClientException as e:
+            new_body = "[first 60 chars of response] " + body[0:60]
+            self.assertEquals(e.__str__()[-89:], new_body)
 
 
 class TestGetContainer(MockHttpTest):
@@ -186,10 +192,15 @@ class TestGetContainer(MockHttpTest):
 class TestHeadContainer(MockHttpTest):
 
     def test_server_error(self):
-        c.http_connection = self.fake_http_connection(500)
+        body = 'c' * 60
+        c.http_connection = self.fake_http_connection(500, body=body)
         self.assertRaises(c.ClientException, c.head_container,
                          'http://www.test.com', 'asdf', 'asdf',
                          )
+        try:
+            value = c.head_container('http://www.test.com', 'asdf', 'asdf')
+        except c.ClientException as e:
+            self.assertEquals(e.http_response_content, body)
 
 
 class TestPutContainer(MockHttpTest):
@@ -198,6 +209,17 @@ class TestPutContainer(MockHttpTest):
         c.http_connection = self.fake_http_connection(200)
         value = c.put_container('http://www.test.com', 'asdf', 'asdf')
         self.assertEquals(value, None)
+
+    def test_server_error(self):
+        body = 'c' * 60
+        c.http_connection = self.fake_http_connection(500, body=body)
+        self.assertRaises(c.ClientException, c.put_container,
+                         'http://www.test.com', 'asdf', 'asdf',
+                         )
+        try:
+            value = c.put_container('http://www.test.com', 'asdf', 'asdf')
+        except c.ClientException as e:
+            self.assertEquals(e.http_response_content, body)
 
 
 class TestDeleteContainer(MockHttpTest):
@@ -233,9 +255,14 @@ class TestPutObject(MockHttpTest):
         self.assertTrue(isinstance(value, basestring))
 
     def test_server_error(self):
-        c.http_connection = self.fake_http_connection(500)
+        body = 'c' * 60
+        c.http_connection = self.fake_http_connection(500, body=body)
         args = ('http://www.test.com', 'asdf', 'asdf', 'asdf', 'asdf')
         self.assertRaises(c.ClientException, c.put_object, *args)
+        try:
+            value = c.put_object(*args)
+        except c.ClientException as e:
+            self.assertEquals(e.http_response_content, body)
 
 
 class TestPostObject(MockHttpTest):
@@ -246,9 +273,14 @@ class TestPostObject(MockHttpTest):
         value = c.post_object(*args)
 
     def test_server_error(self):
-        c.http_connection = self.fake_http_connection(500)
-        self.assertRaises(c.ClientException, c.post_object,
-                          'http://www.test.com', 'asdf', 'asdf', 'asdf', {})
+        body = 'c' * 60
+        c.http_connection = self.fake_http_connection(500, body=body)
+        args = ('http://www.test.com', 'asdf', 'asdf', 'asdf', {})
+        self.assertRaises(c.ClientException, c.post_object, *args)
+        try:
+            value = c.post_object(*args)
+        except c.ClientException as e:
+            self.assertEquals(e.http_response_content, body)
 
 
 class TestDeleteObject(MockHttpTest):
