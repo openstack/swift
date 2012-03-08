@@ -140,7 +140,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         stdout.flush()
         return None
     else:
-        return {'retries:': retries_done[0],
+        return {'retries': retries_done[0],
                 'overlapping': containers_listed - distinct_partitions,
                 'missing_one': container_copies_found[2],
                 'missing_two': container_copies_found[1],
@@ -240,7 +240,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         stdout.flush()
         return None
     else:
-        return {'retries:': retries_done[0],
+        return {'retries': retries_done[0],
                 'overlapping': objects_listed - distinct_partitions,
                 'missing_one': object_copies_found[2],
                 'missing_two': object_copies_found[1],
