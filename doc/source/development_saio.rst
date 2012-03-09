@@ -32,6 +32,7 @@ Installing dependencies and the core code
      python-coverage python-dev python-nose python-setuptools python-simplejson
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
      python-greenlet python-pastedeploy python-netifaces`
+  #. `easy_install pip`
   #. `pip install openstack.nose_plugin`
   #. Install anything else you want, like screen, ssh, vim, etc.
 
