@@ -6,3 +6,4 @@ ChangeLog
 .coverage
 swift.egg-info
 .DS_Store
+.tox

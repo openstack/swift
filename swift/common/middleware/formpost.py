@@ -258,7 +258,7 @@ class _CappedFileLikeObject(object):
                           EOFError.
     """
 
-    def __init__(self, fp,  max_file_size):
+    def __init__(self, fp, max_file_size):
         self.fp = fp
         self.max_file_size = max_file_size
         self.amount_read = 0

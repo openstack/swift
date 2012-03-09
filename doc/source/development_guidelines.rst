@@ -12,6 +12,32 @@ here: http://www.python.org/dev/peps/pep-0008/
 There is a useful pep8 command line tool for checking files for pep8
 compliance which can be installed with ``easy_install pep8``.
 
+------------------
+Testing Guidelines
+------------------
+
+Swift has a comprehensive suite of tests that are run on all submitted code,
+and it is recommended that developers execute the tests themselves to 
+catch regressions early.  Developers are also expected to keep the
+test suite up-to-date with any submitted code changes.
+
+Swift's suite of unit tests can be executed in an isolated environment
+with Tox: http://tox.testrun.org/
+
+To execute the unit tests:
+
+* Install Tox:
+
+  - `pip install tox`
+
+* Run Tox from the root of the swift repo:
+
+  - `tox`
+
+* Optionally, run only specific tox builds:
+
+  - `tox -e pep8,py26`
+
 ------------------------
 Documentation Guidelines
 ------------------------
