@@ -3372,19 +3372,26 @@ class TestContainerController(unittest.TestCase):
     def metadata_helper(self, method):
         for test_header, test_value in (
                 ('X-Container-Meta-TestHeader', 'TestValue'),
-                ('X-Container-Meta-TestHeader', '')):
+                ('X-Container-Meta-TestHeader', ''),
+                ('X-Remove-Container-Meta-TestHeader', 'anything')):
             test_errors = []
 
             def test_connect(ipaddr, port, device, partition, method, path,
                              headers=None, query_string=None):
                 if path == '/a/c':
+                    find_header = test_header
+                    find_value = test_value
+                    if find_header.lower().startswith('x-remove-'):
+                        find_header = \
+                            find_header.lower().replace('-remove', '', 1)
+                        find_value = ''
                     for k, v in headers.iteritems():
-                        if k.lower() == test_header.lower() and \
-                                v == test_value:
+                        if k.lower() == find_header.lower() and \
+                                v == find_value:
                             break
                     else:
                         test_errors.append('%s: %s not in %s' %
-                                           (test_header, test_value, headers))
+                                           (find_header, find_value, headers))
             with save_globals():
                 controller = \
                     proxy_server.ContainerController(self.app, 'a', 'c')
@@ -3788,19 +3795,26 @@ class TestAccountController(unittest.TestCase):
     def metadata_helper(self, method):
         for test_header, test_value in (
                 ('X-Account-Meta-TestHeader', 'TestValue'),
-                ('X-Account-Meta-TestHeader', '')):
+                ('X-Account-Meta-TestHeader', ''),
+                ('X-Remove-Account-Meta-TestHeader', 'anything')):
             test_errors = []
 
             def test_connect(ipaddr, port, device, partition, method, path,
                              headers=None, query_string=None):
                 if path == '/a':
+                    find_header = test_header
+                    find_value = test_value
+                    if find_header.lower().startswith('x-remove-'):
+                        find_header = \
+                            find_header.lower().replace('-remove', '', 1)
+                        find_value = ''
                     for k, v in headers.iteritems():
-                        if k.lower() == test_header.lower() and \
-                                v == test_value:
+                        if k.lower() == find_header.lower() and \
+                                v == find_value:
                             break
                     else:
                         test_errors.append('%s: %s not in %s' %
-                                           (test_header, test_value, headers))
+                                           (find_header, find_value, headers))
             with save_globals():
                 self.app.allow_account_management = True
                 controller = \

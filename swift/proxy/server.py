@@ -300,10 +300,24 @@ class Controller(object):
     """Base WSGI controller class for the proxy"""
     server_type = _('Base')
 
+    # Ensure these are all lowercase
+    pass_through_headers = []
+
     def __init__(self, app):
         self.account_name = None
         self.app = app
         self.trans_id = '-'
+
+    def transfer_headers(self, src_headers, dst_headers):
+        x_remove = 'x-remove-%s-meta-' % self.server_type.lower()
+        x_meta = 'x-%s-meta-' % self.server_type.lower()
+        dst_headers.update((k.lower().replace('-remove', '', 1), '')
+                           for k in src_headers
+                           if k.lower().startswith(x_remove))
+        dst_headers.update((k.lower(), v)
+                           for k, v in src_headers.iteritems()
+                           if k.lower() in self.pass_through_headers or
+                              k.lower().startswith(x_meta))
 
     def error_increment(self, node):
         """
@@ -1503,9 +1517,7 @@ class ContainerController(Controller):
                         'X-Account-Partition': account_partition,
                         'X-Account-Device': account['device'],
                         'Connection': 'close'}
-            nheaders.update(value for value in req.headers.iteritems()
-                if value[0].lower() in self.pass_through_headers or
-                   value[0].lower().startswith('x-container-meta-'))
+            self.transfer_headers(req.headers, nheaders)
             headers.append(nheaders)
         if self.app.memcache:
             cache_key = get_container_memcache_key(self.account_name,
@@ -1530,9 +1542,7 @@ class ContainerController(Controller):
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-trans-id': self.trans_id,
                    'Connection': 'close'}
-        headers.update(value for value in req.headers.iteritems()
-            if value[0].lower() in self.pass_through_headers or
-               value[0].lower().startswith('x-container-meta-'))
+        self.transfer_headers(req.headers, headers)
         if self.app.memcache:
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
@@ -1620,8 +1630,7 @@ class AccountController(Controller):
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'x-trans-id': self.trans_id,
                    'Connection': 'close'}
-        headers.update(value for value in req.headers.iteritems()
-            if value[0].lower().startswith('x-account-meta-'))
+        self.transfer_headers(req.headers, headers)
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         return self.make_requests(req, self.app.account_ring,
@@ -1638,8 +1647,7 @@ class AccountController(Controller):
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
                    'X-Trans-Id': self.trans_id,
                    'Connection': 'close'}
-        headers.update(value for value in req.headers.iteritems()
-            if value[0].lower().startswith('x-account-meta-'))
+        self.transfer_headers(req.headers, headers)
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         resp = self.make_requests(req, self.app.account_ring,
