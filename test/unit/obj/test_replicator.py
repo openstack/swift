@@ -126,7 +126,7 @@ def _create_test_ring(path):
     pickle.dump(ring.RingData(intended_replica2part2dev_id,
         intended_devs, intended_part_shift),
         GzipFile(testgz, 'wb'))
-    return ring.Ring(testgz, reload_time=intended_reload_time)
+    return ring.Ring(path, ring_name='object', reload_time=intended_reload_time)
 
 
 class TestObjectReplicator(unittest.TestCase):

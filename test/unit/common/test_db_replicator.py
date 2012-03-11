@@ -36,7 +36,7 @@ def lock_parent_directory(filename):
 class FakeRing:
     class Ring:
         devs = []
-        def __init__(self, path):
+        def __init__(self, path, reload_time=15, ring_name=None):
             pass
         def get_part_nodes(self, part):
             return []

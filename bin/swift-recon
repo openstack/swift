@@ -88,15 +88,16 @@ class SwiftRecon(object):
         self.pool_size = 30
         self.pool = eventlet.GreenPool(self.pool_size)
 
-    def get_devices(self, zone_filter, ring_file):
+    def get_devices(self, zone_filter, swift_dir, ring_name):
         """
         Get a list of hosts in the ring
 
         :param zone_filter: Only list zones matching given filter
-        :param ring_file: Ring file to obtain hosts from
+        :param swift_dir: Directory of swift config, usually /etc/swift
+        :param ring_name: Name of the ring, such as 'object'
         :returns: a set of tuples containing the ip and port of hosts
         """
-        ring_data = Ring(ring_file)
+        ring_data = Ring(swift_dir, ring_name=ring_name)
         if zone_filter:
             ips = set((n['ip'], n['port']) for n in ring_data.devs if n \
                 if n['zone'] == zone_filter)
@@ -430,9 +431,9 @@ class SwiftRecon(object):
         self.timeout = options.timeout
 
         if options.zone:
-            hosts = self.get_devices(options.zone, obj_ring)
+            hosts = self.get_devices(options.zone, swift_dir, 'object')
         else:
-            hosts = self.get_devices(None, obj_ring)
+            hosts = self.get_devices(None, swift_dir, 'object')
 
         if options.all:
             self.async_check(hosts)

@@ -41,9 +41,8 @@ class ContainerUpdater(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.interval = int(conf.get('interval', 300))
-        self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.account_ring = None
         self.concurrency = int(conf.get('concurrency', 4))
         self.slowdown = float(conf.get('slowdown', 0.01))
@@ -60,9 +59,7 @@ class ContainerUpdater(Daemon):
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""
         if not self.account_ring:
-            self.logger.debug(
-                _('Loading account ring from %s'), self.account_ring_path)
-            self.account_ring = Ring(self.account_ring_path)
+            self.account_ring = Ring(self.swift_dir, ring_name='account')
         return self.account_ring
 
     def get_paths(self):

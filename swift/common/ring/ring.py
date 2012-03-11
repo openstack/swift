@@ -18,6 +18,8 @@ from gzip import GzipFile
 from os.path import getmtime
 from struct import unpack_from
 from time import time
+import os
+
 from swift.common.utils import hash_path, validate_configuration
 
 
@@ -43,10 +45,14 @@ class Ring(object):
     :param reload_time: time interval in seconds to check for a ring change
     """
 
-    def __init__(self, pickle_gz_path, reload_time=15):
+    def __init__(self, pickle_gz_path, reload_time=15, ring_name=None):
         # can't use the ring unless HASH_PATH_SUFFIX is set
         validate_configuration()
-        self.pickle_gz_path = pickle_gz_path
+        if ring_name:
+            self.pickle_gz_path = os.path.join(pickle_gz_path,
+                    ring_name + '.ring.gz')
+        else:
+            self.pickle_gz_path = os.path.join(pickle_gz_path)
         self.reload_time = reload_time
         self._reload(force=True)
 

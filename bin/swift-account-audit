@@ -55,9 +55,9 @@ class Auditor(object):
     def __init__(self, swift_dir='/etc/swift', concurrency=50, deep=False,
                     error_file=None):
         self.pool = GreenPool(concurrency)
-        self.object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
-        self.container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
-        self.account_ring = Ring(os.path.join(swift_dir, 'account.ring.gz'))
+        self.object_ring = Ring(os.path.join(swift_dir, ring_name='object'))
+        self.container_ring = Ring(os.path.join(swift_dir, ring_name='container'))
+        self.account_ring = Ring(os.path.join(swift_dir, ring_name='account'))
         self.deep = deep
         self.error_file = error_file
         # zero out stats

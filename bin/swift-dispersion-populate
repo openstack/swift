@@ -104,7 +104,7 @@ if __name__ == '__main__':
                                 retries=retries,
                                 preauthurl=url, preauthtoken=token)
 
-    container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
+    container_ring = Ring(swift_dir, ring_name='container')
     parts_left = dict((x, x) for x in xrange(container_ring.partition_count))
     item_type = 'containers'
     created = 0
@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
     container = 'dispersion_objects'
     put_container(connpool, container, None)
-    object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
+    object_ring = Ring(swift_dir, ring_name='object'))
     parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
     item_type = 'objects'
     created = 0

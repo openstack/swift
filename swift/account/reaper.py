@@ -58,10 +58,7 @@ class AccountReaper(Daemon):
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.interval = int(conf.get('interval', 3600))
-        swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
-        self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
-        self.object_ring_path = os.path.join(swift_dir, 'object.ring.gz')
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring = None
         self.container_ring = None
         self.object_ring = None
@@ -76,25 +73,19 @@ class AccountReaper(Daemon):
     def get_account_ring(self):
         """ The account :class:`swift.common.ring.Ring` for the cluster. """
         if not self.account_ring:
-            self.logger.debug(
-                _('Loading account ring from %s'), self.account_ring_path)
-            self.account_ring = Ring(self.account_ring_path)
+            self.account_ring = Ring(self.swift_dir, ring_name='account')
         return self.account_ring
 
     def get_container_ring(self):
         """ The container :class:`swift.common.ring.Ring` for the cluster. """
         if not self.container_ring:
-            self.logger.debug(
-                _('Loading container ring from %s'), self.container_ring_path)
-            self.container_ring = Ring(self.container_ring_path)
+            self.container_ring = Ring(self.swift_dir, ring_name='container')
         return self.container_ring
 
     def get_object_ring(self):
         """ The object :class:`swift.common.ring.Ring` for the cluster. """
         if not self.object_ring:
-            self.logger.debug(
-                _('Loading object ring from %s'), self.object_ring_path)
-            self.object_ring = Ring(self.object_ring_path)
+            self.object_ring = Ring(self.swift_dir, ring_name='object')
         return self.object_ring
 
     def run_forever(self, *args, **kwargs):

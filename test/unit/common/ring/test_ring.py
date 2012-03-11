@@ -48,7 +48,7 @@ class TestRing(unittest.TestCase):
         self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
-        self.testgz = os.path.join(self.testdir, 'ring.gz')
+        self.testgz = os.path.join(self.testdir, 'whatever.ring.gz')
         self.intended_replica2part2dev_id = [[0, 2, 0, 2], [2, 0, 2, 0]]
         self.intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0}, None,
                               {'id': 2, 'zone': 2, 'weight': 1.0}]
@@ -57,8 +57,8 @@ class TestRing(unittest.TestCase):
         pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift),
             GzipFile(self.testgz, 'wb'))
-        self.ring = \
-            ring.Ring(self.testgz, reload_time=self.intended_reload_time)
+        self.ring = ring.Ring(self.testdir,
+            reload_time=self.intended_reload_time, ring_name='whatever')
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -74,7 +74,7 @@ class TestRing(unittest.TestCase):
         _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
         try:
             utils.HASH_PATH_SUFFIX = ''
-            self.assertRaises(SystemExit, ring.Ring, self.testgz)
+            self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
         finally:
             utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
 
@@ -85,7 +85,8 @@ class TestRing(unittest.TestCase):
 
     def test_reload(self):
         os.utime(self.testgz, (time() - 300, time() - 300))
-        self.ring = ring.Ring(self.testgz, reload_time=0.001)
+        self.ring = ring.Ring(self.testdir, reload_time=0.001,
+                    ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 3)
         self.intended_devs.append({'id': 3, 'zone': 3, 'weight': 1.0})
@@ -98,7 +99,8 @@ class TestRing(unittest.TestCase):
         self.assertNotEquals(self.ring._mtime, orig_mtime)
 
         os.utime(self.testgz, (time() - 300, time() - 300))
-        self.ring = ring.Ring(self.testgz, reload_time=0.001)
+        self.ring = ring.Ring(self.testdir, reload_time=0.001,
+                    ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 4)
         self.intended_devs.append({'id': 4, 'zone': 4, 'weight': 1.0})
@@ -111,8 +113,8 @@ class TestRing(unittest.TestCase):
         self.assertNotEquals(self.ring._mtime, orig_mtime)
 
         os.utime(self.testgz, (time() - 300, time() - 300))
-        self.ring = \
-            ring.Ring(self.testgz, reload_time=0.001)
+        self.ring = ring.Ring(self.testdir, reload_time=0.001,
+                    ring_name='whatever')
         orig_mtime = self.ring._mtime
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 5)
