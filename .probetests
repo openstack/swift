@@ -1,3 +1,5 @@
 #!/bin/bash
 
-nosetests test/probe
+cd test/probe
+nosetests --exe
+cd -
