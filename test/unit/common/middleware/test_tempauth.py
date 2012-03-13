@@ -139,9 +139,11 @@ class TestAuth(unittest.TestCase):
         ath = auth.filter_factory({'auth_prefix': 'test'})(app)
         self.assertEquals(ath.auth_prefix, '/test/')
 
-    def test_top_level_ignore(self):
+    def test_top_level_deny(self):
         resp = self._make_request('/').get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.status_int, 401)
+        self.assertEquals(resp.environ['swift.authorize'],
+                          self.test_auth.denied_response)
 
     def test_anon(self):
         resp = \
