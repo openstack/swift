@@ -355,12 +355,35 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c1').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 401)
 
+    def test_container1_web_mode_explicitly_off(self):
+        resp = Request.blank('/v1/a/c1',
+            headers={'x-web-mode': 'false'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 401)
+
+    def test_container1_web_mode_explicitly_on(self):
+        resp = Request.blank('/v1/a/c1',
+            headers={'x-web-mode': 'true'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
+
     def test_container2(self):
         resp = Request.blank('/v1/a/c2').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.content_type, 'text/plain')
         self.assertEquals(len(resp.body.split('\n')),
                           int(resp.headers['x-container-object-count']))
+
+    def test_container2_web_mode_explicitly_off(self):
+        resp = Request.blank('/v1/a/c2',
+            headers={'x-web-mode': 'false'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.content_type, 'text/plain')
+        self.assertEquals(len(resp.body.split('\n')),
+                          int(resp.headers['x-container-object-count']))
+
+    def test_container2_web_mode_explicitly_on(self):
+        resp = Request.blank('/v1/a/c2',
+            headers={'x-web-mode': 'true'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
 
     def test_container2onetxt(self):
         resp = Request.blank(
@@ -374,6 +397,19 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.content_type, 'application/json')
         self.assertEquals(len(json.loads(resp.body)),
                           int(resp.headers['x-container-object-count']))
+
+    def test_container2json_web_mode_explicitly_off(self):
+        resp = Request.blank('/v1/a/c2?format=json',
+            headers={'x-web-mode': 'false'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(len(json.loads(resp.body)),
+                          int(resp.headers['x-container-object-count']))
+
+    def test_container2json_web_mode_explicitly_on(self):
+        resp = Request.blank('/v1/a/c2?format=json',
+            headers={'x-web-mode': 'true'}).get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
 
     def test_container3(self):
         resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
