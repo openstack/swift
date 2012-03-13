@@ -1846,12 +1846,12 @@ def parse_args(parser, args, enforce_requires=True):
         options.auth_version = "2.0"
 
     # Use new-style args if old ones not present
-    if not options.auth and options.auth_url:
-        options.auth = options.auth_url
-    if not options.user and options.username:
-        options.user = options.username
-    if not options.key and options.password:
-        options.key = options.password
+    if not options.auth and options.os_auth_url:
+        options.auth = options.os_auth_url
+    if not options.user and options.os_username:
+        options.user = options.os_username
+    if not options.key and options.os_password:
+        options.key = options.os_password
 
     # Handle trailing '/' in URL
     if options.auth and not options.auth.endswith('/'):
@@ -1901,13 +1901,13 @@ Example:
     parser.add_option('-K', '--key', dest='key',
                       default=environ.get('ST_KEY'),
                       help='Key for obtaining an auth token')
-    parser.add_option('--auth_url', dest='auth_url',
+    parser.add_option('--os_auth_url', dest='os_auth_url',
                       default=environ.get('OS_AUTH_URL'),
                       help=SUPPRESS_HELP)
-    parser.add_option('--username', dest='username',
+    parser.add_option('--os_username', dest='os_username',
                       default=environ.get('OS_USERNAME'),
                       help=SUPPRESS_HELP)
-    parser.add_option('--password', dest='password',
+    parser.add_option('--os_password', dest='os_password',
                       default=environ.get('OS_PASSWORD'),
                       help=SUPPRESS_HELP)
     parser.disable_interspersed_args()
