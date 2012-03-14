@@ -387,6 +387,8 @@ class StaticWeb(object):
         """
         self._get_container_info(env, start_response)
         if not self._listings and not self._index:
+            if env.get('HTTP_X_WEB_MODE', 'f').lower() in TRUE_VALUES:
+                return HTTPNotFound()(env, start_response)
             return self.app(env, start_response)
         if env['PATH_INFO'][-1] != '/':
             resp = HTTPMovedPermanently(
