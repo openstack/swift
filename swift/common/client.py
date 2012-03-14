@@ -62,7 +62,7 @@ class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',
                  http_path='', http_query='', http_status=0, http_reason='',
-                 http_device=''):
+                 http_device='', http_response_content=''):
         Exception.__init__(self, msg)
         self.msg = msg
         self.http_scheme = http_scheme
@@ -73,6 +73,7 @@ class ClientException(Exception):
         self.http_status = http_status
         self.http_reason = http_reason
         self.http_device = http_device
+        self.http_response_content = http_response_content
 
     def __str__(self):
         a = self.msg
@@ -102,6 +103,12 @@ class ClientException(Exception):
                 b = '%s: device %s' % (b, self.http_device)
             else:
                 b = 'device %s' % self.http_device
+        if self.http_response_content:
+            if len(self.http_response_content) <= 60:
+                b += '   %s' % self.http_response_content
+            else:
+                b += '  [first 60 chars of response] %s' % \
+                   self.http_response_content[:60]
         return b and '%s: %s' % (a, b) or a
 
 
@@ -211,11 +218,11 @@ def get_account(url, token, marker=None, limit=None, prefix=None,
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
     if resp.status < 200 or resp.status >= 300:
-        resp.read()
+        body = resp.read()
         raise ClientException('Account GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,
                 http_path=parsed.path, http_query=qs, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
     if resp.status == 204:
         resp.read()
         return resp_headers, []
@@ -240,12 +247,12 @@ def head_account(url, token, http_conn=None):
         parsed, conn = http_connection(url)
     conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Account HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port,
                 http_path=parsed.path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
@@ -270,12 +277,13 @@ def post_account(url, token, headers, http_conn=None):
     headers['X-Auth-Token'] = token
     conn.request('POST', parsed.path, '', headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Account POST failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=parsed.path,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
 
 
 def get_container(url, token, container, marker=None, limit=None,
@@ -329,11 +337,12 @@ def get_container(url, token, container, marker=None, limit=None,
     conn.request('GET', '%s?%s' % (path, qs), '', {'X-Auth-Token': token})
     resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
-        resp.read()
+        body = resp.read()
         raise ClientException('Container GET failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_query=qs,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
@@ -366,12 +375,12 @@ def head_container(url, token, container, http_conn=None, headers=None):
         req_headers.update(headers)
     conn.request('HEAD', path, '', req_headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Container HEAD failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
@@ -400,12 +409,12 @@ def put_container(url, token, container, headers=None, http_conn=None):
     headers['X-Auth-Token'] = token
     conn.request('PUT', path, '', headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Container PUT failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
 
 
 def post_container(url, token, container, headers, http_conn=None):
@@ -428,12 +437,12 @@ def post_container(url, token, container, headers, http_conn=None):
     headers['X-Auth-Token'] = token
     conn.request('POST', path, '', headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Container POST failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
 
 
 def delete_container(url, token, container, http_conn=None):
@@ -454,12 +463,12 @@ def delete_container(url, token, container, http_conn=None):
     path = '%s/%s' % (parsed.path, quote(container))
     conn.request('DELETE', path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Container DELETE failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
 
 
 def get_object(url, token, container, name, http_conn=None,
@@ -489,10 +498,11 @@ def get_object(url, token, container, name, http_conn=None,
     conn.request('GET', path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
     if resp.status < 200 or resp.status >= 300:
-        resp.read()
+        body = resp.read()
         raise ClientException('Object GET failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
     if resp_chunk_size:
 
         def _object_body():
@@ -530,11 +540,12 @@ def head_object(url, token, container, name, http_conn=None):
     path = '%s/%s/%s' % (parsed.path, quote(container), quote(name))
     conn.request('HEAD', path, '', {'X-Auth-Token': token})
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Object HEAD failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
@@ -624,11 +635,12 @@ def put_object(url, token=None, container=None, name=None, contents=None,
     else:
         conn.request('PUT', path, contents, headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Object PUT failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
     return resp.getheader('etag', '').strip('"')
 
 
@@ -653,11 +665,12 @@ def post_object(url, token, container, name, headers, http_conn=None):
     headers['X-Auth-Token'] = token
     conn.request('POST', path, '', headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Object POST failed', http_scheme=parsed.scheme,
                 http_host=conn.host, http_port=conn.port, http_path=path,
-                http_status=resp.status, http_reason=resp.reason)
+                http_status=resp.status, http_reason=resp.reason,
+                http_response_content=body)
 
 
 def delete_object(url, token=None, container=None, name=None, http_conn=None,
@@ -695,12 +708,12 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
         headers['X-Auth-Token'] = token
     conn.request('DELETE', path, '', headers)
     resp = conn.getresponse()
-    resp.read()
+    body = resp.read()
     if resp.status < 200 or resp.status >= 300:
         raise ClientException('Object DELETE failed',
                 http_scheme=parsed.scheme, http_host=conn.host,
                 http_port=conn.port, http_path=path, http_status=resp.status,
-                http_reason=resp.reason)
+                http_reason=resp.reason, http_response_content=body)
 
 
 class Connection(object):
