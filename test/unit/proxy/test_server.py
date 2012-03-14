@@ -180,7 +180,7 @@ def fake_http_connect(*code_iter, **kwargs):
                        'etag':
                             self.etag or '"68b329da9893e34099c7d8ad5cb9c940"',
                        'x-works': 'yes',
-                       }
+                       'x-account-container-count': 12345}
             if not self.timestamp:
                 del headers['x-timestamp']
             try:
@@ -353,7 +353,8 @@ class TestController(unittest.TestCase):
     def test_make_requests(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             proxy_server.http_connect = fake_http_connect(201,
                                             raise_timeout_exc=True)
             self.controller._make_request(nodes, partition, 'POST',
@@ -363,37 +364,49 @@ class TestController(unittest.TestCase):
     def test_account_info_200(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200)
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes)
+            self.assertEquals(count, 12345)
 
             cache_key = proxy_server.get_account_memcache_key(self.account)
-            self.assertEquals(200, self.memcache.get(cache_key))
+            self.assertEquals({'status': 200, 'container_count': 12345},
+                              self.memcache.get(cache_key))
 
             proxy_server.http_connect = fake_http_connect()
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes)
+            self.assertEquals(count, 12345)
 
     # tests if 404 is cached and used
     def test_account_info_404(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(404, 404, 404)
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes, True)
+            self.assertEquals(count, None)
 
             cache_key = proxy_server.get_account_memcache_key(self.account)
-            self.assertEquals(404, self.memcache.get(cache_key))
+            self.assertEquals({'status': 404, 'container_count': 0},
+                              self.memcache.get(cache_key))
 
             proxy_server.http_connect = fake_http_connect()
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes, True)
+            self.assertEquals(count, None)
 
     # tests if some http status codes are not cached
     def test_account_info_no_cache(self):
         def test(*status_list):
             proxy_server.http_connect = fake_http_connect(*status_list)
-            partition, nodes = self.controller.account_info(self.account)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
             self.assertEqual(len(self.memcache.keys()), 0)
             self.check_account_info_return(partition, nodes, True)
+            self.assertEquals(count, None)
 
         with save_globals():
             test(503, 404, 404)
@@ -406,37 +419,41 @@ class TestController(unittest.TestCase):
             self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
-            partition, nodes = \
+            partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=False)
             self.check_account_info_return(partition, nodes, is_none=True)
+            self.assertEquals(count, None)
 
             self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
-            partition, nodes = \
+            partition, nodes, count = \
                 self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes, is_none=True)
+            self.assertEquals(count, None)
 
             self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 201, 201, 201)
-            partition, nodes = \
+            partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=True)
             self.check_account_info_return(partition, nodes)
+            self.assertEquals(count, 0)
 
             self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 503, 201, 201)
-            partition, nodes = \
+            partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=True)
             self.check_account_info_return(partition, nodes)
+            self.assertEquals(count, 0)
 
             self.memcache.store = {}
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 503, 201, 503)
             exc = None
             try:
-                partition, nodes = \
+                partition, nodes, count = \
                     self.controller.account_info(self.account, autocreate=True)
             except Exception, err:
                 exc = err
@@ -468,7 +485,7 @@ class TestController(unittest.TestCase):
     # tests if 200 is cached and used
     def test_container_info_200(self):
         def account_info(self, account, autocreate=False):
-            return True, True
+            return True, True, 0
 
         with save_globals():
             headers = {'x-container-read': self.read_acl,
@@ -494,7 +511,7 @@ class TestController(unittest.TestCase):
     # tests if 404 is cached and used
     def test_container_info_404(self):
         def account_info(self, account, autocreate=False):
-            return True, True
+            return True, True, 0
 
         with save_globals():
             proxy_server.Controller.account_info = account_info
@@ -3163,6 +3180,29 @@ class TestContainerController(unittest.TestCase):
             test_status_map((200, 201, 201, 500), 201, missing_container=True)
             test_status_map((200, 204, 404, 404), 404, missing_container=True)
             test_status_map((200, 204, 500, 404), 503, missing_container=True)
+
+    def test_PUT_max_containers_per_account(self):
+        with save_globals():
+            self.app.max_containers_per_account = 12346
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            self.assert_status_map(controller.PUT,
+                                   (200, 200, 200, 201, 201, 201), 201,
+                                   missing_container=True)
+
+            self.app.max_containers_per_account = 12345
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            self.assert_status_map(controller.PUT, (201, 201, 201), 403,
+                                   missing_container=True)
+
+            self.app.max_containers_per_account = 12345
+            self.app.max_containers_whitelist = ['account']
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            self.assert_status_map(controller.PUT,
+                                   (200, 200, 200, 201, 201, 201), 201,
+                                   missing_container=True)
 
     def test_PUT_max_container_name_length(self):
         with save_globals():

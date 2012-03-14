@@ -1804,8 +1804,17 @@ def st_upload(options, args, print_queue, error_queue):
         conn.put_container(args[0])
         if options.segment_size is not None:
             conn.put_container(args[0] + '_segments')
-    except Exception:
-        pass
+    except ClientException, err:
+        msg = ' '.join(str(x) for x in (err.http_status, err.http_reason))
+        if err.http_response_content:
+            if msg:
+                msg += ': '
+            msg += err.http_response_content[:60]
+        error_queue.put(
+            'Error trying to create container %r: %s' % (args[0], msg))
+    except Exception, err:
+        error_queue.put(
+            'Error trying to create container %r: %s' % (args[0], err))
     try:
         for arg in args[1:]:
             if isdir(arg):

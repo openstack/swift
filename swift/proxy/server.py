@@ -45,11 +45,10 @@ from random import shuffle
 from eventlet import sleep, spawn_n, GreenPile, Timeout
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPMethodNotAllowed, \
-    HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPRequestTimeout, HTTPServiceUnavailable, \
-    HTTPUnprocessableEntity, HTTPRequestEntityTooLarge, HTTPServerError, \
-    status_map
+from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPForbidden, \
+    HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
+    HTTPRequestEntityTooLarge, HTTPRequestTimeout, HTTPServerError, \
+    HTTPServiceUnavailable, HTTPUnprocessableEntity, status_map
 from webob import Request, Response
 
 from swift.common.ring import Ring
@@ -389,19 +388,26 @@ class Controller(object):
         Get account information, and also verify that the account exists.
 
         :param account: name of the account to get the info for
-        :returns: tuple of (account partition, account nodes) or (None, None)
-                  if it does not exist
+        :returns: tuple of (account partition, account nodes, container_count)
+                  or (None, None, None) if it does not exist
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
         if self.app.memcache:
             cache_key = get_account_memcache_key(account)
-            result_code = self.app.memcache.get(cache_key)
+            cache_value = self.app.memcache.get(cache_key)
+            if not isinstance(cache_value, dict):
+                result_code = cache_value
+                container_count = 0
+            else:
+                result_code = cache_value['status']
+                container_count = cache_value['container_count']
             if result_code == 200:
-                return partition, nodes
+                return partition, nodes, container_count
             elif result_code == 404 and not autocreate:
-                return None, None
+                return None, None, None
         result_code = 0
+        container_count = 0
         attempts_left = self.app.account_ring.replica_count
         path = '/%s' % account
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
@@ -415,6 +421,8 @@ class Controller(object):
                     body = resp.read()
                     if 200 <= resp.status <= 299:
                         result_code = 200
+                        container_count = int(
+                            resp.getheader('x-account-container-count') or 0)
                         break
                     elif resp.status == 404:
                         if result_code == 0:
@@ -434,7 +442,7 @@ class Controller(object):
                     _('Trying to get account info for %s') % path)
         if result_code == 404 and autocreate:
             if len(account) > MAX_ACCOUNT_NAME_LENGTH:
-                return None, None
+                return None, None, None
             headers = {'X-Timestamp': normalize_timestamp(time.time()),
                        'X-Trans-Id': self.trans_id,
                        'Connection': 'close'}
@@ -449,11 +457,12 @@ class Controller(object):
                 cache_timeout = self.app.recheck_account_existence
             else:
                 cache_timeout = self.app.recheck_account_existence * 0.1
-            self.app.memcache.set(cache_key, result_code,
-                                  timeout=cache_timeout)
+            self.app.memcache.set(cache_key,
+                {'status': result_code, 'container_count': container_count},
+                timeout=cache_timeout)
         if result_code == 200:
-            return partition, nodes
-        return None, None
+            return partition, nodes, container_count
+        return None, None, None
 
     def container_info(self, account, container, account_autocreate=False):
         """
@@ -1503,8 +1512,16 @@ class ContainerController(Controller):
             resp.body = 'Container name length of %d longer than %d' % \
                         (len(self.container_name), MAX_CONTAINER_NAME_LENGTH)
             return resp
-        account_partition, accounts = self.account_info(self.account_name,
-            autocreate=self.app.account_autocreate)
+        account_partition, accounts, container_count = \
+            self.account_info(self.account_name,
+                              autocreate=self.app.account_autocreate)
+        if self.app.max_containers_per_account > 0 and \
+                container_count >= self.app.max_containers_per_account and \
+                self.account_name not in self.app.max_containers_whitelist:
+            resp = HTTPForbidden(request=req)
+            resp.body = 'Reached container limit of %s' % \
+                        self.app.max_containers_per_account
+            return resp
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
@@ -1533,8 +1550,9 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
-        account_partition, accounts = self.account_info(self.account_name,
-            autocreate=self.app.account_autocreate)
+        account_partition, accounts, container_count = \
+            self.account_info(self.account_name,
+                              autocreate=self.app.account_autocreate)
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
@@ -1554,7 +1572,8 @@ class ContainerController(Controller):
     @public
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        account_partition, accounts = self.account_info(self.account_name)
+        account_partition, accounts, container_count = \
+            self.account_info(self.account_name)
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
@@ -1742,6 +1761,11 @@ class BaseApplication(object):
             'expiring_objects'
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
+        self.max_containers_per_account = \
+            int(conf.get('max_containers_per_account') or 0)
+        self.max_containers_whitelist = [a.strip()
+            for a in conf.get('max_containers_whitelist', '').split(',')
+            if a.strip()]
 
     def get_controller(self, path):
         """
