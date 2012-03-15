@@ -179,7 +179,7 @@ class TestRingBuilder(unittest.TestCase):
         max_run = 0
         run = 0
         last_part = 0
-        for part in parts:
+        for part, _ in parts:
             if part > last_part:
                 run += 1
             else:
