@@ -30,9 +30,6 @@ from traceback import format_exception
 # Inclusion of swift.common.client for convenience of single file distribution
 
 import socket
-from cStringIO import StringIO
-from re import compile, DOTALL
-from tokenize import generate_tokens, STRING, NAME, OP
 from urllib import quote as _quote
 from urlparse import urlparse, urlunparse, urljoin
 
@@ -154,6 +151,31 @@ def http_connection(url, proxy=None):
     return parsed, conn
 
 
+def json_request(method, url, **kwargs):
+    """Takes a request in json parse it and return in json"""
+    kwargs.setdefault('headers', {})
+    if 'body' in kwargs:
+        kwargs['headers']['Content-Type'] = 'application/json'
+        kwargs['body'] = json_dumps(kwargs['body'])
+    parsed, conn = http_connection(url)
+    conn.request(method, parsed.path, **kwargs)
+    resp = conn.getresponse()
+    body = resp.read()
+    if body:
+        try:
+            body = json_loads(body)
+        except ValueError:
+            body = None
+    if not body or resp.status < 200 or resp.status >= 300:
+        raise ClientException('Auth GET failed', http_scheme=parsed.scheme,
+                              http_host=conn.host,
+                              http_port=conn.port,
+                              http_path=parsed.path,
+                              http_status=resp.status,
+                              http_reason=resp.reason)
+    return resp, body
+
+
 def get_conn(options):
     """
     Return a connection building it from the options.
@@ -180,7 +202,8 @@ def _get_auth_v1_0(url, user, key, snet):
     if snet:
         parsed = list(urlparse(url))
         # Second item in the list is the netloc
-        parsed[1] = 'snet-' + parsed[1]
+        netloc = parsed[1]
+        parsed[1] = 'snet-' + netloc
         url = urlunparse(parsed)
     return url, resp.getheader('x-storage-token',
                                                 resp.getheader('x-auth-token'))
@@ -192,30 +215,6 @@ def _get_auth_v2_0(url, user, key, snet):
     else:
         tenant = user
 
-    def json_request(method, token_url, **kwargs):
-        kwargs.setdefault('headers', {})
-        if 'body' in kwargs:
-            kwargs['headers']['Content-Type'] = 'application/json'
-            kwargs['body'] = json_dumps(kwargs['body'])
-        parsed, conn = http_connection(token_url)
-        conn.request(method, parsed.path, **kwargs)
-        resp = conn.getresponse()
-        body = resp.read()
-        if body:
-            try:
-                body = json_loads(body)
-            except ValueError:
-                pass
-        else:
-            body = None
-        if resp.status < 200 or resp.status >= 300:
-            raise ClientException('Auth GET failed', http_scheme=parsed.scheme,
-                                  http_host=conn.host,
-                                  http_port=conn.port,
-                                  http_path=parsed.path,
-                                  http_status=resp.status,
-                                  http_reason=resp.reason)
-        return resp, body
     body = {"auth": {"tenantName": tenant,
                      "passwordCredentials":
                          {"username": user, "password": key}}}
@@ -260,11 +259,11 @@ def get_auth(url, user, key, snet=False, auth_version="1.0"):
     :param snet: use SERVICENET internal network (see above), default is False
     :param auth_version: OpenStack authentication version (default is 1.0)
     :returns: tuple of (storage URL, auth token)
-    :raises ClientException: HTTP GET request to auth URL failed
+    :raises: ClientException: HTTP GET request to auth URL failed
     """
-    if auth_version == "1.0" or auth_version == "1":
+    if auth_version in ["1.0", "1"]:
         return _get_auth_v1_0(url, user, key, snet)
-    elif auth_version == "2.0" or auth_version == "2":
+    elif auth_version in ["2.0", "2"]:
         return _get_auth_v2_0(url, user, key, snet)
 
 
@@ -450,7 +449,7 @@ def get_container(url, token, container, marker=None, limit=None,
     return resp_headers, json_loads(resp.read())
 
 
-def head_container(url, token, container, http_conn=None):
+def head_container(url, token, container, http_conn=None, headers=None):
     """
     Get container stats.
 
@@ -468,7 +467,10 @@ def head_container(url, token, container, http_conn=None):
     else:
         parsed, conn = http_connection(url)
     path = '%s/%s' % (parsed.path, quote(container))
-    conn.request('HEAD', path, '', {'X-Auth-Token': token})
+    req_headers = {'X-Auth-Token': token}
+    if headers:
+        req_headers.update(headers)
+    conn.request('HEAD', path, '', req_headers)
     resp = conn.getresponse()
     body = resp.read()
     if resp.status < 200 or resp.status >= 300:
@@ -816,7 +818,7 @@ class Connection(object):
 
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
                  preauthtoken=None, snet=False, starting_backoff=1,
-                 auth_version=1):
+                 auth_version="1"):
         """
         :param authurl: authenitcation URL
         :param user: user name to authenticate as
