@@ -72,6 +72,7 @@ class AccountReaper(Daemon):
         self.container_concurrency = self.object_concurrency = \
             sqrt(self.concurrency)
         self.container_pool = GreenPool(size=self.container_concurrency)
+        self.delay_reaping = int(conf.get('delay_reaping') or 0)
 
     def get_account_ring(self):
         """ The account :class:`swift.common.ring.Ring` for the cluster. """
@@ -211,7 +212,10 @@ class AccountReaper(Daemon):
             of the node dicts.
         """
         begin = time()
-        account = broker.get_info()['account']
+        info = broker.get_info()
+        if time() - float(info['delete_timestamp']) <= self.delay_reaping:
+            return False
+        account = info['account']
         self.logger.info(_('Beginning pass on account %s'), account)
         self.stats_return_codes = {}
         self.stats_containers_deleted = 0
@@ -264,6 +268,7 @@ class AccountReaper(Daemon):
             log = log[:-2]
         log += _(', elapsed: %.02fs') % (time() - begin)
         self.logger.info(log)
+        return True
 
     def reap_container(self, account, account_partition, account_nodes,
                        container):

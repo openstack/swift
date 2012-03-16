@@ -4,13 +4,22 @@ The Account Reaper
 
 The Account Reaper removes data from deleted accounts in the background.
 
-An account is marked for deletion by a reseller through the services server's
-remove_storage_account XMLRPC call. This simply puts the value DELETED into the
-status column of the account_stat table in the account database (and replicas),
-indicating the data for the account should be deleted later. There is no set
-retention time and no undelete; it is assumed the reseller will implement such
-features and only call remove_storage_account once it is truly desired the
-account's data be removed.
+An account is marked for deletion by a reseller issuing a DELETE request on the
+account's storage URL. This simply puts the value DELETED into the status
+column of the account_stat table in the account database (and replicas),
+indicating the data for the account should be deleted later.
+
+There is normally no set retention time and no undelete; it is assumed the
+reseller will implement such features and only call DELETE on the account once
+it is truly desired the account's data be removed. However, in order to protect
+the Swift cluster accounts from an improper or mistaken delete request, you can
+set a delay_reaping value in the [account-reaper] section of the
+account-server.conf to delay the actual deletion of data. At this time, there
+is no utility to undelete an account; one would have to update the account
+database replicas directly, setting the status column to an empty string and
+updating the put_timestamp to be greater than the delete_timestamp. (On the
+TODO list is writing a utility to perform this task, preferably through a ReST
+call.)
 
 The account reaper runs on each account server and scans the server
 occasionally for account databases marked for deletion. It will only trigger on

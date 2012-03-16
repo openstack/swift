@@ -66,3 +66,7 @@ use = egg:swift#account
 # conn_timeout = 0.5
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# Normally, the reaper begins deleting account information for deleted accounts
+# immediately; you can set this to delay its work however. The value is in
+# seconds; 2592000 = 30 days for example.
+# delay_reaping = 0
