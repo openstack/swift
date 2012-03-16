@@ -358,6 +358,7 @@ def post_account(url, token, headers, http_conn=None):
                               http_reason=resp.reason,
                               http_response_content=body)
 
+
 def get_container(url, token, container, marker=None, limit=None,
                   prefix=None, delimiter=None, http_conn=None,
                   full_listing=False):
