@@ -57,10 +57,10 @@ class ReconMiddleware(object):
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
 
-    def get_mounted(self):
+    def get_mounted(self, openr=open):
         """get ALL mounted fs from /proc/mounts"""
         mounts = []
-        with open('/proc/mounts', 'r') as procmounts:
+        with openr('/proc/mounts', 'r') as procmounts:
             for line in procmounts:
                 mount = {}
                 mount['device'], mount['path'], opt1, opt2, opt3, \
@@ -68,11 +68,11 @@ class ReconMiddleware(object):
                 mounts.append(mount)
         return mounts
 
-    def get_load(self):
+    def get_load(self, openr=open):
         """get info from /proc/loadavg"""
         loadavg = {}
-        onemin, fivemin, ftmin, tasks, procs \
-            = open('/proc/loadavg', 'r').readline().rstrip().split()
+        with openr('/proc/loadavg', 'r') as f:
+            onemin, fivemin, ftmin, tasks, procs = f.read().rstrip().split()
         loadavg['1m'] = float(onemin)
         loadavg['5m'] = float(fivemin)
         loadavg['15m'] = float(ftmin)
@@ -80,19 +80,19 @@ class ReconMiddleware(object):
         loadavg['processes'] = int(procs)
         return loadavg
 
-    def get_mem(self):
+    def get_mem(self, openr=open):
         """get info from /proc/meminfo"""
         meminfo = {}
-        with open('/proc/meminfo', 'r') as memlines:
+        with openr('/proc/meminfo', 'r') as memlines:
             for i in memlines:
                 entry = i.rstrip().split(":")
                 meminfo[entry[0]] = entry[1].strip()
         return meminfo
 
-    def get_async_info(self):
+    def get_async_info(self, openr=open):
         """get # of async pendings"""
         asyncinfo = {}
-        with open(self.object_recon_cache, 'r') as f:
+        with openr(self.object_recon_cache, 'r') as f:
             recondata = json.load(f)
             if 'async_pending' in recondata:
                 asyncinfo['async_pending'] = recondata['async_pending']
@@ -102,10 +102,10 @@ class ReconMiddleware(object):
                 asyncinfo['async_pending'] = -1
         return asyncinfo
 
-    def get_replication_info(self):
+    def get_replication_info(self, openr=open):
         """grab last object replication time"""
         repinfo = {}
-        with open(self.object_recon_cache, 'r') as f:
+        with openr(self.object_recon_cache, 'r') as f:
             recondata = json.load(f)
             if 'object_replication_time' in recondata:
                 repinfo['object_replication_time'] = \
@@ -135,7 +135,7 @@ class ReconMiddleware(object):
         devices = []
         for entry in os.listdir(self.devices):
             if check_mount(self.devices, entry):
-                path = "%s/%s" % (self.devices, entry)
+                path = os.path.join(self.devices, entry)
                 disk = os.statvfs(path)
                 capacity = disk.f_bsize * disk.f_blocks
                 available = disk.f_bsize * disk.f_bavail
@@ -147,12 +147,12 @@ class ReconMiddleware(object):
                     'size': '', 'used': '', 'avail': ''})
         return devices
 
-    def get_ring_md5(self):
+    def get_ring_md5(self, openr=open):
         """get all ring md5sum's"""
         sums = {}
         for ringfile in self.rings:
             md5sum = md5()
-            with open(ringfile, 'rb') as f:
+            with openr(ringfile, 'rb') as f:
                 block = f.read(4096)
                 while block:
                     md5sum.update(block)
@@ -173,7 +173,7 @@ class ReconMiddleware(object):
                         qcounts[qtype] += linkcount - 2
         return qcounts
 
-    def get_socket_info(self):
+    def get_socket_info(self, openr=open):
         """
         get info from /proc/net/sockstat and sockstat6
 
@@ -182,7 +182,7 @@ class ReconMiddleware(object):
         """
         sockstat = {}
         try:
-            with open('/proc/net/sockstat') as proc_sockstat:
+            with openr('/proc/net/sockstat', 'r') as proc_sockstat:
                 for entry in proc_sockstat:
                     if entry.startswith("TCP: inuse"):
                         tcpstats = entry.split()
@@ -195,7 +195,7 @@ class ReconMiddleware(object):
             if e.errno != errno.ENOENT:
                     raise
         try:
-            with open('/proc/net/sockstat6') as proc_sockstat6:
+            with openr('/proc/net/sockstat6', 'r') as proc_sockstat6:
                 for entry in proc_sockstat6:
                     if entry.startswith("TCP6: inuse"):
                         sockstat['tcp6_in_use'] = int(entry.split()[2])
@@ -211,11 +211,7 @@ class ReconMiddleware(object):
             if type == "mem":
                 content = json.dumps(self.get_mem())
             elif type == "load":
-                try:
                     content = json.dumps(self.get_load(), sort_keys=True)
-                except IOError as e:
-                    error = True
-                    content = "load - %s" % e
             elif type == "async":
                 try:
                     content = json.dumps(self.get_async_info())
