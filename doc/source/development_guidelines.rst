@@ -64,7 +64,7 @@ License and Copyright
 Every source file should have the following copyright and license statement at
 the top::
 
-    # Copyright (c) 2010-2011 OpenStack, LLC.
+    # Copyright (c) 2010-2012 OpenStack, LLC.
     #
     # Licensed under the Apache License, Version 2.0 (the "License");
     # you may not use this file except in compliance with the License.
