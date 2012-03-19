@@ -561,6 +561,20 @@ account_autocreate            false            If set to 'true' authorized
                                                accounts that do not yet exist
                                                within the Swift cluster will
                                                be automatically created.
+max_containers_per_account    0                If set to a positive value,
+                                               trying to create a container
+                                               when the account already has at
+                                               least this maximum containers
+                                               will result in a 403 Forbidden.
+                                               Note: This is a soft limit,
+                                               meaning a user might exceed the
+                                               cap for
+                                               recheck_account_existence before
+                                               the 403s kick in.
+max_containers_whitelist                       This is a comma separated list
+                                               of account hashes that ignore
+                                               the max_containers_per_account
+                                               cap.
 ============================  ===============  =============================
 
 [tempauth]

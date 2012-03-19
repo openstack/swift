@@ -49,6 +49,14 @@ use = egg:swift#proxy
 # If set to 'true' authorized accounts that do not yet exist within the Swift
 # cluster will be automatically created.
 # account_autocreate = false
+# If set to a positive value, trying to create a container when the account
+# already has at least this maximum containers will result in a 403 Forbidden.
+# Note: This is a soft limit, meaning a user might exceed the cap for
+# recheck_account_existence before the 403s kick in.
+# max_containers_per_account = 0
+# This is a comma separated list of account hashes that ignore the
+# max_containers_per_account cap.
+# max_containers_whitelist =
 
 [filter:tempauth]
 use = egg:swift#tempauth
