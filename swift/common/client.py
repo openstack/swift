@@ -179,21 +179,17 @@ def _get_auth_v1_0(url, user, key, snet):
     if snet:
         parsed = list(urlparse(url))
         # Second item in the list is the netloc
-        parsed[1] = 'snet-' + parsed[1]
+        netloc = parsed[1]
+        parsed[1] = 'snet-' + netloc
         url = urlunparse(parsed)
     return url, resp.getheader('x-storage-token',
                                                 resp.getheader('x-auth-token'))
 
 
-def _get_auth_v2_0(url, user, key, snet):
-    if ':' in user:
-        tenant, user = user.split(':')
-    else:
-        tenant = user
-
-    body = {"auth": {"tenantName": tenant,
-                     "passwordCredentials":
-                         {"username": user, "password": key}}}
+def _get_auth_v2_0(url, user, tenant_name, key, snet):
+    body = {'auth': {'passwordCredentials':
+                      {'password': key, 'username': user},
+                     'tenantName': tenant_name}}
     token_url = urljoin(url, "tokens")
     resp, body = json_request("POST", token_url, body=body)
     token_id = None
@@ -219,7 +215,7 @@ def _get_auth_v2_0(url, user, key, snet):
     return url, token_id
 
 
-def get_auth(url, user, key, snet=False, auth_version="1.0"):
+def get_auth(url, user, key, snet=False, tenant_name=None, auth_version="1.0"):
     """
     Get authentication/authorization credentials.
 
@@ -233,14 +229,18 @@ def get_auth(url, user, key, snet=False, auth_version="1.0"):
     :param user: user to authenticate as
     :param key: key or password for authorization
     :param snet: use SERVICENET internal network (see above), default is False
-    :param auth_version: OpenStack authentication version (default is 1.0)
+    :param auth_version: OpenStack auth version, default is 1.0
+    :param tenant_name: The tenant/account name, required when connecting
+                        to a auth 2.0 system.
     :returns: tuple of (storage URL, auth token)
     :raises: ClientException: HTTP GET request to auth URL failed
     """
     if auth_version in ["1.0", "1"]:
         return _get_auth_v1_0(url, user, key, snet)
     elif auth_version in ["2.0", "2"]:
-        return _get_auth_v2_0(url, user, key, snet)
+        if not tenant_name:
+            raise ClientException('No tenant specified')
+        return _get_auth_v2_0(url, user, tenant_name, key, snet)
 
 
 def get_account(url, token, marker=None, limit=None, prefix=None,
@@ -794,6 +794,7 @@ class Connection(object):
 
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
                  preauthtoken=None, snet=False, starting_backoff=1,
+                 tenant_name=None,
                  auth_version="1"):
         """
         :param authurl: authentication URL
@@ -804,7 +805,9 @@ class Connection(object):
         :param preauthtoken: authentication token (if you have already
                              authenticated)
         :param snet: use SERVICENET internal network default is False
-        :param auth_version: Openstack auth version.
+        :param auth_version: OpenStack auth version, default is 1.0
+        :param tenant_name: The tenant/account name, required when connecting
+                            to a auth 2.0 system.
         """
         self.authurl = authurl
         self.user = user
@@ -817,9 +820,12 @@ class Connection(object):
         self.snet = snet
         self.starting_backoff = starting_backoff
         self.auth_version = auth_version
+        self.tenant_name = tenant_name
 
     def get_auth(self):
-        return get_auth(self.authurl, self.user, self.key, snet=self.snet,
+        return get_auth(self.authurl, self.user,
+                        self.key, snet=self.snet,
+                        tenant_name=self.tenant_name,
                         auth_version=self.auth_version)
 
     def http_connection(self):
