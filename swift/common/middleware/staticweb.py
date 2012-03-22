@@ -123,6 +123,7 @@ from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
                                split_path, TRUE_VALUES
+from swift.common.wsgi import WSGIContext
 
 
 def quote(value, safe='/'):
@@ -134,49 +135,30 @@ def quote(value, safe='/'):
     return urllib_quote(value, safe)
 
 
-class StaticWeb(object):
+class _StaticWebContext(WSGIContext):
     """
-    The Static Web WSGI middleware filter; serves container data as a static
-    web site. See `staticweb`_ for an overview.
+    The Static Web WSGI middleware filter; serves container data as a
+    static web site. See `staticweb`_ for an overview.
 
-    :param app: The next WSGI application/filter in the paste.deploy pipeline.
-    :param conf: The filter configuration dict.
+    This _StaticWebContext is used by StaticWeb with each request
+    that might need to be handled to make keeping contextual
+    information about the request a bit simpler than storing it in
+    the WSGI env.
     """
 
-    def __init__(self, app, conf):
-        #: The next WSGI application/filter in the paste.deploy pipeline.
-        self.app = app
-        #: The filter configuration dict.
-        self.conf = conf
-        #: The seconds to cache the x-container-meta-web-* headers.,
-        self.cache_timeout = int(conf.get('cache_timeout', 300))
-        #: Logger for this filter.
-        self.logger = get_logger(conf, log_route='staticweb')
-        access_log_conf = {}
-        for key in ('log_facility', 'log_name', 'log_level'):
-            value = conf.get('access_' + key, conf.get(key, None))
-            if value:
-                access_log_conf[key] = value
-        #: Web access logger for this filter.
-        self.access_logger = get_logger(access_log_conf,
-                                        log_route='staticweb-access')
-        #: Indicates whether full HTTP headers should be logged or not.
-        self.log_headers = conf.get('log_headers') == 'True'
-        # Results from the last call to self._start_response.
-        self._response_status = None
-        self._response_headers = None
-        self._response_exc_info = None
+    def __init__(self, staticweb, version, account, container, obj):
+        WSGIContext.__init__(self, staticweb.app)
+        self.version = version
+        self.account = account
+        self.container = container
+        self.obj = obj
+        self.app = staticweb.app
+        self.cache_timeout = staticweb.cache_timeout
+        self.logger = staticweb.logger
+        self.access_logger = staticweb.access_logger
+        self.log_headers = staticweb.log_headers
         # Results from the last call to self._get_container_info.
         self._index = self._error = self._listings = self._listings_css = None
-
-    def _start_response(self, status, headers, exc_info=None):
-        """
-        Saves response info without sending it to the remote client.
-        Uses the same semantics as the usual WSGI start_response.
-        """
-        self._response_status = status
-        self._response_headers = headers
-        self._response_exc_info = exc_info
 
     def _error_response(self, response, env, start_response):
         """
@@ -199,7 +181,7 @@ class StaticWeb(object):
         tmp_env['REQUEST_METHOD'] = 'GET'
         tmp_env['PATH_INFO'] = '/%s/%s/%s/%s%s' % (self.version, self.account,
             self.container, self._get_status_int(), self._error)
-        resp = self.app(tmp_env, self._start_response)
+        resp = self._app_call(tmp_env)
         if self._get_status_int() // 100 == 2:
             start_response(save_response_status, self._response_headers,
                            self._response_exc_info)
@@ -207,13 +189,6 @@ class StaticWeb(object):
         start_response(save_response_status, save_response_headers,
                        save_response_exc_info)
         return response
-
-    def _get_status_int(self):
-        """
-        Returns the HTTP status int from the last called self._start_response
-        result.
-        """
-        return int(self._response_status.split(' ', 1)[0])
 
     def _get_escalated_env(self, env):
         """
@@ -230,7 +205,7 @@ class StaticWeb(object):
                 new_env[name] = env[name]
         return new_env
 
-    def _get_container_info(self, env, start_response):
+    def _get_container_info(self, env):
         """
         Retrieves x-container-meta-web-index, x-container-meta-web-error,
         x-container-meta-web-listings, and x-container-meta-web-listings-css
@@ -238,7 +213,6 @@ class StaticWeb(object):
         in self._index, self._error, self._listings, and self._listings_css.
 
         :param env: The WSGI environment dict.
-        :param start_response: The WSGI start_response hook.
         """
         self._index = self._error = self._listings = self._listings_css = None
         memcache_client = cache_from_env(env)
@@ -291,10 +265,13 @@ class StaticWeb(object):
             tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
         else:
             prefix = ''
-        resp = self.app(tmp_env, self._start_response)
+        resp = self._app_call(tmp_env)
         if self._get_status_int() // 100 != 2:
             return self._error_response(resp, env, start_response)
-        listing = json.loads(''.join(resp))
+        listing = None
+        body = ''.join(resp)
+        if body:
+            listing = json.loads(body)
         if not listing:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
@@ -378,14 +355,14 @@ class StaticWeb(object):
             css_path = '../' * prefix.count('/') + quote(self._listings_css)
         return css_path
 
-    def _handle_container(self, env, start_response):
+    def handle_container(self, env, start_response):
         """
         Handles a possible static web request for a container.
 
         :param env: The original WSGI environment dict.
         :param start_response: The original WSGI start_response hook.
         """
-        self._get_container_info(env, start_response)
+        self._get_container_info(env)
         if not self._listings and not self._index:
             if env.get('HTTP_X_WEB_MODE', 'f').lower() in TRUE_VALUES:
                 return HTTPNotFound()(env, start_response)
@@ -401,7 +378,7 @@ class StaticWeb(object):
         tmp_env['HTTP_USER_AGENT'] = \
             '%s StaticWeb' % env.get('HTTP_USER_AGENT')
         tmp_env['PATH_INFO'] += self._index
-        resp = self.app(tmp_env, self._start_response)
+        resp = self._app_call(tmp_env)
         status_int = self._get_status_int()
         if status_int == 404:
             return self._listing(env, start_response)
@@ -411,7 +388,7 @@ class StaticWeb(object):
                        self._response_exc_info)
         return resp
 
-    def _handle_object(self, env, start_response):
+    def handle_object(self, env, start_response):
         """
         Handles a possible static web request for an object. This object could
         resolve into an index or listing request.
@@ -422,7 +399,7 @@ class StaticWeb(object):
         tmp_env = dict(env)
         tmp_env['HTTP_USER_AGENT'] = \
             '%s StaticWeb' % env.get('HTTP_USER_AGENT')
-        resp = self.app(tmp_env, self._start_response)
+        resp = self._app_call(tmp_env)
         status_int = self._get_status_int()
         if status_int // 100 in (2, 3):
             start_response(self._response_status, self._response_headers,
@@ -430,7 +407,7 @@ class StaticWeb(object):
             return resp
         if status_int != 404:
             return self._error_response(resp, env, start_response)
-        self._get_container_info(env, start_response)
+        self._get_container_info(env)
         if not self._listings and not self._index:
             return self.app(env, start_response)
         status_int = 404
@@ -441,7 +418,7 @@ class StaticWeb(object):
             if tmp_env['PATH_INFO'][-1] != '/':
                 tmp_env['PATH_INFO'] += '/'
             tmp_env['PATH_INFO'] += self._index
-            resp = self.app(tmp_env, self._start_response)
+            resp = self._app_call(tmp_env)
             status_int = self._get_status_int()
             if status_int // 100 in (2, 3):
                 if env['PATH_INFO'][-1] != '/':
@@ -460,9 +437,10 @@ class StaticWeb(object):
                     self.account, self.container)
                 tmp_env['QUERY_STRING'] = 'limit=1&format=json&delimiter' \
                     '=/&limit=1&prefix=%s' % quote(self.obj + '/')
-                resp = self.app(tmp_env, self._start_response)
-                if self._get_status_int() // 100 != 2 or \
-                        not json.loads(''.join(resp)):
+                resp = self._app_call(tmp_env)
+                body = ''.join(resp)
+                if self._get_status_int() // 100 != 2 or not body or \
+                        not json.loads(body):
                     resp = HTTPNotFound()(env, self._start_response)
                     return self._error_response(resp, env, start_response)
                 resp = HTTPMovedPermanently(location=env['PATH_INFO'] +
@@ -470,39 +448,6 @@ class StaticWeb(object):
                 self._log_response(env, resp.status_int)
                 return resp(env, start_response)
             return self._listing(env, start_response, self.obj)
-
-    def __call__(self, env, start_response):
-        """
-        Main hook into the WSGI paste.deploy filter/app pipeline.
-
-        :param env: The WSGI environment dict.
-        :param start_response: The WSGI start_response hook.
-        """
-        env['staticweb.start_time'] = time.time()
-        try:
-            (self.version, self.account, self.container, self.obj) = \
-                split_path(env['PATH_INFO'], 2, 4, True)
-        except ValueError:
-            return self.app(env, start_response)
-        memcache_client = cache_from_env(env)
-        if memcache_client:
-            if env['REQUEST_METHOD'] in ('PUT', 'POST'):
-                if not self.obj and self.container:
-                    memcache_key = '/staticweb/%s/%s/%s' % \
-                        (self.version, self.account, self.container)
-                    memcache_client.delete(memcache_key)
-                return self.app(env, start_response)
-        if (env['REQUEST_METHOD'] not in ('HEAD', 'GET') or
-            (env.get('REMOTE_USER') and
-             env.get('HTTP_X_WEB_MODE', 'f').lower() not in TRUE_VALUES) or
-            (not env.get('REMOTE_USER') and
-             env.get('HTTP_X_WEB_MODE', 't').lower() not in TRUE_VALUES)):
-            return self.app(env, start_response)
-        if self.obj:
-            return self._handle_object(env, start_response)
-        elif self.container:
-            return self._handle_container(env, start_response)
-        return self.app(env, start_response)
 
     def _log_response(self, env, status_int):
         """
@@ -560,6 +505,68 @@ class StaticWeb(object):
             env.get('swift.trans_id', '-'),
             logged_headers or '-',
             trans_time)))
+
+
+class StaticWeb(object):
+    """
+    The Static Web WSGI middleware filter; serves container data as a static
+    web site. See `staticweb`_ for an overview.
+
+    :param app: The next WSGI application/filter in the paste.deploy pipeline.
+    :param conf: The filter configuration dict.
+    """
+
+    def __init__(self, app, conf):
+        #: The next WSGI application/filter in the paste.deploy pipeline.
+        self.app = app
+        #: The filter configuration dict.
+        self.conf = conf
+        #: The seconds to cache the x-container-meta-web-* headers.,
+        self.cache_timeout = int(conf.get('cache_timeout', 300))
+        #: Logger for this filter.
+        self.logger = get_logger(conf, log_route='staticweb')
+        access_log_conf = {}
+        for key in ('log_facility', 'log_name', 'log_level'):
+            value = conf.get('access_' + key, conf.get(key, None))
+            if value:
+                access_log_conf[key] = value
+        #: Web access logger for this filter.
+        self.access_logger = get_logger(access_log_conf,
+                                        log_route='staticweb-access')
+        #: Indicates whether full HTTP headers should be logged or not.
+        self.log_headers = conf.get('log_headers', 'f').lower() in TRUE_VALUES
+
+    def __call__(self, env, start_response):
+        """
+        Main hook into the WSGI paste.deploy filter/app pipeline.
+
+        :param env: The WSGI environment dict.
+        :param start_response: The WSGI start_response hook.
+        """
+        env['staticweb.start_time'] = time.time()
+        try:
+            (version, account, container, obj) = \
+                split_path(env['PATH_INFO'], 2, 4, True)
+        except ValueError:
+            return self.app(env, start_response)
+        if env['REQUEST_METHOD'] in ('PUT', 'POST') and container and not obj:
+            memcache_client = cache_from_env(env)
+            if memcache_client:
+                memcache_key = \
+                    '/staticweb/%s/%s/%s' % (version, account, container)
+                memcache_client.delete(memcache_key)
+            return self.app(env, start_response)
+        if env['REQUEST_METHOD'] not in ('HEAD', 'GET'):
+            return self.app(env, start_response)
+        if env.get('REMOTE_USER') and \
+                env.get('HTTP_X_WEB_MODE', 'f').lower() not in TRUE_VALUES:
+            return self.app(env, start_response)
+        if not container:
+            return self.app(env, start_response)
+        context = _StaticWebContext(self, version, account, container, obj)
+        if obj:
+            return context.handle_object(env, start_response)
+        return context.handle_container(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):

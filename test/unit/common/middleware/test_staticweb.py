@@ -93,6 +93,15 @@ class FakeApp(object):
     </body>
 </html>
             ''')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c3b':
+            return self.listing(env, start_response,
+                                {'x-container-read': '.r:*',
+                                 'x-container-meta-web-index': 'index.html',
+                                 'x-container-meta-web-listings': 't'})
+        elif env['PATH_INFO'] == '/v1/a/c3b/index.html':
+            resp = Response(status='204 No Content')
+            resp.app_iter = iter([])
+            return resp(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c3/subdir':
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c3/subdir/':
@@ -255,7 +264,7 @@ class FakeApp(object):
                   "last_modified":"2011-03-24T04:27:52.709100"}]
             '''.strip()
         elif 'prefix=' in env['QUERY_STRING']:
-            return Response(status='204 No Content')
+            return Response(status='204 No Content')(env, start_response)
         elif 'format=json' in env['QUERY_STRING']:
             headers.update({'X-Container-Object-Count': '11',
                             'X-Container-Bytes-Used': '73741',
@@ -467,6 +476,11 @@ class TestStaticWeb(unittest.TestCase):
                 '/v1/a/c3/unknown').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
         self.assert_("Chrome's 404 fancy-page sucks." not in resp.body)
+
+    def test_container3bindexhtml(self):
+        resp = Request.blank('/v1/a/c3b/').get_response(self.test_staticweb)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.body, '')
 
     def test_container4indexhtml(self):
         resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)

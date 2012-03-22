@@ -20,6 +20,7 @@ import os
 import signal
 import time
 import mimetools
+from itertools import chain
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
@@ -194,6 +195,55 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     greenio.shutdown_safe(sock)
     sock.close()
     logger.notice('Exited')
+
+
+class WSGIContext(object):
+    """
+    This class provides a means to provide context (scope) for a middleware
+    filter to have access to the wsgi start_response results like the request
+    status and headers.
+    """
+    def __init__(self, wsgi_app):
+        self.app = wsgi_app
+        # Results from the last call to self._start_response.
+        self._response_status = None
+        self._response_headers = None
+        self._response_exc_info = None
+
+    def _start_response(self, status, headers, exc_info=None):
+        """
+        Saves response info without sending it to the remote client.
+        Uses the same semantics as the usual WSGI start_response.
+        """
+        self._response_status = status
+        self._response_headers = headers
+        self._response_exc_info = exc_info
+
+    def _app_call(self, env):
+        """
+        Ensures start_response has been called before returning.
+        """
+        resp = iter(self.app(env, self._start_response))
+        first_chunk = []
+        try:
+            first_chunk.append(resp.next())
+        except StopIteration:
+            pass
+        return chain(first_chunk, resp)
+
+    def _get_status_int(self):
+        """
+        Returns the HTTP status int from the last called self._start_response
+        result.
+        """
+        return int(self._response_status.split(' ', 1)[0])
+
+    def _response_header_value(self, key):
+        "Returns str of value for given header key or None"
+        for h_key, val in self._response_headers:
+            if h_key.lower() == key.lower():
+                return val
+        return None
 
 
 def make_pre_authed_request(env, method, path, body=None, headers=None,
