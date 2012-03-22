@@ -1745,12 +1745,11 @@ class BaseApplication(object):
             conf.get('object_post_as_copy', 'true').lower() in TRUE_VALUES
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
-        self.object_ring = object_ring or \
-            Ring(os.path.join(swift_dir, 'object.ring.gz'))
-        self.container_ring = container_ring or \
-            Ring(os.path.join(swift_dir, 'container.ring.gz'))
-        self.account_ring = account_ring or \
-            Ring(os.path.join(swift_dir, 'account.ring.gz'))
+        self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
+        self.container_ring = container_ring or Ring(swift_dir,
+                ring_name='container')
+        self.account_ring = account_ring or Ring(swift_dir,
+                ring_name='account')
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])

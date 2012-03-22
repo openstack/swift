@@ -110,7 +110,7 @@ class Replicator(Daemon):
         concurrency = int(conf.get('concurrency', 8))
         self.cpool = GreenPool(size=concurrency)
         swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.ring = ring.Ring(os.path.join(swift_dir, self.ring_file))
+        self.ring = ring.Ring(swift_dir, ring_name=self.server_type)
         self.per_diff = int(conf.get('per_diff', 1000))
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or

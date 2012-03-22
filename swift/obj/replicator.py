@@ -236,7 +236,7 @@ class ObjectReplicator(Daemon):
         self.port = int(conf.get('bind_port', 6000))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
-        self.object_ring = Ring(join(self.swift_dir, 'object.ring.gz'))
+        self.object_ring = Ring(self.swift_dir, ring_name='object')
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))

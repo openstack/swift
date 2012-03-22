@@ -39,9 +39,8 @@ class ObjectUpdater(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
-        swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.interval = int(conf.get('interval', 300))
-        self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
         self.container_ring = None
         self.concurrency = int(conf.get('concurrency', 1))
         self.slowdown = float(conf.get('slowdown', 0.01))
@@ -53,9 +52,7 @@ class ObjectUpdater(Daemon):
     def get_container_ring(self):
         """Get the container ring.  Load it, if it hasn't been yet."""
         if not self.container_ring:
-            self.logger.debug(
-                _('Loading container ring from %s'), self.container_ring_path)
-            self.container_ring = Ring(self.container_ring_path)
+            self.container_ring = Ring(self.swift_dir, ring_name='container')
         return self.container_ring
 
     def run_forever(self, *args, **kwargs):

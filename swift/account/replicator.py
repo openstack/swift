@@ -19,7 +19,6 @@ from swift.common import db, db_replicator
 
 class AccountReplicator(db_replicator.Replicator):
     server_type = 'account'
-    ring_file = 'account.ring.gz'
     brokerclass = db.AccountBroker
     datadir = account_server.DATADIR
     default_port = 6002

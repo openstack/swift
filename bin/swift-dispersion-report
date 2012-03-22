@@ -289,8 +289,8 @@ Usage: %prog [options] [conf_file]
                                 retries=retries,
                                 preauthurl=url, preauthtoken=token)
 
-    container_ring = Ring(os.path.join(swift_dir, 'container.ring.gz'))
-    object_ring = Ring(os.path.join(swift_dir, 'object.ring.gz'))
+    container_ring = Ring(swift_dir, ring_name='container')
+    object_ring = Ring(swift_dir, ring_name='object'))
 
     container_result = container_dispersion_report(coropool, connpool,
                                                    account, container_ring,
