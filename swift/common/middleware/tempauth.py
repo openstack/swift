@@ -158,7 +158,7 @@ class TempAuth(object):
                     version, rest = split_path(env.get('PATH_INFO', ''),
                                                1, 2, True)
                 except ValueError:
-                    return HTTPNotFound()(env, start_response)
+                    version, rest = None, None
                 if rest and rest.startswith(self.reseller_prefix):
                     # Handle anonymous access to accounts I'm the definitive
                     # auth for.
