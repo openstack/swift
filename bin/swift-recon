@@ -332,6 +332,8 @@ class SwiftRecon(object):
         stats = {}
         highs = []
         lows = []
+        raw_total_used = []
+        raw_total_avail = []
         averages = []
         percents = {}
         recon = Scout("diskusage", self.verbose, self.suppress_errors,
@@ -345,6 +347,8 @@ class SwiftRecon(object):
                     if entry['mounted']:
                         used = float(entry['used']) / float(entry['size']) \
                             * 100.0
+                        raw_total_used.append(entry['used'])
+                        raw_total_avail.append(entry['avail'])
                         hostusage.append(round(used, 2))
                 stats[url] = hostusage
 
@@ -373,6 +377,11 @@ class SwiftRecon(object):
             for percent in sorted(percents):
                 print '% 3d%%%5d %s' % (percent, percents[percent], \
                     '*' * int(percents[percent] * mul))
+            raw_used = sum(raw_total_used)
+            raw_avail = sum(raw_total_avail)
+            raw_total = raw_used + raw_avail
+            print "Disk usage: space used: %s of %s" % (raw_used, raw_total)
+            print "Disk usage: space free: %s of %s" % (raw_avail, raw_total)
             print "Disk usage: lowest: %s%%, highest: %s%%, avg: %s%%" % \
                 (low, high, average)
         else:
