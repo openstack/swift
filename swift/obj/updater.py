@@ -173,6 +173,7 @@ class ObjectUpdater(Daemon):
         obj = '/%s/%s/%s' % \
               (update['account'], update['container'], update['obj'])
         success = True
+        new_successes = False
         for node in nodes:
             if node['id'] not in successes:
                 status = self.object_update(node, part, update['op'], obj,
@@ -181,6 +182,7 @@ class ObjectUpdater(Daemon):
                     success = False
                 else:
                     successes.append(node['id'])
+                    new_successes = True
         if success:
             self.successes += 1
             self.logger.debug(_('Update sent for %(obj)s %(path)s'),
@@ -190,8 +192,9 @@ class ObjectUpdater(Daemon):
             self.failures += 1
             self.logger.debug(_('Update failed for %(obj)s %(path)s'),
                 {'obj': obj, 'path': update_path})
-            update['successes'] = successes
-            write_pickle(update, update_path, os.path.join(device, 'tmp'))
+            if new_successes:
+                update['successes'] = successes
+                write_pickle(update, update_path, os.path.join(device, 'tmp'))
 
     def object_update(self, node, part, op, obj, headers):
         """
