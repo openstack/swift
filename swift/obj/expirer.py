@@ -197,7 +197,7 @@ class ObjectExpirer(Daemon):
                (quote(self.expiring_objects_account), quote(container))
         marker = ''
         while True:
-            resp = self.get_response('GET', path + '&' + quote(marker),
+            resp = self.get_response('GET', path + '&marker=' + quote(marker),
                                      {}, (2, 404))
             if resp.status_int in (204, 404):
                 break
