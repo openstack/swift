@@ -378,7 +378,7 @@ class TestRateLimit(unittest.TestCase):
                'swift.cache': FakeMemcache(),
                'SERVER_PROTOCOL': 'HTTP/1.0'}
 
-        app = lambda *args, **kwargs: None
+        app = lambda *args, **kwargs: ['fake_app']
         rate_mid = ratelimit.RateLimitMiddleware(app, {},
                                                  logger=FakeLogger())
 
@@ -387,7 +387,7 @@ class TestRateLimit(unittest.TestCase):
             def __call__(self, *args, **kwargs):
                 pass
         resp = rate_mid.__call__(env, a_callable())
-        self.assert_('404 Not Found' in resp[0])
+        self.assert_('fake_app' == resp[0])
 
     def test_no_memcache(self):
         current_rate = 13

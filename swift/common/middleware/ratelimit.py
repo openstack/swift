@@ -220,7 +220,7 @@ class RateLimitMiddleware(object):
         try:
             version, account, container, obj = split_path(req.path, 1, 4, True)
         except ValueError:
-            return HTTPNotFound()(env, start_response)
+            return self.app(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)
         if ratelimit_resp is None:
             return self.app(env, start_response)
