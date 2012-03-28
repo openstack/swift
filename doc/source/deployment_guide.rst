@@ -481,6 +481,11 @@ concurrency         25               Number of replication workers to spawn
 interval            3600             Minimum time for a pass to take
 node_timeout        10               Request timeout to external services
 conn_timeout        0.5              Connection timeout to external services
+delay_reaping       0                Normally, the reaper begins deleting
+                                     account information for deleted accounts
+                                     immediately; you can set this to delay
+                                     its work however. The value is in seconds,
+                                     2592000 = 30 days, for example.
 ==================  ===============  =========================================
 
 --------------------------
