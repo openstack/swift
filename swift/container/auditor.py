@@ -19,9 +19,11 @@ from random import random
 
 from eventlet import Timeout
 
+import swift.common.db
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
-from swift.common.utils import get_logger, audit_location_generator
+from swift.common.utils import get_logger, audit_location_generator, \
+    TRUE_VALUES
 from swift.common.daemon import Daemon
 
 
@@ -38,6 +40,8 @@ class ContainerAuditor(Daemon):
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.container_passes = 0
         self.container_failures = 0
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
     def run_forever(self, *args, **kwargs):
         """Run the container audit until stopped."""

@@ -17,9 +17,11 @@ import os
 import time
 from random import random
 
+import swift.common.db
 from swift.account import server as account_server
 from swift.common.db import AccountBroker
-from swift.common.utils import get_logger, audit_location_generator
+from swift.common.utils import get_logger, audit_location_generator, \
+    TRUE_VALUES
 from swift.common.daemon import Daemon
 
 from eventlet import Timeout
@@ -37,6 +39,8 @@ class AccountAuditor(Daemon):
         self.interval = int(conf.get('interval', 1800))
         self.account_passes = 0
         self.account_failures = 0
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
     def run_forever(self, *args, **kwargs):
         """Run the account audit until stopped."""

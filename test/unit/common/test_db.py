@@ -97,6 +97,13 @@ class TestDatabaseBroker(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
 
+    def test_DB_PREALLOCATION_setting(self):
+        u = uuid4().hex
+        b = DatabaseBroker(u)
+        self.assertRaises(OSError, b._preallocate)
+        swift.common.db.DB_PREALLOCATION = False
+        b._preallocate()
+
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 

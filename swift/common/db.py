@@ -37,6 +37,8 @@ from swift.common.utils import normalize_timestamp, renamer, \
 from swift.common.exceptions import LockTimeout
 
 
+#: Whether calls will be made to preallocate disk space for database files.
+DB_PREALLOCATION = True
 #: Timeout for trying to connect to a DB
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
@@ -508,7 +510,7 @@ class DatabaseBroker(object):
         within 512k of a boundary, it allocates to the next boundary.
         Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
         """
-        if self.db_file == ':memory:':
+        if not DB_PREALLOCATION or self.db_file == ':memory:':
             return
         MB = (1024 * 1024)
 

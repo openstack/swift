@@ -21,12 +21,13 @@ from time import time
 
 from eventlet import GreenPool, sleep, Timeout
 
+import swift.common.db
 from swift.account.server import DATADIR
 from swift.common.db import AccountBroker
 from swift.common.direct_client import ClientException, \
     direct_delete_container, direct_delete_object, direct_get_container
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, whataremyips
+from swift.common.utils import get_logger, whataremyips, TRUE_VALUES
 from swift.common.daemon import Daemon
 
 
@@ -69,6 +70,8 @@ class AccountReaper(Daemon):
         self.container_concurrency = self.object_concurrency = \
             sqrt(self.concurrency)
         self.container_pool = GreenPool(size=self.container_concurrency)
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
         self.delay_reaping = int(conf.get('delay_reaping') or 0)
 
     def get_account_ring(self):

@@ -23,12 +23,13 @@ from tempfile import mkstemp
 
 from eventlet import spawn, patcher, Timeout
 
+import swift.common.db
 from swift.container.server import DATADIR
 from swift.common.bufferedhttp import http_connect
 from swift.common.db import ContainerBroker
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, whataremyips
+from swift.common.utils import get_logger, whataremyips, TRUE_VALUES
 from swift.common.daemon import Daemon
 
 
@@ -55,6 +56,8 @@ class ContainerUpdater(Daemon):
         self.account_suppression_time = \
             float(conf.get('account_suppression_time', 60))
         self.new_account_suppressions = None
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""

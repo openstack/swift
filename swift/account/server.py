@@ -29,9 +29,10 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict
 import simplejson
 
+import swift.common.db
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
-    normalize_timestamp, split_path, storage_directory
+    normalize_timestamp, split_path, storage_directory, TRUE_VALUES
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
@@ -52,6 +53,8 @@ class AccountController(object):
             self.mount_check, logger=self.logger)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
     def _get_account_broker(self, drive, part, account):
         hsh = hash_path(account)

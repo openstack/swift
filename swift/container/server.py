@@ -29,6 +29,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, \
     HTTPNotFound, HTTPPreconditionFailed, HTTPMethodNotAllowed
 
+import swift.common.db
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, \
     normalize_timestamp, storage_directory, split_path, validate_sync_to, \
@@ -65,6 +66,8 @@ class ContainerController(object):
             conf.get('auto_create_account_prefix') or '.'
         if conf.get('allow_versions', 'f').lower() in TRUE_VALUES:
             self.save_headers.append('x-versions-location')
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
     def _get_container_broker(self, drive, part, account, container):
         """
