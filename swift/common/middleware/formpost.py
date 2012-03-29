@@ -111,6 +111,7 @@ from time import time
 from urllib import quote, unquote
 
 from swift.common.utils import get_logger, streq_const_time
+from swift.common.wsgi import make_pre_authed_env
 
 
 #: The size of data to read from the form at any given time.
@@ -296,6 +297,8 @@ class FormPost(object):
         self.conf = conf
         #: The logger to use with this middleware.
         self.logger = get_logger(conf, log_route='formpost')
+        #: The HTTP user agent to use with subrequests.
+        self.agent = '%(orig)s FormPost'
 
     def __call__(self, env, start_response):
         """
@@ -413,15 +416,9 @@ class FormPost(object):
             max_file_size = int(attributes.get('max_file_size') or 0)
         except ValueError:
             raise FormInvalid('max_file_size not an integer')
-        subenv = {'REQUEST_METHOD': 'PUT',
-                  'SCRIPT_NAME': '',
-                  'SERVER_NAME': env['SERVER_NAME'],
-                  'SERVER_PORT': env['SERVER_PORT'],
-                  'SERVER_PROTOCOL': env['SERVER_PROTOCOL'],
-                  'HTTP_TRANSFER_ENCODING': 'chunked',
-                  'wsgi.input': _CappedFileLikeObject(fp, max_file_size),
-                  'swift.cache': env['swift.cache']}
-        subenv['PATH_INFO'] = env['PATH_INFO']
+        subenv = make_pre_authed_env(env, 'PUT', agent=self.agent)
+        subenv['HTTP_TRANSFER_ENCODING'] = 'chunked'
+        subenv['wsgi.input'] = _CappedFileLikeObject(fp, max_file_size)
         if subenv['PATH_INFO'][-1] != '/' and \
                 subenv['PATH_INFO'].count('/') < 4:
             subenv['PATH_INFO'] += '/'
@@ -429,6 +426,8 @@ class FormPost(object):
         if 'content-type' in attributes:
             subenv['CONTENT_TYPE'] = \
                 attributes['content-type'] or 'application/octet-stream'
+        elif 'CONTENT_TYPE' in subenv:
+            del subenv['CONTENT_TYPE']
         try:
             if int(attributes.get('expires') or 0) < time():
                 return '401 Unauthorized', 'form expired'
@@ -445,15 +444,16 @@ class FormPost(object):
         if not streq_const_time(sig, (attributes.get('signature') or
                                       'invalid')):
             return '401 Unauthorized', 'invalid signature'
-        subenv['swift.authorize'] = lambda req: None
-        subenv['swift.authorize_override'] = True
-        subenv['REMOTE_USER'] = '.wsgi.formpost'
         substatus = [None]
 
         def _start_response(status, headers, exc_info=None):
             substatus[0] = status
 
-        self.app(subenv, _start_response)
+        i = iter(self.app(subenv, _start_response))
+        try:
+            i.next()
+        except StopIteration:
+            pass
         return substatus[0], ''
 
     def _get_key(self, env):
@@ -474,19 +474,10 @@ class FormPost(object):
         if memcache:
             key = memcache.get('temp-url-key/%s' % account)
         if not key:
-            newenv = {'REQUEST_METHOD': 'HEAD', 'SCRIPT_NAME': '',
-                      'PATH_INFO': '/v1/' + account, 'CONTENT_LENGTH': '0',
-                      'SERVER_PROTOCOL': 'HTTP/1.0',
-                      'HTTP_USER_AGENT': 'FormPost', 'wsgi.version': (1, 0),
-                      'wsgi.url_scheme': 'http', 'wsgi.input': StringIO('')}
-            for name in ('SERVER_NAME', 'SERVER_PORT', 'wsgi.errors',
-                         'wsgi.multithread', 'wsgi.multiprocess',
-                         'wsgi.run_once', 'swift.cache', 'swift.trans_id'):
-                if name in env:
-                    newenv[name] = env[name]
-            newenv['swift.authorize'] = lambda req: None
-            newenv['swift.authorize_override'] = True
-            newenv['REMOTE_USER'] = '.wsgi.formpost'
+            newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
+                                         self.agent)
+            newenv['CONTENT_LENGTH'] = '0'
+            newenv['wsgi.input'] = StringIO('')
             key = [None]
 
             def _start_response(status, response_headers, exc_info=None):
@@ -494,7 +485,11 @@ class FormPost(object):
                     if h.lower() == 'x-account-meta-temp-url-key':
                         key[0] = v
 
-            self.app(newenv, _start_response)
+            i = iter(self.app(newenv, _start_response))
+            try:
+                i.next()
+            except StopIteration:
+                pass
             key = key[0]
             if key and memcache:
                 memcache.set('temp-url-key/%s' % account, key, timeout=60)

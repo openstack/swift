@@ -87,6 +87,7 @@ from urllib import quote, unquote
 from urlparse import parse_qs
 
 from swift.common.utils import get_logger
+from swift.common.wsgi import make_pre_authed_env
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -211,6 +212,8 @@ class TempURL(object):
         #: Lowercase, like `x-matches-remove-prefix-but-okay-*`.
         self.outgoing_allow_headers_startswith = \
             [h[:-1] for h in headers if h[-1] == '*']
+        #: HTTP user agent to use for subrequests.
+        self.agent = '%(orig)s TempURL'
 
     def __call__(self, env, start_response):
         """
@@ -321,19 +324,10 @@ class TempURL(object):
         if memcache:
             key = memcache.get('temp-url-key/%s' % account)
         if not key:
-            newenv = {'REQUEST_METHOD': 'HEAD', 'SCRIPT_NAME': '',
-                      'PATH_INFO': '/v1/' + account, 'CONTENT_LENGTH': '0',
-                      'SERVER_PROTOCOL': 'HTTP/1.0',
-                      'HTTP_USER_AGENT': 'TempURL', 'wsgi.version': (1, 0),
-                      'wsgi.url_scheme': 'http', 'wsgi.input': StringIO('')}
-            for name in ('SERVER_NAME', 'SERVER_PORT', 'wsgi.errors',
-                         'wsgi.multithread', 'wsgi.multiprocess',
-                         'wsgi.run_once', 'swift.cache', 'swift.trans_id'):
-                if name in env:
-                    newenv[name] = env[name]
-            newenv['swift.authorize'] = lambda req: None
-            newenv['swift.authorize_override'] = True
-            newenv['REMOTE_USER'] = '.wsgi.tempurl'
+            newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
+                                         self.agent)
+            newenv['CONTENT_LENGTH'] = '0'
+            newenv['wsgi.input'] = StringIO('')
             key = [None]
 
             def _start_response(status, response_headers, exc_info=None):
@@ -341,7 +335,11 @@ class TempURL(object):
                     if h.lower() == 'x-account-meta-temp-url-key':
                         key[0] = v
 
-            self.app(newenv, _start_response)
+            i = iter(self.app(newenv, _start_response))
+            try:
+                i.next()
+            except StopIteration:
+                pass
             key = key[0]
             if key and memcache:
                 memcache.set('temp-url-key/%s' % account, key, timeout=60)

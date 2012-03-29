@@ -224,12 +224,12 @@ class WSGIContext(object):
         Ensures start_response has been called before returning.
         """
         resp = iter(self.app(env, self._start_response))
-        first_chunk = []
         try:
-            first_chunk.append(resp.next())
+            first_chunk = resp.next()
         except StopIteration:
-            pass
-        return chain(first_chunk, resp)
+            return iter([])
+        else:  # We got a first_chunk
+            return chain([first_chunk], resp)
 
     def _get_status_int(self):
         """
@@ -246,27 +246,29 @@ class WSGIContext(object):
         return None
 
 
-def make_pre_authed_request(env, method, path, body=None, headers=None,
-                            agent='Swift'):
+def make_pre_authed_request(env, method=None, path=None, body=None,
+                            headers=None, agent='Swift'):
     """
     Makes a new webob.Request based on the current env but with the
     parameters specified. Note that this request will be preauthorized.
 
-    :param env: Current WSGI environment dictionary
-    :param method: HTTP method of new request
-    :param path: HTTP path of new request
-    :param body: HTTP body of new request; None by default
-    :param headers: Extra HTTP headers of new request; None by default
-
-    :returns: webob.Request object
-
-    (Stolen from Swauth: https://github.com/gholt/swauth)
+    :param env: The WSGI environment to base the new request on.
+    :param method: HTTP method of new request; default is from
+                   the original env.
+    :param path: HTTP path of new request; default is from the
+                 original env.
+    :param body: HTTP body of new request; empty by default.
+    :param headers: Extra HTTP headers of new request; None by
+                    default.
+    :param agent: The HTTP user agent to use; default 'Swift'. You
+                  can put %(orig)s in the agent to have it replaced
+                  with the original env's HTTP_USER_AGENT, such as
+                  '%(orig)s StaticWeb'. You also set agent to None to
+                  use the original env's HTTP_USER_AGENT or '' to
+                  have no HTTP_USER_AGENT.
+    :returns: Fresh webob.Request object.
     """
-    newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': agent}
-    for name in ('swift.cache', 'swift.trans_id'):
-        if name in env:
-            newenv[name] = env[name]
-    newenv['swift.authorize'] = lambda req: None
+    newenv = make_pre_authed_env(env, method, path, agent)
     if not headers:
         headers = {}
     if body:
@@ -274,3 +276,44 @@ def make_pre_authed_request(env, method, path, body=None, headers=None,
                              headers=headers)
     else:
         return Request.blank(path, environ=newenv, headers=headers)
+
+
+def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
+    """
+    Returns a new fresh WSGI environment with escalated privileges to
+    do backend checks, listings, etc. that the remote user wouldn't
+    be able to accomplish directly.
+
+    :param env: The WSGI environment to base the new environment on.
+    :param method: The new REQUEST_METHOD or None to use the
+                   original.
+    :param path: The new PATH_INFO or None to use the original.
+    :param agent: The HTTP user agent to use; default 'Swift'. You
+                  can put %(orig)s in the agent to have it replaced
+                  with the original env's HTTP_USER_AGENT, such as
+                  '%(orig)s StaticWeb'. You also set agent to None to
+                  use the original env's HTTP_USER_AGENT or '' to
+                  have no HTTP_USER_AGENT.
+    :returns: Fresh WSGI environment.
+    """
+    newenv = {}
+    for name in ('eventlet.posthooks', 'HTTP_USER_AGENT',
+                 'PATH_INFO', 'REMOTE_USER', 'REQUEST_METHOD',
+                 'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
+                 'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
+                 'swift.trans_id'):
+        if name in env:
+            newenv[name] = env[name]
+    if method:
+        newenv['REQUEST_METHOD'] = method
+    if path:
+        newenv['PATH_INFO'] = path
+    if agent:
+        newenv['HTTP_USER_AGENT'] = (
+            agent % {'orig': env.get('HTTP_USER_AGENT', '')}).strip()
+    elif agent == '' and 'HTTP_USER_AGENT' in newenv:
+        del newenv['HTTP_USER_AGENT']
+    newenv['swift.authorize'] = lambda req: None
+    newenv['swift.authorize_override'] = True
+    newenv['REMOTE_USER'] = '.wsgi.pre_authed'
+    return newenv
