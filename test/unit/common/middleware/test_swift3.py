@@ -47,8 +47,7 @@ class FakeAppService(FakeApp):
 
     def __call__(self, env, start_response):
         if self.status == 200:
-            start_response(Response().status)
-            start_response({'Content-Type': 'text/xml'})
+            start_response(Response().status, [('Content-Type', 'text/xml')])
             json_pattern = ['"name":%s', '"count":%s', '"bytes":%s']
             json_pattern = '{' + ','.join(json_pattern) + '}'
             json_out = []
@@ -59,11 +58,10 @@ class FakeAppService(FakeApp):
             account_list = '[' + ','.join(json_out) + ']'
             return account_list
         elif self.status == 401:
-            start_response(HTTPUnauthorized().status)
-            start_response({})
+            start_response(HTTPUnauthorized().status, [])
         else:
-            start_response(HTTPBadRequest().status)
-            start_response({})
+            start_response(HTTPBadRequest().status, [])
+        return []
 
 
 class FakeAppBucket(FakeApp):
@@ -77,8 +75,8 @@ class FakeAppBucket(FakeApp):
     def __call__(self, env, start_response):
         if env['REQUEST_METHOD'] == 'GET':
             if self.status == 200:
-                start_response(Response().status)
-                start_response({'Content-Type': 'text/xml'})
+                start_response(Response().status,
+                               [('Content-Type', 'text/xml')])
                 json_pattern = ['"name":%s', '"last_modified":%s', '"hash":%s',
                                 '"bytes":%s']
                 json_pattern = '{' + ','.join(json_pattern) + '}'
@@ -91,43 +89,32 @@ class FakeAppBucket(FakeApp):
                 account_list = '[' + ','.join(json_out) + ']'
                 return account_list
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 404:
-                start_response(HTTPNotFound().status)
-                start_response({})
+                start_response(HTTPNotFound().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
         elif env['REQUEST_METHOD'] == 'PUT':
             if self.status == 201:
-                start_response(HTTPCreated().status)
-                start_response({})
+                start_response(HTTPCreated().status, [])
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 202:
-                start_response(HTTPAccepted().status)
-                start_response({})
+                start_response(HTTPAccepted().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
         elif env['REQUEST_METHOD'] == 'DELETE':
             if self.status == 204:
-                start_response(HTTPNoContent().status)
-                start_response({})
+                start_response(HTTPNoContent().status, [])
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 404:
-                start_response(HTTPNotFound().status)
-                start_response({})
+                start_response(HTTPNotFound().status, [])
             elif self.status == 409:
-                start_response(HTTPConflict().status)
-                start_response({})
+                start_response(HTTPConflict().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
+        return []
 
 
 class FakeAppObject(FakeApp):
@@ -149,45 +136,36 @@ class FakeAppObject(FakeApp):
                                     conditional_response=True)
                     iter = resp(env, start_response)
                     return iter.pop()
-                start_response(Response().status)
-                start_response(self.response_headers)
+                start_response(Response().status,
+                               self.response_headers.items())
                 if env['REQUEST_METHOD'] == 'GET':
                     return self.object_body
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 404:
-                start_response(HTTPNotFound().status)
-                start_response({})
+                start_response(HTTPNotFound().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
         elif env['REQUEST_METHOD'] == 'PUT':
             if self.status == 201:
-                start_response(HTTPCreated().status)
-                start_response({'etag': self.response_headers['etag']})
+                start_response(HTTPCreated().status,
+                               [('etag', self.response_headers['etag'])])
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 404:
-                start_response(HTTPNotFound().status)
-                start_response({})
+                start_response(HTTPNotFound().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
         elif env['REQUEST_METHOD'] == 'DELETE':
             if self.status == 204:
-                start_response(HTTPNoContent().status)
-                start_response({})
+                start_response(HTTPNoContent().status, [])
             elif self.status == 401:
-                start_response(HTTPUnauthorized().status)
-                start_response({})
+                start_response(HTTPUnauthorized().status, [])
             elif self.status == 404:
-                start_response(HTTPNotFound().status)
-                start_response({})
+                start_response(HTTPNotFound().status, [])
             else:
-                start_response(HTTPBadRequest().status)
-                start_response({})
+                start_response(HTTPBadRequest().status, [])
+        return []
 
 
 def start_response(*args):
@@ -450,7 +428,7 @@ class TestSwift3(unittest.TestCase):
                 self.assertEquals(headers['x-amz-meta-' + key[14:]], val)
 
         if method == 'GET':
-            self.assertEquals(resp, local_app.app.object_body)
+            self.assertEquals(''.join(resp), local_app.app.object_body)
 
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
@@ -513,8 +491,8 @@ class TestSwift3(unittest.TestCase):
         class FakeApp(object):
             def __call__(self, env, start_response):
                 self.req = Request(env)
-                start_response('200 OK')
-                start_response([])
+                start_response('200 OK', [])
+                return []
         app = FakeApp()
         local_app = swift3.filter_factory({})(app)
         req = Request.blank('/bucket/object',
@@ -618,8 +596,8 @@ class TestSwift3(unittest.TestCase):
         class FakeApp(object):
             def __call__(self, env, start_response):
                 self.req = Request(env)
-                start_response('200 OK')
-                start_response([])
+                start_response('200 OK', [])
+                return []
         app = FakeApp()
         local_app = swift3.filter_factory({})(app)
         req = Request.blank('/bucket/object?Signature=X&Expires=Y&'

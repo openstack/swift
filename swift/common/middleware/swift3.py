@@ -63,6 +63,7 @@ from webob.exc import HTTPNotFound
 from simplejson import loads
 
 from swift.common.utils import split_path
+from swift.common.wsgi import WSGIContext
 
 
 MAX_BUCKET_LISTING = 1000
@@ -155,21 +156,12 @@ def canonical_string(req):
     return buf + path
 
 
-class Controller(object):
-    def __init__(self, app):
-        self.app = app
-        self.response_args = []
-
-    def do_start_response(self, *args):
-        self.response_args.extend(args)
-
-
-class ServiceController(Controller):
+class ServiceController(WSGIContext):
     """
     Handles account level requests.
     """
     def __init__(self, env, app, account_name, token, **kwargs):
-        Controller.__init__(self, app)
+        WSGIContext.__init__(self, app)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s' % account_name
 
@@ -178,9 +170,8 @@ class ServiceController(Controller):
         Handle GET Service request
         """
         env['QUERY_STRING'] = 'format=json'
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 200:
             if status == 401:
@@ -203,13 +194,13 @@ class ServiceController(Controller):
         return resp
 
 
-class BucketController(Controller):
+class BucketController(WSGIContext):
     """
     Handles bucket request.
     """
     def __init__(self, env, app, account_name, token, container_name,
                     **kwargs):
-        Controller.__init__(self, app)
+        WSGIContext.__init__(self, app)
         self.container_name = unquote(container_name)
         self.account_name = unquote(account_name)
         env['HTTP_X_AUTH_TOKEN'] = token
@@ -232,9 +223,8 @@ class BucketController(Controller):
             env['QUERY_STRING'] += '&prefix=%s' % quote(args['prefix'])
         if 'delimiter' in args:
             env['QUERY_STRING'] += '&delimiter=%s' % quote(args['delimiter'])
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 200:
             if status == 401:
@@ -282,9 +272,8 @@ class BucketController(Controller):
         """
         Handle PUT Bucket request
         """
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 201:
             if status == 401:
@@ -303,9 +292,8 @@ class BucketController(Controller):
         """
         Handle DELETE Bucket request
         """
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 204:
             if status == 401:
@@ -322,13 +310,13 @@ class BucketController(Controller):
         return resp
 
 
-class ObjectController(Controller):
+class ObjectController(WSGIContext):
     """
     Handles requests on objects
     """
     def __init__(self, env, app, account_name, token, container_name,
                     object_name, **kwargs):
-        Controller.__init__(self, app)
+        WSGIContext.__init__(self, app)
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         env['HTTP_X_AUTH_TOKEN'] = token
@@ -336,9 +324,9 @@ class ObjectController(Controller):
                                              object_name)
 
     def GETorHEAD(self, env, start_response):
-        app_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        app_iter = self._app_call(env)
+        status = self._get_status_int()
+        headers = dict(self._response_headers)
 
         if 200 <= status < 300:
             if 'QUERY_STRING' in env:
@@ -390,9 +378,8 @@ class ObjectController(Controller):
             elif key == 'HTTP_X_AMZ_COPY_SOURCE':
                 env['HTTP_X_COPY_FROM'] = value
 
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 201:
             if status == 401:
@@ -405,18 +392,17 @@ class ObjectController(Controller):
         if 'HTTP_X_COPY_FROM' in env:
             body = '<CopyObjectResult>' \
                    '<ETag>"%s"</ETag>' \
-                   '</CopyObjectResult>' % headers['etag']
+                   '</CopyObjectResult>' % self._response_header_value('etag')
             return Response(status=200, body=body)
 
-        return Response(status=200, etag=headers['etag'])
+        return Response(status=200, etag=self._response_header_value('etag'))
 
     def DELETE(self, env, start_response):
         """
         Handle DELETE Object request
         """
-        body_iter = self.app(env, self.do_start_response)
-        status = int(self.response_args[0].split()[0])
-        headers = dict(self.response_args[1])
+        body_iter = self._app_call(env)
+        status = self._get_status_int()
 
         if status != 204:
             if status == 401:
