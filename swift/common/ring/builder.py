@@ -391,46 +391,17 @@ class RingBuilder(object):
 
     def _initial_balance(self):
         """
-        Initial partition assignment is treated separately from rebalancing an
-        existing ring. Initial assignment is performed by ordering all the
-        devices by how many partitions they still want (and kept in order
-        during the process). The partitions are then iterated through,
-        assigning them to the next "most wanted" device, with distinct zone
-        restrictions.
+        Initial partition assignment is the same as rebalancing an
+        existing ring, but with some initial setup beforehand.
         """
-        for dev in self._iter_devs():
-            dev['sort_key'] = \
-                '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
-        available_devs = sorted((d for d in self._iter_devs()),
-                                key=lambda x: x['sort_key'])
         self._replica2part2dev = \
-            [array('H') for _junk in xrange(self.replicas)]
-        for _junk in xrange(self.parts):
-            other_zones = array('H')
-            for replica in xrange(self.replicas):
-                index = len(available_devs) - 1
-                while available_devs[index]['zone'] in other_zones:
-                    index -= 1
-                dev = available_devs.pop(index)
-                self._replica2part2dev[replica].append(dev['id'])
-                dev['parts_wanted'] -= 1
-                dev['parts'] += 1
-                dev['sort_key'] = \
-                    '%08x.%04x' % (dev['parts_wanted'], randint(0, 0xffff))
-                index = 0
-                end = len(available_devs)
-                while index < end:
-                    mid = (index + end) // 2
-                    if dev['sort_key'] < available_devs[mid]['sort_key']:
-                        end = mid
-                    else:
-                        index = mid + 1
-                available_devs.insert(index, dev)
-                other_zones.append(dev['zone'])
+            [array('H', (0 for _junk in xrange(self.parts)))
+                   for _junk in xrange(self.replicas)]
+
+        replicas = range(self.replicas)
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
-        for dev in self._iter_devs():
-            del dev['sort_key']
+        self._reassign_parts((p, replicas) for p in xrange(self.parts))
 
     def _update_last_part_moves(self):
         """
@@ -493,8 +464,7 @@ class RingBuilder(object):
         according to the "most wanted" and distinct zone restrictions.
         """
         for dev in self._iter_devs():
-            dev['sort_key'] = '%08x.%04x' % (self.parts +
-                                dev['parts_wanted'], randint(0, 0xffff))
+            dev['sort_key'] = self._sort_key_for(dev)
         available_devs = \
             sorted((d for d in self._iter_devs() if d['weight']),
                    key=lambda x: x['sort_key'])
@@ -518,17 +488,23 @@ class RingBuilder(object):
                 self._replica2part2dev[replica][part] = dev['id']
                 dev['parts_wanted'] -= 1
                 dev['parts'] += 1
-                dev['sort_key'] = \
-                    '%08x.%04x' % (self.parts + dev['parts_wanted'],
-                                   randint(0, 0xffff))
-                index = 0
-                end = len(available_devs)
-                while index < end:
-                    mid = (index + end) // 2
-                    if dev['sort_key'] < available_devs[mid]['sort_key']:
-                        end = mid
-                    else:
-                        index = mid + 1
-                available_devs.insert(index, dev)
+                dev['sort_key'] = self._sort_key_for(dev)
+                self._insert_dev_sorted(available_devs, dev)
+
         for dev in self._iter_devs():
             del dev['sort_key']
+
+    def _insert_dev_sorted(self, devs, dev):
+        index = 0
+        end = len(devs)
+        while index < end:
+            mid = (index + end) // 2
+            if dev['sort_key'] < devs[mid]['sort_key']:
+                end = mid
+            else:
+                index = mid + 1
+        devs.insert(index, dev)
+
+    def _sort_key_for(self, dev):
+        return '%08x.%04x' % (self.parts + dev['parts_wanted'],
+                              randint(0, 0xffff))
