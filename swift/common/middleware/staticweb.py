@@ -123,7 +123,8 @@ from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
                                split_path, TRUE_VALUES
-from swift.common.wsgi import WSGIContext
+from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request, \
+                              WSGIContext
 
 
 def quote(value, safe='/'):
@@ -157,6 +158,7 @@ class _StaticWebContext(WSGIContext):
         self.logger = staticweb.logger
         self.access_logger = staticweb.access_logger
         self.log_headers = staticweb.log_headers
+        self.agent = '%(orig)s StaticWeb'
         # Results from the last call to self._get_container_info.
         self._index = self._error = self._listings = self._listings_css = None
 
@@ -177,11 +179,10 @@ class _StaticWebContext(WSGIContext):
         save_response_status = self._response_status
         save_response_headers = self._response_headers
         save_response_exc_info = self._response_exc_info
-        tmp_env = self._get_escalated_env(env)
-        tmp_env['REQUEST_METHOD'] = 'GET'
-        tmp_env['PATH_INFO'] = '/%s/%s/%s/%s%s' % (self.version, self.account,
-            self.container, self._get_status_int(), self._error)
-        resp = self._app_call(tmp_env)
+        resp = self._app_call(make_pre_authed_env(env, 'GET',
+                '/%s/%s/%s/%s%s' % (self.version, self.account, self.container,
+                                    self._get_status_int(), self._error),
+                self.agent))
         if self._get_status_int() // 100 == 2:
             start_response(save_response_status, self._response_headers,
                            self._response_exc_info)
@@ -189,21 +190,6 @@ class _StaticWebContext(WSGIContext):
         start_response(save_response_status, save_response_headers,
                        save_response_exc_info)
         return response
-
-    def _get_escalated_env(self, env):
-        """
-        Returns a new fresh WSGI environment with escalated privileges to do
-        backend checks, listings, etc. that the remote user wouldn't be able to
-        accomplish directly.
-        """
-        new_env = {'REQUEST_METHOD': 'GET',
-            'HTTP_USER_AGENT': '%s StaticWeb' % env.get('HTTP_USER_AGENT')}
-        for name in ('eventlet.posthooks', 'swift.trans_id', 'REMOTE_USER',
-                     'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
-                     'SERVER_PROTOCOL', 'swift.cache'):
-            if name in env:
-                new_env[name] = env[name]
-        return new_env
 
     def _get_container_info(self, env):
         """
@@ -224,11 +210,9 @@ class _StaticWebContext(WSGIContext):
                 (self._index, self._error, self._listings,
                  self._listings_css) = cached_data
                 return
-        tmp_env = self._get_escalated_env(env)
-        tmp_env['REQUEST_METHOD'] = 'HEAD'
-        req = Request.blank('/%s/%s/%s' % (self.version, self.account,
-            self.container), environ=tmp_env)
-        resp = req.get_response(self.app)
+        resp = make_pre_authed_request(env, 'HEAD',
+                '/%s/%s/%s' % (self.version, self.account, self.container),
+                agent=self.agent).get_response(self.app)
         if resp.status_int // 100 == 2:
             self._index = \
                 resp.headers.get('x-container-meta-web-index', '').strip()
@@ -256,10 +240,9 @@ class _StaticWebContext(WSGIContext):
         if self._listings.lower() not in TRUE_VALUES:
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        tmp_env = self._get_escalated_env(env)
-        tmp_env['REQUEST_METHOD'] = 'GET'
-        tmp_env['PATH_INFO'] = \
-            '/%s/%s/%s' % (self.version, self.account, self.container)
+        tmp_env = make_pre_authed_env(env, 'GET',
+                    '/%s/%s/%s' % (self.version, self.account, self.container),
+                    self.agent)
         tmp_env['QUERY_STRING'] = 'delimiter=/&format=json'
         if prefix:
             tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
@@ -431,10 +414,10 @@ class _StaticWebContext(WSGIContext):
                 return resp
         if status_int == 404:
             if env['PATH_INFO'][-1] != '/':
-                tmp_env = self._get_escalated_env(env)
-                tmp_env['REQUEST_METHOD'] = 'GET'
-                tmp_env['PATH_INFO'] = '/%s/%s/%s' % (self.version,
-                    self.account, self.container)
+                tmp_env = make_pre_authed_env(env, 'GET',
+                            '/%s/%s/%s' % (self.version, self.account,
+                                           self.container),
+                            self.agent)
                 tmp_env['QUERY_STRING'] = 'limit=1&format=json&delimiter' \
                     '=/&limit=1&prefix=%s' % quote(self.obj + '/')
                 resp = self._app_call(tmp_env)
