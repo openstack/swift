@@ -13,11 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+"""
+CNAME Lookup Middleware
+
+Middleware that translates an unknown domain in the host header to
+something that ends with the configured storage_domain by looking up
+the given domain's CNAME record in DNS.
+
+This middleware will continue to follow a CNAME chain in DNS until it finds
+a record ending in the configured storage domain or it reaches the configured
+maximum lookup depth. If a match is found, the environment's Host header is
+rewritten and the request is passed further down the WSGI chain.
+"""
+
 from webob import Request
 from webob.exc import HTTPBadRequest
-import dns.resolver
-from dns.exception import DNSException
-from dns.resolver import NXDOMAIN, NoAnswer
+try:
+    import dns.resolver
+    from dns.exception import DNSException
+    from dns.resolver import NXDOMAIN, NoAnswer
+except ImportError:
+    # catch this to allow docs to be built without the dependency
+    MODULE_DEPENDENCY_MET = False
+else:  # executed if the try block finishes with no errors
+    MODULE_DEPENDENCY_MET = True
 
 from swift.common.utils import cache_from_env, get_logger
 
@@ -41,12 +61,19 @@ def lookup_cname(domain):  # pragma: no cover
 
 class CNAMELookupMiddleware(object):
     """
-    Middleware that translates a unknown domain in the host header to
-    something that ends with the configured storage_domain by looking up
-    the given domain's CNAME record in DNS.
+    CNAME Lookup Middleware
+
+    See above for a full description.
+
+    :param app: The next WSGI filter or app in the paste.deploy
+                chain.
+    :param conf: The configuration dict for the middleware.
     """
 
     def __init__(self, app, conf):
+        if not MODULE_DEPENDENCY_MET:
+            # reraise the exception if the dependency wasn't met
+            raise ImportError('dnspython is required for this module')
         self.app = app
         self.storage_domain = conf.get('storage_domain', 'example.com')
         if self.storage_domain and self.storage_domain[0] != '.':

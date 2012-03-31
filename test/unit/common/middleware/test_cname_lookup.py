@@ -20,10 +20,12 @@ from webob import Request
 
 try:
     # this test requires the dnspython package to be installed
-    from swift.common.middleware import cname_lookup
-    skip = False
+    import dns.resolver
 except ImportError:
     skip = True
+else:  # executed if the try has no errors
+    skip = False
+from swift.common.middleware import cname_lookup
 
 class FakeApp(object):
 

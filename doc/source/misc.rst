@@ -157,3 +157,17 @@ FormPost
 .. automodule:: swift.common.middleware.formpost
     :members:
     :show-inheritance:
+
+Domain Remap
+============
+
+.. automodule:: swift.common.middleware.domain_remap
+    :members:
+    :show-inheritance:
+
+CNAME Lookup
+============
+
+.. automodule:: swift.common.middleware.cname_lookup
+    :members:
+    :show-inheritance:
