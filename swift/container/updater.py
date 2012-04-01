@@ -194,6 +194,7 @@ class ContainerUpdater(Daemon):
 
         :param dbfile: container DB to process
         """
+        start_time = time.time()
         broker = ContainerBroker(dbfile, logger=self.logger)
         info = broker.get_info()
         # Don't send updates if the container was auto-created since it
@@ -220,6 +221,7 @@ class ContainerUpdater(Daemon):
                 else:
                     failures += 1
             if successes > failures:
+                self.logger.increment('successes')
                 self.successes += 1
                 self.logger.debug(
                     _('Update report sent for %(container)s %(dbfile)s'),
@@ -228,6 +230,7 @@ class ContainerUpdater(Daemon):
                                 info['delete_timestamp'], info['object_count'],
                                 info['bytes_used'])
             else:
+                self.logger.increment('failures')
                 self.failures += 1
                 self.logger.debug(
                     _('Update report failed for %(container)s %(dbfile)s'),
@@ -237,7 +240,10 @@ class ContainerUpdater(Daemon):
                 if self.new_account_suppressions:
                     print >>self.new_account_suppressions, \
                         info['account'], until
+            # Only track timing data for attempted updates:
+            self.logger.timing_since('timing', start_time)
         else:
+            self.logger.increment('no_changes')
             self.no_changes += 1
 
     def container_report(self, node, part, container, put_timestamp,

@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import unittest
-from nose import SkipTest
 from test.unit import temptree
 
 import os

@@ -12,6 +12,12 @@
 # log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# You can enable default statsD logging here and/or override it in sections
+# below:
+# log_statsd_host = localhost
+# log_statsd_port = 8125
+# log_statsd_default_sample_rate = 1
+# log_statsd_metric_prefix =
 
 [pipeline:main]
 pipeline = recon object-server

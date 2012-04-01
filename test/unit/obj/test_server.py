@@ -20,7 +20,6 @@ import os
 import sys
 import shutil
 import unittest
-from nose import SkipTest
 from shutil import rmtree
 from StringIO import StringIO
 from time import gmtime, sleep, strftime, time

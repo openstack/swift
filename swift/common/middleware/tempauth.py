@@ -69,6 +69,8 @@ class TempAuth(object):
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
             self.reseller_prefix += '_'
+        self.logger.set_statsd_prefix('tempauth.%s' % (
+            self.reseller_prefix if self.reseller_prefix else 'NONE',))
         self.auth_prefix = conf.get('auth_prefix', '/auth/')
         if not self.auth_prefix:
             self.auth_prefix = '/auth/'
@@ -145,6 +147,7 @@ class TempAuth(object):
                 if self.reseller_prefix:
                     # Because I know I'm the definitive auth for this token, I
                     # can deny it outright.
+                    self.logger.increment('unauthorized')
                     return HTTPUnauthorized()(env, start_response)
                 # Because I'm not certain if I'm the definitive auth for empty
                 # reseller_prefixed tokens, I won't overwrite swift.authorize.
@@ -160,6 +163,7 @@ class TempAuth(object):
                                                1, 2, True)
                 except ValueError:
                     version, rest = None, None
+                    self.logger.increment('errors')
                 if rest and rest.startswith(self.reseller_prefix):
                     # Handle anonymous access to accounts I'm the definitive
                     # auth for.
@@ -230,6 +234,7 @@ class TempAuth(object):
         try:
             version, account, container, obj = split_path(req.path, 1, 4, True)
         except ValueError:
+            self.logger.increment('errors')
             return HTTPNotFound(request=req)
         if not account or not account.startswith(self.reseller_prefix):
             return self.denied_response(req)
@@ -270,8 +275,10 @@ class TempAuth(object):
         depending on whether the REMOTE_USER is set or not.
         """
         if req.remote_user:
+            self.logger.increment('forbidden')
             return HTTPForbidden(request=req)
         else:
+            self.logger.increment('unauthorized')
             return HTTPUnauthorized(request=req)
 
     def handle(self, env, start_response):
@@ -306,6 +313,7 @@ class TempAuth(object):
                 return response
         except (Exception, Timeout):
             print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
+            self.logger.increment('errors')
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])
             return ['Internal server error.\n']
@@ -323,11 +331,13 @@ class TempAuth(object):
             version, account, user, _junk = split_path(req.path_info,
                 minsegs=1, maxsegs=4, rest_with_last=True)
         except ValueError:
+            self.logger.increment('errors')
             return HTTPNotFound(request=req)
         if version in ('v1', 'v1.0', 'auth'):
             if req.method == 'GET':
                 handler = self.handle_get_token
         if not handler:
+            self.logger.increment('errors')
             req.response = HTTPBadRequest(request=req)
         else:
             req.response = handler(req)
@@ -362,6 +372,7 @@ class TempAuth(object):
             pathsegs = split_path(req.path_info, minsegs=1, maxsegs=3,
                                   rest_with_last=True)
         except ValueError:
+            self.logger.increment('errors')
             return HTTPNotFound(request=req)
         if pathsegs[0] == 'v1' and pathsegs[2] == 'auth':
             account = pathsegs[1]
@@ -369,9 +380,11 @@ class TempAuth(object):
             if not user:
                 user = req.headers.get('x-auth-user')
                 if not user or ':' not in user:
+                    self.logger.increment('token_denied')
                     return HTTPUnauthorized(request=req)
                 account2, user = user.split(':', 1)
                 if account != account2:
+                    self.logger.increment('token_denied')
                     return HTTPUnauthorized(request=req)
             key = req.headers.get('x-storage-pass')
             if not key:
@@ -381,6 +394,7 @@ class TempAuth(object):
             if not user:
                 user = req.headers.get('x-storage-user')
             if not user or ':' not in user:
+                self.logger.increment('token_denied')
                 return HTTPUnauthorized(request=req)
             account, user = user.split(':', 1)
             key = req.headers.get('x-auth-key')
@@ -389,12 +403,15 @@ class TempAuth(object):
         else:
             return HTTPBadRequest(request=req)
         if not all((account, user, key)):
+            self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req)
         # Authenticate user
         account_user = account + ':' + user
         if account_user not in self.users:
+            self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req)
         if self.users[account_user]['key'] != key:
+            self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req)
         # Get memcache client
         memcache_client = cache_from_env(req.environ)

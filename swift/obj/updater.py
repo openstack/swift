@@ -69,6 +69,7 @@ class ObjectUpdater(Daemon):
             for device in os.listdir(self.devices):
                 if self.mount_check and not \
                         os.path.ismount(os.path.join(self.devices, device)):
+                    self.logger.increment('errors')
                     self.logger.warn(
                         _('Skipping %s as it is not mounted'), device)
                     continue
@@ -108,6 +109,7 @@ class ObjectUpdater(Daemon):
         for device in os.listdir(self.devices):
             if self.mount_check and \
                     not os.path.ismount(os.path.join(self.devices, device)):
+                self.logger.increment('errors')
                 self.logger.warn(
                     _('Skipping %s as it is not mounted'), device)
                 continue
@@ -124,6 +126,7 @@ class ObjectUpdater(Daemon):
 
         :param device: path to device
         """
+        start_time = time.time()
         async_pending = os.path.join(device, ASYNCDIR)
         if not os.path.isdir(async_pending):
             return
@@ -139,6 +142,7 @@ class ObjectUpdater(Daemon):
                 try:
                     obj_hash, timestamp = update.split('-')
                 except ValueError:
+                    self.logger.increment('errors')
                     self.logger.error(
                         _('ERROR async pending file with unexpected name %s')
                         % (update_path))
@@ -153,6 +157,7 @@ class ObjectUpdater(Daemon):
                 os.rmdir(prefix_path)
             except OSError:
                 pass
+        self.logger.timing_since('timing', start_time)
 
     def process_object_update(self, update_path, device):
         """
@@ -166,6 +171,7 @@ class ObjectUpdater(Daemon):
         except Exception:
             self.logger.exception(
                 _('ERROR Pickle problem, quarantining %s'), update_path)
+            self.logger.increment('quarantines')
             renamer(update_path, os.path.join(device,
                 'quarantined', 'objects', os.path.basename(update_path)))
             return
@@ -187,11 +193,13 @@ class ObjectUpdater(Daemon):
                     new_successes = True
         if success:
             self.successes += 1
+            self.logger.increment('successes')
             self.logger.debug(_('Update sent for %(obj)s %(path)s'),
                 {'obj': obj, 'path': update_path})
             os.unlink(update_path)
         else:
             self.failures += 1
+            self.logger.increment('failures')
             self.logger.debug(_('Update failed for %(obj)s %(path)s'),
                 {'obj': obj, 'path': update_path})
             if new_successes:

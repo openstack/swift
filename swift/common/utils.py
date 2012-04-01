@@ -21,10 +21,11 @@ import os
 import pwd
 import sys
 import time
+import functools
 from hashlib import md5
 from random import shuffle
 from urllib import quote
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
@@ -292,6 +293,54 @@ class LoggerFileObject(object):
         return self
 
 
+class StatsdClient(object):
+    def __init__(self, host, port, base_prefix='', tail_prefix='',
+                 default_sample_rate=1):
+        self._host = host
+        self._port = port
+        self._base_prefix = base_prefix
+        self.set_prefix(tail_prefix)
+        self._default_sample_rate = default_sample_rate
+        self._target = (self._host, self._port)
+
+    def set_prefix(self, new_prefix):
+        if new_prefix and self._base_prefix:
+            self._prefix = '.'.join([self._base_prefix, new_prefix, ''])
+        elif new_prefix:
+            self._prefix = new_prefix + '.'
+        elif self._base_prefix:
+            self._prefix = self._base_prefix + '.'
+        else:
+            self._prefix = ''
+
+    def _send(self, m_name, m_value, m_type, sample_rate):
+        if sample_rate is None:
+            sample_rate = self._default_sample_rate
+        parts = ['%s%s:%s' % (self._prefix, m_name, m_value), m_type]
+        if sample_rate < 1:
+            parts.append('@%s' % (sample_rate,))
+        # Ideally, we'd cache a sending socket in self, but that
+        # results in a socket getting shared by multiple green threads.
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
+            return sock.sendto('|'.join(parts), self._target)
+
+    def update_stats(self, m_name, m_value, sample_rate=None):
+        return self._send(m_name, m_value, 'c', sample_rate)
+
+    def increment(self, metric, sample_rate=None):
+        return self.update_stats(metric, 1, sample_rate)
+
+    def decrement(self, metric, sample_rate=None):
+        return self.update_stats(metric, -1, sample_rate)
+
+    def timing(self, metric, timing_ms, sample_rate=None):
+        return self._send(metric, timing_ms, 'ms', sample_rate)
+
+    def timing_since(self, metric, orig_time, sample_rate=None):
+        return self.timing(metric, (time.time() - orig_time) * 1000,
+                           sample_rate)
+
+
 # double inheritance to support property with setter
 class LogAdapter(logging.LoggerAdapter, object):
     """
@@ -377,6 +426,44 @@ class LogAdapter(logging.LoggerAdapter, object):
             call = self._exception
         call('%s: %s' % (msg, emsg), *args, **kwargs)
 
+    def set_statsd_prefix(self, prefix):
+        """
+        The StatsD client prefix defaults to the "name" of the logger.  This
+        method may override that default with a specific value.  Currently used
+        in the proxy-server to differentiate the Account, Container, and Object
+        controllers.
+        """
+        if self.logger.statsd_client:
+            self.logger.statsd_client.set_prefix(prefix)
+
+    def statsd_delegate(statsd_func_name):
+        """
+        Factory which creates methods which delegate to methods on
+        self.logger.statsd_client (an instance of StatsdClient).  The
+        created methods conditionally delegate to a method whose name is given
+        in 'statsd_func_name'.  The created delegate methods are a no-op when
+        StatsD logging is not configured.  The created delegate methods also
+        handle the defaulting of sample_rate (to either the default specified
+        in the config with 'log_statsd_default_sample_rate' or the value passed
+        into delegate function).
+
+        :param statsd_func_name: the name of a method on StatsdClient.
+        """
+
+        func = getattr(StatsdClient, statsd_func_name)
+
+        @functools.wraps(func)
+        def wrapped(self, *a, **kw):
+            if getattr(self.logger, 'statsd_client'):
+                return func(self.logger.statsd_client, *a, **kw)
+        return wrapped
+
+    update_stats = statsd_delegate('update_stats')
+    increment = statsd_delegate('increment')
+    decrement = statsd_delegate('decrement')
+    timing = statsd_delegate('timing')
+    timing_since = statsd_delegate('timing_since')
+
 
 class SwiftLogFormatter(logging.Formatter):
     """
@@ -405,6 +492,9 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_facility = LOG_LOCAL0
         log_level = INFO
         log_name = swift
+        log_statsd_host = (disabled)
+        log_statsd_port = 8125
+        log_statsd_default_sample_rate = 1
 
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger
@@ -454,6 +544,20 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     # set the level for the logger
     logger.setLevel(
         getattr(logging, conf.get('log_level', 'INFO').upper(), logging.INFO))
+
+    # Setup logger with a StatsD client if so configured
+    statsd_host = conf.get('log_statsd_host')
+    if statsd_host:
+        statsd_port = int(conf.get('log_statsd_port', 8125))
+        base_prefix = conf.get('log_statsd_metric_prefix', '')
+        default_sample_rate = float(conf.get(
+            'log_statsd_default_sample_rate', 1))
+        statsd_client = StatsdClient(statsd_host, statsd_port, base_prefix,
+                                     name, default_sample_rate)
+        logger.statsd_client = statsd_client
+    else:
+        logger.statsd_client = None
+
     adapted_logger = LogAdapter(logger, name)
     return adapted_logger
 

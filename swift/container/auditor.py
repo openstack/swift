@@ -42,41 +42,7 @@ class ContainerAuditor(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             conf.get('db_preallocation', 't').lower() in TRUE_VALUES
 
-    def run_forever(self, *args, **kwargs):
-        """Run the container audit until stopped."""
-        reported = time.time()
-        time.sleep(random() * self.interval)
-        while True:
-            self.logger.info(_('Begin container audit pass.'))
-            begin = time.time()
-            try:
-                all_locs = audit_location_generator(self.devices,
-                    container_server.DATADIR, mount_check=self.mount_check,
-                    logger=self.logger)
-                for path, device, partition in all_locs:
-                    self.container_audit(path)
-                    if time.time() - reported >= 3600:  # once an hour
-                        self.logger.info(
-                            _('Since %(time)s: Container audits: %(pass)s '
-                              'passed audit, %(fail)s failed audit'),
-                            {'time': time.ctime(reported),
-                             'pass': self.container_passes,
-                             'fail': self.container_failures})
-                        reported = time.time()
-                        self.container_passes = 0
-                        self.container_failures = 0
-            except (Exception, Timeout):
-                self.logger.exception(_('ERROR auditing'))
-            elapsed = time.time() - begin
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
-            self.logger.info(
-                _('Container audit pass completed: %.02fs'), elapsed)
-
-    def run_once(self, *args, **kwargs):
-        """Run the container audit once."""
-        self.logger.info(_('Begin container audit "once" mode'))
-        begin = reported = time.time()
+    def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
                                             container_server.DATADIR,
                                             mount_check=self.mount_check,
@@ -93,6 +59,31 @@ class ContainerAuditor(Daemon):
                 reported = time.time()
                 self.container_passes = 0
                 self.container_failures = 0
+        return reported
+
+    def run_forever(self, *args, **kwargs):
+        """Run the container audit until stopped."""
+        reported = time.time()
+        time.sleep(random() * self.interval)
+        while True:
+            self.logger.info(_('Begin container audit pass.'))
+            begin = time.time()
+            try:
+                reported = self._one_audit_pass(reported)
+            except (Exception, Timeout):
+                self.logger.increment('errors')
+                self.logger.exception(_('ERROR auditing'))
+            elapsed = time.time() - begin
+            if elapsed < self.interval:
+                time.sleep(self.interval - elapsed)
+            self.logger.info(
+                _('Container audit pass completed: %.02fs'), elapsed)
+
+    def run_once(self, *args, **kwargs):
+        """Run the container audit once."""
+        self.logger.info(_('Begin container audit "once" mode'))
+        begin = reported = time.time()
+        self._one_audit_pass(reported)
         elapsed = time.time() - begin
         self.logger.info(
             _('Container audit "once" mode completed: %.02fs'), elapsed)
@@ -103,15 +94,19 @@ class ContainerAuditor(Daemon):
 
         :param path: the path to a container db
         """
+        start_time = time.time()
         try:
             if not path.endswith('.db'):
                 return
             broker = ContainerBroker(path)
             if not broker.is_deleted():
                 info = broker.get_info()
+                self.logger.increment('passes')
                 self.container_passes += 1
                 self.logger.debug(_('Audit passed for %s'), broker.db_file)
         except (Exception, Timeout):
+            self.logger.increment('failures')
             self.container_failures += 1
             self.logger.exception(_('ERROR Could not get container info %s'),
                 (broker.db_file))
+        self.logger.timing_since('timing', start_time)

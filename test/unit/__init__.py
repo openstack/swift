@@ -3,6 +3,8 @@
 import sys
 import os
 import copy
+import logging
+from sys import exc_info
 from contextlib import contextmanager
 from tempfile import NamedTemporaryFile
 from eventlet.green import socket
@@ -99,14 +101,24 @@ def temptree(files, contents=''):
         rmtree(tempdir)
 
 
-class FakeLogger(Handler):
+class NullLoggingHandler(logging.Handler):
+
+    def emit(self, record):
+        pass
+
+
+class FakeLogger(object):
     # a thread safe logger
 
     def __init__(self, *args, **kwargs):
-        self.log_dict = dict(error=[], info=[], warning=[], debug=[])
+        self._clear()
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
+
+    def _clear(self):
+        self.log_dict = dict(
+            error=[], info=[], warning=[], debug=[], exception=[])
 
     def error(self, *args, **kwargs):
         self.log_dict['error'].append((args, kwargs))
@@ -120,11 +132,21 @@ class FakeLogger(Handler):
     def debug(self, *args, **kwargs):
         self.log_dict['debug'].append((args, kwargs))
 
+    def exception(self, *args, **kwargs):
+        self.log_dict['exception'].append((args, kwargs, str(exc_info()[1])))
+
+    # mock out the StatsD logging methods:
+    def set_statsd_prefix(self, *a, **kw):
+        pass
+
+    increment = decrement = timing = timing_since = update_stats = \
+            set_statsd_prefix
+
     def setFormatter(self, obj):
         self.formatter = obj
 
     def close(self):
-        self.log_dict = dict(error=[], info=[], warning=[], debug=[])
+        self._clear()
 
     def set_name(self, name):
         # don't touch _handlers
@@ -150,6 +172,7 @@ class FakeLogger(Handler):
 
     def handleError(self, record):
         pass
+
 
 original_syslog_handler = logging.handlers.SysLogHandler
 

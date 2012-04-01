@@ -65,32 +65,41 @@ class AccountController(object):
 
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
+        start_time = time.time()
         try:
             drive, part, account = split_path(unquote(req.path), 3)
         except ValueError, err:
+            self.logger.increment('DELETE.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('DELETE.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         if 'x-timestamp' not in req.headers or \
                     not check_float(req.headers['x-timestamp']):
+            self.logger.increment('DELETE.errors')
             return HTTPBadRequest(body='Missing timestamp', request=req,
                         content_type='text/plain')
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
+            self.logger.timing_since('DELETE.timing', start_time)
             return HTTPNotFound(request=req)
         broker.delete_db(req.headers['x-timestamp'])
+        self.logger.timing_since('DELETE.timing', start_time)
         return HTTPNoContent(request=req)
 
     def PUT(self, req):
         """Handle HTTP PUT request."""
+        start_time = time.time()
         try:
             drive, part, account, container = split_path(unquote(req.path),
                                                          3, 4)
         except ValueError, err:
+            self.logger.increment('PUT.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('PUT.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
@@ -102,11 +111,13 @@ class AccountController(object):
                     req.headers.get('x-timestamp') or time.time()))
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
+                self.logger.timing_since('PUT.timing', start_time)
                 return HTTPNotFound(request=req)
             broker.put_container(container, req.headers['x-put-timestamp'],
                 req.headers['x-delete-timestamp'],
                 req.headers['x-object-count'],
                 req.headers['x-bytes-used'])
+            self.logger.timing_since('PUT.timing', start_time)
             if req.headers['x-delete-timestamp'] > \
                     req.headers['x-put-timestamp']:
                 return HTTPNoContent(request=req)
@@ -118,11 +129,13 @@ class AccountController(object):
                 broker.initialize(timestamp)
                 created = True
             elif broker.is_status_deleted():
+                self.logger.timing_since('PUT.timing', start_time)
                 return HTTPForbidden(request=req, body='Recently deleted')
             else:
                 created = broker.is_deleted()
                 broker.update_put_timestamp(timestamp)
                 if broker.is_deleted():
+                    self.logger.increment('PUT.errors')
                     return HTTPConflict(request=req)
             metadata = {}
             metadata.update((key, (value, timestamp))
@@ -130,6 +143,7 @@ class AccountController(object):
                 if key.lower().startswith('x-account-meta-'))
             if metadata:
                 broker.update_metadata(metadata)
+            self.logger.timing_since('PUT.timing', start_time)
             if created:
                 return HTTPCreated(request=req)
             else:
@@ -143,19 +157,23 @@ class AccountController(object):
         # container servers directly so this is no longer needed. We should
         # refactor out the container existence check here and retest
         # everything.
+        start_time = time.time()
         try:
             drive, part, account, container = split_path(unquote(req.path),
                                                          3, 4)
         except ValueError, err:
+            self.logger.increment('HEAD.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('HEAD.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if not container:
             broker.pending_timeout = 0.1
             broker.stale_reads_ok = True
         if broker.is_deleted():
+            self.logger.timing_since('HEAD.timing', start_time)
             return HTTPNotFound(request=req)
         info = broker.get_info()
         headers = {
@@ -171,21 +189,26 @@ class AccountController(object):
         headers.update((key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
             if value != '')
+        self.logger.timing_since('HEAD.timing', start_time)
         return HTTPNoContent(request=req, headers=headers)
 
     def GET(self, req):
         """Handle HTTP GET request."""
+        start_time = time.time()
         try:
             drive, part, account = split_path(unquote(req.path), 3)
         except ValueError, err:
+            self.logger.increment('GET.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('GET.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         broker.pending_timeout = 0.1
         broker.stale_reads_ok = True
         if broker.is_deleted():
+            self.logger.timing_since('GET.timing', start_time)
             return HTTPNotFound(request=req)
         info = broker.get_info()
         resp_headers = {
@@ -202,18 +225,21 @@ class AccountController(object):
             delimiter = get_param(req, 'delimiter')
             if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
                 # delimiters can be made more flexible later
+                self.logger.increment('GET.errors')
                 return HTTPPreconditionFailed(body='Bad delimiter')
             limit = ACCOUNT_LISTING_LIMIT
             given_limit = get_param(req, 'limit')
             if given_limit and given_limit.isdigit():
                 limit = int(given_limit)
                 if limit > ACCOUNT_LISTING_LIMIT:
+                    self.logger.increment('GET.errors')
                     return  HTTPPreconditionFailed(request=req,
                         body='Maximum limit is %d' % ACCOUNT_LISTING_LIMIT)
             marker = get_param(req, 'marker', '')
             end_marker = get_param(req, 'end_marker')
             query_format = get_param(req, 'format')
         except UnicodeDecodeError, err:
+            self.logger.increment('GET.errors')
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
         if query_format:
@@ -224,6 +250,7 @@ class AccountController(object):
                                      'application/xml', 'text/xml'],
                                     default_match='text/plain')
         except AssertionError, err:
+            self.logger.increment('GET.errors')
             return HTTPBadRequest(body='bad accept header: %s' % req.accept,
                                   content_type='text/plain', request=req)
         account_list = broker.list_containers_iter(limit, marker, end_marker,
@@ -256,11 +283,13 @@ class AccountController(object):
             account_list = '\n'.join(output_list)
         else:
             if not account_list:
+                self.logger.timing_since('GET.timing', start_time)
                 return HTTPNoContent(request=req, headers=resp_headers)
             account_list = '\n'.join(r[0] for r in account_list) + '\n'
         ret = Response(body=account_list, request=req, headers=resp_headers)
         ret.content_type = out_content_type
         ret.charset = 'utf-8'
+        self.logger.timing_since('GET.timing', start_time)
         return ret
 
     def REPLICATE(self, req):
@@ -268,37 +297,47 @@ class AccountController(object):
         Handle HTTP REPLICATE request.
         Handler for RPC calls for account replication.
         """
+        start_time = time.time()
         try:
             post_args = split_path(unquote(req.path), 3)
         except ValueError, err:
+            self.logger.increment('REPLICATE.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         drive, partition, hash = post_args
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('REPLICATE.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = simplejson.load(req.environ['wsgi.input'])
         except ValueError, err:
+            self.logger.increment('REPLICATE.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req
+        self.logger.timing_since('REPLICATE.timing', start_time)
         return ret
 
     def POST(self, req):
         """Handle HTTP POST request."""
+        start_time = time.time()
         try:
             drive, part, account = split_path(unquote(req.path), 3)
         except ValueError, err:
+            self.logger.increment('POST.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
         if 'x-timestamp' not in req.headers or \
                 not check_float(req.headers['x-timestamp']):
+            self.logger.increment('POST.errors')
             return HTTPBadRequest(body='Missing or bad timestamp',
                 request=req, content_type='text/plain')
         if self.mount_check and not check_mount(self.root, drive):
+            self.logger.increment('POST.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
+            self.logger.timing_since('POST.timing', start_time)
             return HTTPNotFound(request=req)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         metadata = {}
@@ -307,6 +346,7 @@ class AccountController(object):
             if key.lower().startswith('x-account-meta-'))
         if metadata:
             broker.update_metadata(metadata)
+        self.logger.timing_since('POST.timing', start_time)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

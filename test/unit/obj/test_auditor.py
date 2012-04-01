@@ -309,11 +309,13 @@ class TestAuditor(unittest.TestCase):
         self.assertTrue(os.path.exists(ts_file_path))
 
     def test_sleeper(self):
-        auditor.SLEEP_BETWEEN_AUDITS = 0.01
+        auditor.SLEEP_BETWEEN_AUDITS = 0.10
         my_auditor = auditor.ObjectAuditor(self.conf)
         start = time.time()
         my_auditor._sleep()
-        self.assertEquals(round(time.time() - start, 2), 0.01)
+        delta_t = time.time() - start
+        self.assert_(delta_t > 0.08)
+        self.assert_(delta_t < 0.12)
 
     def test_object_run_fast_track_zero_check_closed(self):
         rat = [False]

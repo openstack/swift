@@ -103,15 +103,19 @@ class ObjectExpirer(Daemon):
                     timestamp = int(timestamp)
                     if timestamp > int(time()):
                         break
+                    start_time = time()
                     try:
                         self.delete_actual_object(actual_obj, timestamp)
                         self.swift.delete_object(self.expiring_objects_account,
                             container, obj)
                         self.report_objects += 1
+                        self.logger.increment('objects')
                     except (Exception, Timeout), err:
+                        self.logger.increment('errors')
                         self.logger.exception(
                             _('Exception while deleting object %s %s %s') %
                             (container, obj, str(err)))
+                    self.logger.timing_since('timing', start_time)
                     self.report()
                 try:
                     self.swift.delete_container(

@@ -24,12 +24,7 @@ import unittest
 from uuid import uuid4
 
 from swift.common import memcached
-
-
-class NullLoggingHandler(logging.Handler):
-
-    def emit(self, record):
-        pass
+from test.unit import NullLoggingHandler
 
 
 class ExplodingMockMemcached(object):

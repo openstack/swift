@@ -72,6 +72,7 @@ class AuditorWorker(object):
         for path, device, partition in all_locs:
             loop_time = time.time()
             self.object_audit(path, device, partition)
+            self.logger.timing_since('timing', loop_time)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
             self.total_files_processed += 1
@@ -162,6 +163,7 @@ class AuditorWorker(object):
             finally:
                 df.close(verify_file=False)
         except AuditException, err:
+            self.logger.increment('quarantines')
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                 'be quarantined: %(err)s'), {'obj': path, 'err': err})
@@ -169,6 +171,7 @@ class AuditorWorker(object):
                 os.path.join(self.devices, device), path)
             return
         except (Exception, Timeout):
+            self.logger.increment('errors')
             self.errors += 1
             self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
