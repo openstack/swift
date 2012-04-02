@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
     container = 'dispersion_objects'
     put_container(connpool, container, None)
-    object_ring = Ring(swift_dir, ring_name='object'))
+    object_ring = Ring(swift_dir, ring_name='object')
     parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
     item_type = 'objects'
     created = 0
