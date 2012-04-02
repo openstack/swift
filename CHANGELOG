@@ -1,3 +1,24 @@
+swift (1.4.9)
+
+    * Optional object versioning feature. (See docs for full description)
+
+    * Numerous bug fixes to StaticWeb (previously unusable at scale).
+
+    * Bug fixes to all middleware to allow passthrough requests under various
+      conditions and to share pre-authed request code (which previously had
+      differing behaviors and interaction bugs).
+
+    * Bug fix to object expirer that could cause infinite looping.
+
+    * Option to disable SQLite database preallocation with account and
+      container servers.
+
+    * Optional delay to account reaping.
+
+    * Overall disk usage reporting with swift-recon.
+
+    * Async-pending write optimization.
+
 swift (1.4.8)
 
     * Added optional max_containers_per_account restriction
