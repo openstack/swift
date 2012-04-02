@@ -290,7 +290,7 @@ Usage: %prog [options] [conf_file]
                                 preauthurl=url, preauthtoken=token)
 
     container_ring = Ring(swift_dir, ring_name='container')
-    object_ring = Ring(swift_dir, ring_name='object'))
+    object_ring = Ring(swift_dir, ring_name='object')
 
     container_result = container_dispersion_report(coropool, connpool,
                                                    account, container_ring,
