@@ -868,25 +868,28 @@ class ObjectController(Controller):
             self.account_name, lcontainer)
         marker = ''
         while True:
-            path = '/%s/%s' % (quote(self.account_name), quote(lcontainer))
-            lreq = Request.blank(
-                '%s?prefix=%s&format=json&marker=%s' %
-                (path, quote(lprefix), quote(marker)), environ=env)
+            lreq = Request.blank('i will be overridden by env', environ=env)
+            lreq.environ['PATH_INFO'] = \
+                '/%s/%s' % (quote(self.account_name), quote(lcontainer))
             lreq.environ['REQUEST_METHOD'] = 'GET'
-            lreq.path_info = path
+            lreq.environ['QUERY_STRING'] = \
+                'format=json&prefix=%s&marker=%s' % (quote(lprefix),
+                                                     quote(marker))
             shuffle(lnodes)
             lresp = self.GETorHEAD_base(lreq, _('Container'),
                 lpartition, lnodes, lreq.path_info,
                 self.app.container_ring.replica_count)
-            if lresp.status_int == 404:
-                raise ListingIterNotFound()
-            elif lresp.status_int // 100 != 2:
-                raise ListingIterError()
             if 'swift.authorize' in env:
                 lreq.acl = lresp.headers.get('x-container-read')
                 aresp = env['swift.authorize'](lreq)
                 if aresp:
                     raise ListingIterNotAuthorized(aresp)
+            if lresp.status_int == 404:
+                raise ListingIterNotFound()
+            elif lresp.status_int // 100 != 2:
+                raise ListingIterError()
+            if not lresp.body:
+                break
             sublisting = json.loads(lresp.body)
             if not sublisting:
                 break
