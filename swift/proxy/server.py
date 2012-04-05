@@ -48,7 +48,7 @@ from eventlet.timeout import Timeout
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPRequestEntityTooLarge, HTTPRequestTimeout, HTTPServerError, \
-    HTTPServiceUnavailable, HTTPUnprocessableEntity, status_map
+    HTTPServiceUnavailable, status_map
 from webob import Request, Response
 
 from swift.common.ring import Ring

@@ -118,7 +118,7 @@ import cgi
 import time
 from urllib import unquote, quote as urllib_quote
 
-from webob import Response, Request
+from webob import Response
 from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
