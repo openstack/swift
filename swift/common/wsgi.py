@@ -298,7 +298,7 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
     """
     newenv = {}
     for name in ('eventlet.posthooks', 'HTTP_USER_AGENT',
-                 'PATH_INFO', 'REMOTE_USER', 'REQUEST_METHOD',
+                 'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
                  'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id'):
@@ -307,6 +307,9 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
     if method:
         newenv['REQUEST_METHOD'] = method
     if path:
+        if '?' in path:
+            path, query_string = path.split('?', 1)
+            newenv['QUERY_STRING'] = query_string
         newenv['PATH_INFO'] = path
     if agent:
         newenv['HTTP_USER_AGENT'] = (
