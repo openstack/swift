@@ -1,6 +1,6 @@
 .\"
 .\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
-.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\" Copyright (c) 2010-2012 OpenStack, LLC.
 .\"
 .\" Licensed under the Apache License, Version 2.0 (the "License");
 .\" you may not use this file except in compliance with the License.
@@ -152,12 +152,16 @@ Logging level. The default is INFO.
 Indicates that you are using a VM environment. The default is no.
 .IP \fBper_diff\fR 
 The default is 1000.
+.IP \fBmax_diffs\fR 
+This caps how long the replicator will spend trying to sync a given database per pass so the other databases don't get starved. The default is 100.
 .IP \fBconcurrency\fR 
 Number of replication workers to spawn. The default is 8.
-.IP \fBrun_pause\fR 
+.IP "\fBrun_pause [deprecated]\fR"
 Time in seconds to wait between replication passes. The default is 10.
+.IP \fBinterval\fR 
+Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 30.
 .IP \fBerror_suppression_interval\fR 
-How long without an error before a node's error count is reset. This will also be how long before a node is re-enabled after suppression is triggered. 
+How long without an error before a node's error count is reset. This will also be how long before a node is re-enabled after suppression is triggered. 
 The default is 60 seconds. 
 .IP \fBerror_suppression_limit\fR 
 How many errors can accumulate before a node is temporarily ignored. The default 

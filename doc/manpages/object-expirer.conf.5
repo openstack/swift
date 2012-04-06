@@ -1,0 +1,142 @@
+.\"
+.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Copyright (c) 2012 OpenStack, LLC.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"  
+.TH object-expirer.conf 5 "03/15/2012" "Linux" "OpenStack Swift"
+
+.SH NAME 
+.LP
+.B object-expirer.conf
+\- configuration file for the openstack-swift object exprier daemon  
+
+
+
+.SH SYNOPSIS
+.LP
+.B object-expirer.conf
+
+
+
+.SH DESCRIPTION 
+.PP
+This is the configuration file used by the object expirer daemon. The daemon's 
+function is to query the internal hidden expiring_objects_account to discover 
+objects that need to be deleted and to then delete them.
+
+The configuration file follows the python-pastedeploy syntax. The file is divided
+into sections, which are enclosed by square brackets. Each section will contain a 
+certain number of key/value parameters which are described later. 
+
+Any line that begins with a '#' symbol is ignored. 
+
+You can find more information about python-pastedeploy configuration format at 
+\fIhttp://pythonpaste.org/deploy/#config-format\fR
+
+
+
+.SH GLOBAL SECTION
+.PD 1 
+.RS 0
+This is indicated by section named [DEFAULT]. Below are the parameters that 
+are acceptable within this section. 
+
+.IP \fBswift_dir\fR 
+Swift configuration directory. The default is /etc/swift.
+.IP \fBuser\fR 
+The system user that the object server will run as. The default is swift. 
+.IP \fBlog_name\fR 
+Label used when logging. The default is swift.
+.IP \fBlog_facility\fR 
+Syslog log facility. The default is LOG_LOCAL0.
+.IP \fBlog_level\fR 
+Logging level. The default is INFO.
+.RE
+.PD
+
+
+
+.SH PIPELINE SECTION
+.PD 1 
+.RS 0
+This is indicated by section name [pipeline:main]. Below are the parameters that
+are acceptable within this section. 
+
+.IP "\fBpipeline\fR"
+It is used when you need to apply a number of filters. It is a list of filters 
+ended by an application. The default should be \fB"catch_errors cache proxy-server"\fR
+.RE
+.PD
+
+
+
+.SH APP SECTION
+.PD 1 
+.RS 0
+This is indicated by section name [app:object-server]. Below are the parameters
+that are acceptable within this section.
+.IP "\fBuse\fR"
+Entry point for paste.deploy for the object server. This is the reference to the installed python egg. 
+The default is \fBegg:swift#proxy\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage. 
+.RE
+.PD
+
+
+
+.SH FILTER SECTION
+.PD 1 
+.RS 0
+Any section that has its name prefixed by "filter:" indicates a filter section.
+Filters are used to specify configuration parameters for specific swift middlewares.
+Below are the filters available and respective acceptable parameters. 
+
+.RS 0
+.IP "\fB[filter:cache]\fR"
+.RE
+
+Caching middleware that manages caching in swift.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the memcache middleware. This is the reference to the installed python egg.
+The default is \fBegg:swift#memcache\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage.
+.RE
+
+
+.RS 0  
+.IP "\fB[filter:catch_errors]\fR" 
+.RE
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the catch_errors middleware. This is the reference to the installed python egg.
+The default is \fBegg:swift#catch_errors\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage.
+.RE
+
+.PD
+
+
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation about the swift-object-expirer and
+also Openstack-Swift as a whole can be found at 
+.BI http://swift.openstack.org/admin_guide.html 
+and 
+.BI http://swift.openstack.org
+
+
+.SH "SEE ALSO"
+.BR swift-proxy-server.conf(5),
+
