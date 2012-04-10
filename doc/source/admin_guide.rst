@@ -6,7 +6,11 @@ Administrator's Guide
 Managing the Rings
 ------------------
 
-You need to build the storage rings on the proxy server node, and distribute them to all the servers in the cluster. Storage rings contain information about all the Swift storage partitions and how they are distributed between the different nodes and disks. For more information see :doc:`overview_ring`.
+You need to build the storage rings on the proxy server node, and
+distribute them to all the servers in the cluster. Storage rings
+contain information about all the Swift storage partitions and how
+they are distributed between the different nodes and disks. For more
+information see :doc:`overview_ring`.
 
 Removing a device from the ring::
 
@@ -37,7 +41,8 @@ Scripting Ring Creation
 -----------------------
 You can create scripts to create the account and container rings and rebalance. Here's an example script for the Account ring. Use similar commands to create a make-container-ring.sh script on the proxy server node.
 
-1. Create a script file called make-account-ring.sh on the proxy server node with the following content::
+1. Create a script file called make-account-ring.sh on the proxy
+   server node with the following content::
 
     #!/bin/bash
     cd /etc/swift
@@ -47,14 +52,25 @@ You can create scripts to create the account and container rings and rebalance. 
     swift-ring-builder account.builder add z2-<account-server-2>:6002/sdb1 1
     swift-ring-builder account.builder rebalance
 
-You need to replace the values of <account-server-1>, <account-server-2>, etc. with the IP addresses of the account servers used in your setup. You can have as many account servers as you need. All account servers are assumed to be listening on port 6002, and have a storage device called "sdb1" (this is a directory name created under /drives when we setup the account server). The "z1", "z2", etc. designate zones, and you can choose whether you put devices in the same or different zones.
+   You need to replace the values of <account-server-1>,
+   <account-server-2>, etc. with the IP addresses of the account
+   servers used in your setup. You can have as many account servers as
+   you need. All account servers are assumed to be listening on port
+   6002, and have a storage device called "sdb1" (this is a directory
+   name created under /drives when we setup the account server). The
+   "z1", "z2", etc. designate zones, and you can choose whether you
+   put devices in the same or different zones.
 
 2. Make the script file executable and run it to create the account ring file::
 
     chmod +x make-account-ring.sh
     sudo ./make-account-ring.sh
 
-3. Copy the resulting ring file /etc/swift/account.ring.gz to all the account server nodes in your Swift environment, and put them in the /etc/swift directory on these nodes. Make sure that every time you change the account ring configuration, you copy the resulting ring file to all the account nodes.
+3. Copy the resulting ring file /etc/swift/account.ring.gz to all the
+   account server nodes in your Swift environment, and put them in the
+   /etc/swift directory on these nodes. Make sure that every time you
+   change the account ring configuration, you copy the resulting ring
+   file to all the account nodes.
 
 -----------------------
 Handling System Updates
@@ -385,11 +401,26 @@ Swift Orphans
 
 Swift Orphans are processes left over after a reload of a Swift server.
 
-For example, when upgrading a proxy server you would probaby finish with a `swift-init proxy-server reload` or `/etc/init.d/swift-proxy reload`. This kills the parent proxy server process and leaves the child processes running to finish processing whatever requests they might be handling at the time. It then starts up a new parent proxy server process and its children to handle new incoming requests. This allows zero-downtime upgrades with no impact to existing requests.
+For example, when upgrading a proxy server you would probaby finish
+with a `swift-init proxy-server reload` or `/etc/init.d/swift-proxy
+reload`. This kills the parent proxy server process and leaves the
+child processes running to finish processing whatever requests they
+might be handling at the time. It then starts up a new parent proxy
+server process and its children to handle new incoming requests. This
+allows zero-downtime upgrades with no impact to existing requests.
 
-The orphaned child processes may take a while to exit, depending on the length of the requests they were handling. However, sometimes an old process can be hung up due to some bug or hardware issue. In these cases, these orphaned processes will hang around forever. `swift-orphans` can be used to find and kill these orphans.
+The orphaned child processes may take a while to exit, depending on
+the length of the requests they were handling. However, sometimes an
+old process can be hung up due to some bug or hardware issue. In these
+cases, these orphaned processes will hang around
+forever. `swift-orphans` can be used to find and kill these orphans.
 
-`swift-orphans` with no arguments will just list the orphans it finds that were started more than 24 hours ago. You shouldn't really check for orphans until 24 hours after you perform a reload, as some requests can take a long time to process. `swift-orphans -k TERM` will send the SIG_TERM signal to the orphans processes, or you can `kill -TERM` the pids yourself if you prefer.
+`swift-orphans` with no arguments will just list the orphans it finds
+that were started more than 24 hours ago. You shouldn't really check
+for orphans until 24 hours after you perform a reload, as some
+requests can take a long time to process. `swift-orphans -k TERM` will
+send the SIG_TERM signal to the orphans processes, or you can `kill
+-TERM` the pids yourself if you prefer.
 
 You can run `swift-orphans --help` for more options.
 
@@ -398,6 +429,14 @@ You can run `swift-orphans --help` for more options.
 Swift Oldies
 ------------
 
-Swift Oldies are processes that have just been around for a long time. There's nothing necessarily wrong with this, but it might indicate a hung process if you regularly upgrade and reload/restart services. You might have so many servers that you don't notice when a reload/restart fails, `swift-oldies` can help with this.
+Swift Oldies are processes that have just been around for a long
+time. There's nothing necessarily wrong with this, but it might
+indicate a hung process if you regularly upgrade and reload/restart
+services. You might have so many servers that you don't notice when a
+reload/restart fails, `swift-oldies` can help with this.
 
-For example, if you upgraded and reloaded/restarted everything 2 days ago, and you've already cleaned up any orphans with `swift-orphans`, you can run `swift-oldies -a 48` to find any Swift processes still around that were started more than 2 days ago and then investigate them accordingly.
+For example, if you upgraded and reloaded/restarted everything 2 days
+ago, and you've already cleaned up any orphans with `swift-orphans`,
+you can run `swift-oldies -a 48` to find any Swift processes still
+around that were started more than 2 days ago and then investigate
+them accordingly.

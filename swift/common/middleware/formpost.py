@@ -64,7 +64,7 @@ additional ``<input type="file" name="filexx" />`` attributes if
 desired.
 
 The expires attribute is the Unix timestamp before which the form
-must be submitted before it's invalidated.
+must be submitted before it is invalidated.
 
 The signature attribute is the HMAC-SHA1 signature of the form. Here is
 sample code for computing the signature::

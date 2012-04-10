@@ -218,10 +218,11 @@ only allow GETs after a referrer check and any requests after a group check::
             return Authorization(app, conf)
         return auth_filter
 
-The access control strings are set with PUTs and POSTs to containers with the
-X-Container-Read and X-Container-Write headers. Swift allows these strings to
-be set to any value, though it's very useful to validate the strings meet the
-desired format and return a useful error to the user if they don't.
+The access control strings are set with PUTs and POSTs to containers
+with the X-Container-Read and X-Container-Write headers. Swift allows
+these strings to be set to any value, though it's very useful to
+validate that the strings meet the desired format and return a useful
+error to the user if they don't.
 
 To support this validation, the Swift Proxy application will call the WSGI
 environment's swift.clean_acl callback whenever one of these headers is to be
