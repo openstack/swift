@@ -178,9 +178,22 @@ class TestGetAuth(MockHttpTest):
             return c.json_dumps(body)
         c.http_connection = self.fake_http_connection(200, return_read=read)
         url, token = c.get_auth('http://www.test.com', 'asdf', 'asdf',
-                                auth_version="2.0")
+                                tenant_name='asdf', auth_version="2.0")
         self.assertTrue(url.startswith("http"))
         self.assertTrue(token)
+
+    def test_auth_v2_no_tenant_name(self):
+        def read(*args, **kwargs):
+            acct_url = 'http://127.0.01/AUTH_FOO'
+            body = {'access': {'serviceCatalog':
+                                   [{u'endpoints': [{'publicURL': acct_url}],
+                                     'type': 'object-store'}],
+                               'token': {'id': 'XXXXXXX'}}}
+            return c.json_dumps(body)
+        c.http_connection = self.fake_http_connection(200, return_read=read)
+        self.assertRaises(c.ClientException, c.get_auth,
+                          'http://www.tests.com', 'asdf', 'asdf',
+                          auth_version='2.0')
 
 
 class TestGetAccount(MockHttpTest):
