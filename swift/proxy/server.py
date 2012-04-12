@@ -1841,6 +1841,8 @@ class BaseApplication(object):
         self.max_containers_whitelist = [a.strip()
             for a in conf.get('max_containers_whitelist', '').split(',')
             if a.strip()]
+        self.deny_host_headers = [host.strip() for host in
+            conf.get('deny_host_headers', '').split(',') if host.strip()]
 
     def get_controller(self, path):
         """
@@ -1925,6 +1927,9 @@ class BaseApplication(object):
                 return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             if not controller:
                 return HTTPPreconditionFailed(request=req, body='Bad URL')
+            if self.deny_host_headers and \
+                    req.host.split(':')[0] in self.deny_host_headers:
+                return HTTPForbidden(request=req, body='Invalid host header')
 
             controller = controller(self, **path_parts)
             if 'swift.trans_id' not in req.environ:

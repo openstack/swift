@@ -57,6 +57,8 @@ use = egg:swift#proxy
 # This is a comma separated list of account hashes that ignore the
 # max_containers_per_account cap.
 # max_containers_whitelist =
+# comma separated list of Host headers the proxy will be deny requests to
+# deny_host_headers =
 
 [filter:tempauth]
 use = egg:swift#tempauth

@@ -741,6 +741,19 @@ class TestProxyServer(unittest.TestCase):
         finally:
             rmtree(swift_dir, ignore_errors=True)
 
+    def test_denied_host_header(self):
+        swift_dir = mkdtemp()
+        try:
+            baseapp = proxy_server.BaseApplication({'swift_dir': swift_dir,
+                'deny_host_headers': 'invalid_host.com'},
+                FakeMemcache(), NullLoggingHandler(), FakeRing(), FakeRing(),
+                FakeRing())
+            resp = baseapp.handle_request(
+                Request.blank('/v1/a/c/o',
+                              environ={'HTTP_HOST': 'invalid_host.com'}))
+            self.assertEquals(resp.status, '403 Forbidden')
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
 
 class TestObjectController(unittest.TestCase):
 
