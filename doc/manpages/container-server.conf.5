@@ -1,6 +1,6 @@
 .\"
 .\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
-.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\" Copyright (c) 2010-2012 OpenStack, LLC.
 .\"
 .\" Licensed under the Apache License, Version 2.0 (the "License");
 .\" you may not use this file except in compliance with the License.
@@ -154,12 +154,16 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBvm_test_mode\fR 
 Indicates that you are using a VM environment. The default is no.
-.IP \fBper_diff\fR 
+.IP \fBer_diff\fR 
 The default is 1000.
+.IP \fBmax_diffs\fR
+This caps how long the replicator will spend trying to sync a given database per pass so the other databases don't get starved. The default is 100.
 .IP \fBconcurrency\fR 
 Number of replication workers to spawn. The default is 8.
-.IP \fBrun_pause\fR 
-Time in seconds to wait between replication passes. The default is 30.
+.IP "\fBrun_pause [deprecated]\fR"
+Time in seconds to wait between replication passes. The default is 10.
+.IP \fBinterval\fR
+Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 30.
 .IP \fBnode_timeout\fR 
 Request timeout to external services. The default is 10 seconds. 
 .IP \fBconn_timeout\fR 
