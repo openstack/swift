@@ -307,7 +307,9 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [filter:cache]
         use = egg:swift#memcache
 
-  #. Create `/etc/swift/swift.conf`::
+  #. Create `/etc/swift/swift.conf`:
+
+     .. code-block:: none
 
         [swift-hash]
         # random unique string that can never change (DO NOT LOSE)
