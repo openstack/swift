@@ -76,8 +76,7 @@ def update_headers(response, headers):
         if name == 'etag':
             response.headers[name] = value.replace('"', '')
         elif name not in ('date', 'content-length', 'content-type',
-                          'connection', 'x-timestamp', 'x-put-timestamp',
-                          'x-delete-after'):
+                          'connection', 'x-put-timestamp', 'x-delete-after'):
             response.headers[name] = value
 
 
