@@ -2,4 +2,7 @@
 
 cd test/probe
 nosetests --exe
+rvalue=$?
 cd -
+
+exit $rvalue

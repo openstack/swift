@@ -2,5 +2,7 @@
 
 cd test/unit
 nosetests --exe --with-coverage --cover-package swift --cover-erase $@
+rvalue=$?
 rm -f .coverage
 cd -
+exit $rvalue
