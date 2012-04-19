@@ -1208,7 +1208,7 @@ download --all OR download container [options] [object] [object] ...
     stdout.'''.strip('\n')
 
 
-def st_download(options, args, print_queue, error_queue):
+def st_download(parser, args, print_queue, error_queue):
     parser.add_option('-a', '--all', action='store_true', dest='yes_all',
         default=False, help='Indicates that you really want to download '
         'everything in the account')
@@ -1384,7 +1384,7 @@ list [options] [container]
 '''.strip('\n')
 
 
-def st_list(options, args, print_queue, error_queue):
+def st_list(parser, args, print_queue, error_queue):
     parser.add_option('-p', '--prefix', dest='prefix', help='Will only list '
         'items beginning with the prefix')
     parser.add_option('-d', '--delimiter', dest='delimiter', help='Will roll '
@@ -1429,7 +1429,7 @@ stat [container] [object]
     args given (if any).'''.strip('\n')
 
 
-def st_stat(options, args, print_queue, error_queue):
+def st_stat(parser, args, print_queue, error_queue):
     (options, args) = parse_args(parser, args)
     args = args[1:]
     conn = get_conn(options)
@@ -1554,7 +1554,7 @@ post [options] [container] [object]
     post -m Color:Blue -m Size:Large'''.strip('\n')
 
 
-def st_post(options, args, print_queue, error_queue):
+def st_post(parser, args, print_queue, error_queue):
     parser.add_option('-r', '--read-acl', dest='read_acl', help='Sets the '
         'Read ACL for containers. Quick summary of ACL syntax: .r:*, '
         '.r:-.example.com, .r:www.example.com, account1, account2:user2')
@@ -1625,7 +1625,7 @@ upload [options] container file_or_directory [file_or_directory] [...]
 '''.strip('\n')
 
 
-def st_upload(options, args, print_queue, error_queue):
+def st_upload(parser, args, print_queue, error_queue):
     parser.add_option('-c', '--changed', action='store_true', dest='changed',
         default=False, help='Will only upload files that have changed since '
         'the last upload')
