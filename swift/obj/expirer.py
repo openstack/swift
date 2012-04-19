@@ -24,6 +24,8 @@ from webob import Request
 
 from swift.common.daemon import Daemon
 from swift.common.utils import get_logger
+from swift.common.http import HTTP_NO_CONTENT, HTTP_NOT_FOUND, HTTP_CONFLICT, \
+    HTTP_PRECONDITION_FAILED
 
 try:
     import simplejson as json
@@ -161,8 +163,9 @@ class ObjectExpirer(Daemon):
         the hidden expiration account.
         """
         resp = self.get_response('HEAD',
-            '/v1/' + quote(self.expiring_objects_account), {}, (2, 404))
-        if resp.status_int == 404:
+            '/v1/' + quote(self.expiring_objects_account), {},
+            (2, HTTP_NOT_FOUND))
+        if resp.status_int == HTTP_NOT_FOUND:
             return (0, 0)
         return (int(resp.headers['x-account-container-count']),
                 int(resp.headers['x-account-object-count']))
@@ -176,8 +179,8 @@ class ObjectExpirer(Daemon):
         marker = ''
         while True:
             resp = self.get_response('GET', path + '&marker=' + quote(marker),
-                                     {}, (2, 404))
-            if resp.status_int in (204, 404):
+                                     {}, (2, HTTP_NOT_FOUND))
+            if resp.status_int in (HTTP_NO_CONTENT, HTTP_NOT_FOUND):
                 break
             data = json.loads(resp.body)
             if not data:
@@ -198,8 +201,8 @@ class ObjectExpirer(Daemon):
         marker = ''
         while True:
             resp = self.get_response('GET', path + '&' + quote(marker),
-                                     {}, (2, 404))
-            if resp.status_int in (204, 404):
+                                     {}, (2, HTTP_NOT_FOUND))
+            if resp.status_int in (HTTP_NO_CONTENT, HTTP_NOT_FOUND):
                 break
             data = json.loads(resp.body)
             if not data:
@@ -220,7 +223,8 @@ class ObjectExpirer(Daemon):
                           perform the actual delete.
         """
         self.get_response('DELETE', '/v1/%s' % (quote(actual_obj),),
-                          {'X-If-Delete-At': str(timestamp)}, (2, 404, 412))
+                          {'X-If-Delete-At': str(timestamp)},
+            (2, HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED))
 
     def delete_object(self, container, obj):
         """
@@ -232,7 +236,7 @@ class ObjectExpirer(Daemon):
         self.get_response('DELETE',
             '/v1/%s/%s/%s' % (quote(self.expiring_objects_account),
                               quote(container), quote(obj)),
-            {}, (2, 404))
+            {}, (2, HTTP_NOT_FOUND))
 
     def delete_container(self, container):
         """
@@ -243,4 +247,4 @@ class ObjectExpirer(Daemon):
         self.get_response('DELETE',
             '/v1/%s/%s' % (quote(self.expiring_objects_account),
                            quote(container)),
-            {}, (2, 404, 409))
+            {}, (2, HTTP_NOT_FOUND, HTTP_CONFLICT))

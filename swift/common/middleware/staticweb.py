@@ -123,6 +123,8 @@ from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
                                split_path, TRUE_VALUES
+from swift.common.http import is_success, is_redirection, HTTP_BAD_REQUEST, \
+    HTTP_NOT_FOUND
 
 
 class StaticWeb(object):
@@ -191,7 +193,7 @@ class StaticWeb(object):
         tmp_env['PATH_INFO'] = '/%s/%s/%s/%s%s' % (self.version, self.account,
             self.container, self._get_status_int(), self._error)
         resp = self.app(tmp_env, self._start_response)
-        if self._get_status_int() // 100 == 2:
+        if is_success(self._get_status_int()):
             start_response(save_response_status, self._response_headers,
                            self._response_exc_info)
             return resp
@@ -246,7 +248,7 @@ class StaticWeb(object):
         req = Request.blank('/%s/%s/%s' % (self.version, self.account,
             self.container), environ=tmp_env)
         resp = req.get_response(self.app)
-        if resp.status_int // 100 == 2:
+        if is_success(resp.status_int):
             self._index = \
                 resp.headers.get('x-container-meta-web-index', '').strip()
             self._error = \
@@ -283,7 +285,7 @@ class StaticWeb(object):
         else:
             prefix = ''
         resp = self.app(tmp_env, self._start_response)
-        if self._get_status_int() // 100 != 2:
+        if is_success(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         listing = json.loads(''.join(resp))
         if not listing:
@@ -380,9 +382,10 @@ class StaticWeb(object):
         tmp_env['PATH_INFO'] += self._index
         resp = self.app(tmp_env, self._start_response)
         status_int = self._get_status_int()
-        if status_int == 404:
+        if status_int == HTTP_BAD_REQUEST:
             return self._listing(env, start_response)
-        elif self._get_status_int() // 100 not in (2, 3):
+        elif not is_success(self._get_status_int()) and \
+             not is_redirection(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
@@ -401,16 +404,16 @@ class StaticWeb(object):
             '%s StaticWeb' % env.get('HTTP_USER_AGENT')
         resp = self.app(tmp_env, self._start_response)
         status_int = self._get_status_int()
-        if status_int // 100 in (2, 3):
+        if is_success(status_int) or is_redirection(status_int):
             start_response(self._response_status, self._response_headers,
                            self._response_exc_info)
             return resp
-        if status_int != 404:
+        if status_int != HTTP_NOT_FOUND:
             return self._error_response(resp, env, start_response)
         self._get_container_info(env, start_response)
         if not self._listings and not self._index:
             return self.app(env, start_response)
-        status_int = 404
+        status_int = HTTP_NOT_FOUND
         if self._index:
             tmp_env = dict(env)
             tmp_env['HTTP_USER_AGENT'] = \
@@ -420,7 +423,7 @@ class StaticWeb(object):
             tmp_env['PATH_INFO'] += self._index
             resp = self.app(tmp_env, self._start_response)
             status_int = self._get_status_int()
-            if status_int // 100 in (2, 3):
+            if is_success(status_int) or is_redirection(status_int):
                 if env['PATH_INFO'][-1] != '/':
                     resp = HTTPMovedPermanently(
                         location=env['PATH_INFO'] + '/')
@@ -429,7 +432,7 @@ class StaticWeb(object):
                 start_response(self._response_status, self._response_headers,
                                self._response_exc_info)
                 return resp
-        if status_int == 404:
+        if status_int == HTTP_NOT_FOUND:
             if env['PATH_INFO'][-1] != '/':
                 tmp_env = self._get_escalated_env(env)
                 tmp_env['REQUEST_METHOD'] = 'GET'
@@ -438,7 +441,7 @@ class StaticWeb(object):
                 tmp_env['QUERY_STRING'] = 'limit=1&format=json&delimiter' \
                     '=/&limit=1&prefix=%s' % quote(self.obj + '/')
                 resp = self.app(tmp_env, self._start_response)
-                if self._get_status_int() // 100 != 2 or \
+                if not is_success(self._get_status_int()) or \
                         not json.loads(''.join(resp)):
                     resp = HTTPNotFound()(env, self._start_response)
                     return self._error_response(resp, env, start_response)

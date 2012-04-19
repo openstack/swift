@@ -63,6 +63,9 @@ from webob.exc import HTTPNotFound
 from simplejson import loads
 
 from swift.common.utils import split_path
+from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
+    HTTP_NO_CONTENT, HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, \
+    HTTP_NOT_FOUND, HTTP_CONFLICT, is_success
 
 
 MAX_BUCKET_LISTING = 1000
@@ -77,24 +80,24 @@ def get_err_response(code):
     """
     error_table = {
         'AccessDenied':
-            (403, 'Access denied'),
+            (HTTP_FORBIDDEN, 'Access denied'),
         'BucketAlreadyExists':
-            (409, 'The requested bucket name is not available'),
+            (HTTP_CONFLICT, 'The requested bucket name is not available'),
         'BucketNotEmpty':
-            (409, 'The bucket you tried to delete is not empty'),
+            (HTTP_CONFLICT, 'The bucket you tried to delete is not empty'),
         'InvalidArgument':
-            (400, 'Invalid Argument'),
+            (HTTP_BAD_REQUEST, 'Invalid Argument'),
         'InvalidBucketName':
-            (400, 'The specified bucket is not valid'),
+            (HTTP_BAD_REQUEST, 'The specified bucket is not valid'),
         'InvalidURI':
-            (400, 'Could not parse the specified URI'),
+            (HTTP_BAD_REQUEST, 'Could not parse the specified URI'),
         'NoSuchBucket':
-            (404, 'The specified bucket does not exist'),
+            (HTTP_NOT_FOUND, 'The specified bucket does not exist'),
         'SignatureDoesNotMatch':
-            (403, 'The calculated request signature does not match '\
+            (HTTP_FORBIDDEN, 'The calculated request signature does not match '\
             'your provided one'),
         'NoSuchKey':
-            (404, 'The resource you requested does not exist')}
+            (HTTP_NOT_FOUND, 'The resource you requested does not exist')}
 
     resp = Response(content_type='text/xml')
     resp.status = error_table[code][0]
@@ -182,8 +185,8 @@ class ServiceController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 200:
-            if status == 401:
+        if status != HTTP_OK:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
             else:
                 return get_err_response('InvalidURI')
@@ -199,7 +202,8 @@ class ServiceController(Controller):
             % ("".join(['<Bucket><Name>%s</Name><CreationDate>' \
                          '2009-02-03T16:45:09.000Z</CreationDate></Bucket>' %
                          xml_escape(i['name']) for i in containers]))
-        resp = Response(status=200, content_type='application/xml', body=body)
+        resp = Response(status=HTTP_OK, content_type='application/xml',
+            body=body)
         return resp
 
 
@@ -236,10 +240,10 @@ class BucketController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 200:
-            if status == 401:
+        if status != HTTP_OK:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
-            elif status == 404:
+            elif status == HTTP_NOT_FOUND:
                 return get_err_response('InvalidBucketName')
             else:
                 return get_err_response('InvalidURI')
@@ -286,17 +290,17 @@ class BucketController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 201:
-            if status == 401:
+        if status != HTTP_CREATED:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
-            elif status == 202:
+            elif status == HTTP_ACCEPTED:
                 return get_err_response('BucketAlreadyExists')
             else:
                 return get_err_response('InvalidURI')
 
         resp = Response()
         resp.headers.add('Location', self.container_name)
-        resp.status = 200
+        resp.status = HTTP_OK
         return resp
 
     def DELETE(self, env, start_response):
@@ -307,18 +311,18 @@ class BucketController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 204:
-            if status == 401:
+        if status != HTTP_NO_CONTENT:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
-            elif status == 404:
+            elif status == HTTP_NOT_FOUND:
                 return get_err_response('InvalidBucketName')
-            elif status == 409:
+            elif status == HTTP_CONFLICT:
                 return get_err_response('BucketNotEmpty')
             else:
                 return get_err_response('InvalidURI')
 
         resp = Response()
-        resp.status = 204
+        resp.status = HTTP_NO_CONTENT
         return resp
 
 
@@ -340,7 +344,7 @@ class ObjectController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if 200 <= status < 300:
+        if is_success(status):
             if 'QUERY_STRING' in env:
                 args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
             else:
@@ -357,9 +361,9 @@ class ObjectController(Controller):
                              'content-encoding', 'etag', 'last-modified'):
                     new_hdrs[key] = val
             return Response(status=status, headers=new_hdrs, app_iter=app_iter)
-        elif status == 401:
+        elif status == HTTP_UNAUTHORIZED:
             return get_err_response('AccessDenied')
-        elif status == 404:
+        elif status == HTTP_NOT_FOUND:
             return get_err_response('NoSuchKey')
         else:
             return get_err_response('InvalidURI')
@@ -393,10 +397,10 @@ class ObjectController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 201:
-            if status == 401:
+        if status != HTTP_CREATED:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
-            elif status == 404:
+            elif status == HTTP_NOT_FOUND:
                 return get_err_response('InvalidBucketName')
             else:
                 return get_err_response('InvalidURI')
@@ -405,9 +409,9 @@ class ObjectController(Controller):
             body = '<CopyObjectResult>' \
                    '<ETag>"%s"</ETag>' \
                    '</CopyObjectResult>' % headers['etag']
-            return Response(status=200, body=body)
+            return Response(status=HTTP_OK, body=body)
 
-        return Response(status=200, etag=headers['etag'])
+        return Response(status=HTTP_OK, etag=headers['etag'])
 
     def DELETE(self, env, start_response):
         """
@@ -417,16 +421,16 @@ class ObjectController(Controller):
         status = int(self.response_args[0].split()[0])
         headers = dict(self.response_args[1])
 
-        if status != 204:
-            if status == 401:
+        if status != HTTP_NO_CONTENT:
+            if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
-            elif status == 404:
+            elif status == HTTP_NOT_FOUND:
                 return get_err_response('NoSuchKey')
             else:
                 return get_err_response('InvalidURI')
 
         resp = Response()
-        resp.status = 204
+        resp.status = HTTP_NO_CONTENT
         return resp
 
 

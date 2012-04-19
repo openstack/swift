@@ -84,6 +84,7 @@ from urllib import quote, unquote
 from urlparse import parse_qs
 
 from swift.common.utils import get_logger
+from swift.common.http import HTTP_UNAUTHORIZED
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -373,7 +374,7 @@ class TempURL(object):
         :param start_response: The WSGI start_response hook.
         :returns: 401 response as per WSGI.
         """
-        self._log_request(env, 401)
+        self._log_request(env, HTTP_UNAUTHORIZED)
         body = '401 Unauthorized: Temp URL invalid\n'
         start_response('401 Unauthorized',
             [('Content-Type', 'text/plain'),

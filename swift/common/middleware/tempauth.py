@@ -29,6 +29,7 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
     split_path, TRUE_VALUES
+from swift.common.http import HTTP_CLIENT_CLOSED_REQUEST
 
 
 class TempAuth(object):
@@ -459,7 +460,7 @@ class TempAuth(object):
         status_int = response.status_int
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
-            status_int = 499
+            status_int = HTTP_CLIENT_CLOSED_REQUEST
         self.logger.info(' '.join(quote(str(x)) for x in (client or '-',
             req.remote_addr or '-', strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
             req.method, the_request, req.environ['SERVER_PROTOCOL'],

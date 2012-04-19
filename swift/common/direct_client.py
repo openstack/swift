@@ -28,6 +28,8 @@ from eventlet import sleep, Timeout
 from swift.common.bufferedhttp import http_connect
 from swift.common.client import ClientException, json_loads
 from swift.common.utils import normalize_timestamp
+from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
+    is_success, is_server_error
 
 
 def quote(value, safe='/'):
@@ -69,7 +71,7 @@ def direct_get_account(node, part, account, marker=None, limit=None,
                             'GET', path, query_string='format=json')
     with Timeout(response_timeout):
         resp = conn.getresponse()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         resp.read()
         raise ClientException(
             'Account server %s:%s direct GET %s gave status %s' % (node['ip'],
@@ -81,7 +83,7 @@ def direct_get_account(node, part, account, marker=None, limit=None,
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
-    if resp.status == 204:
+    if resp.status == HTTP_NO_CONTENT:
         resp.read()
         return resp_headers, []
     return resp_headers, json_loads(resp.read())
@@ -108,7 +110,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Container server %s:%s direct HEAD %s gave status %s' %
                 (node['ip'], node['port'],
@@ -157,7 +159,7 @@ def direct_get_container(node, part, account, container, marker=None,
                             'GET', path, query_string='format=json')
     with Timeout(response_timeout):
         resp = conn.getresponse()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         resp.read()
         raise ClientException(
             'Container server %s:%s direct GET %s gave stats %s' % (node['ip'],
@@ -169,7 +171,7 @@ def direct_get_container(node, part, account, container, marker=None,
     resp_headers = {}
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
-    if resp.status == 204:
+    if resp.status == HTTP_NO_CONTENT:
         resp.read()
         return resp_headers, []
     return resp_headers, json_loads(resp.read())
@@ -185,7 +187,7 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Container server %s:%s direct DELETE %s gave status %s' %
                 (node['ip'], node['port'],
@@ -218,7 +220,7 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Object server %s:%s direct HEAD %s gave status %s' %
                 (node['ip'], node['port'],
@@ -256,7 +258,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
                 'GET', path, headers=headers)
     with Timeout(response_timeout):
         resp = conn.getresponse()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         resp.read()
         raise ClientException(
                 'Object server %s:%s direct GET %s gave status %s' %
@@ -326,7 +328,7 @@ def direct_put_object(node, part, account, container, name, contents,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Object server %s:%s direct PUT %s gave status %s' %
                 (node['ip'], node['port'],
@@ -361,7 +363,7 @@ def direct_post_object(node, part, account, container, name, headers,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Object server %s:%s direct POST %s gave status %s' %
                 (node['ip'], node['port'],
@@ -394,7 +396,7 @@ def direct_delete_object(node, part, account, container, obj,
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
-    if resp.status < 200 or resp.status >= 300:
+    if not is_success(resp.status):
         raise ClientException(
                 'Object server %s:%s direct DELETE %s gave status %s' %
                 (node['ip'], node['port'],
@@ -440,8 +442,8 @@ def retry(func, *args, **kwargs):
         except ClientException, err:
             if error_log:
                 error_log(err)
-            if attempts > retries or err.http_status < 500 or \
-                    err.http_status == 507 or err.http_status > 599:
+            if attempts > retries or not is_server_error(err.http_status) or \
+                    err.http_status == HTTP_INSUFFICIENT_STORAGE:
                 raise
         sleep(backoff)
         backoff *= 2

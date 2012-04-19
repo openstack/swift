@@ -38,6 +38,7 @@ from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
+from swift.common.http import HTTP_NOT_FOUND, is_success, HTTPInsuffcientStorage
 
 DATADIR = 'containers'
 
@@ -115,10 +116,9 @@ class ContainerController(object):
                 with Timeout(self.node_timeout):
                     account_response = conn.getresponse()
                     account_response.read()
-                    if account_response.status == 404:
+                    if account_response.status == HTTP_NOT_FOUND:
                         return HTTPNotFound(request=req)
-                    elif account_response.status < 200 or \
-                            account_response.status > 299:
+                    elif not is_success(account_response.status):
                         self.logger.error(_('ERROR Account update failed '
                             'with %(ip)s:%(port)s/%(device)s (will retry '
                             'later): Response %(status)s %(reason)s'),
@@ -149,7 +149,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         broker = self._get_container_broker(drive, part, account, container)
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
@@ -197,7 +197,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
@@ -250,7 +250,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         broker = self._get_container_broker(drive, part, account, container)
         broker.pending_timeout = 0.1
         broker.stale_reads_ok = True
@@ -281,7 +281,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         broker = self._get_container_broker(drive, part, account, container)
         broker.pending_timeout = 0.1
         broker.stale_reads_ok = True
@@ -393,7 +393,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, partition)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         try:
             args = simplejson.load(req.environ['wsgi.input'])
         except ValueError, err:
@@ -422,7 +422,7 @@ class ContainerController(object):
         if not os.path.exists(obj_path):
             self.storage.setup_partition(drive, part)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsuffcientStorage(drive, request=req)
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
