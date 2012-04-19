@@ -1397,19 +1397,18 @@ class ObjectController(Controller):
             lcontainer = object_versions.split('/')[0]
             prefix_len = '%03x' % len(self.object_name)
             lprefix = prefix_len + self.object_name + '/'
+            last_item = None
             try:
-                raw_listing = self._listing_iter(lcontainer, lprefix,
-                                                 req.environ)
+                for last_item in self._listing_iter(lcontainer, lprefix,
+                                                    req.environ):
+                    pass
             except ListingIterNotFound:
-                # set raw_listing so that the actual object is deleted
-                raw_listing = []
+                # no worries, last_item is None
+                pass
             except ListingIterNotAuthorized, err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
-            last_item = None
-            for item in raw_listing:  # find the last item
-                last_item = item
             if last_item:
                 # there are older versions so copy the previous version to the
                 # current object and delete the previous version
