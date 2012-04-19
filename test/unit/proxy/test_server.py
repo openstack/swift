@@ -228,8 +228,8 @@ def fake_http_connect(*code_iter, **kwargs):
 
     def connect(*args, **ckwargs):
         if 'give_content_type' in kwargs:
-            if len(args) >= 7 and 'content_type' in args[6]:
-                kwargs['give_content_type'](args[6]['content-type'])
+            if len(args) >= 7 and 'Content-Type' in args[6]:
+                kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
         if 'give_connect' in kwargs:
@@ -795,17 +795,26 @@ class TestObjectController(unittest.TestCase):
                 'container', 'object')
 
             def test_content_type(filename, expected):
-                proxy_server.http_connect = fake_http_connect(201, 201, 201,
+                # The three responses here are for account_info() (HEAD to account server),
+                # container_info() (HEAD to container server) and three calls to
+                # _connect_put_node() (PUT to three object servers)
+                proxy_server.http_connect = fake_http_connect(201, 201, 201, 201, 201,
                     give_content_type=lambda content_type:
                         self.assertEquals(content_type, expected.next()))
-                req = Request.blank('/a/c/%s' % filename, {})
+                # We need into include a transfer-encoding to get past
+                # constraints.check_object_creation()
+                req = Request.blank('/a/c/%s' % filename, {}, headers={'transfer-encoding': 'chunked'})
                 self.app.update_request(req)
+                self.app.memcache.store = {}
                 res = controller.PUT(req)
-            test_content_type('test.jpg', iter(['', '', '', 'image/jpeg',
+                # If we don't check the response here we could miss problems in PUT()
+                self.assertEquals(res.status_int, 201)
+
+            test_content_type('test.jpg', iter(['', '', 'image/jpeg',
                                                 'image/jpeg', 'image/jpeg']))
-            test_content_type('test.html', iter(['', '', '', 'text/html',
+            test_content_type('test.html', iter(['', '', 'text/html',
                                                  'text/html', 'text/html']))
-            test_content_type('test.css', iter(['', '', '', 'text/css',
+            test_content_type('test.css', iter(['', '', 'text/css',
                                                 'text/css', 'text/css']))
 
     def test_custom_mime_types_files(self):
