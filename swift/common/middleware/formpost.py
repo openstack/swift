@@ -112,6 +112,7 @@ from urllib import quote, unquote
 
 from swift.common.utils import get_logger, streq_const_time
 from swift.common.wsgi import make_pre_authed_env
+from swift.common.http import HTTP_BAD_REQUEST
 
 
 #: The size of data to read from the form at any given time.
@@ -324,7 +325,7 @@ class FormPost(object):
                     return self._translate_form(env, start_response,
                                                 attrs['boundary'])
             except (FormInvalid, EOFError), err:
-                self._log_request(env, 400)
+                self._log_request(env, HTTP_BAD_REQUEST)
                 body = 'FormPost: %s' % err
                 start_response('400 Bad Request',
                     (('Content-Type', 'text/plain'),

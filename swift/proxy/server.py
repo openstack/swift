@@ -61,6 +61,12 @@ from swift.common.constraints import check_metadata, check_object_creation, \
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError
+from swift.common.http import is_informational, is_success, is_redirection, \
+    is_client_error, is_server_error, HTTP_CONTINUE, HTTP_OK, HTTP_CREATED, \
+    HTTP_ACCEPTED, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
+    HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, \
+    HTTP_CLIENT_CLOSED_REQUEST, HTTP_INTERNAL_SERVER_ERROR, \
+    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE, HTTPClientDisconnect
 
 
 def update_headers(response, headers):
@@ -181,7 +187,7 @@ class SegmentedIterable(object):
                 self.controller.iter_nodes(partition, nodes,
                 self.controller.app.object_ring), path,
                 self.controller.app.object_ring.replica_count)
-            if resp.status_int // 100 != 2:
+            if not is_success(resp.status_int):
                 raise Exception(_('Could not load object segment %(path)s:' \
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             self.segment_iter = resp.app_iter
@@ -197,7 +203,7 @@ class SegmentedIterable(object):
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
                 err.swift_logged = True
-                self.response.status_int = 503
+                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
             raise
 
     def next(self):
@@ -230,7 +236,7 @@ class SegmentedIterable(object):
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
                 err.swift_logged = True
-                self.response.status_int = 503
+                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
             raise
 
     def app_iter_range(self, start, stop):
@@ -291,7 +297,7 @@ class SegmentedIterable(object):
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
                 err.swift_logged = True
-                self.response.status_int = 503
+                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
             raise
 
 
@@ -402,9 +408,9 @@ class Controller(object):
             else:
                 result_code = cache_value['status']
                 container_count = cache_value['container_count']
-            if result_code == 200:
+            if result_code == HTTP_OK:
                 return partition, nodes, container_count
-            elif result_code == 404 and not autocreate:
+            elif result_code == HTTP_NOT_FOUND and not autocreate:
                 return None, None, None
         result_code = 0
         container_count = 0
@@ -419,17 +425,17 @@ class Controller(object):
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     body = resp.read()
-                    if 200 <= resp.status <= 299:
-                        result_code = 200
+                    if is_success(resp.status):
+                        result_code = HTTP_OK
                         container_count = int(
                             resp.getheader('x-account-container-count') or 0)
                         break
-                    elif resp.status == 404:
+                    elif resp.status == HTTP_NOT_FOUND:
                         if result_code == 0:
-                            result_code = 404
-                        elif result_code != 404:
+                            result_code = HTTP_NOT_FOUND
+                        elif result_code != HTTP_NOT_FOUND:
                             result_code = -1
-                    elif resp.status == 507:
+                    elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node)
                         continue
                     else:
@@ -440,7 +446,7 @@ class Controller(object):
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
-        if result_code == 404 and autocreate:
+        if result_code == HTTP_NOT_FOUND and autocreate:
             if len(account) > MAX_ACCOUNT_NAME_LENGTH:
                 return None, None, None
             headers = {'X-Timestamp': normalize_timestamp(time.time()),
@@ -449,18 +455,18 @@ class Controller(object):
             resp = self.make_requests(Request.blank('/v1' + path),
                 self.app.account_ring, partition, 'PUT',
                 path, [headers] * len(nodes))
-            if resp.status_int // 100 != 2:
+            if not is_success(resp.status_int):
                 raise Exception('Could not autocreate account %r' % path)
-            result_code = 200
-        if self.app.memcache and result_code in (200, 404):
-            if result_code == 200:
+            result_code = HTTP_OK
+        if self.app.memcache and result_code in (HTTP_OK, HTTP_NOT_FOUND):
+            if result_code == HTTP_OK:
                 cache_timeout = self.app.recheck_account_existence
             else:
                 cache_timeout = self.app.recheck_account_existence * 0.1
             self.app.memcache.set(cache_key,
                 {'status': result_code, 'container_count': container_count},
                 timeout=cache_timeout)
-        if result_code == 200:
+        if result_code == HTTP_OK:
             return partition, nodes, container_count
         return None, None, None
 
@@ -488,10 +494,10 @@ class Controller(object):
                 write_acl = cache_value['write_acl']
                 sync_key = cache_value.get('sync_key')
                 versions = cache_value.get('versions')
-                if status == 200:
+                if status == HTTP_OK:
                     return partition, nodes, read_acl, write_acl, sync_key, \
                             versions
-                elif status == 404:
+                elif status == HTTP_NOT_FOUND:
                     return None, None, None, None, None, None
         if not self.account_info(account, autocreate=account_autocreate)[1]:
             return None, None, None, None, None, None
@@ -511,8 +517,8 @@ class Controller(object):
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     body = resp.read()
-                    if 200 <= resp.status <= 299:
-                        result_code = 200
+                    if is_success(resp.status):
+                        result_code = HTTP_OK
                         read_acl = resp.getheader('x-container-read')
                         write_acl = resp.getheader('x-container-write')
                         sync_key = resp.getheader('x-container-sync-key')
@@ -520,12 +526,12 @@ class Controller(object):
                             resp.getheader('X-Container-Object-Count')
                         versions = resp.getheader('x-versions-location')
                         break
-                    elif resp.status == 404:
+                    elif resp.status == HTTP_NOT_FOUND:
                         if result_code == 0:
-                            result_code = 404
-                        elif result_code != 404:
+                            result_code = HTTP_NOT_FOUND
+                        elif result_code != HTTP_NOT_FOUND:
                             result_code = -1
-                    elif resp.status == 507:
+                    elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node)
                         continue
                     else:
@@ -536,8 +542,8 @@ class Controller(object):
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Container'),
                     _('Trying to get container info for %s') % path)
-        if self.app.memcache and result_code in (200, 404):
-            if result_code == 200:
+        if self.app.memcache and result_code in (HTTP_OK, HTTP_NOT_FOUND):
+            if result_code == HTTP_OK:
                 cache_timeout = self.app.recheck_container_existence
             else:
                 cache_timeout = self.app.recheck_container_existence * 0.1
@@ -549,7 +555,7 @@ class Controller(object):
                                    'container_size': container_size,
                                    'versions': versions},
                                   timeout=cache_timeout)
-        if result_code == 200:
+        if result_code == HTTP_OK:
             return partition, nodes, read_acl, write_acl, sync_key, versions
         return None, None, None, None, None, None
 
@@ -579,9 +585,10 @@ class Controller(object):
                     conn.node = node
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    if 200 <= resp.status < 500:
+                    if not is_informational(resp.status) and \
+                       not is_server_error(resp.status):
                         return resp.status, resp.reason, resp.read()
-                    elif resp.status == 507:
+                    elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node)
             except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
@@ -606,7 +613,7 @@ class Controller(object):
                     head, query_string)
         response = [resp for resp in pile if resp]
         while len(response) < ring.replica_count:
-            response.append((503, '', ''))
+            response.append((HTTP_SERVICE_UNAVAILABLE, '', ''))
         statuses, reasons, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                   '%s %s' % (self.server_type, req.method))
@@ -627,7 +634,7 @@ class Controller(object):
         """
         resp = Response(request=req)
         if len(statuses):
-            for hundred in (200, 300, 400):
+            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
                 hstatuses = \
                     [s for s in statuses if hundred <= s < hundred + 100]
                 if len(hstatuses) > len(statuses) / 2:
@@ -782,13 +789,14 @@ class Controller(object):
                     _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
                 continue
-            if possible_source.status == 507:
+            if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
                 self.error_limit(node)
                 continue
-            if 200 <= possible_source.status <= 399:
+            if is_success(possible_source.status) or \
+               is_redirection(possible_source.status):
                 # 404 if we know we don't have a synced copy
                 if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                    statuses.append(404)
+                    statuses.append(HTTP_NOT_FOUND)
                     reasons.append('')
                     bodies.append('')
                     possible_source.read()
@@ -811,13 +819,14 @@ class Controller(object):
             statuses.append(possible_source.status)
             reasons.append(possible_source.reason)
             bodies.append(possible_source.read())
-            if possible_source.status >= 500:
+            if is_server_error(possible_source.status):
                 self.error_occurred(node, _('ERROR %(status)d %(body)s ' \
                     'From %(type)s Server') %
                     {'status': possible_source.status,
                     'body': bodies[-1][:1024], 'type': server_type})
         if source:
-            if req.method == 'GET' and source.status in (200, 206):
+            if req.method == 'GET' and \
+               source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
                 res = Response(request=req, conditional_response=True)
                 res.bytes_transferred = 0
                 res.app_iter = self._make_app_iter(node, source, res)
@@ -834,7 +843,7 @@ class Controller(object):
                     res.charset = None
                     res.content_type = source.getheader('Content-Type')
                 return res
-            elif 200 <= source.status <= 399:
+            elif is_success(source.status) or is_redirection(source.status):
                 res = status_map[source.status](request=req)
                 update_headers(res, source.getheaders())
                 # Used by container sync feature
@@ -883,9 +892,9 @@ class ObjectController(Controller):
                 aresp = env['swift.authorize'](lreq)
                 if aresp:
                     raise ListingIterNotAuthorized(aresp)
-            if lresp.status_int == 404:
+            if lresp.status_int == HTTP_NOT_FOUND:
                 raise ListingIterNotFound()
-            elif lresp.status_int // 100 != 2:
+            elif not is_success(lresp.status_int):
                 raise ListingIterError()
             if not lresp.body:
                 break
@@ -914,7 +923,7 @@ class ObjectController(Controller):
         # If we get a 416 Requested Range Not Satisfiable we have to check if
         # we were actually requesting a manifest and then redo
         # the range request on the whole object.
-        if resp.status_int == 416:
+        if resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
             req_range = req.range
             req.range = None
             resp2 = self.GETorHEAD_base(req, _('Object'), partition,
@@ -1022,7 +1031,7 @@ class ObjectController(Controller):
             # Older editions returned 202 Accepted on object POSTs, so we'll
             # convert any 201 Created responses to that for compatibility with
             # picky clients.
-            if resp.status_int != 201:
+            if resp.status_int != HTTP_CREATED:
                 return resp
             return HTTPAccepted(request=req)
         else:
@@ -1098,10 +1107,10 @@ class ObjectController(Controller):
                             node['device'], part, 'PUT', path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getexpect()
-                if resp.status == 100:
+                if resp.status == HTTP_CONTINUE:
                     conn.node = node
                     return conn
-                elif resp.status == 507:
+                elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.error_limit(node)
             except:
                 self.exception_occurred(node, _('Object'),
@@ -1183,7 +1192,7 @@ class ObjectController(Controller):
         if object_versions and not req.environ.get('swift_versioned_copy'):
             is_manifest = 'x-object-manifest' in req.headers or \
                           'x-object-manifest' in hresp.headers
-            if hresp.status_int != 404 and not is_manifest:
+            if hresp.status_int != HTTP_NOT_FOUND and not is_manifest:
                 # This is a version manifest and needs to be handled
                 # differently. First copy the existing data to a new object,
                 # then write the data from this request to the version manifest
@@ -1206,10 +1215,10 @@ class ObjectController(Controller):
                 copy_req = Request.blank(req.path_info, headers=copy_headers,
                                 environ=copy_environ)
                 copy_resp = self.COPY(copy_req)
-                if copy_resp.status_int // 100 == 4:
+                if is_client_error(copy_resp.status_int):
                     # missing container or bad permissions
                     return HTTPPreconditionFailed(request=req)
-                elif copy_resp.status_int // 100 != 2:
+                elif not is_success(copy_resp.status_int):
                     # could not copy the data, bail
                     return HTTPServiceUnavailable(request=req)
 
@@ -1238,7 +1247,7 @@ class ObjectController(Controller):
             self.object_name = src_obj_name
             self.container_name = src_container_name
             source_resp = self.GET(source_req)
-            if source_resp.status_int >= 300:
+            if source_resp.status_int >= HTTP_MULTIPLE_CHOICES:
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
@@ -1332,12 +1341,12 @@ class ObjectController(Controller):
             req.client_disconnect = True
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
-            return Response(status='499 Client Disconnect')
+            return HTTPClientDisconnect(request=req)
         if req.content_length and req.bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.warn(
                 _('Client disconnected without sending enough data'))
-            return Response(status='499 Client Disconnect')
+            return HTTPClientDisconnect(request=req)
         statuses = []
         reasons = []
         bodies = []
@@ -1349,12 +1358,12 @@ class ObjectController(Controller):
                     statuses.append(response.status)
                     reasons.append(response.reason)
                     bodies.append(response.read())
-                    if response.status >= 500:
+                    if response.status >= HTTP_INTERNAL_SERVER_ERROR:
                         self.error_occurred(conn.node,
                             _('ERROR %(status)d %(body)s From Object Server ' \
                             're: %(path)s') % {'status': response.status,
                             'body': bodies[-1][:1024], 'path': req.path})
-                    elif 200 <= response.status < 300:
+                    elif is_success(response.status):
                         etags.add(response.getheader('etag').strip('"'))
             except (Exception, Timeout):
                 self.exception_occurred(conn.node, _('Object'),
@@ -1365,7 +1374,7 @@ class ObjectController(Controller):
             return HTTPServerError(request=req)
         etag = len(etags) and etags.pop() or None
         while len(statuses) < len(nodes):
-            statuses.append(503)
+            statuses.append(HTTP_SERVICE_UNAVAILABLE)
             reasons.append('')
             bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies,
@@ -1426,10 +1435,10 @@ class ObjectController(Controller):
                 creq = Request.blank(copy_path, headers=copy_headers,
                                  environ=copy_environ)
                 copy_resp = self.COPY(creq)
-                if copy_resp.status_int // 100 == 4:
+                if is_client_error(copy_resp.status_int):
                     # some user error, maybe permissions
                     return HTTPPreconditionFailed(request=req)
-                elif copy_resp.status_int // 100 != 2:
+                elif not is_success(copy_resp.status_int):
                     # could not copy the data, bail
                     return HTTPServiceUnavailable(request=req)
                 # reset these because the COPY changed them
@@ -1666,7 +1675,8 @@ class ContainerController(Controller):
             self.app.memcache.delete(cache_key)
         resp = self.make_requests(req, self.app.container_ring,
                     container_partition, 'DELETE', req.path_info, headers)
-        if resp.status_int == 202:  # Indicates no server had the container
+        # Indicates no server had the container
+        if resp.status_int == HTTP_ACCEPTED:
             return HTTPNotFound(request=req)
         return resp
 
@@ -1685,7 +1695,7 @@ class AccountController(Controller):
         shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), self.app.account_ring.replica_count)
-        if resp.status_int == 404 and self.app.account_autocreate:
+        if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
                 resp = HTTPBadRequest(request=req)
                 resp.body = 'Account name length of %d longer than %d' % \
@@ -1698,7 +1708,7 @@ class AccountController(Controller):
                 Request.blank('/v1/' + self.account_name),
                 self.app.account_ring, partition, 'PUT',
                 '/' + self.account_name, [headers] * len(nodes))
-            if resp.status_int // 100 != 2:
+            if not is_success(resp.status_int):
                 raise Exception('Could not autocreate account %r' %
                                 self.account_name)
             resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
@@ -1746,7 +1756,7 @@ class AccountController(Controller):
         resp = self.make_requests(req, self.app.account_ring,
             account_partition, 'POST', req.path_info,
             [headers] * len(accounts))
-        if resp.status_int == 404 and self.app.account_autocreate:
+        if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
                 resp = HTTPBadRequest(request=req)
                 resp.body = 'Account name length of %d longer than %d' % \
@@ -1756,7 +1766,7 @@ class AccountController(Controller):
                 Request.blank('/v1/' + self.account_name),
                 self.app.account_ring, account_partition, 'PUT',
                 '/' + self.account_name, [headers] * len(accounts))
-            if resp.status_int // 100 != 2:
+            if not is_success(resp.status_int):
                 raise Exception('Could not autocreate account %r' %
                                 self.account_name)
         return resp
@@ -1996,7 +2006,7 @@ class Application(BaseApplication):
         status_int = response.status_int
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
-            status_int = 499
+            status_int = HTTP_CLIENT_CLOSED_REQUEST
         self.access_logger.info(' '.join(quote(str(x)) for x in (
                 client or '-',
                 req.remote_addr or '-',

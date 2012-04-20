@@ -31,6 +31,7 @@ from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips, TRUE_VALUES
 from swift.common.daemon import Daemon
+from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
 
 class ContainerUpdater(Daemon):
@@ -214,7 +215,7 @@ class ContainerUpdater(Daemon):
             successes = 0
             failures = 0
             for event in events:
-                if 200 <= event.wait() < 300:
+                if is_success(event.wait()):
                     successes += 1
                 else:
                     failures += 1
@@ -265,7 +266,7 @@ class ContainerUpdater(Daemon):
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR account update failed with '
                     '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
-                return 500
+                return HTTP_INTERNAL_SERVER_ERROR
         with Timeout(self.node_timeout):
             try:
                 resp = conn.getresponse()
@@ -275,4 +276,4 @@ class ContainerUpdater(Daemon):
                 if self.logger.getEffectiveLevel() <= logging.DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
-                return 500
+                return HTTP_INTERNAL_SERVER_ERROR

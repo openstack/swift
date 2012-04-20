@@ -36,6 +36,7 @@ from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
         TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
+from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 
 hubs.use_hub('poll')
 
@@ -408,12 +409,12 @@ class ObjectReplicator(Daemon):
                         resp = http_connect(node['ip'], node['port'],
                                 node['device'], job['partition'], 'REPLICATE',
                             '', headers={'Content-Length': '0'}).getresponse()
-                        if resp.status == 507:
+                        if resp.status == HTTP_INSUFFICIENT_STORAGE:
                             self.logger.error(_('%(ip)s/%(device)s responded'
                                     ' as unmounted'), node)
                             attempts_left += 1
                             continue
-                        if resp.status != 200:
+                        if resp.status != HTTP_OK:
                             self.logger.error(_("Invalid response %(resp)s "
                                 "from %(ip)s"),
                                 {'resp': resp.status, 'ip': node['ip']})

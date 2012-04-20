@@ -28,6 +28,8 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle
 from swift.common.daemon import Daemon
 from swift.obj.server import ASYNCDIR
+from swift.common.http import is_success, HTTP_NOT_FOUND, \
+    HTTP_INTERNAL_SERVER_ERROR
 
 
 class ObjectUpdater(Daemon):
@@ -178,7 +180,7 @@ class ObjectUpdater(Daemon):
             if node['id'] not in successes:
                 status = self.object_update(node, part, update['op'], obj,
                                         update['headers'])
-                if not (200 <= status < 300) and status != 404:
+                if not is_success(status) and status != HTTP_NOT_FOUND:
                     success = False
                 else:
                     successes.append(node['id'])
@@ -217,4 +219,4 @@ class ObjectUpdater(Daemon):
         except (Exception, Timeout):
             self.logger.exception(_('ERROR with remote server '
                 '%(ip)s:%(port)s/%(device)s'), node)
-        return 500
+        return HTTP_INTERNAL_SERVER_ERROR

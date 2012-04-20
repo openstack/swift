@@ -36,6 +36,7 @@ from swift.common.utils import get_logger, get_param, hash_path, \
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
+from swift.common.http import HTTPInsufficientStorage
 
 
 DATADIR = 'accounts'
@@ -70,7 +71,7 @@ class AccountController(object):
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         if 'x-timestamp' not in req.headers or \
                     not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=req,
@@ -90,7 +91,7 @@ class AccountController(object):
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
             if 'x-trans-id' in req.headers:
@@ -149,7 +150,7 @@ class AccountController(object):
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if not container:
             broker.pending_timeout = 0.1
@@ -180,7 +181,7 @@ class AccountController(object):
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                                     request=req)
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         broker.pending_timeout = 0.1
         broker.stale_reads_ok = True
@@ -274,7 +275,7 @@ class AccountController(object):
                                                     request=req)
         drive, partition, hash = post_args
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = simplejson.load(req.environ['wsgi.input'])
         except ValueError, err:
@@ -295,7 +296,7 @@ class AccountController(object):
             return HTTPBadRequest(body='Missing or bad timestamp',
                 request=req, content_type='text/plain')
         if self.mount_check and not check_mount(self.root, drive):
-            return Response(status='507 %s is not mounted' % drive)
+            return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
