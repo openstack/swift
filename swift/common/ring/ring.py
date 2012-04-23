@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import cPickle as pickle
+from collections import defaultdict
 from gzip import GzipFile
 from os.path import getmtime
 from struct import unpack_from
@@ -21,6 +22,7 @@ from time import time
 import os
 
 from swift.common.utils import hash_path, validate_configuration
+from swift.common.ring.utils import tiers_for_dev
 
 
 class RingData(object):
@@ -65,16 +67,26 @@ class Ring(object):
                     ring_data['devs'], ring_data['part_shift'])
             self._mtime = getmtime(self.pickle_gz_path)
             self.devs = ring_data.devs
-            self.zone2devs = {}
-            for dev in self.devs:
-                if not dev:
-                    continue
-                if dev['zone'] in self.zone2devs:
-                    self.zone2devs[dev['zone']].append(dev)
-                else:
-                    self.zone2devs[dev['zone']] = [dev]
+
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
+            self._rebuild_tier_data()
+
+    def _rebuild_tier_data(self):
+        self.tier2devs = defaultdict(list)
+        for dev in self.devs:
+            if not dev:
+                continue
+            for tier in tiers_for_dev(dev):
+                self.tier2devs[tier].append(dev)
+
+        tiers_by_length = defaultdict(list)
+        for tier in self.tier2devs.keys():
+            tiers_by_length[len(tier)].append(tier)
+        self.tiers_by_length = sorted(tiers_by_length.values(),
+                                      key=lambda x: len(x[0]))
+        for tiers in self.tiers_by_length:
+            tiers.sort()
 
     @property
     def replica_count(self):
@@ -97,20 +109,27 @@ class Ring(object):
 
     def get_part_nodes(self, part):
         """
-        Get the nodes that are responsible for the partition.
+        Get the nodes that are responsible for the partition. If one
+        node is responsible for more than one replica of the same
+        partition, it will only appear in the output once.
 
         :param part: partition to get nodes for
         :returns: list of node dicts
 
         See :func:`get_nodes` for a description of the node dicts.
         """
+
         if time() > self._rtime:
             self._reload()
-        return [self.devs[r[part]] for r in self._replica2part2dev_id]
+        seen_ids = set()
+        return [self.devs[r[part]] for r in self._replica2part2dev_id
+                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_nodes(self, account, container=None, obj=None):
         """
         Get the partition and nodes for an account/container/object.
+        If a node is responsible for more than one replica, it will
+        only appear in the output once.
 
         :param account: account name
         :param container: container name
@@ -138,7 +157,9 @@ class Ring(object):
         if time() > self._rtime:
             self._reload()
         part = unpack_from('>I', key)[0] >> self._part_shift
-        return part, [self.devs[r[part]] for r in self._replica2part2dev_id]
+        seen_ids = set()
+        return part, [self.devs[r[part]] for r in self._replica2part2dev_id
+                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_more_nodes(self, part):
         """
@@ -151,17 +172,22 @@ class Ring(object):
         """
         if time() > self._rtime:
             self._reload()
-        zones = sorted(self.zone2devs.keys())
+        used_tiers = set()
         for part2dev_id in self._replica2part2dev_id:
-            zones.remove(self.devs[part2dev_id[part]]['zone'])
-        while zones:
-            zone = zones.pop(part % len(zones))
-            weighted_node = None
-            for i in xrange(len(self.zone2devs[zone])):
-                node = self.zone2devs[zone][(part + i) %
-                                            len(self.zone2devs[zone])]
-                if node.get('weight'):
-                    weighted_node = node
+            for tier in tiers_for_dev(self.devs[part2dev_id[part]]):
+                used_tiers.add(tier)
+
+        for level in self.tiers_by_length:
+            tiers = list(level)
+            while tiers:
+                tier = tiers.pop(part % len(tiers))
+                if tier in used_tiers:
+                    continue
+                for i in xrange(len(self.tier2devs[tier])):
+                    dev = self.tier2devs[tier][(part + i) %
+                                               len(self.tier2devs[tier])]
+                    if not dev.get('weight'):
+                        continue
+                    yield dev
+                    used_tiers.update(tiers_for_dev(dev))
                     break
-            if weighted_node:
-                yield weighted_node

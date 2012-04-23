@@ -15,6 +15,7 @@
 
 import os
 import unittest
+from collections import defaultdict
 from shutil import rmtree
 
 from swift.common import exceptions
@@ -191,6 +192,247 @@ class TestRingBuilder(unittest.TestCase):
             max_run = run
         return max_run > len(parts) / 2
 
+    def test_multitier_partial(self):
+        # Multitier test, zones full, nodes not full
+        rb = ring.RingBuilder(8, 6, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc'})
+
+        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdf'})
+
+        rb.add_dev({'id': 6, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sdg'})
+        rb.add_dev({'id': 7, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sdh'})
+        rb.add_dev({'id': 8, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10002, 'device': 'sdi'})
+
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            for replica in xrange(rb.replicas):
+                dev = rb.devs[rb._replica2part2dev[replica][part]]
+                counts['zone'][dev['zone']] += 1
+                counts['dev_id'][dev['id']] += 1
+            if counts['zone'] != {0: 2, 1: 2, 2: 2}:
+                raise AssertionError(
+                    "Partition %d not evenly distributed (got %r)" %
+                    (part, counts['zone']))
+            for dev_id, replica_count in counts['dev_id'].iteritems():
+                if replica_count > 1:
+                    raise AssertionError(
+                        "Partition %d is on device %d more than once (%r)" %
+                        (part, dev_id, counts['dev_id']))
+
+    def test_multitier_full(self):
+        # Multitier test, #replicas == #devs
+        rb = ring.RingBuilder(8, 6, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdd'})
+
+        rb.add_dev({'id': 4, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdf'})
+
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            for replica in xrange(rb.replicas):
+                dev = rb.devs[rb._replica2part2dev[replica][part]]
+                counts['zone'][dev['zone']] += 1
+                counts['dev_id'][dev['id']] += 1
+            if counts['zone'] != {0: 2, 1: 2, 2: 2}:
+                raise AssertionError(
+                    "Partition %d not evenly distributed (got %r)" %
+                    (part, counts['zone']))
+            for dev_id, replica_count in counts['dev_id'].iteritems():
+                if replica_count != 1:
+                    raise AssertionError(
+                        "Partition %d is on device %d %d times, not 1 (%r)" %
+                        (part, dev_id, replica_count, counts['dev_id']))
+
+    def test_multitier_overfull(self):
+        # Multitier test, #replicas > #devs + 2 (to prove even distribution)
+        rb = ring.RingBuilder(8, 8, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdd'})
+
+        rb.add_dev({'id': 4, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sdf'})
+
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            for replica in xrange(rb.replicas):
+                dev = rb.devs[rb._replica2part2dev[replica][part]]
+                counts['zone'][dev['zone']] += 1
+                counts['dev_id'][dev['id']] += 1
+
+            self.assertEquals(8, sum(counts['zone'].values()))
+            for zone, replica_count in counts['zone'].iteritems():
+                if replica_count not in (2, 3):
+                    raise AssertionError(
+                        "Partition %d not evenly distributed (got %r)" %
+                        (part, counts['zone']))
+            for dev_id, replica_count in counts['dev_id'].iteritems():
+                if replica_count not in (1, 2):
+                    raise AssertionError(
+                        "Partition %d is on device %d %d times, "
+                        "not 1 or 2 (%r)" %
+                        (part, dev_id, replica_count, counts['dev_id']))
+
+    def test_multitier_expansion_more_devices(self):
+        rb = ring.RingBuilder(8, 6, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc'})
+
+        rb.rebalance()
+        rb.validate()
+
+        rb.add_dev({'id': 3, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdf'})
+
+        for _ in xrange(5):
+            rb.pretend_min_part_hours_passed()
+            rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            counts = dict(zone=defaultdict(lambda: 0),
+                          dev_id=defaultdict(lambda: 0))
+            for replica in xrange(rb.replicas):
+                dev = rb.devs[rb._replica2part2dev[replica][part]]
+                counts['zone'][dev['zone']] += 1
+                counts['dev_id'][dev['id']] += 1
+
+            self.assertEquals({0: 2, 1: 2, 2: 2}, dict(counts['zone']))
+            self.assertEquals({0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
+                              dict(counts['dev_id']))
+
+    def test_multitier_part_moves_with_0_min_part_hours(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.rebalance()
+        rb.validate()
+
+        # min_part_hours is 0, so we're clear to move 2 replicas to
+        # new devs
+        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc1'})
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            devs = set()
+            for replica in xrange(rb.replicas):
+                devs.add(rb._replica2part2dev[replica][part])
+
+            if len(devs) != 3:
+                raise AssertionError(
+                    "Partition %d not on 3 devs (got %r)" % (part, devs))
+
+    def test_multitier_part_moves_with_positive_min_part_hours(self):
+        rb = ring.RingBuilder(8, 3, 99)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.rebalance()
+        rb.validate()
+
+        # min_part_hours is >0, so we'll only be able to move 1
+        # replica to a new home
+        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdc1'})
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            devs = set()
+            for replica in xrange(rb.replicas):
+                devs.add(rb._replica2part2dev[replica][part])
+
+            if len(devs) != 2:
+                raise AssertionError(
+                    "Partition %d not on 2 devs (got %r)" % (part, devs))
+
+    def test_multitier_dont_move_too_many_replicas(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        # there'll be at least one replica in z0 and z1
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdb1'})
+        rb.rebalance()
+        rb.validate()
+
+        # only 1 replica should move
+        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdd1'})
+        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sde1'})
+        rb.add_dev({'id': 4, 'zone': 4, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sdf1'})
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            zones = set()
+            for replica in xrange(rb.replicas):
+                zones.add(rb.devs[rb._replica2part2dev[replica][part]]['zone'])
+
+            if len(zones) != 3:
+                raise AssertionError(
+                    "Partition %d not in 3 zones (got %r)" % (part, zones))
+            if 0 not in zones or 1 not in zones:
+                raise AssertionError(
+                    "Partition %d not in zones 0 and 1 (got %r)" %
+                    (part, zones))
+
     def test_rerebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
@@ -286,41 +528,27 @@ class TestRingBuilder(unittest.TestCase):
         self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb.devs[1]['parts'] += 1
 
-        # Test duplicate device for partition
+        # Test partition on nonexistent device
+        rb.pretend_min_part_hours_passed()
         orig_dev_id = rb._replica2part2dev[0][0]
-        rb._replica2part2dev[0][0] = rb._replica2part2dev[1][0]
+        rb._replica2part2dev[0][0] = len(rb.devs)
         self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb._replica2part2dev[0][0] = orig_dev_id
-
-        # Test duplicate zone for partition
-        rb.add_dev({'id': 5, 'zone': 0, 'weight': 2, 'ip': '127.0.0.1',
-                    'port': 10005, 'device': 'sda1'})
-        rb.pretend_min_part_hours_passed()
-        rb.rebalance()
-        rb.validate()
-        orig_replica = orig_partition = orig_device = None
-        for part2dev in rb._replica2part2dev:
-            for p in xrange(2**8):
-                if part2dev[p] == 5:
-                    for r in xrange(len(rb._replica2part2dev)):
-                        if rb._replica2part2dev[r][p] != 5:
-                            orig_replica = r
-                            orig_partition = p
-                            orig_device = rb._replica2part2dev[r][p]
-                            rb._replica2part2dev[r][p] = 0
-                            break
-                if orig_replica is not None:
-                    break
-            if orig_replica is not None:
-                break
-        self.assertRaises(exceptions.RingValidationError, rb.validate)
-        rb._replica2part2dev[orig_replica][orig_partition] = orig_device
 
         # Tests that validate can handle 'holes' in .devs
         rb.remove_dev(2)
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         rb.validate(stats=True)
+
+        # Test partition assigned to a hole
+        if rb.devs[2]:
+            rb.remove_dev(2)
+        rb.pretend_min_part_hours_passed()
+        orig_dev_id = rb._replica2part2dev[0][0]
+        rb._replica2part2dev[0][0] = 2
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
+        rb._replica2part2dev[0][0] = orig_dev_id
 
         # Validate that zero weight devices with no partitions don't count on
         # the 'worst' value.

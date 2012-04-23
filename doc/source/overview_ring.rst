@@ -134,15 +134,20 @@ If there are 1,000 devices of equal weight they will each desire 1,048.576
 partitions. The devices are then sorted by the number of partitions they desire
 and kept in order throughout the initialization process.
 
-Then, the ring builder assigns each partition's replica to the device that
-desires the most partitions at that point, with the restriction that the device
-is not in the same zone as any other replica for that partition. Once assigned,
-the device's desired partition count is decremented and moved to its new sorted
-location in the list of devices and the process continues.
+Then, the ring builder assigns each replica of each partition to the device
+that desires the most partitions at that point while keeping it as far away as
+possible from other replicas. The ring builder prefers to assign a replica to a
+device in a zone that has no replicas already; should there be no such zone
+available, the ring builder will try to find a device on a different server;
+failing that, it will just look for a device that has no replicas; finally, if
+all other options are exhausted, the ring builder will assign the replica to
+the device that has the fewest replicas already assigned.
 
 When building a new ring based on an old ring, the desired number of partitions
 each device wants is recalculated. Next the partitions to be reassigned are
 gathered up. Any removed devices have all their assigned partitions unassigned
+and added to the gathered list. Any partition replicas that (due to the
+addition of new devices) can be spread out for better durability are unassigned
 and added to the gathered list. Any devices that have more partitions than they
 now desire have random partitions unassigned from them and added to the
 gathered list. Lastly, the gathered partitions are then reassigned to devices

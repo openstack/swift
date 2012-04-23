@@ -373,7 +373,7 @@ class ObjectReplicator(Daemon):
                           headers={'Content-Length': '0'}).getresponse().read()
                     responses.append(success)
             if not suffixes or (len(responses) == \
-                        self.object_ring.replica_count and all(responses)):
+                        len(job['nodes']) and all(responses)):
                 self.logger.info(_("Removing partition: %s"), job['path'])
                 tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
         except (Exception, Timeout):
@@ -397,7 +397,7 @@ class ObjectReplicator(Daemon):
             if isinstance(hashed, BaseException):
                 raise hashed
             self.suffix_hash += hashed
-            attempts_left = self.object_ring.replica_count - 1
+            attempts_left = len(job['nodes'])
             nodes = itertools.chain(job['nodes'],
                         self.object_ring.get_more_nodes(int(job['partition'])))
             while attempts_left > 0:
@@ -533,12 +533,13 @@ class ObjectReplicator(Daemon):
                 continue
             for partition in os.listdir(obj_path):
                 try:
-                    nodes = [node for node in
+                    part_nodes = \
                         self.object_ring.get_part_nodes(int(partition))
+                    nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
                     jobs.append(dict(path=join(obj_path, partition),
                         nodes=nodes,
-                        delete=len(nodes) > self.object_ring.replica_count - 1,
+                        delete=len(nodes) > len(part_nodes) - 1,
                         partition=partition))
                 except ValueError:
                     continue

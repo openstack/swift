@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import bisect
+import itertools
+import math
+
 from array import array
 from collections import defaultdict
 from random import randint, shuffle
@@ -20,6 +24,7 @@ from time import time
 
 from swift.common import exceptions
 from swift.common.ring import RingData
+from swift.common.ring.utils import tiers_for_dev, build_tier_tree
 
 
 class RingBuilder(object):
@@ -71,7 +76,11 @@ class RingBuilder(object):
         self._remove_devs = []
         self._ring = None
 
-    def weighted_parts(self):
+    def weight_of_one_part(self):
+        """
+        Returns the weight of each partition as calculated from the
+        total weight of all the devices.
+        """
         try:
             return self.parts * self.replicas / \
                      sum(d['weight'] for d in self._iter_devs())
@@ -81,6 +90,16 @@ class RingBuilder(object):
                                             'deleted')
 
     def copy_from(self, builder):
+        """
+        Reinitializes this RingBuilder instance from data obtained from the
+        builder dict given. Code example::
+
+            b = RingBuilder(1, 1, 1)  # Dummy values
+            b.copy_from(builder)
+
+        This is to restore a RingBuilder that has had its b.to_dict()
+        previously saved.
+        """
         if hasattr(builder, 'devs'):
             self.part_power = builder.part_power
             self.replicas = builder.replicas
@@ -110,6 +129,12 @@ class RingBuilder(object):
         self._ring = None
 
     def to_dict(self):
+        """
+        Returns a dict that can be used later with copy_from to
+        restore a RingBuilder. swift-ring-builder uses this to
+        pickle.dump the dict to a file and later load that dict into
+        copy_from.
+        """
         return {'part_power': self.part_power,
                 'replicas': self.replicas,
                 'min_part_hours': self.min_part_hours,
@@ -147,11 +172,20 @@ class RingBuilder(object):
         builder itself keeps additional data such as when partitions were last
         moved.
         """
+        # We cache the self._ring value so multiple requests for it don't build
+        # it multiple times. Be sure to set self._ring = None whenever the ring
+        # will need to be rebuilt.
         if not self._ring:
+            # Make devs list (with holes for deleted devices) and not including
+            # builder-specific extra attributes.
             devs = [None] * len(self.devs)
             for dev in self._iter_devs():
                 devs[dev['id']] = dict((k, v) for k, v in dev.items()
                                        if k not in ('parts', 'parts_wanted'))
+            # Copy over the replica+partition->device assignments, the device
+            # information, and the part_shift value (the number of bits to
+            # shift an unsigned int >I right to obtain the partition for the
+            # int).
             if not self._replica2part2dev:
                 self._ring = RingData([], devs, 32 - self.part_power)
             else:
@@ -189,6 +223,7 @@ class RingBuilder(object):
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
                     'Duplicate device id: %d' % dev['id'])
+        # Add holes to self.devs to ensure self.devs[dev['id']] will be the dev
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
         dev['weight'] = float(dev['weight'])
@@ -248,6 +283,8 @@ class RingBuilder(object):
         below 1% or doesn't change by more than 1% (only happens with ring that
         can't be balanced no matter what -- like with 3 zones of differing
         weights with replicas set to 3).
+
+        :returns: (number_of_partitions_altered, resulting_balance)
         """
         self._ring = None
         if self._last_part_moves_epoch is None:
@@ -277,15 +314,19 @@ class RingBuilder(object):
         Validate the ring.
 
         This is a safety function to try to catch any bugs in the building
-        process. It ensures partitions have been assigned to distinct zones,
+        process. It ensures partitions have been assigned to real devices,
         aren't doubly assigned, etc. It can also optionally check the even
         distribution of partitions across devices.
 
         :param stats: if True, check distribution of partitions across devices
-        :returns: if stats is True, a tuple of (device usage, worst stat), else
-                  (None, None)
+        :returns: if stats is True, a tuple of (device_usage, worst_stat), else
+                  (None, None). device_usage[dev_id] will equal the number of
+                  partitions assigned to that device. worst_stat will equal the
+                  number of partitions the worst device is skewed from the
+                  number it should have.
         :raises RingValidationError: problem was found with the ring.
         """
+
         if sum(d['parts'] for d in self._iter_devs()) != \
                 self.parts * self.replicas:
             raise exceptions.RingValidationError(
@@ -293,33 +334,37 @@ class RingBuilder(object):
                 (sum(d['parts'] for d in self._iter_devs()),
                  self.parts * self.replicas))
         if stats:
+            # dev_usage[dev_id] will equal the number of partitions assigned to
+            # that device.
             dev_usage = array('I', (0 for _junk in xrange(len(self.devs))))
+            for part2dev in self._replica2part2dev:
+                for dev_id in part2dev:
+                    dev_usage[dev_id] += 1
+
         for part in xrange(self.parts):
-            zones = {}
             for replica in xrange(self.replicas):
                 dev_id = self._replica2part2dev[replica][part]
-                if stats:
-                    dev_usage[dev_id] += 1
-                zone = self.devs[dev_id]['zone']
-                if zone in zones:
+                if dev_id >= len(self.devs) or not self.devs[dev_id]:
                     raise exceptions.RingValidationError(
-                        'Partition %d not in %d distinct zones. ' \
-                        'Zones were: %s' %
-                        (part, self.replicas,
-                         [self.devs[self._replica2part2dev[r][part]]['zone']
-                          for r in xrange(self.replicas)]))
-                zones[zone] = True
+                        "Partition %d, replica %d was not allocated "
+                        "to a device." %
+                        (part, replica))
+
         if stats:
-            weighted_parts = self.weighted_parts()
+            weight_of_one_part = self.weight_of_one_part()
             worst = 0
             for dev in self._iter_devs():
                 if not dev['weight']:
                     if dev_usage[dev['id']]:
+                        # If a device has no weight, but has partitions, then
+                        # its overage is considered "infinity" and therefore
+                        # always the worst possible. We show 999.99 for
+                        # convenience.
                         worst = 999.99
                         break
                     continue
                 skew = abs(100.0 * dev_usage[dev['id']] /
-                           (dev['weight'] * weighted_parts) - 100.0)
+                           (dev['weight'] * weight_of_one_part) - 100.0)
                 if skew > worst:
                     worst = skew
             return dev_usage, worst
@@ -337,15 +382,18 @@ class RingBuilder(object):
         :returns: balance of the ring
         """
         balance = 0
-        weighted_parts = self.weighted_parts()
+        weight_of_one_part = self.weight_of_one_part()
         for dev in self._iter_devs():
             if not dev['weight']:
                 if dev['parts']:
+                    # If a device has no weight, but has partitions, then its
+                    # overage is considered "infinity" and therefore always the
+                    # worst possible. We show 999.99 for convenience.
                     balance = 999.99
                     break
                 continue
             dev_balance = abs(100.0 * dev['parts'] /
-                              (dev['weight'] * weighted_parts) - 100.0)
+                              (dev['weight'] * weight_of_one_part) - 100.0)
             if dev_balance > balance:
                 balance = dev_balance
         return balance
@@ -369,6 +417,12 @@ class RingBuilder(object):
         return [self.devs[r[part]] for r in self._replica2part2dev]
 
     def _iter_devs(self):
+        """
+        Returns an iterator all the non-None devices in the ring. Note that
+        this means list(b._iter_devs())[some_id] may not equal b.devs[some_id];
+        you will have to check the 'id' key of each device to obtain its
+        dev_id.
+        """
         for dev in self.devs:
             if dev is not None:
                 yield dev
@@ -378,16 +432,20 @@ class RingBuilder(object):
         Sets the parts_wanted key for each of the devices to the number of
         partitions the device wants based on its relative weight. This key is
         used to sort the devices according to "most wanted" during rebalancing
-        to best distribute partitions.
+        to best distribute partitions. A negative parts_wanted indicates the
+        device is "overweight" and wishes to give partitions away if possible.
         """
-        weighted_parts = self.weighted_parts()
+        weight_of_one_part = self.weight_of_one_part()
 
         for dev in self._iter_devs():
             if not dev['weight']:
-                dev['parts_wanted'] = self.parts * -2
+                # With no weight, that means we wish to "drain" the device. So
+                # we set the parts_wanted to a really large negative number to
+                # indicate its strong desire to give up everything it has.
+                dev['parts_wanted'] = -self.parts * self.replicas
             else:
                 dev['parts_wanted'] = \
-                    int(weighted_parts * dev['weight']) - dev['parts']
+                    int(weight_of_one_part * dev['weight']) - dev['parts']
 
     def _initial_balance(self):
         """
@@ -417,10 +475,14 @@ class RingBuilder(object):
 
     def _gather_reassign_parts(self):
         """
-        Returns a list of (partition, replicas) pairs to be reassigned
-        by gathering them from removed devices and overweight devices.
+        Returns a list of (partition, replicas) pairs to be reassigned by
+        gathering from removed devices, insufficiently-far-apart replicas, and
+        overweight drives.
         """
-        reassign_parts = defaultdict(list)
+        # First we gather partitions from removed devices. Since removed
+        # devices usually indicate device failures, we have no choice but to
+        # reassign these partitions. However, we mark them as moved so later
+        # choices will skip other replicas of the same partition if possible.
         removed_dev_parts = defaultdict(list)
         if self._remove_devs:
             dev_ids = [d['id'] for d in self._remove_devs if d['parts']]
@@ -432,26 +494,76 @@ class RingBuilder(object):
                             self._last_part_moves[part] = 0
                             removed_dev_parts[part].append(replica)
 
+        # Now we gather partitions that are "at risk" because they aren't
+        # currently sufficient spread out across the cluster.
+        spread_out_parts = defaultdict(list)
+        max_allowed_replicas = self._build_max_replicas_by_tier()
+        for part in xrange(self.parts):
+            # Only move one replica at a time if possible.
+            if part in removed_dev_parts:
+                continue
+
+            # First, add up the count of replicas at each tier for each
+            # partition.
+            replicas_at_tier = defaultdict(lambda: 0)
+            for replica in xrange(self.replicas):
+                dev = self.devs[self._replica2part2dev[replica][part]]
+                for tier in tiers_for_dev(dev):
+                    replicas_at_tier[tier] += 1
+
+            # Now, look for partitions not yet spread out enough and not
+            # recently moved.
+            for replica in xrange(self.replicas):
+                dev = self.devs[self._replica2part2dev[replica][part]]
+                removed_replica = False
+                for tier in tiers_for_dev(dev):
+                    if (replicas_at_tier[tier] > max_allowed_replicas[tier] and
+                           self._last_part_moves[part] >= self.min_part_hours):
+                        self._last_part_moves[part] = 0
+                        spread_out_parts[part].append(replica)
+                        dev['parts_wanted'] += 1
+                        dev['parts'] -= 1
+                        removed_replica = True
+                        break
+                if removed_replica:
+                    for tier in tiers_for_dev(dev):
+                        replicas_at_tier[tier] -= 1
+
+        # Last, we gather partitions from devices that are "overweight" because
+        # they have more partitions than their parts_wanted.
+        reassign_parts = defaultdict(list)
+
+        # We randomly pick a new starting point in the "circular" ring of
+        # partitions to try to get a better rebalance when called multiple
+        # times.
         start = self._last_part_gather_start / 4 + randint(0, self.parts / 2)
         self._last_part_gather_start = start
         for replica in xrange(self.replicas):
             part2dev = self._replica2part2dev[replica]
-            for half in (xrange(start, self.parts), xrange(0, start)):
-                for part in half:
-                    if self._last_part_moves[part] < self.min_part_hours:
-                        continue
-                    if part in removed_dev_parts:
-                        continue
-                    dev = self.devs[part2dev[part]]
-                    if dev['parts_wanted'] < 0:
-                        self._last_part_moves[part] = 0
-                        dev['parts_wanted'] += 1
-                        dev['parts'] -= 1
-                        reassign_parts[part].append(replica)
+            for part in itertools.chain(xrange(start, self.parts),
+                                        xrange(0, start)):
+                if self._last_part_moves[part] < self.min_part_hours:
+                    continue
+                if part in removed_dev_parts or part in spread_out_parts:
+                    continue
+                dev = self.devs[part2dev[part]]
+                if dev['parts_wanted'] < 0:
+                    self._last_part_moves[part] = 0
+                    dev['parts_wanted'] += 1
+                    dev['parts'] -= 1
+                    reassign_parts[part].append(replica)
 
+        reassign_parts.update(spread_out_parts)
         reassign_parts.update(removed_dev_parts)
 
         reassign_parts_list = list(reassign_parts.iteritems())
+        # We shuffle the partitions to reassign so we get a more even
+        # distribution later. There has been discussion of trying to distribute
+        # partitions more "regularly" because that would actually reduce risk
+        # but 1) it is really difficult to do this with uneven clusters and 2)
+        # it would concentrate load during failure recovery scenarios
+        # (increasing risk). The "right" answer has yet to be debated to
+        # conclusion, but working code wins for now.
         shuffle(reassign_parts_list)
         return reassign_parts_list
 
@@ -461,7 +573,20 @@ class RingBuilder(object):
         the initial assignment. The devices are ordered by how many partitions
         they still want and kept in that order throughout the process. The
         gathered partitions are iterated through, assigning them to devices
-        according to the "most wanted" and distinct zone restrictions.
+        according to the "most wanted" while keeping the replicas as "far
+        apart" as possible. Two different zones are considered the
+        farthest-apart things, followed by different ip/port pairs within a
+        zone; the least-far-apart things are different devices with the same
+        ip/port pair in the same zone.
+
+        If you want more replicas than devices, you won't get all your
+        replicas.
+
+        :param reassign_parts: An iterable of (part, replicas_to_replace)
+                               pairs. replicas_to_replace is an iterable of the
+                               replica (an int) to replace for that partition.
+                               replicas_to_replace may be shared for multiple
+                               partitions, so be sure you do not modify it.
         """
         for dev in self._iter_devs():
             dev['sort_key'] = self._sort_key_for(dev)
@@ -469,42 +594,146 @@ class RingBuilder(object):
             sorted((d for d in self._iter_devs() if d['weight']),
                    key=lambda x: x['sort_key'])
 
-        for part, replace_replicas in reassign_parts:
-            other_zones = array('H')
-            replace = []
-            for replica in xrange(self.replicas):
-                if replica in replace_replicas:
-                    replace.append(replica)
-                else:
-                    other_zones.append(self.devs[
-                        self._replica2part2dev[replica][part]]['zone'])
+        tier2children = build_tier_tree(available_devs)
 
-            for replica in replace:
-                index = len(available_devs) - 1
-                while available_devs[index]['zone'] in other_zones:
-                    index -= 1
-                dev = available_devs.pop(index)
-                other_zones.append(dev['zone'])
-                self._replica2part2dev[replica][part] = dev['id']
+        tier2devs = defaultdict(list)
+        tier2sort_key = defaultdict(list)
+        tiers_by_depth = defaultdict(set)
+        for dev in available_devs:
+            for tier in tiers_for_dev(dev):
+                tier2devs[tier].append(dev)  # <-- starts out sorted!
+                tier2sort_key[tier].append(dev['sort_key'])
+                tiers_by_depth[len(tier)].add(tier)
+
+        for part, replace_replicas in reassign_parts:
+            # Gather up what other tiers (zones, ip_ports, and devices) the
+            # replicas not-to-be-moved are in for this part.
+            other_replicas = defaultdict(lambda: 0)
+            for replica in xrange(self.replicas):
+                if replica not in replace_replicas:
+                    dev = self.devs[self._replica2part2dev[replica][part]]
+                    for tier in tiers_for_dev(dev):
+                        other_replicas[tier] += 1
+
+            def find_home_for_replica(tier=(), depth=1):
+                # Order the tiers by how many replicas of this
+                # partition they already have. Then, of the ones
+                # with the smallest number of replicas, pick the
+                # tier with the hungriest drive and then continue
+                # searching in that subtree.
+                #
+                # There are other strategies we could use here,
+                # such as hungriest-tier (i.e. biggest
+                # sum-of-parts-wanted) or picking one at random.
+                # However, hungriest-drive is what was used here
+                # before, and it worked pretty well in practice.
+                #
+                # Note that this allocator will balance things as
+                # evenly as possible at each level of the device
+                # layout. If your layout is extremely unbalanced,
+                # this may produce poor results.
+                candidate_tiers = tier2children[tier]
+                min_count = min(other_replicas[t] for t in candidate_tiers)
+                candidate_tiers = [t for t in candidate_tiers
+                                   if other_replicas[t] == min_count]
+                candidate_tiers.sort(
+                    key=lambda t: tier2devs[t][-1]['parts_wanted'])
+
+                if depth == max(tiers_by_depth.keys()):
+                    return tier2devs[candidate_tiers[-1]][-1]
+
+                return find_home_for_replica(tier=candidate_tiers[-1],
+                                             depth=depth + 1)
+
+            for replica in replace_replicas:
+                dev = find_home_for_replica()
                 dev['parts_wanted'] -= 1
                 dev['parts'] += 1
-                dev['sort_key'] = self._sort_key_for(dev)
-                self._insert_dev_sorted(available_devs, dev)
+                old_sort_key = dev['sort_key']
+                new_sort_key = dev['sort_key'] = self._sort_key_for(dev)
+                for tier in tiers_for_dev(dev):
+                    other_replicas[tier] += 1
 
+                    index = bisect.bisect_left(tier2sort_key[tier],
+                                               old_sort_key)
+                    tier2devs[tier].pop(index)
+                    tier2sort_key[tier].pop(index)
+
+                    new_index = bisect.bisect_left(tier2sort_key[tier],
+                                                   new_sort_key)
+                    tier2devs[tier].insert(new_index, dev)
+                    tier2sort_key[tier].insert(new_index, new_sort_key)
+
+                self._replica2part2dev[replica][part] = dev['id']
+
+        # Just to save memory and keep from accidental reuse.
         for dev in self._iter_devs():
             del dev['sort_key']
 
-    def _insert_dev_sorted(self, devs, dev):
-        index = 0
-        end = len(devs)
-        while index < end:
-            mid = (index + end) // 2
-            if dev['sort_key'] < devs[mid]['sort_key']:
-                end = mid
-            else:
-                index = mid + 1
-        devs.insert(index, dev)
-
     def _sort_key_for(self, dev):
-        return '%08x.%04x' % (self.parts + dev['parts_wanted'],
-                              randint(0, 0xffff))
+        # The maximum value of self.parts is 2^32, which is 9 hex
+        # digits wide (0x100000000). Using a width of 16 here gives us
+        # plenty of breathing room; you'd need more than 2^28 replicas
+        # to overflow it.
+        # Since the sort key is a string and therefore an ascii sort applies,
+        # the maximum_parts_wanted + parts_wanted is used so negative
+        # parts_wanted end up sorted above positive parts_wanted.
+        return '%016x.%04x.%04x' % (
+            (self.parts * self.replicas) + dev['parts_wanted'],
+            randint(0, 0xffff),
+            dev['id'])
+
+    def _build_max_replicas_by_tier(self):
+        """
+        Returns a dict of (tier: replica_count) for all tiers in the ring.
+
+        There will always be a () entry as the root of the structure, whose
+        replica_count will equal the ring's replica_count.
+
+        Then there will be (dev_id,) entries for each device, indicating the
+        maximum number of replicas the device might have for any given
+        partition. Anything greater than 1 indicates a partition at serious
+        risk, as the data on that partition will not be stored distinctly at
+        the ring's replica_count.
+
+        Next there will be (dev_id, ip_port) entries for each device,
+        indicating the maximum number of replicas the device shares with other
+        devices on the same ip_port for any given partition. Anything greater
+        than 1 indicates a partition at elevated risk, as if that ip_port were
+        to fail multiple replicas of that partition would be unreachable.
+
+        Last there will be (dev_id, ip_port, zone) entries for each device,
+        indicating the maximum number of replicas the device shares with other
+        devices within the same zone for any given partition. Anything greater
+        than 1 indicates a partition at slightly elevated risk, as if that zone
+        were to fail multiple replicas of that partition would be unreachable.
+
+        Example return dict for the common SAIO setup::
+
+            {(): 3,
+             (1,): 1.0,
+             (1, '127.0.0.1:6010'): 1.0,
+             (1, '127.0.0.1:6010', 0): 1.0,
+             (2,): 1.0,
+             (2, '127.0.0.1:6020'): 1.0,
+             (2, '127.0.0.1:6020', 1): 1.0,
+             (3,): 1.0,
+             (3, '127.0.0.1:6030'): 1.0,
+             (3, '127.0.0.1:6030', 2): 1.0,
+             (4,): 1.0,
+             (4, '127.0.0.1:6040'): 1.0,
+             (4, '127.0.0.1:6040', 3): 1.0}
+        """
+        # Used by walk_tree to know what entries to create for each recursive
+        # call.
+        tier2children = build_tier_tree(self._iter_devs())
+
+        def walk_tree(tier, replica_count):
+            mr = {tier: replica_count}
+            if tier in tier2children:
+                subtiers = tier2children[tier]
+                for subtier in subtiers:
+                    submax = math.ceil(float(replica_count) / len(subtiers))
+                    mr.update(walk_tree(subtier, submax))
+            return mr
+        return walk_tree((), self.replicas)

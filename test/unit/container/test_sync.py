@@ -26,7 +26,6 @@ utils.HASH_PATH_SUFFIX = 'endcap'
 class FakeRing(object):
 
     def __init__(self):
-        self.replica_count = 3
         self.devs = [{'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
                      for x in xrange(3)]
 

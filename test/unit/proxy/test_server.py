@@ -252,7 +252,6 @@ class FakeRing(object):
         # this is set higher.
         self.max_more_nodes = 0
         self.devs = {}
-        self.replica_count = 3
 
     def get_nodes(self, account, container=None, obj=None):
         devs = []
@@ -852,7 +851,6 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 204, 500, 404), 503)
 
     def test_PUT_connect_exceptions(self):
-
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')
@@ -873,7 +871,6 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 503, 503, -1), 503)
 
     def test_PUT_send_exceptions(self):
-
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                 'container', 'object')

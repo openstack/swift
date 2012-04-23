@@ -298,7 +298,7 @@ class ContainerSync(Daemon):
                     # will attempt to sync previously skipped rows in case the
                     # other nodes didn't succeed.
                     if unpack_from('>I', key)[0] % \
-                            self.container_ring.replica_count != ordinal:
+                            len(nodes) != ordinal:
                         if not self.container_sync_row(row, sync_to, sync_key,
                                                        broker, info):
                             return
@@ -317,7 +317,7 @@ class ContainerSync(Daemon):
                     # previously skipped rows in case the other nodes didn't
                     # succeed.
                     if unpack_from('>I', key)[0] % \
-                            self.container_ring.replica_count == ordinal:
+                            len(nodes) == ordinal:
                         if not self.container_sync_row(row, sync_to, sync_key,
                                                        broker, info):
                             return

@@ -433,7 +433,7 @@ class TestObjectReplicator(unittest.TestCase):
             replicator.logger.exception = \
                 lambda *args, **kwargs: fake_exc(self, *args, **kwargs)
             # Write some files into '1' and run replicate- they should be moved
-            # to the other partitoins and then node should get deleted.
+            # to the other partitions and then node should get deleted.
             cur_part = '1'
             df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
                           FakeLogger())
