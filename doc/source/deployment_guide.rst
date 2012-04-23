@@ -512,8 +512,12 @@ bind_port                     80               Port for server to bind to
 swift_dir                     /etc/swift       Swift configuration directory
 workers                       1                Number of workers to fork
 user                          swift            User to run as
-cert_file                                      Path to the ssl .crt 
-key_file                                       Path to the ssl .key
+cert_file                                      Path to the ssl .crt. This
+                                               should be enabled for testing
+                                               purposes only.
+key_file                                       Path to the ssl .key. This
+                                               should be enabled for testing
+                                               purposes only.
 ============================  ===============  =============================
 
 [proxy-server]

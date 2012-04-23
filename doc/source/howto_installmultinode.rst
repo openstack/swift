@@ -109,7 +109,9 @@ Configure the Proxy node
 
 .. note::
 	If you don't create the cert files, Swift silently uses http internally rather than https. This document assumes that you have created
-	these certs, so if you're following along step-by-step, create them.
+	these certs, so if you're following along step-by-step, create them. In a
+    production cluster, you should terminate SSL before the proxy server. SSL
+    support is provided for testing purposes only.
 
 #. Modify memcached to listen on the default interfaces. Preferably this should be on a local, non-public network. Edit the IP address in /etc/memcached.conf, for example::
 
