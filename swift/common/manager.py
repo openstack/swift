@@ -539,7 +539,7 @@ class Server():
         """
         status = 0
         for proc in self.procs:
-            # wait for process to close it's stdout
+            # wait for process to close its stdout
             output = proc.stdout.read()
             if output:
                 print output

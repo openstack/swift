@@ -44,7 +44,7 @@ from swift.common.utils import cache_from_env, get_logger
 
 def lookup_cname(domain):  # pragma: no cover
     """
-    Given a domain, returns it's DNS CNAME mapping and DNS ttl.
+    Given a domain, returns its DNS CNAME mapping and DNS ttl.
 
     :param domain: domain to query on
     :returns: (ttl, result)

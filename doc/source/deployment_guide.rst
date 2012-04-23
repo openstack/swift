@@ -172,11 +172,11 @@ The resulting configuration that myapp receives is::
 So, `name1` got the global value which is fine since it's only in the `DEFAULT`
 section anyway.
 
-`name2` got the global value from `DEFAULT` even though it's seemingly
+`name2` got the global value from `DEFAULT` even though it appears to be
 overridden in the `app:myapp` subsection. This is just the unfortunate way
 paste.deploy works (at least at the time of this writing.)
 
-`name3` got the local value from the `app:myapp` subsection because it using
+`name3` got the local value from the `app:myapp` subsection because it is using
 the special paste.deploy syntax of ``set option_name = value``. So, if you want
 a default value for most app/filters but want to overridde it in one
 subsection, this is how you do it.

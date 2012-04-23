@@ -17,9 +17,9 @@ with the possibility of parallel uploads of the segments.
 Using ``swift`` for Segmented Objects
 -------------------------------------
 
-The quickest way to try out this feature is use the included ``swift`` Swift Tool.
-You can use the ``-S`` option to specify the segment size to use when splitting
-a large file. For example::
+The quickest way to try out this feature is use the included ``swift``
+Swift Tool.  You can use the ``-S`` option to specify the segment size
+to use when splitting a large file. For example::
 
     swift upload test_container -S 1073741824 large_file
 
@@ -31,10 +31,10 @@ So now, the following ``swift`` command would download the entire large object::
 
     swift download test_container large_file
 
-``swift`` uses a strict convention for its segmented object support. In the above
-example it will upload all the segments into a second container named
-test_container_segments. These segments will have names like
-large_file/1290206778.25/21474836480/00000000,
+``swift`` uses a strict convention for its segmented object
+support. In the above example it will upload all the segments into a
+second container named test_container_segments. These segments will
+have names like large_file/1290206778.25/21474836480/00000000,
 large_file/1290206778.25/21474836480/00000001, etc.
 
 The main benefit for using a separate container is that the main container
@@ -52,10 +52,10 @@ multiple versions of the same large object available.
 Direct API
 ----------
 
-You can also work with the segments and manifests directly with HTTP requests
-instead of having ``swift`` do that for you. You can just upload the segments like
-you would any other object and the manifest is just a zero-byte file with an
-extra ``X-Object-Manifest`` header.
+You can also work with the segments and manifests directly with HTTP
+requests instead of having ``swift`` do that for you. You can just
+upload the segments like you would any other object and the manifest
+is just a zero-byte file with an extra ``X-Object-Manifest`` header.
 
 All the object segments need to be in the same container, have a common object
 name prefix, and their names sort in the order they should be concatenated.

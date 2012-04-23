@@ -59,7 +59,7 @@ class RingBuilder(object):
         # _last_part_moves is a 2**23 array of unsigned bytes representing the
         # number of hours since a given partition was last moved. This is used
         # to guarantee we don't move a partition twice within a given number of
-        # hours (24 is my usual test). Removing a device or setting it's weight
+        # hours (24 is my usual test). Removing a device or setting its weight
         # to 0 overrides this behavior as it's assumed those actions are done
         # because of device failure.
         # _last_part_moves_epoch indicates the time the offsets in

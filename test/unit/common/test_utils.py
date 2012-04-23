@@ -675,7 +675,7 @@ log_name = %(yarr)s'''
         start = time.time()
         for i in range(50):
             running_time = utils.ratelimit_sleep(running_time, 200)
-        # make sure its accurate to 10th of a second
+        # make sure it's accurate to 10th of a second
         self.assertTrue(abs(25 - (time.time() - start) * 100) < 10)
 
     def test_ratelimit_sleep_with_incr(self):
@@ -720,7 +720,7 @@ log_name = %(yarr)s'''
             running_time = utils.ratelimit_sleep(running_time, 40,
                                                  rate_buffer=1)
             time.sleep(i)
-        # make sure its accurate to 10th of a second
+        # make sure it's accurate to 10th of a second
         self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
     def test_search_tree(self):
