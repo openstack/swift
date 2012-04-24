@@ -14,31 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import array
 from datetime import datetime
 import locale
-import os
-import os.path
 import random
 import StringIO
-import sys
 import time
 import threading
 import uuid
 import unittest
-import urllib
 
 from test import get_config
-from swift import Account, AuthenticationFailed, Connection, Container, \
-     File, ResponseError
+from test.functional.swift import Account, Connection, File, ResponseError
 
 config = get_config()
 
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
-
-class Base:
-    pass
 
 def chunks(s, length=3):
     i, j = 0, length
