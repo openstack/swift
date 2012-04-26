@@ -5,6 +5,7 @@
 # swift_dir = /etc/swift
 # workers = 1
 # user = swift
+# Set the following two lines to enable SSL. This is for testing only.
 # cert_file = /etc/swift/proxy.crt
 # key_file = /etc/swift/proxy.key
 # expiring_objects_container_divisor = 86400
