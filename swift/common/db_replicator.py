@@ -29,8 +29,9 @@ from webob import Response
 from webob.exc import HTTPNotFound, HTTPNoContent, HTTPAccepted, \
     HTTPInsufficientStorage, HTTPBadRequest
 
+import swift.common.db
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
-    renamer, mkdirs, lock_parent_directory, unlink_older_than
+    renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than
 from swift.common import ring
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
@@ -120,6 +121,8 @@ class Replicator(Daemon):
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
+        swift.common.db.DB_PREALLOCATION = \
+            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
         self._zero_stats()
 
     def _zero_stats(self):
