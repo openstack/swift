@@ -108,8 +108,8 @@ Configure the Proxy node
         openssl req -new -x509 -nodes -out cert.crt -keyout cert.key
 
 .. note::
-	If you don't create the cert files, Swift silently uses http internally rather than https. This document assumes that you have created
-	these certs, so if you're following along step-by-step, create them. In a
+    If you don't create the cert files, Swift silently uses http internally rather than https. This document assumes that you have created
+    these certs, so if you're following along step-by-step, create them. In a
     production cluster, you should terminate SSL before the proxy server. SSL
     support is provided for testing purposes only.
 
