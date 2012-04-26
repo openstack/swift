@@ -134,8 +134,7 @@ class FakeAppObject(FakeApp):
                 if 'HTTP_RANGE' in env:
                     resp = Response(body=self.object_body,
                                     conditional_response=True)
-                    resp_iter = iter(resp(env, start_response))
-                    return resp_iter.next()
+                    return resp(env, start_response)
                 start_response(Response().status,
                                self.response_headers.items())
                 if env['REQUEST_METHOD'] == 'GET':
