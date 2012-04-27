@@ -29,7 +29,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.db import ContainerBroker
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, whataremyips, TRUE_VALUES
+from swift.common.utils import get_logger, TRUE_VALUES
 from swift.common.daemon import Daemon
 
 

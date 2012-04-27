@@ -15,16 +15,11 @@
 
 import os
 import time
-import uuid
-import errno
-from hashlib import md5
-from random import random
 
 from eventlet import Timeout
 
 from swift.obj import server as object_server
-from swift.obj.replicator import invalidate_hash
-from swift.common.utils import get_logger, renamer, audit_location_generator, \
+from swift.common.utils import get_logger, audit_location_generator, \
     ratelimit_sleep, TRUE_VALUES
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist

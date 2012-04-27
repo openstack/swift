@@ -51,15 +51,11 @@ following for an SAIO setup::
 """
 
 from urllib import unquote, quote
-import rfc822
-import hmac
 import base64
-import errno
 from xml.sax.saxutils import escape as xml_escape
 import urlparse
 
 from webob import Request, Response
-from webob.exc import HTTPNotFound
 from simplejson import loads
 
 from swift.common.utils import split_path
