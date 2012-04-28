@@ -28,13 +28,14 @@ use = egg:swift#object
 # network_chunk_size = 65536
 # disk_chunk_size = 65536
 # max_upload_time = 86400
-# slow = 1
+# slow = 0
 # on PUTs, sync data every n MB
 # mb_per_sync = 512
 # Comma separated list of headers that can be set in metadata on an object.
 # This list is in addition to X-Object-Meta-* headers and cannot include
 # Content-Type, etag, Content-Length, or deleted
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest
+# auto_create_account_prefix = .
 
 [filter:recon]
 use = egg:swift#recon
@@ -63,6 +64,7 @@ recon_cache_path = /var/cache/swift
 # enable logging of replication stats for recon
 # recon_enable = no
 # recon_cache_path = /var/cache/swift
+# ring_check_interval = 15
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

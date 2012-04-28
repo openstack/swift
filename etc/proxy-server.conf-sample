@@ -60,6 +60,10 @@ use = egg:swift#proxy
 # max_containers_whitelist =
 # comma separated list of Host headers the proxy will be deny requests to
 # deny_host_headers =
+# prefix used when automatically creating accounts
+# auto_create_account_prefix = .
+# depth of the proxy put queue
+# put_queue_depth = 10
 
 [filter:tempauth]
 use = egg:swift#tempauth

@@ -26,6 +26,7 @@ use = egg:swift#account
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_requests = True
+# auto_create_account_prefix = .
 
 [account-replicator]
 # You can override the default log routing for this app here (don't use set!):
@@ -33,8 +34,6 @@ use = egg:swift#account
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # vm_test_mode = no
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # per_diff = 1000
 # max_diffs = 100
 # concurrency = 8
@@ -47,7 +46,9 @@ use = egg:swift#account
 # node_timeout = 10
 # conn_timeout = 0.5
 # The replicator also performs reclamation
-# reclaim_age = 86400
+# reclaim_age = 604800
+# Time in seconds to wait between replication passes
+# run_pause = 30
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -56,8 +57,6 @@ use = egg:swift#account
 # log_level = INFO
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 
 [account-reaper]
 # You can override the default log routing for this app here (don't use set!):
@@ -68,8 +67,6 @@ use = egg:swift#account
 # interval = 3600
 # node_timeout = 10
 # conn_timeout = 0.5
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # Normally, the reaper begins deleting account information for deleted accounts
 # immediately; you can set this to delay its work however. The value is in
 # seconds; 2592000 = 30 days for example.
