@@ -18,19 +18,32 @@ import logging
 logging.raiseExceptions = False
 
 
-def get_config():
+def get_config(section_name=None, defaults=None):
     """
-    Attempt to get a functional config dictionary.
+    Attempt to get a test config dictionary.
+
+    :param section_name: the section to read (all sections if not defined)
+    :param defaults: an optional dictionary namespace of defaults
     """
     config_file = os.environ.get('SWIFT_TEST_CONFIG_FILE',
-                                 '/etc/swift/func_test.conf')
+                                 '/etc/swift/test.conf')
     config = {}
+    if defaults is not None:
+        config.update(defaults)
+
     try:
-        try:
-            config = readconf(config_file, 'func_test')
-        except MissingSectionHeaderError:
-            config_fp = StringIO('[func_test]\n' + open(config_file).read())
-            config = readconf(config_fp, 'func_test')
+        config = readconf(config_file, section_name)
     except SystemExit:
-        print >>sys.stderr, 'UNABLE TO READ FUNCTIONAL TESTS CONFIG FILE'
+        if not os.path.exists(config_file):
+            print >>sys.stderr, \
+                'Unable to read test config %s - file not found' \
+                % config_file
+        elif not os.access(config_file, os.R_OK):
+            print >>sys.stderr, \
+                'Unable to read test config %s - permission denied' \
+                % config_file
+        else:
+            print >>sys.stderr, \
+                'Unable to read test config %s - section %s not found' \
+                % (config_file, section_name)
     return config

@@ -26,7 +26,7 @@ import unittest
 from test import get_config
 from test.functional.swift import Account, Connection, File, ResponseError
 
-config = get_config()
+config = get_config('func_test')
 
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
