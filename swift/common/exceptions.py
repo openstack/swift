@@ -26,19 +26,27 @@ class MessageTimeout(Timeout):
         return '%s: %s' % (Timeout.__str__(self), self.msg)
 
 
-class AuditException(Exception):
+class SwiftException(Exception):
     pass
 
 
-class DiskFileError(Exception):
+class SwiftConfigurationError(SwiftException):
     pass
 
 
-class DiskFileNotExist(Exception):
+class AuditException(SwiftException):
     pass
 
 
-class AuthException(Exception):
+class DiskFileError(SwiftException):
+    pass
+
+
+class DiskFileNotExist(SwiftException):
+    pass
+
+
+class AuthException(SwiftException):
     pass
 
 
@@ -54,7 +62,7 @@ class ConnectionTimeout(Timeout):
     pass
 
 
-class DriveNotMounted(Exception):
+class DriveNotMounted(SwiftException):
     pass
 
 
@@ -62,7 +70,7 @@ class LockTimeout(MessageTimeout):
     pass
 
 
-class RingBuilderError(Exception):
+class RingBuilderError(SwiftException):
     pass
 
 
@@ -78,7 +86,7 @@ class DuplicateDeviceError(RingBuilderError):
     pass
 
 
-class ListingIterError(Exception):
+class ListingIterError(SwiftException):
     pass
 
 
