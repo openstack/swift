@@ -24,6 +24,7 @@ from eventlet.green.httplib import CannotSendRequest
 from swift.common.utils import TRUE_VALUES
 from swift.common import client
 from swift.common import direct_client
+from swift.common.http import HTTP_CONFLICT
 
 
 class ConnectionPool(eventlet.pools.Pool):
@@ -152,7 +153,7 @@ class BenchDELETE(Bench):
             try:
                 client.delete_container(self.url, self.token, container)
             except client.ClientException, e:
-                if e.http_status != 409:
+                if e.http_status != HTTP_CONFLICT:
                     self._log_status("Unable to delete container '%s'. " \
                         "Got http status '%d'." % (container, e.http_status))
 

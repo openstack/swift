@@ -29,6 +29,7 @@ from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
     hash_path, TRUE_VALUES, validate_sync_to, whataremyips
 from swift.common.daemon import Daemon
+from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 
 
 class _Iter2FileLikeObject(object):
@@ -349,7 +350,7 @@ class ContainerSync(Daemon):
                                  'x-container-sync-key': sync_key},
                         proxy=self.proxy)
                 except ClientException, err:
-                    if err.http_status != 404:
+                    if err.http_status != HTTP_NOT_FOUND:
                         raise
                 self.container_deletes += 1
             else:
@@ -376,7 +377,7 @@ class ContainerSync(Daemon):
                         # non-404 one. We don't want to mistakenly assume the
                         # object no longer exists just because one says so and
                         # the others errored for some other reason.
-                        if not exc or exc.http_status == 404:
+                        if not exc or exc.http_status == HTTP_NOT_FOUND:
                             exc = err
                 if timestamp < looking_for_timestamp:
                     if exc:
@@ -398,13 +399,13 @@ class ContainerSync(Daemon):
                     contents=_Iter2FileLikeObject(body), proxy=self.proxy)
                 self.container_puts += 1
         except ClientException, err:
-            if err.http_status == 401:
+            if err.http_status == HTTP_UNAUTHORIZED:
                 self.logger.info(_('Unauth %(sync_from)r '
                     '=> %(sync_to)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to})
-            elif err.http_status == 404:
+            elif err.http_status == HTTP_NOT_FOUND:
                 self.logger.info(_('Not found %(sync_from)r '
                     '=> %(sync_to)r'),
                     {'sync_from': '%s/%s' %

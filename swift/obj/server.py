@@ -45,6 +45,8 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist
 from swift.obj.replicator import tpooled_get_hashes, invalidate_hash, \
     quarantine_renamer
+from swift.common.http import is_success, HTTPInsufficientStorage, \
+    HTTPClientDisconnect
 
 
 DATADIR = 'objects'
@@ -404,7 +406,7 @@ class ObjectController(object):
                 with Timeout(self.node_timeout):
                     response = conn.getresponse()
                     response.read()
-                    if 200 <= response.status < 300:
+                    if is_success(response.status):
                         return
                     else:
                         self.logger.error(_('ERROR Container update failed '
@@ -492,7 +494,7 @@ class ObjectController(object):
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
 
@@ -536,7 +538,7 @@ class ObjectController(object):
             return HTTPBadRequest(body=str(err), request=request,
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         if 'x-timestamp' not in request.headers or \
                     not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -575,7 +577,7 @@ class ObjectController(object):
 
             if 'content-length' in request.headers and \
                     int(request.headers['content-length']) != upload_size:
-                return Response(status='499 Client Disconnect')
+                return HTTPClientDisconnect(request=request)
             etag = etag.hexdigest()
             if 'etag' in request.headers and \
                             request.headers['etag'].lower() != etag:
@@ -625,7 +627,7 @@ class ObjectController(object):
             return HTTPBadRequest(body=str(err), request=request,
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, keep_data_fp=True,
                         disk_chunk_size=self.disk_chunk_size)
@@ -701,7 +703,7 @@ class ObjectController(object):
             resp.body = str(err)
             return resp
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         if file.is_deleted() or ('X-Delete-At' in file.metadata and
@@ -742,7 +744,7 @@ class ObjectController(object):
             return HTTPBadRequest(body='Missing timestamp', request=request,
                         content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         response_class = HTTPNoContent
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
@@ -785,7 +787,7 @@ class ObjectController(object):
             return HTTPBadRequest(body=str(e), request=request,
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
-            return Response(status='507 %s is not mounted' % device)
+            return HTTPInsufficientStorage(drive=device, request=request)
         path = os.path.join(self.devices, device, DATADIR, partition)
         if not os.path.exists(path):
             mkdirs(path)
