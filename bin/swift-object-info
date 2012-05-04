@@ -34,14 +34,14 @@ if __name__ == '__main__':
     datafile = sys.argv[1]
     fp = open(datafile, 'rb')
     metadata = read_metadata(fp)
-    path = metadata.pop('name','')
-    content_type = metadata.pop('Content-Type','')
-    ts = metadata.pop('X-Timestamp','')
-    etag = metadata.pop('ETag','')
-    length = metadata.pop('Content-Length','')
+    path = metadata.pop('name', '')
+    content_type = metadata.pop('Content-Type', '')
+    ts = metadata.pop('X-Timestamp', '')
+    etag = metadata.pop('ETag', '')
+    length = metadata.pop('Content-Length', '')
     if path:
         print 'Path: %s' % path
-        account, container, obj = path.split('/',3)[1:]
+        account, container, obj = path.split('/', 3)[1:]
         print '  Account: %s' % account
         print '  Container: %s' % container
         print '  Object: %s' % obj
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     h = md5()
     file_len = 0
     while True:
-        data = fp.read(64*1024)
+        data = fp.read(64 * 1024)
         if not data:
             break
         h.update(data)
