@@ -1572,7 +1572,7 @@ class AccountBroker(DatabaseBroker):
                     WHERE deleted = 0 AND """
                 query_args = []
                 if end_marker:
-                    query += ' name <= ? AND'
+                    query += ' name < ? AND'
                     query_args.append(end_marker)
                 if marker and marker >= prefix:
                     query += ' name > ? AND'
