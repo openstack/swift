@@ -427,7 +427,6 @@ class SwiftRecon(object):
             help="Default = /etc/swift")
         options, arguments = args.parse_args()
 
-
         if len(sys.argv) <= 1:
             args.print_help()
             sys.exit(0)

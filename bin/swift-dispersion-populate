@@ -96,7 +96,8 @@ if __name__ == '__main__':
     retries_done = 0
 
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
-                          conf['auth_key'], auth_version=conf.get('auth_version', '1.0'))
+                          conf['auth_key'],
+                          auth_version=conf.get('auth_version', '1.0'))
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
     connpool.create = lambda: Connection(conf['auth_url'],
