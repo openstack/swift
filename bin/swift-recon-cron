@@ -41,22 +41,27 @@ def main():
     conf = dict(c.items('filter:recon'))
     device_dir = conf.get('devices', '/srv/node')
     recon_cache_path = conf.get('recon_cache_path', '/var/cache/swift')
+    recon_lock_path = conf.get('recon_lock_path', '/var/lock')
     cache_file = os.path.join(recon_cache_path, "object.recon")
+    lock_dir = os.path.join(recon_lock_path, "swift-recon-object-cron")
     conf['log_name'] = conf.get('log_name', 'recon-cron')
     logger = get_logger(conf, log_route='recon-cron')
     try:
-        os.mkdir("/var/lock/swift-recon-object-cron")
+        os.mkdir(lock_dir)
     except OSError as e:
         logger.critical(_(str(e)))
         print str(e)
         sys.exit(1)
-    asyncs = async_count(device_dir, logger)
+    try:
+        asyncs = async_count(device_dir, logger)
+    except Exception:
+        logger.exception(_('Exception during recon-cron while accessing devices'))
     try:
         dump_recon_cache('async_pending', asyncs, cache_file)
     except Exception:
         logger.exception(_('Exception dumping recon cache'))
     try:
-        os.rmdir("/var/lock/swift-recon-object-cron")
+        os.rmdir(lock_dir)
     except Exception:
         logger.exception(_('Exception remove cronjob lock'))
 
