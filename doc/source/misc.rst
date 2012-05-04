@@ -80,6 +80,16 @@ Direct Client
     :undoc-members:
     :show-inheritance:
 
+.. _internal_client:
+
+Internal Client
+===============
+
+.. automodule:: swift.common.internal_client
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _buffered_http:
 
 Buffered HTTP

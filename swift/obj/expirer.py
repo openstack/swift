@@ -19,12 +19,12 @@ from time import time
 from urllib import quote
 
 from eventlet import sleep, Timeout
-from paste.deploy import loadapp
 from webob import Request
 
 from swift.common.daemon import Daemon
+from swift.common.internal_client import InternalClient
 from swift.common.utils import get_logger
-from swift.common.http import HTTP_NO_CONTENT, HTTP_NOT_FOUND, HTTP_CONFLICT, \
+from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 
 try:
@@ -48,9 +48,10 @@ class ObjectExpirer(Daemon):
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
             'expiring_objects'
-        self.retries = int(conf.get('retries') or 3)
-        self.app = loadapp('config:' + (conf.get('__file__') or
-                           '/etc/swift/object-expirer.conf'))
+        conf_path = conf.get('__file__') or '/etc/swift/object-expirer.conf'
+        request_tries = int(conf.get('request_tries') or 3)
+        self.swift = InternalClient(conf_path, 'Swift Object Expirer',
+            request_tries)
         self.report_interval = int(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
@@ -86,20 +87,26 @@ class ObjectExpirer(Daemon):
         self.report_objects = 0
         try:
             self.logger.debug(_('Run begin'))
+            containers, objects = \
+                self.swift.get_account_info(self.expiring_objects_account)
             self.logger.info(_('Pass beginning; %s possible containers; %s '
-                'possible objects') % self.get_account_info())
-            for container in self.iter_containers():
+                'possible objects') % (containers, objects))
+            for c in self.swift.iter_containers(self.expiring_objects_account):
+                container = c['name']
                 timestamp = int(container)
                 if timestamp > int(time()):
                     break
-                for obj in self.iter_objects(container):
+                for o in self.swift.iter_objects(self.expiring_objects_account,
+                        container):
+                    obj = o['name']
                     timestamp, actual_obj = obj.split('-', 1)
                     timestamp = int(timestamp)
                     if timestamp > int(time()):
                         break
                     try:
                         self.delete_actual_object(actual_obj, timestamp)
-                        self.delete_object(container, obj)
+                        self.swift.delete_object(self.expiring_objects_account,
+                            container, obj)
                         self.report_objects += 1
                     except (Exception, Timeout), err:
                         self.logger.exception(
@@ -107,7 +114,10 @@ class ObjectExpirer(Daemon):
                             (container, obj, str(err)))
                     self.report()
                 try:
-                    self.delete_container(container)
+                    self.swift.delete_container(
+                        self.expiring_objects_account, container,
+                            acceptable_statuses=(2, HTTP_NOT_FOUND,
+                            HTTP_CONFLICT))
                 except (Exception, Timeout), err:
                     self.logger.exception(
                         _('Exception while deleting container %s %s') %
@@ -137,80 +147,6 @@ class ObjectExpirer(Daemon):
             if elapsed < self.interval:
                 sleep(random() * (self.interval - elapsed))
 
-    def get_response(self, method, path, headers, acceptable_statuses):
-        headers['user-agent'] = 'Swift Object Expirer'
-        resp = exc_type = exc_value = exc_traceback = None
-        for attempt in xrange(self.retries):
-            req = Request.blank(path, environ={'REQUEST_METHOD': method},
-                                headers=headers)
-            try:
-                resp = req.get_response(self.app)
-                if resp.status_int in acceptable_statuses or \
-                        resp.status_int // 100 in acceptable_statuses:
-                    return resp
-            except (Exception, Timeout):
-                exc_type, exc_value, exc_traceback = exc_info()
-            sleep(2 ** (attempt + 1))
-        if resp:
-            raise Exception(_('Unexpected response %s') % (resp.status,))
-        if exc_type:
-            # To make pep8 tool happy, in place of raise t, v, tb:
-            raise exc_type(*exc_value.args), None, exc_traceback
-
-    def get_account_info(self):
-        """
-        Returns (container_count, object_count) tuple indicating the values for
-        the hidden expiration account.
-        """
-        resp = self.get_response('HEAD',
-            '/v1/' + quote(self.expiring_objects_account), {},
-            (2, HTTP_NOT_FOUND))
-        if resp.status_int == HTTP_NOT_FOUND:
-            return (0, 0)
-        return (int(resp.headers['x-account-container-count']),
-                int(resp.headers['x-account-object-count']))
-
-    def iter_containers(self):
-        """
-        Returns an iterator of container names of the hidden expiration account
-        listing.
-        """
-        path = '/v1/%s?format=json' % (quote(self.expiring_objects_account),)
-        marker = ''
-        while True:
-            resp = self.get_response('GET', path + '&marker=' + quote(marker),
-                                     {}, (2, HTTP_NOT_FOUND))
-            if resp.status_int in (HTTP_NO_CONTENT, HTTP_NOT_FOUND):
-                break
-            data = json.loads(resp.body)
-            if not data:
-                break
-            for item in data:
-                yield item['name']
-            marker = data[-1]['name']
-
-    def iter_objects(self, container):
-        """
-        Returns an iterator of object names of the hidden expiration account's
-        container listing for the container name given.
-
-        :param container: The name of the container to list.
-        """
-        path = '/v1/%s/%s?format=json' % \
-               (quote(self.expiring_objects_account), quote(container))
-        marker = ''
-        while True:
-            resp = self.get_response('GET', path + '&marker=' + quote(marker),
-                                     {}, (2, HTTP_NOT_FOUND))
-            if resp.status_int in (HTTP_NO_CONTENT, HTTP_NOT_FOUND):
-                break
-            data = json.loads(resp.body)
-            if not data:
-                break
-            for item in data:
-                yield item['name']
-            marker = data[-1]['name']
-
     def delete_actual_object(self, actual_obj, timestamp):
         """
         Deletes the end-user object indicated by the actual object name given
@@ -222,29 +158,6 @@ class ObjectExpirer(Daemon):
         :param timestamp: The timestamp the X-Delete-At value must match to
                           perform the actual delete.
         """
-        self.get_response('DELETE', '/v1/%s' % (quote(actual_obj),),
-                          {'X-If-Delete-At': str(timestamp)},
-                          (2, HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED))
-
-    def delete_object(self, container, obj):
-        """
-        Deletes an object from the hidden expiring object account.
-
-        :param container: The name of the container for the object.
-        :param obj: The name of the object to delete.
-        """
-        self.get_response('DELETE',
-            '/v1/%s/%s/%s' % (quote(self.expiring_objects_account),
-                              quote(container), quote(obj)),
-            {}, (2, HTTP_NOT_FOUND))
-
-    def delete_container(self, container):
-        """
-        Deletes a container from the hidden expiring object account.
-
-        :param container: The name of the container to delete.
-        """
-        self.get_response('DELETE',
-            '/v1/%s/%s' % (quote(self.expiring_objects_account),
-                           quote(container)),
-            {}, (2, HTTP_NOT_FOUND, HTTP_CONFLICT))
+        self.swift.make_request('DELETE', '/v1/%s' % (quote(actual_obj),),
+            {'X-If-Delete-At': str(timestamp)}, (2, HTTP_NOT_FOUND,
+            HTTP_PRECONDITION_FAILED))
