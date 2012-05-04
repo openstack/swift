@@ -26,6 +26,11 @@ be found on the `OpenStack wiki`_ and at http://docs.openstack.org.
 
 .. _`OpenStack wiki`: http://wiki.openstack.org
 
+.. note::
+
+    If you're looking for associated projects that enhance or use Swift, please see the :ref:`associated_projects` page.
+
+
 .. toctree::
     :maxdepth: 1
     
@@ -47,6 +52,7 @@ Overview and Concepts
     overview_object_versioning
     overview_container_sync
     overview_expiring_objects
+    associated_projects
 
 Developer Documentation
 =======================
