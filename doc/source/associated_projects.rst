@@ -53,3 +53,4 @@ Other
 -----
 
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
+* `StaticWeb <http://gholt.github.com/swift-staticweb/>`_ - Allows serving static websites from Swift containers using ACLs and other metadata on those containers.
