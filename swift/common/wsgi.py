@@ -27,6 +27,7 @@ from eventlet import greenio, GreenPool, sleep, wsgi, listen
 from paste.deploy import loadapp, appconfig
 from eventlet.green import socket, ssl
 from webob import Request
+from urllib import unquote
 
 from swift.common.utils import get_logger, drop_privileges, \
     validate_configuration, capture_stdio, NullLogger
@@ -264,7 +265,10 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
     :param method: HTTP method of new request; default is from
                    the original env.
     :param path: HTTP path of new request; default is from the
-                 original env.
+                 original env. path should be compatible with what you
+                 would send to Request.blank. path should be quoted and it
+                 can include a query string. for example:
+                 '/a%20space?unicode_str%E8%AA%9E=y%20es'
     :param body: HTTP body of new request; empty by default.
     :param headers: Extra HTTP headers of new request; None by
                     default.
@@ -276,17 +280,21 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
                   have no HTTP_USER_AGENT.
     :returns: Fresh webob.Request object.
     """
-    newenv = make_pre_authed_env(env, method, path, agent)
+    query_string = None
+    if path and '?' in path:
+        path, query_string = path.split('?', 1)
+    newenv = make_pre_authed_env(env, method, path=unquote(path), agent=agent,
+                                 query_string=query_string)
     if not headers:
         headers = {}
     if body:
-        return Request.blank(path, environ=newenv, body=body,
-                             headers=headers)
+        return Request.blank(path, environ=newenv, body=body, headers=headers)
     else:
         return Request.blank(path, environ=newenv, headers=headers)
 
 
-def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
+def make_pre_authed_env(env, method=None, path=None, agent='Swift',
+                        query_string=None):
     """
     Returns a new fresh WSGI environment with escalated privileges to
     do backend checks, listings, etc. that the remote user wouldn't
@@ -295,7 +303,14 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
     :param env: The WSGI environment to base the new environment on.
     :param method: The new REQUEST_METHOD or None to use the
                    original.
-    :param path: The new PATH_INFO or None to use the original.
+    :param path: The new path_info or none to use the original. path
+                 should NOT be quoted. When building a url, a Webob
+                 Request (in accordance with wsgi spec) will quote
+                 env['PATH_INFO'].  url += quote(environ['PATH_INFO'])
+    :param query_string: The new query_string or none to use the original.
+                         When building a url, a Webob Request will append
+                         the query string directly to the url.
+                         url += '?' + env['QUERY_STRING']
     :param agent: The HTTP user agent to use; default 'Swift'. You
                   can put %(orig)s in the agent to have it replaced
                   with the original env's HTTP_USER_AGENT, such as
@@ -314,10 +329,9 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift'):
     if method:
         newenv['REQUEST_METHOD'] = method
     if path:
-        if '?' in path:
-            path, query_string = path.split('?', 1)
-            newenv['QUERY_STRING'] = query_string
         newenv['PATH_INFO'] = path
+    if query_string:
+        newenv['QUERY_STRING'] = query_string
     if agent:
         newenv['HTTP_USER_AGENT'] = (
             agent % {'orig': env.get('HTTP_USER_AGENT', '')}).strip()

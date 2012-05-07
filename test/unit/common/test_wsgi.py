@@ -26,6 +26,7 @@ from getpass import getuser
 from shutil import rmtree
 from StringIO import StringIO
 from collections import defaultdict
+from urllib import quote
 
 from eventlet import sleep
 from webob import Request
@@ -187,6 +188,12 @@ class TestWSGI(unittest.TestCase):
         wsgi.make_pre_authed_request({'HTTP_X_TRANS_ID': '1234'},
                                      'PUT', '/', headers={})
         Request.blank = was_blank
+
+    def test_pre_auth_req_with_quoted_path(self):
+        r = wsgi.make_pre_authed_request(
+            {'HTTP_X_TRANS_ID': '1234'}, 'PUT', path=quote('/a space'),
+            body='tester', headers={})
+        self.assertEquals(r.path, quote('/a space'))
 
 if __name__ == '__main__':
     unittest.main()
