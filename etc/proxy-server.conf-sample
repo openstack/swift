@@ -162,17 +162,6 @@ use = egg:swift#ratelimit
 # container_ratelimit_10 = 50
 # container_ratelimit_50 = 20
 
-[filter:domain_remap]
-use = egg:swift#domain_remap
-# You can override the default log routing for this filter here:
-# set log_name = domain_remap
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_headers = False
-# storage_domain = example.com
-# path_root = v1
-# reseller_prefixes = AUTH
-
 [filter:catch_errors]
 use = egg:swift#catch_errors
 # You can override the default log routing for this filter here:

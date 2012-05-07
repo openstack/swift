@@ -147,13 +147,6 @@ Swift3
     :members:
     :show-inheritance:
 
-Domain Remap
-============
-
-.. automodule:: swift.common.middleware.domain_remap
-    :members:
-    :show-inheritance:
-
 CNAME Lookup
 ============
 
