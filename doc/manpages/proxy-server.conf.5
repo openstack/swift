@@ -337,36 +337,6 @@ The default is 1.
 
 
 .RS 0 
-.IP "\fB[filter:staticweb]\fR"
-.RE
-
-Note: Put staticweb just after your auth filter(s) in the pipeline
-
-.RS 3
-.IP \fBuse\fR
-Entry point for paste.deploy for the staticweb middleware. This is the reference to the installed python egg. 
-The default is \fBegg:swift#staticweb\fR.
-.IP \fBcache_timeout\fR
-Seconds to cache container x-container-meta-web-* header values. The default is 300 seconds.
-.IP "\fBset log_name\fR"
-Label used when logging. The default is staticweb.
-.IP "\fBset log_facility\fR"
-Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fBset log_level\fR "
-Logging level. The default is INFO.
-.IP "\fBset log_headers\fR"
-Enables the ability to log request headers. The default is False.
-.IP "\fBset access_log_name\fR"
-Label used when logging. The default is staticweb.
-.IP "\fBset access_log_facility\fR"
-Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fBset access_log_level\fR "
-Logging level. The default is INFO.
-.RE
-
-
-
-.RS 0 
 .IP "\fB[filter:tempurl]\fR"
 .RE
 
