@@ -192,36 +192,6 @@ use = egg:swift#cname_lookup
 # storage_domain = example.com
 # lookup_depth = 1
 
-# Note: Put tempurl just before your auth filter(s) in the pipeline
-[filter:tempurl]
-use = egg:swift#tempurl
-#
-# The headers to remove from incoming requests. Simply a whitespace delimited
-# list of header names and names can optionally end with '*' to indicate a
-# prefix match. incoming_allow_headers is a list of exceptions to these
-# removals.
-# incoming_remove_headers = x-timestamp
-#
-# The headers allowed as exceptions to incoming_remove_headers. Simply a
-# whitespace delimited list of header names and names can optionally end with
-# '*' to indicate a prefix match.
-# incoming_allow_headers =
-#
-# The headers to remove from outgoing responses. Simply a whitespace delimited
-# list of header names and names can optionally end with '*' to indicate a
-# prefix match. outgoing_allow_headers is a list of exceptions to these
-# removals.
-# outgoing_remove_headers = x-object-meta-*
-#
-# The headers allowed as exceptions to outgoing_remove_headers. Simply a
-# whitespace delimited list of header names and names can optionally end with
-# '*' to indicate a prefix match.
-# outgoing_allow_headers = x-object-meta-public-*
-
-# Note: Put formpost just before your auth filter(s) in the pipeline
-[filter:formpost]
-use = egg:swift#formpost
-
 # Note: Just needs to be placed before the proxy-server in the pipeline.
 [filter:name_check]
 use = egg:swift#name_check

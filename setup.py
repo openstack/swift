@@ -56,7 +56,6 @@ setup(
         'bin/swift-dispersion-populate',
         'bin/swift-dispersion-report',
         'bin/swift-drive-audit',
-        'bin/swift-form-signature',
         'bin/swift-get-nodes',
         'bin/swift-init',
         'bin/swift-object-auditor',
@@ -71,7 +70,6 @@ setup(
         'bin/swift-recon',
         'bin/swift-recon-cron',
         'bin/swift-ring-builder',
-        'bin/swift-temp-url',
     ],
     entry_points={
         'paste.app_factory': [
@@ -90,8 +88,6 @@ setup(
             'swift3=swift.common.middleware.swift3:filter_factory',
             'tempauth=swift.common.middleware.tempauth:filter_factory',
             'recon=swift.common.middleware.recon:filter_factory',
-            'tempurl=swift.common.middleware.tempurl:filter_factory',
-            'formpost=swift.common.middleware.formpost:filter_factory',
             'name_check=swift.common.middleware.name_check:filter_factory',
             ],
         },

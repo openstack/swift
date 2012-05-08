@@ -337,40 +337,6 @@ The default is 1.
 
 
 .RS 0 
-.IP "\fB[filter:tempurl]\fR"
-.RE
-
-Note: Put tempurl just before your auth filter(s) in the pipeline
-
-.RS 3
-.IP \fBincoming_remove_headers\fR
-The headers to remove from incoming requests. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match. incoming_allow_headers is a list of exceptions to these removals.
-.IP \fBincoming_allow_headers\fR
-The headers allowed as exceptions to incoming_remove_headers. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match.
-.IP "\fBoutgoing_remove_headers\fR"
-The headers to remove from outgoing responses. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match. outgoing_allow_headers is a list of exceptions to these removals.
-.IP "\fBoutgoing_allow_headers\fR"
-The headers allowed as exceptions to outgoing_remove_headers. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match.
-.IP "\fBset log_level\fR "
-.RE
-
-
-
-.RS 0 
-.IP "\fB[filter:formpost]\fR"
-.RE
-
-Note: Put formpost just before your auth filter(s) in the pipeline 
-
-.RS 3
-.IP \fBuse\fR
-Entry point for paste.deploy for the formpost middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#formpost\fR.
-.RE 
-
-
-
-.RS 0 
 .IP "\fB[filter:name_check]\fR"
 .RE
 
