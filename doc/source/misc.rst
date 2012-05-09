@@ -139,10 +139,3 @@ Swift3
 .. automodule:: swift.common.middleware.swift3
     :members:
     :show-inheritance:
-
-CNAME Lookup
-============
-
-.. automodule:: swift.common.middleware.cname_lookup
-    :members:
-    :show-inheritance:

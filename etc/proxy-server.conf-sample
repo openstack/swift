@@ -138,17 +138,6 @@ use = egg:swift#catch_errors
 # set log_level = INFO
 # set log_headers = False
 
-[filter:cname_lookup]
-# Note: this middleware requires python-dnspython
-use = egg:swift#cname_lookup
-# You can override the default log routing for this filter here:
-# set log_name = cname_lookup
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_headers = False
-# storage_domain = example.com
-# lookup_depth = 1
-
 # Note: Just needs to be placed before the proxy-server in the pipeline.
 [filter:name_check]
 use = egg:swift#name_check

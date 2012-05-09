@@ -401,16 +401,6 @@ msgstr ""
 msgid "Error: %s"
 msgstr ""
 
-#: swift/common/middleware/cname_lookup.py:91
-#, python-format
-msgid "Mapped %(given_domain)s to %(found_domain)s"
-msgstr ""
-
-#: swift/common/middleware/cname_lookup.py:102
-#, python-format
-msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
-msgstr ""
-
 #: swift/common/middleware/swauth.py:635
 #, python-format
 msgid ""
