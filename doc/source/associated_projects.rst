@@ -52,7 +52,8 @@ Content Distribution Network Integration
 Other
 -----
 
+* `Domain Remap <https://github.com/notmyname/swift-domainremap>`_ - Translates subdomains on the Host header to path elements that are appropriate for swift.
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
+* `Rate Limit <https://github.com/dpgoetz/swift-ratelimit>`_ - Enforces limits on the request rates to accounts and containers.
 * `StaticWeb <http://gholt.github.com/swift-staticweb/>`_ - Allows serving static websites from Swift containers using ACLs and other metadata on those containers.
 * `TempURL/FormPOST <http://gholt.github.com/swift-tempurl/>`_ - Temporary, Expiring URLs and Form POSTing middleware.
-* `Domain Remap <https://github.com/notmyname/swift-domainremap>`_ - Translates subdomains on the Host header to path elements that are appropriate for swift.

@@ -15,7 +15,7 @@
 # log_level = INFO
 
 [pipeline:main]
-pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-server
+pipeline = catch_errors healthcheck cache tempauth proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -129,38 +129,6 @@ use = egg:swift#memcache
 # default to the value below. You can specify multiple servers separated with
 # commas, as in: 10.1.2.3:11211,10.1.2.4:11211
 # memcache_servers = 127.0.0.1:11211
-
-[filter:ratelimit]
-use = egg:swift#ratelimit
-# You can override the default log routing for this filter here:
-# set log_name = ratelimit
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_headers = False
-# clock_accuracy should represent how accurate the proxy servers' system clocks
-# are with each other. 1000 means that all the proxies' clock are accurate to
-# each other within 1 millisecond.  No ratelimit should be higher than the
-# clock accuracy.
-# clock_accuracy = 1000
-# max_sleep_time_seconds = 60
-# log_sleep_time_seconds of 0 means disabled
-# log_sleep_time_seconds = 0
-# allows for slow rates (e.g. running up to 5 sec's behind) to catch up.
-# rate_buffer_seconds = 5
-# account_ratelimit of 0 means disabled
-# account_ratelimit = 0
-
-# these are comma separated lists of account names
-# account_whitelist = a,b
-# account_blacklist = c,d
-
-# with container_limit_x = r
-# for containers of size x limit requests per second to r.  The container
-# rate will be linearly interpolated from the values given. With the values
-# below, a container of size 5 will get a rate of 75.
-# container_ratelimit_0 = 100
-# container_ratelimit_10 = 50
-# container_ratelimit_50 = 20
 
 [filter:catch_errors]
 use = egg:swift#catch_errors

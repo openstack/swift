@@ -133,13 +133,6 @@ Manager
     :members:
     :show-inheritance:
 
-Ratelimit
-=========
-
-.. automodule:: swift.common.middleware.ratelimit
-    :members:
-    :show-inheritance:
-
 Swift3
 ======
 

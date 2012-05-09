@@ -81,7 +81,6 @@ setup(
         'paste.filter_factory': [
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
-            'ratelimit=swift.common.middleware.ratelimit:filter_factory',
             'cname_lookup=swift.common.middleware.cname_lookup:filter_factory',
             'catch_errors=swift.common.middleware.catch_errors:filter_factory',
             'swift3=swift.common.middleware.swift3:filter_factory',
