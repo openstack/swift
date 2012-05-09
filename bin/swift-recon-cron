@@ -55,7 +55,8 @@ def main():
     try:
         asyncs = async_count(device_dir, logger)
     except Exception:
-        logger.exception(_('Exception during recon-cron while accessing devices'))
+        logger.exception(
+            _('Exception during recon-cron while accessing devices'))
     try:
         dump_recon_cache('async_pending', asyncs, cache_file)
     except Exception:
