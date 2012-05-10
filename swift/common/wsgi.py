@@ -320,7 +320,7 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
     :returns: Fresh WSGI environment.
     """
     newenv = {}
-    for name in ('eventlet.posthooks', 'HTTP_USER_AGENT',
+    for name in ('eventlet.posthooks', 'HTTP_USER_AGENT', 'HTTP_HOST',
                  'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
                  'SERVER_NAME', 'SERVER_PORT', 'SERVER_PROTOCOL',
                  'swift.cache', 'swift.source', 'swift.trans_id'):
