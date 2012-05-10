@@ -268,7 +268,7 @@ Do these commands as you on guest.
      `cd ~/swift; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
-        export SWIFT_TEST_CONFIG_FILE=/etc/swift/func_test.conf
+        export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf
         export PATH=${PATH}:~/bin
 
   #. `. ~/.bashrc`
@@ -658,7 +658,7 @@ Setting up scripts for running Swift
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
-  #. `cp ~/swift/test/functional/sample.conf /etc/swift/func_test.conf`
+  #. `cp ~/swift/test/sample.conf /etc/swift/test.conf`
   #. `cd ~/swift; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
   #. `cd ~/swift; ./.probetests` (Note: probe tests will reset your
@@ -691,3 +691,8 @@ If all doesn't go as planned, and tests fail, or you can't auth, or something do
    `swift-object-server /etc/swift/object-server/1.conf` will start the
    object server.  If there are problems not showing up in syslog,
    then you will likely see the traceback on startup.
+#. If you need to, you can turn off syslog for unit tests. This can be
+   useful for environments where /dev/log is unavailable, or which
+   cannot rate limit (unit tests generate a lot of logs very quickly).
+   Open the file SWIFT_TEST_CONFIG_FILE points to, and change the
+   value of fake_syslog to True.
