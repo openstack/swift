@@ -42,27 +42,30 @@ obj = None
 
 if len(sys.argv) > 4:
     # Acount, Container and Object
-    ring, account, container, obj = sys.argv[1:5]
+    ring_file, account, container, obj = sys.argv[1:5]
+    ring = Ring(ring_file)
     hash_str = hash_path(account, container, obj)
-    part, nodes = Ring(ring).get_nodes(account, container, obj)
+    part, nodes = ring.get_nodes(account, container, obj)
     target = "%s/%s/%s" % (account, container, obj)
     loc = 'objects'
 elif len(sys.argv) > 3:
     # Account, Container
-    ring, account, container = sys.argv[1:4]
+    ring_file, account, container = sys.argv[1:4]
+    ring = Ring(ring_file)
     hash_str = hash_path(account, container)
-    part, nodes = Ring(ring).get_nodes(account, container)
+    part, nodes = ring.get_nodes(account, container)
     target = "%s/%s" % (account, container)
     loc = 'containers'
 elif len(sys.argv) > 2:
     # Account
-    ring, account = sys.argv[1:3]
+    ring_file, account = sys.argv[1:3]
+    ring = Ring(ring_file)
     hash_str = hash_path(account)
-    part, nodes = Ring(ring).get_nodes(account)
+    part, nodes = ring.get_nodes(account)
     target = "%s" % (account)
     loc = 'accounts'
 
-more_nodes = list(Ring(ring).get_more_nodes(part))
+more_nodes = list(ring.get_more_nodes(part))
 
 print '\nAccount \t%s' % account
 print 'Container\t%s' % container
