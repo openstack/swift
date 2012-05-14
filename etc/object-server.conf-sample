@@ -45,8 +45,8 @@ use = egg:swift#object
 
 [filter:recon]
 use = egg:swift#recon
-recon_cache_path = /var/cache/swift
-recon_lock_path = /var/lock
+#recon_cache_path = /var/cache/swift
+#recon_lock_path = /var/lock
 
 [object-replicator]
 # You can override the default log routing for this app here (don't use set!):
@@ -68,10 +68,8 @@ recon_lock_path = /var/lock
 # lockup_timeout = 1800
 # The replicator also performs reclamation
 # reclaim_age = 604800
-# enable logging of replication stats for recon
-# recon_enable = no
-# recon_cache_path = /var/cache/swift
 # ring_check_interval = 15
+# recon_cache_path = /var/cache/swift
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):
@@ -84,6 +82,7 @@ recon_lock_path = /var/lock
 # conn_timeout = 0.5
 # slowdown will sleep that amount between objects
 # slowdown = 0.01
+# recon_cache_path = /var/cache/swift
 
 [object-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -94,4 +93,4 @@ recon_lock_path = /var/lock
 # bytes_per_second = 10000000
 # log_time = 3600
 # zero_byte_files_per_second = 50
-
+# recon_cache_path = /var/cache/swift

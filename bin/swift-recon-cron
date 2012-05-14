@@ -5,17 +5,11 @@ swift-recon-cron.py
 
 import os
 import sys
-import optparse
-from tempfile import NamedTemporaryFile
-try:
-    import simplejson as json
-except ImportError:
-    import json
 from ConfigParser import ConfigParser
 from swift.common.utils import get_logger, dump_recon_cache
 
 
-def async_count(device_dir, logger):
+def get_async_count(device_dir, logger):
     async_count = 0
     for i in os.listdir(device_dir):
         asyncdir = os.path.join(device_dir, i, "async_pending")
@@ -53,14 +47,13 @@ def main():
         print str(e)
         sys.exit(1)
     try:
-        asyncs = async_count(device_dir, logger)
+        asyncs = get_async_count(device_dir, logger)
     except Exception:
         logger.exception(
             _('Exception during recon-cron while accessing devices'))
-    try:
-        dump_recon_cache('async_pending', asyncs, cache_file)
-    except Exception:
-        logger.exception(_('Exception dumping recon cache'))
+
+    dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
+
     try:
         os.rmdir(lock_dir)
     except Exception:

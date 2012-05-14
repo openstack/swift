@@ -25,7 +25,7 @@
 # db_preallocation = off
 
 [pipeline:main]
-pipeline = container-server
+pipeline = recon container-server
 
 [app:container-server]
 use = egg:swift#container
@@ -38,6 +38,10 @@ use = egg:swift#container
 # conn_timeout = 0.5
 # allow_versions = False
 # auto_create_account_prefix = .
+
+[filter:recon]
+use = egg:swift#recon
+#recon_cache_path = /var/cache/swift
 
 [container-replicator]
 # You can override the default log routing for this app here (don't use set!):
@@ -55,7 +59,7 @@ use = egg:swift#container
 # reclaim_age = 604800
 # Time in seconds to wait between replication passes
 # run_pause = 30
-
+# recon_cache_path = /var/cache/swift
 
 [container-updater]
 # You can override the default log routing for this app here (don't use set!):
@@ -70,6 +74,7 @@ use = egg:swift#container
 # slowdown = 0.01
 # Seconds to suppress updating an account that has generated an error
 # account_suppression_time = 60
+# recon_cache_path = /var/cache/swift
 
 [container-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -78,6 +83,7 @@ use = egg:swift#container
 # log_level = INFO
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
+# recon_cache_path = /var/cache/swift
 
 [container-sync]
 # You can override the default log routing for this app here (don't use set!):

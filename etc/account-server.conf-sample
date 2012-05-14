@@ -22,7 +22,7 @@
 # db_preallocation = off
 
 [pipeline:main]
-pipeline = account-server
+pipeline = recon account-server
 
 [app:account-server]
 use = egg:swift#account
@@ -32,6 +32,10 @@ use = egg:swift#account
 # set log_level = INFO
 # set log_requests = True
 # auto_create_account_prefix = .
+
+[filter:recon]
+use = egg:swift#recon
+# recon_cache_path = /var/cache/swift
 
 [account-replicator]
 # You can override the default log routing for this app here (don't use set!):
@@ -54,6 +58,7 @@ use = egg:swift#account
 # reclaim_age = 604800
 # Time in seconds to wait between replication passes
 # run_pause = 30
+# recon_cache_path = /var/cache/swift
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -62,6 +67,9 @@ use = egg:swift#account
 # log_level = INFO
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# recon_cache_path = /var/cache/swift
 
 [account-reaper]
 # You can override the default log routing for this app here (don't use set!):

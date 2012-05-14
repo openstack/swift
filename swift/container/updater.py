@@ -29,7 +29,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.db import ContainerBroker
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, TRUE_VALUES
+from swift.common.utils import get_logger, TRUE_VALUES, dump_recon_cache
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -59,6 +59,9 @@ class ContainerUpdater(Daemon):
         self.new_account_suppressions = None
         swift.common.db.DB_PREALLOCATION = \
             conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, "container.recon")
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""
@@ -154,6 +157,8 @@ class ContainerUpdater(Daemon):
             elapsed = time.time() - begin
             self.logger.info(_('Container update sweep completed: %.02fs'),
                              elapsed)
+            dump_recon_cache({'container_updater_sweep': elapsed},
+                             self.rcache, self.logger)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
@@ -175,6 +180,8 @@ class ContainerUpdater(Daemon):
             '%(no_change)s with no changes'),
             {'elapsed': elapsed, 'success': self.successes,
              'fail': self.failures, 'no_change': self.no_changes})
+        dump_recon_cache({'container_updater_sweep': elapsed},
+                         self.rcache, self.logger)
 
     def container_sweep(self, path):
         """

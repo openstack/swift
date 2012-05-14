@@ -96,7 +96,6 @@ class TestObjectExpirer(TestCase):
         x.logger = FakeLogger()
         x.swift = InternalClient()
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'], [])
         self.assertEquals(
             x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
@@ -121,7 +120,9 @@ class TestObjectExpirer(TestCase):
         x.logger = FakeLogger()
         x.swift = InternalClient([{'name': str(int(time() + 86400))}])
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'], [])
+        for exccall in x.logger.log_dict['exception']:
+            self.assertTrue(
+                'This should not have been called' not in exccall[0][0])
         self.assertEquals(
             x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
@@ -163,7 +164,9 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient([{'name': str(int(time() - 86400))}],
             [{'name': '%d-actual-obj' % int(time() + 86400)}])
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'], [])
+        for exccall in x.logger.log_dict['exception']:
+            self.assertTrue(
+                'This should not have been called' not in exccall[0][0])
         self.assertEquals(x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
                '2 possible objects',), {}),
@@ -177,10 +180,13 @@ class TestObjectExpirer(TestCase):
             [{'name': '%d-actual-obj' % ts}])
         x.delete_actual_object = should_not_be_called
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'],
-            [(('Exception while deleting object %d %d-actual-obj '
-               'This should not have been called' % (ts, ts),), {},
-              'This should not have been called')])
+        excswhiledeleting = []
+        for exccall in x.logger.log_dict['exception']:
+            if exccall[0][0].startswith('Exception while deleting '):
+                excswhiledeleting.append(exccall[0][0])
+        self.assertEquals(excswhiledeleting,
+            ['Exception while deleting object %d %d-actual-obj '
+             'This should not have been called' % (ts, ts)])
 
     def test_failed_delete_keeps_entry(self):
         class InternalClient(object):
@@ -217,10 +223,13 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient([{'name': str(int(time() - 86400))}],
             [{'name': '%d-actual-obj' % ts}])
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'],
-            [(('Exception while deleting object %d %d-actual-obj '
-             'failed to delete actual object' % (ts, ts),), {},
-             'failed to delete actual object')])
+        excswhiledeleting = []
+        for exccall in x.logger.log_dict['exception']:
+            if exccall[0][0].startswith('Exception while deleting '):
+                excswhiledeleting.append(exccall[0][0])
+        self.assertEquals(excswhiledeleting,
+            ['Exception while deleting object %d %d-actual-obj '
+             'failed to delete actual object' % (ts, ts)])
         self.assertEquals(x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
                '2 possible objects',), {}),
@@ -234,10 +243,13 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient([{'name': str(int(time() - 86400))}],
             [{'name': '%d-actual-obj' % ts}])
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'],
-            [(('Exception while deleting object %d %d-actual-obj This should '
-             'not have been called' % (ts, ts),), {},
-             'This should not have been called')])
+        excswhiledeleting = []
+        for exccall in x.logger.log_dict['exception']:
+            if exccall[0][0].startswith('Exception while deleting '):
+                excswhiledeleting.append(exccall[0][0])
+        self.assertEquals(excswhiledeleting,
+            ['Exception while deleting object %d %d-actual-obj This should '
+             'not have been called' % (ts, ts)])
 
     def test_success_gets_counted(self):
         class InternalClient(object):
@@ -268,7 +280,6 @@ class TestObjectExpirer(TestCase):
             [{'name': '%d-actual-obj' % int(time() - 86400)}])
         x.run_once()
         self.assertEquals(x.report_objects, 1)
-        self.assertEquals(x.logger.log_dict['exception'], [])
         self.assertEquals(x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
                '2 possible objects',), {}),
@@ -317,25 +328,23 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient(containers, objects)
         x.delete_actual_object = fail_delete_actual_object
         x.run_once()
-        self.assertEquals(x.logger.log_dict['exception'], [
-            (('Exception while deleting object %d %d-actual-obj failed to '
-              'delete actual object' % (cts, ots),), {},
-             'failed to delete actual object'),
-            (('Exception while deleting object %d %d-next-obj failed to '
-              'delete actual object' % (cts, ots),), {},
-             'failed to delete actual object'),
-            (('Exception while deleting container %d failed to delete '
-              'container' % (cts,),), {},
-             'failed to delete container'),
-            (('Exception while deleting object %d %d-actual-obj failed to '
-              'delete actual object' % (cts + 1, ots),), {},
-             'failed to delete actual object'),
-            (('Exception while deleting object %d %d-next-obj failed to '
-              'delete actual object' % (cts + 1, ots),), {},
-             'failed to delete actual object'),
-            (('Exception while deleting container %d failed to delete '
-              'container' % (cts + 1,),), {},
-             'failed to delete container')])
+        excswhiledeleting = []
+        for exccall in x.logger.log_dict['exception']:
+            if exccall[0][0].startswith('Exception while deleting '):
+                excswhiledeleting.append(exccall[0][0])
+        self.assertEquals(excswhiledeleting, [
+            'Exception while deleting object %d %d-actual-obj failed to '
+            'delete actual object' % (cts, ots),
+            'Exception while deleting object %d %d-next-obj failed to '
+            'delete actual object' % (cts, ots),
+            'Exception while deleting container %d failed to delete '
+            'container' % (cts,),
+            'Exception while deleting object %d %d-actual-obj failed to '
+            'delete actual object' % (cts + 1, ots),
+            'Exception while deleting object %d %d-next-obj failed to '
+            'delete actual object' % (cts + 1, ots),
+            'Exception while deleting container %d failed to delete '
+            'container' % (cts + 1,)])
         self.assertEquals(x.logger.log_dict['info'],
             [(('Pass beginning; 1 possible containers; '
                '2 possible objects',), {}),

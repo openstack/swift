@@ -25,7 +25,8 @@ from eventlet import patcher, Timeout
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, renamer, write_pickle
+from swift.common.utils import get_logger, renamer, write_pickle, \
+    dump_recon_cache
 from swift.common.daemon import Daemon
 from swift.obj.server import ASYNCDIR
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
@@ -50,6 +51,9 @@ class ObjectUpdater(Daemon):
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.successes = 0
         self.failures = 0
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, 'object.recon')
 
     def get_container_ring(self):
         """Get the container ring.  Load it, if it hasn't been yet."""
@@ -97,6 +101,8 @@ class ObjectUpdater(Daemon):
             elapsed = time.time() - begin
             self.logger.info(_('Object update sweep completed: %.02fs'),
                     elapsed)
+            dump_recon_cache({'object_updater_sweep': elapsed},
+                             self.rcache, self.logger)
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
 
@@ -119,6 +125,8 @@ class ObjectUpdater(Daemon):
             '%(elapsed).02fs, %(success)s successes, %(fail)s failures'),
             {'elapsed': elapsed, 'success': self.successes,
              'fail': self.failures})
+        dump_recon_cache({'object_updater_sweep': elapsed},
+                         self.rcache, self.logger)
 
     def object_sweep(self, device):
         """

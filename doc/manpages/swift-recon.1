@@ -25,7 +25,7 @@
 .SH SYNOPSIS
 .LP
 .B swift-recon 
-\ [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
+\ <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
  
 .SH DESCRIPTION 
 .PP
@@ -40,6 +40,8 @@ more information in the example section below.
 .SH OPTIONS
 .RS 0
 .PD 1
+.IP "\fB<server_type>\fR"
+account|container|object - Defaults to object server.
 .IP "\fB-h, --help\fR"
 show this help message and exit
 .IP "\fB-v, --verbose\fR"
@@ -48,6 +50,12 @@ Print verbose information
 Suppress most connection related errors
 .IP "\fB-a, --async\fR"
 Get async stats
+.IP "\fB--auditor\fR"
+Get auditor stats
+.IP "\fB--updater\fR"
+Get updater stats
+.IP "\fB--expirer\fR"
+Get expirer stats
 .IP "\fB-r, --replication\fR"
 Get replication stats
 .IP "\fB-u, --unmounted\fR"
@@ -58,10 +66,10 @@ Get disk usage stats
 Get cluster load average stats
 .IP "\fB-q, --quarantined\fR"
 Get cluster quarantine stats
-.IP "\fB--objmd5\fR"
-Get md5sums of object.ring.gz and compare to local copy
+.IP "\fB--md5\fR"
+Get md5sum of servers ring and compare to local cop
 .IP "\fB--all\fR"
-Perform all checks. Equivalent to -arudlq --objmd5
+Perform all checks. Equivalent to -arudlq --md5
 .IP "\fB-z ZONE, --zone=ZONE\fR"
 Only query servers in specified zone
 .IP "\fB--swiftdir=PATH\fR"
