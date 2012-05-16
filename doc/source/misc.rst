@@ -133,9 +133,51 @@ Manager
     :members:
     :show-inheritance:
 
+Ratelimit
+=========
+
+.. automodule:: swift.common.middleware.ratelimit
+    :members:
+    :show-inheritance:
+
 Swift3
 ======
 
 .. automodule:: swift.common.middleware.swift3
+    :members:
+    :show-inheritance:
+
+StaticWeb
+=========
+
+.. automodule:: swift.common.middleware.staticweb
+    :members:
+    :show-inheritance:
+
+TempURL
+=======
+
+.. automodule:: swift.common.middleware.tempurl
+    :members:
+    :show-inheritance:
+
+FormPost
+========
+
+.. automodule:: swift.common.middleware.formpost
+    :members:
+    :show-inheritance:
+
+Domain Remap
+============
+
+.. automodule:: swift.common.middleware.domain_remap
+    :members:
+    :show-inheritance:
+
+CNAME Lookup
+============
+
+.. automodule:: swift.common.middleware.cname_lookup
     :members:
     :show-inheritance:

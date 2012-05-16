@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+import hmac
+from hashlib import sha1
+from os.path import basename
+from sys import argv, exit
+from time import time
+
+
+if __name__ == '__main__':
+    if len(argv) != 5:
+        prog = basename(argv[0])
+        print 'Syntax: %s <method> <seconds> <path> <key>' % prog
+        print
+        print 'Where:'
+        print '  <method>   The method to allow, GET or PUT.'
+        print '             Note: HEAD will also be allowed.'
+        print '  <seconds>  The number of seconds from now to allow requests.'
+        print '  <path>     The full path to the resource.'
+        print '             Example: /v1/AUTH_account/c/o'
+        print '  <key>      The X-Account-Meta-Temp-URL-Key for the account.'
+        print
+        print 'Example output:'
+        print '    /v1/AUTH_account/c/o?temp_url_sig=34d49efc32fe6e3082e411e' \
+              'eeb85bd8a&temp_url_expires=1323482948'
+        print
+        print 'This can be used to form a URL to give out for the access '
+        print 'allowed. For example:'
+        print '    echo https://swift-cluster.example.com`%s GET 60 ' \
+              '/v1/AUTH_account/c/o mykey`' % prog
+        print
+        print 'Might output:'
+        print '    https://swift-cluster.example.com/v1/AUTH_account/c/o?' \
+              'temp_url_sig=34d49efc32fe6e3082e411eeeb85bd8a&' \
+              'temp_url_expires=1323482948'
+        exit(1)
+    method, seconds, path, key = argv[1:]
+    if method not in ('GET', 'PUT'):
+        print 'Please use either the GET or PUT method.'
+        exit(1)
+    try:
+        expires = int(time() + int(seconds))
+    except ValueError:
+        expires = 0
+    if expires < 1:
+        print 'Please use a positive <seconds> value.'
+        exit(1)
+    parts = path.split('/', 4)
+    # Must be five parts, ['', 'v1', 'a', 'c', 'o'], must be a v1 request, have
+    # account, container, and object values, and the object value can't just
+    # have '/'s.
+    if len(parts) != 5 or parts[0] or parts[1] != 'v1' or not parts[2] or \
+            not parts[3] or not parts[4].strip('/'):
+        print '<path> must point to an object.'
+        print 'For example: /v1/account/container/object'
+        exit(1)
+    sig = hmac.new(key, '%s\n%s\n%s' % (method, expires, path),
+                   sha1).hexdigest()
+    print '%s?temp_url_sig=%s&temp_url_expires=%s' % (path, sig, expires)

@@ -56,6 +56,7 @@ setup(
         'bin/swift-dispersion-populate',
         'bin/swift-dispersion-report',
         'bin/swift-drive-audit',
+        'bin/swift-form-signature',
         'bin/swift-get-nodes',
         'bin/swift-init',
         'bin/swift-object-auditor',
@@ -70,6 +71,7 @@ setup(
         'bin/swift-recon',
         'bin/swift-recon-cron',
         'bin/swift-ring-builder',
+        'bin/swift-temp-url',
     ],
     entry_points={
         'paste.app_factory': [
@@ -81,10 +83,15 @@ setup(
         'paste.filter_factory': [
             'healthcheck=swift.common.middleware.healthcheck:filter_factory',
             'memcache=swift.common.middleware.memcache:filter_factory',
+            'ratelimit=swift.common.middleware.ratelimit:filter_factory',
+            'cname_lookup=swift.common.middleware.cname_lookup:filter_factory',
             'catch_errors=swift.common.middleware.catch_errors:filter_factory',
             'swift3=swift.common.middleware.swift3:filter_factory',
+            'staticweb=swift.common.middleware.staticweb:filter_factory',
             'tempauth=swift.common.middleware.tempauth:filter_factory',
             'recon=swift.common.middleware.recon:filter_factory',
+            'tempurl=swift.common.middleware.tempurl:filter_factory',
+            'formpost=swift.common.middleware.formpost:filter_factory',
             'name_check=swift.common.middleware.name_check:filter_factory',
             ],
         },
