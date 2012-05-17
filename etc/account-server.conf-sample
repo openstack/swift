@@ -11,6 +11,7 @@
 # log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # You can enable default statsD logging here and/or override it in sections
 # below:
 # log_statsd_host = localhost
@@ -31,6 +32,7 @@ use = egg:swift#account
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_requests = True
+# set log_address = /dev/log
 # auto_create_account_prefix = .
 
 [filter:recon]
@@ -42,6 +44,7 @@ use = egg:swift#recon
 # log_name = account-replicator
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # vm_test_mode = no
 # per_diff = 1000
 # max_diffs = 100
@@ -65,6 +68,7 @@ use = egg:swift#recon
 # log_name = account-auditor
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # Will audit, at most, 1 account per device per interval
 # interval = 1800
 # log_facility = LOG_LOCAL0
@@ -76,6 +80,7 @@ use = egg:swift#recon
 # log_name = account-reaper
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # concurrency = 25
 # interval = 3600
 # node_timeout = 10

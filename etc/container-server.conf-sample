@@ -14,6 +14,7 @@
 # log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # You can enable default statsD logging here and/or override it in sections
 # below:
 # log_statsd_host = localhost
@@ -34,6 +35,7 @@ use = egg:swift#container
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_requests = True
+# set log_address = /dev/log
 # node_timeout = 3
 # conn_timeout = 0.5
 # allow_versions = False
@@ -48,6 +50,7 @@ use = egg:swift#recon
 # log_name = container-replicator
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # vm_test_mode = no
 # per_diff = 1000
 # max_diffs = 100
@@ -66,6 +69,7 @@ use = egg:swift#recon
 # log_name = container-updater
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # interval = 300
 # concurrency = 4
 # node_timeout = 3
@@ -81,6 +85,7 @@ use = egg:swift#recon
 # log_name = container-auditor
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
 # recon_cache_path = /var/cache/swift
@@ -90,6 +95,7 @@ use = egg:swift#recon
 # log_name = container-sync
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 # sync_proxy = http://127.0.0.1:8888
 # Will sync, at most, each container once per interval

@@ -39,6 +39,7 @@ except ImportError:
 import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
+import socket
 
 import eventlet
 from eventlet import GreenPool, sleep, Timeout
@@ -78,6 +79,10 @@ if hash_conf.read('/etc/swift/swift.conf'):
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
 
+def noop_libc_function(*args):
+    return 0
+
+
 def validate_configuration():
     if HASH_PATH_SUFFIX == '':
         sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
@@ -96,9 +101,6 @@ def load_libc_function(func_name):
     except AttributeError:
         logging.warn(_("Unable to locate %s in libc.  Leaving as a no-op."),
                      func_name)
-
-        def noop_libc_function(*args):
-            return 0
         return noop_libc_function
 
 
@@ -118,6 +120,23 @@ def get_param(req, name, default=None):
     return value
 
 
+class FallocateWrapper(object):
+
+    def __init__(self):
+        for func in ('fallocate', 'posix_fallocate'):
+            self.func_name = func
+            self.fallocate = load_libc_function(func)
+            if self.fallocate is not noop_libc_function:
+                break
+
+    def __call__(self, fd, mode, offset, len):
+        args = {
+            'fallocate': (fd, mode, offset, len),
+            'posix_fallocate': (fd, offset, len)
+        }
+        return self.fallocate(*args[self.func_name])
+
+
 def fallocate(fd, size):
     """
     Pre-allocate disk space for a file file.
@@ -127,7 +146,7 @@ def fallocate(fd, size):
     """
     global _sys_fallocate
     if _sys_fallocate is None:
-        _sys_fallocate = load_libc_function('fallocate')
+        _sys_fallocate = FallocateWrapper()
     if size > 0:
         # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
         ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
@@ -193,7 +212,7 @@ def renamer(old, new):
     try:
         mkdirs(os.path.dirname(new))
         os.rename(old, new)
-    except OSError:
+    except OSError, err:
         mkdirs(os.path.dirname(new))
         os.rename(old, new)
 
@@ -523,7 +542,13 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     # facility for this logger will be set by last call wins
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
                        SysLogHandler.LOG_LOCAL0)
-    handler = SysLogHandler(address='/dev/log', facility=facility)
+    log_address = conf.get('log_address', '/dev/log')
+    try:
+        handler = SysLogHandler(address=log_address, facility=facility)
+    except socket.error, e:
+        if e.errno != errno.ENOTSOCK:  # Socket operation on non-socket
+            raise e
+        handler = SysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     get_logger.handler4logger[logger] = handler
@@ -723,13 +748,18 @@ def lock_path(directory, timeout=10):
     the lock can be acquired, or the timeout time has expired (whichever occurs
     first).
 
+    For locking exclusively, file or directory has to be opened in Write mode.
+    Python doesn't allow directories to be opened in Write Mode. So we
+    workaround by locking a hidden file in the directory.
+
     :param directory: directory to be locked
     :param timeout: timeout (in seconds)
     """
     mkdirs(directory)
-    fd = os.open(directory, os.O_RDONLY)
+    lockpath = '%s/.lock' % directory
+    fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
     try:
-        with LockTimeout(timeout, directory):
+        with LockTimeout(timeout, lockpath):
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
