@@ -86,6 +86,7 @@ setup(
             'ratelimit=swift.common.middleware.ratelimit:filter_factory',
             'cname_lookup=swift.common.middleware.cname_lookup:filter_factory',
             'catch_errors=swift.common.middleware.catch_errors:filter_factory',
+            'domain_remap=swift.common.middleware.domain_remap:filter_factory',
             'swift3=swift.common.middleware.swift3:filter_factory',
             'staticweb=swift.common.middleware.staticweb:filter_factory',
             'tempauth=swift.common.middleware.tempauth:filter_factory',
