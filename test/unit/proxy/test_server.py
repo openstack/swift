@@ -80,7 +80,7 @@ def setup():
     obj1lis = listen(('localhost', 0))
     obj2lis = listen(('localhost', 0))
     _test_sockets = \
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis)
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
     pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
         [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
           'port': acc1lis.getsockname()[1]},
@@ -107,7 +107,7 @@ def setup():
     obj1srv = object_server.ObjectController(conf)
     obj2srv = object_server.ObjectController(conf)
     _test_servers = \
-        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv)
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
     nl = NullLogger()
     prospa = spawn(wsgi.server, prolis, prosrv, nl)
     acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
@@ -117,7 +117,7 @@ def setup():
     obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
     obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
     _test_coros = \
-        (prospa, acc1spa, acc2spa, con2spa, con2spa, obj1spa, obj2spa)
+        (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa)
     # Create account
     ts = normalize_timestamp(time())
     partition, nodes = prosrv.account_ring.get_nodes('a')
@@ -2027,7 +2027,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_bad_version(self):
         # Check bad version
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2040,7 +2040,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_bad_path(self):
         # Check bad path
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2053,7 +2053,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_bad_utf8(self):
         # Check invalid utf-8
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2067,7 +2067,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_bad_path_no_controller(self):
         # Check bad path, no controller
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2081,7 +2081,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_bad_method(self):
         # Check bad method
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2095,9 +2095,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_unhandled_exception(self):
         # Check unhandled exception
-        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv) = \
                 _test_servers
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         orig_update_request = prosrv.update_request
 
@@ -2120,7 +2120,7 @@ class TestObjectController(unittest.TestCase):
         # Head account, just a double check and really is here to test
         # the part Application.log_request that 'enforces' a
         # content_length on the response.
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2136,9 +2136,9 @@ class TestObjectController(unittest.TestCase):
     def test_client_ip_logging(self):
         # test that the client ip field in the log gets populated with the
         # ip instead of being blank
-        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv) = \
                 _test_servers
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
 
         orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
@@ -2162,9 +2162,9 @@ class TestObjectController(unittest.TestCase):
         # GET account with a query string to test that
         # Application.log_request logs the query string. Also, throws
         # in a test for logging x-forwarded-for (first entry only).
-        (prosrv, acc1srv, acc2srv, con2srv, con2srv, obj1srv, obj2srv) = \
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv) = \
                 _test_servers
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
 
         orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
@@ -2206,8 +2206,6 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_utf8_all_the_way_down(self):
         # Test UTF-8 Unicode all the way through the system
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
-                 _test_sockets
         ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
                '\xbf\xe1\xbd\xbb\xce\x87 \xcf\x84\xe1\xbd\xb0 \xcf' \
                '\x80\xe1\xbd\xb1\xce\xbd\xcf\x84\xca\xbc \xe1\xbc' \
@@ -2216,7 +2214,7 @@ class TestObjectController(unittest.TestCase):
                '\xbf\x86.Test'
         ustr_short = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
         # Create ustr container
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2327,7 +2325,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_chunked_put(self):
         # Do chunked object put
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2357,7 +2355,7 @@ class TestObjectController(unittest.TestCase):
     def test_version_manifest(self):
         versions_to_create = 3
         # Create a container for our versioned object testing
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -2669,7 +2667,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_lobjects(self):
         # Create a container for our segmented/manifest object testing
-        (prolis, acc1lis, acc2lis, con2lis, con2lis, obj1lis, obj2lis) = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
                  _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()

@@ -389,7 +389,6 @@ class TestAuth(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
-        resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
     def test_get_token_fail(self):
