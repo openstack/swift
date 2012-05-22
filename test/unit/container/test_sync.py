@@ -19,7 +19,7 @@ import re
 from test.unit import FakeLogger
 from swift.container import sync
 from swift.common import utils
-from swift.common.client import ClientException
+from swiftclient import ClientException
 
 
 utils.HASH_PATH_SUFFIX = 'endcap'

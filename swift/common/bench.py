@@ -22,7 +22,7 @@ import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest
 
 from swift.common.utils import TRUE_VALUES
-from swift.common import client
+import swiftclient as client
 from swift.common import direct_client
 from swift.common.http import HTTP_CONFLICT
 

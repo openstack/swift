@@ -9,7 +9,7 @@ from ConfigParser import MissingSectionHeaderError
 
 from test import get_config
 
-from swift.common.client import get_auth, http_connection
+from swiftclient import get_auth, http_connection
 
 conf = get_config('func_test')
 

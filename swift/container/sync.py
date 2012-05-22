@@ -21,7 +21,7 @@ from eventlet import sleep, Timeout
 
 import swift.common.db
 from swift.container import server as container_server
-from swift.common.client import ClientException, delete_object, put_object, \
+from swiftclient import ClientException, delete_object, put_object, \
     quote
 from swift.common.direct_client import direct_get_object
 from swift.common.ring import Ring

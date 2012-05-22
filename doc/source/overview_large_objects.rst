@@ -17,9 +17,10 @@ with the possibility of parallel uploads of the segments.
 Using ``swift`` for Segmented Objects
 -------------------------------------
 
-The quickest way to try out this feature is use the included ``swift``
-Swift Tool.  You can use the ``-S`` option to specify the segment size
-to use when splitting a large file. For example::
+The quickest way to try out this feature is use the ``swift`` Swift Tool
+included with the `python-swiftclient`_ library.  You can use the ``-S``
+option to specify the segment size to use when splitting a large file. For
+example::
 
     swift upload test_container -S 1073741824 large_file
 
@@ -47,6 +48,8 @@ first until the last moment when the manifest file is updated.
 deletes and overwrites, etc. You can override this behavior with the
 ``--leave-segments`` option if desired; this is useful if you want to have
 multiple versions of the same large object available.
+
+.. _`python-swiftclient`: http://github.com/openstack/python-swiftclient
 
 ----------
 Direct API
