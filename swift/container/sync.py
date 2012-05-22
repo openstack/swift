@@ -180,7 +180,7 @@ class ContainerSync(Daemon):
         self._myips = whataremyips()
         self._myport = int(conf.get('bind_port', 6001))
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
 
     def run_forever(self):
         """

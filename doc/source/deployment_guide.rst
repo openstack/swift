@@ -425,10 +425,10 @@ bind_ip             0.0.0.0     IP Address for server to bind to
 bind_port           6002        Port for server to bind to
 workers             1           Number of workers to fork
 user                swift       User to run as
-db_preallocation    on          Normally Swift will try to preallocate disk
-                                space for new SQLite databases to decrease
-                                fragmentation (at the cost of disk usage). You
-                                may turn this feature off here.
+db_preallocation    off         If you don't mind the extra disk space usage in
+                                overhead, you can turn this on to preallocate
+                                disk space with SQLite databases to decrease
+                                fragmentation.
 ==================  ==========  =============================================
 
 [account-server]

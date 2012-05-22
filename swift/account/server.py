@@ -55,7 +55,7 @@ class AccountController(object):
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
 
     def _get_account_broker(self, drive, part, account):
         hsh = hash_path(account)
