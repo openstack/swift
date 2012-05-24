@@ -49,6 +49,12 @@ Content Distribution Network Integration
 * `SOS <https://github.com/dpgoetz/sos>`_ - Swift Origin Server.
 
 
+Alternative API
+---------------
+
+* `Swift3 <https://github.com/fujita/swift3>`_ - Amazon S3 API emulation.
+
+
 Other
 -----
 

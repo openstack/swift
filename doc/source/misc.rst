@@ -140,13 +140,6 @@ Ratelimit
     :members:
     :show-inheritance:
 
-Swift3
-======
-
-.. automodule:: swift.common.middleware.swift3
-    :members:
-    :show-inheritance:
-
 StaticWeb
 =========
 
