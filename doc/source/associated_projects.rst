@@ -16,7 +16,7 @@ Application Bindings
     * `Ruby-CloudFiles <https://github.com/rackspace/ruby-cloudfiles>`_
 
 * `RSwift <https://github.com/pandemicsyn/RSwift>`_ - Unofficial R API bindings.
-
+* `csharp-swift <https://github.com/cweidenkeller/csharp-swift>`_ - Unofficial .NET API wrapper.
 
 Authentication
 --------------
