@@ -71,7 +71,7 @@ class AccountReaper(Daemon):
             sqrt(self.concurrency)
         self.container_pool = GreenPool(size=self.container_concurrency)
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
         self.delay_reaping = int(conf.get('delay_reaping') or 0)
 
     def get_account_ring(self):

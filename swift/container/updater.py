@@ -58,7 +58,7 @@ class ContainerUpdater(Daemon):
             float(conf.get('account_suppression_time', 60))
         self.new_account_suppressions = None
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""

@@ -40,7 +40,7 @@ class ContainerAuditor(Daemon):
         self.container_passes = 0
         self.container_failures = 0
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,

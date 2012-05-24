@@ -122,7 +122,7 @@ class Replicator(Daemon):
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
         self._zero_stats()
 
     def _zero_stats(self):

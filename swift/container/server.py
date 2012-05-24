@@ -69,7 +69,7 @@ class ContainerController(object):
         if conf.get('allow_versions', 'f').lower() in TRUE_VALUES:
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 't').lower() in TRUE_VALUES
+            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
 
     def _get_container_broker(self, drive, part, account, container):
         """
