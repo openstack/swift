@@ -248,37 +248,50 @@ allows it to be more easily consumed by third party utilities::
 Cluster Telemetry and Monitoring
 --------------------------------
 
-Various metrics and telemetry can be obtained from the object servers using
-the recon server middleware and the swift-recon cli. To do so update your 
-object-server.conf to enable the recon middleware by adding a pipeline entry
-and setting its one option::
+Various metrics and telemetry can be obtained from the account, container, and
+object servers using the recon server middleware and the swift-recon cli. To do
+so update your account, container, or object servers pipelines to include recon
+and add the associated filter config.
+
+object-server.conf sample::
 
     [pipeline:main]
     pipeline = recon object-server
-    
+
+    [filter:recon]
+    use = egg:swift#recon
+    recon_cache_path = /var/cache/swift
+
+container-server.conf sample::
+
+    [pipeline:main]
+    pipeline = recon container-server
+
+    [filter:recon]
+    use = egg:swift#recon
+    recon_cache_path = /var/cache/swift
+
+account-server.conf sample::
+
+    [pipeline:main]
+    pipeline = recon account-server
+
     [filter:recon]
     use = egg:swift#recon
     recon_cache_path = /var/cache/swift
 
 The recon_cache_path simply sets the directory where stats for a few items will
 be stored. Depending on the method of deployment you may need to create this
-directory manually and ensure that swift has read/write.
+directory manually and ensure that swift has read/write access.
 
-If you wish to enable reporting of replication times you can enable recon 
-support in the object-replicator section of the object-server.conf::
-
-    [object-replicator]
-    ...
-    recon_enable = yes
-    recon_cache_path = /var/cache/swift
-    
-Finally if you also wish to track asynchronous pending's you will need to setup
-a cronjob to run the swift-recon-cron script periodically::
+Finally, if you also wish to track asynchronous pending on your object
+servers you will need to setup a cronjob to run the swift-recon-cron script
+periodically on your object servers::
 
     */5 * * * * swift /usr/bin/swift-recon-cron /etc/swift/object-server.conf
-   
-Once enabled a GET request for "/recon/<metric>" to the object server will 
-return a json formatted response::
+
+Once the recon middleware is enabled a GET request for "/recon/<metric>" to
+the server will return a json formatted response::
 
     fhines@ubuntu:~$ curl -i http://localhost:6030/recon/async
     HTTP/1.1 200 OK
@@ -288,30 +301,39 @@ return a json formatted response::
 
     {"async_pending": 0}
 
-The following metrics and telemetry are currently exposed:
+The following metrics and telemetry are currently exposed::
 
-==================  ====================================================
-Request URI         Description
-------------------  ----------------------------------------------------
-/recon/load         returns 1,5, and 15 minute load average
-/recon/async        returns count of async pending
-/recon/mem          returns /proc/meminfo
-/recon/replication  returns last logged object replication time
-/recon/mounted      returns *ALL* currently mounted filesystems
-/recon/unmounted    returns all unmounted drives if mount_check = True
-/recon/diskusage    returns disk utilization for storage devices
-/recon/ringmd5      returns object/container/account ring md5sums
-/recon/quarantined  returns # of quarantined objects/accounts/containers
-/recon/sockstat     returns consumable info from /proc/net/sockstat|6
-==================  ====================================================
+========================    ========================================================================================
+Request URI                 Description
+------------------------    ----------------------------------------------------------------------------------------
+/recon/load                 returns 1,5, and 15 minute load average
+/recon/mem                  returns /proc/meminfo
+/recon/mounted              returns *ALL* currently mounted filesystems
+/recon/unmounted            returns all unmounted drives if mount_check = True
+/recon/diskusage            returns disk utilization for storage devices
+/recon/ringmd5              returns object/container/account ring md5sums
+/recon/quarantined          returns # of quarantined objects/accounts/containers
+/recon/sockstat             returns consumable info from /proc/net/sockstat|6
+/recon/devices              returns list of devices and devices dir i.e. /srv/node
+/recon/async                returns count of async pending
+/recon/replication          returns object replication times (for backward compatability)
+/recon/replication/<type>   returns replication info for given type (account, container, object)
+/recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
+/recon/updater/<type>       returns last updater sweep times for given type (container, object)
+=========================   =======================================================================================
 
 This information can also be queried via the swift-recon command line utility::
 
     fhines@ubuntu:~$ swift-recon -h
-    ===============================================================================
     Usage: 
-        usage: swift-recon [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--objmd5]
-    
+            usage: swift-recon <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
+            [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+
+            <server_type>   account|container|object
+            Defaults to object server.
+
+            ex: swift-recon container -l --auditor
+
 
     Options:
       -h, --help            show this help message and exit
@@ -319,28 +341,32 @@ This information can also be queried via the swift-recon command line utility::
       --suppress            Suppress most connection related errors
       -a, --async           Get async stats
       -r, --replication     Get replication stats
+      --auditor             Get auditor stats
+      --updater             Get updater stats
+      --expirer             Get expirer stats
       -u, --unmounted       Check cluster for unmounted devices
       -d, --diskusage       Get disk usage stats
       -l, --loadstats       Get cluster load average stats
       -q, --quarantined     Get cluster quarantine stats
-      --objmd5              Get md5sums of object.ring.gz and compare to local
-                            copy
+      --md5                 Get md5sum of servers ring and compare to local copy
       --sockstat            Get cluster socket usage stats
-      --all                 Perform all checks. Equivalent to -arudlq --objmd5
-                            --socketstat
+      --all                 Perform all checks. Equal to -arudlq --md5 --sockstat
       -z ZONE, --zone=ZONE  Only query servers in specified zone
+      -t SECONDS, --timeout=SECONDS
+                            Time to wait for a response from a server
       --swiftdir=SWIFTDIR   Default = /etc/swift
 
-For example, to obtain quarantine stats from all hosts in zone "3"::
+For example, to obtain container replication info from all hosts in zone "3"::
 
-    fhines@ubuntu:~$ swift-recon -q --zone 3
+    fhines@ubuntu:~$ swift-recon container -r --zone 3
     ===============================================================================
-    [2011-10-18 19:36:00] Checking quarantine dirs on 1 hosts...
-    [Quarantined objects] low: 4, high: 4, avg: 4, total: 4
-    [Quarantined accounts] low: 0, high: 0, avg: 0, total: 0
-    [Quarantined containers] low: 0, high: 0, avg: 0, total: 0
+    --> Starting reconnaissance on 1 hosts
     ===============================================================================
-
+    [2012-04-02 02:45:48] Checking on replication
+    [failure] low: 0.000, high: 0.000, avg: 0.000, reported: 1
+    [success] low: 486.000, high: 486.000, avg: 486.000, reported: 1
+    [replication_time] low: 20.853, high: 20.853, avg: 20.853, reported: 1
+    [attempted] low: 243.000, high: 243.000, avg: 243.000, reported: 1
 
 ---------------------------
 Reporting Metrics to StatsD

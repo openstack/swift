@@ -20,7 +20,7 @@ from eventlet import Timeout
 
 from swift.obj import server as object_server
 from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, TRUE_VALUES
+    ratelimit_sleep, TRUE_VALUES, dump_recon_cache
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist
 from swift.common.daemon import Daemon
@@ -54,6 +54,9 @@ class AuditorWorker(object):
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
 
     def audit_all_objects(self, mode='once'):
         self.logger.info(_('Begin object audit "%s" mode (%s)' %
@@ -63,7 +66,6 @@ class AuditorWorker(object):
         self.total_files_processed = 0
         total_quarantines = 0
         total_errors = 0
-        files_running_time = 0
         time_auditing = 0
         all_locs = audit_location_generator(self.devices,
                                             object_server.DATADIR,
@@ -93,6 +95,16 @@ class AuditorWorker(object):
                             'brate': self.bytes_processed / (now - reported),
                             'total': (now - begin), 'audit': time_auditing,
                             'audit_rate': time_auditing / (now - begin)})
+                dump_recon_cache({'object_auditor_stats_%s' %
+                                    self.auditor_type: {
+                                        'errors': self.errors,
+                                        'passes': self.passes,
+                                        'quarantined': self.quarantines,
+                                        'bytes_processed':
+                                            self.bytes_processed,
+                                        'start_time': reported,
+                                        'audit_time': time_auditing}
+                                 }, self.rcache, self.logger)
                 reported = now
                 total_quarantines += self.quarantines
                 total_errors += self.errors

@@ -31,7 +31,8 @@ from webob.exc import HTTPNotFound, HTTPNoContent, HTTPAccepted, \
 
 import swift.common.db
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
-    renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than
+    renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than, \
+    dump_recon_cache
 from swift.common import ring
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
@@ -124,6 +125,11 @@ class Replicator(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
         self._zero_stats()
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.recon_replicator = '%s.recon' % self.server_type
+        self.rcache = os.path.join(self.recon_cache_path,
+                                   self.recon_replicator)
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -144,6 +150,9 @@ class Replicator(Daemon):
         self.logger.info(_('Removed %(remove)d dbs') % self.stats)
         self.logger.info(_('%(success)s successes, %(failure)s failures')
             % self.stats)
+        dump_recon_cache({'replication_stats': self.stats,
+                          'replication_time': time.time() - self.stats['start']
+                         }, self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
              self.stats.items() if item[0] in
              ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl', 'empty',

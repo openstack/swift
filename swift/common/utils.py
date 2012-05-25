@@ -41,7 +41,7 @@ import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 
 import eventlet
-from eventlet import GreenPool, sleep
+from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import socket, threading
 import netifaces
 
@@ -1184,35 +1184,39 @@ def human_readable(value):
     return '%d%si' % (round(value), suffixes[index])
 
 
-def dump_recon_cache(cache_key, cache_value, cache_file, lock_timeout=2):
+def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
     """Update recon cache values
 
-    :param cache_key: key to update
-    :param cache_value: value you want to set key too
+    :param cache_dict: Dictionary of cache key/value pairs to write out
     :param cache_file: cache file to update
+    :param logger: the logger to use to log an encountered error
     :param lock_timeout: timeout (in seconds)
     """
-    with lock_file(cache_file, lock_timeout, unlink=False) as cf:
-        cache_entry = {}
-        try:
-            existing_entry = cf.readline()
-            if existing_entry:
-                cache_entry = json.loads(existing_entry)
-        except ValueError:
-            #file doesn't have a valid entry, we'll recreate it
-            pass
-        cache_entry[cache_key] = cache_value
-        try:
-            with NamedTemporaryFile(dir=os.path.dirname(cache_file),
-                                    delete=False) as tf:
-                tf.write(json.dumps(cache_entry) + '\n')
-            os.rename(tf.name, cache_file)
-        finally:
+    try:
+        with lock_file(cache_file, lock_timeout, unlink=False) as cf:
+            cache_entry = {}
             try:
-                os.unlink(tf.name)
-            except OSError, err:
-                if err.errno != errno.ENOENT:
-                    raise
+                existing_entry = cf.readline()
+                if existing_entry:
+                    cache_entry = json.loads(existing_entry)
+            except ValueError:
+                #file doesn't have a valid entry, we'll recreate it
+                pass
+            for cache_key, cache_value in cache_dict.items():
+                cache_entry[cache_key] = cache_value
+            try:
+                with NamedTemporaryFile(dir=os.path.dirname(cache_file),
+                                        delete=False) as tf:
+                    tf.write(json.dumps(cache_entry) + '\n')
+                os.rename(tf.name, cache_file)
+            finally:
+                try:
+                    os.unlink(tf.name)
+                except OSError, err:
+                    if err.errno != errno.ENOENT:
+                        raise
+    except (Exception, Timeout):
+        logger.exception(_('Exception dumping recon cache'))
 
 
 def listdir(path):

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from random import random
 
@@ -20,7 +21,7 @@ import swift.common.db
 from swift.account import server as account_server
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, audit_location_generator, \
-    TRUE_VALUES
+    TRUE_VALUES, dump_recon_cache
 from swift.common.daemon import Daemon
 
 from eventlet import Timeout
@@ -40,6 +41,9 @@ class AccountAuditor(Daemon):
         self.account_failures = 0
         swift.common.db.DB_PREALLOCATION = \
             conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, "account.recon")
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
@@ -53,6 +57,12 @@ class AccountAuditor(Daemon):
                       {'time': time.ctime(reported),
                        'passed': self.account_passes,
                        'failed': self.account_failures})
+                self.account_audit(path)
+                dump_recon_cache({'account_audits_since': reported,
+                                  'account_audits_passed': self.account_passes,
+                                  'account_audits_failed':
+                                    self.account_failures},
+                                 self.rcache, self.logger)
                 reported = time.time()
                 self.account_passes = 0
                 self.account_failures = 0
@@ -75,6 +85,8 @@ class AccountAuditor(Daemon):
                 time.sleep(self.interval - elapsed)
             self.logger.info(
                 _('Account audit pass completed: %.02fs'), elapsed)
+            dump_recon_cache({'account_auditor_pass_completed': elapsed},
+                             self.rcache, self.logger)
 
     def run_once(self, *args, **kwargs):
         """Run the account audit once."""
@@ -84,6 +96,8 @@ class AccountAuditor(Daemon):
         elapsed = time.time() - begin
         self.logger.info(
             _('Account audit "once" mode completed: %.02fs'), elapsed)
+        dump_recon_cache({'account_auditor_pass_completed': elapsed},
+                         self.rcache, self.logger)
 
     def account_audit(self, path):
         """

@@ -14,16 +14,15 @@
 # limitations under the License.
 
 from random import random
-from sys import exc_info
 from time import time
 from urllib import quote
+from os.path import join
 
 from eventlet import sleep, Timeout
-from webob import Request
 
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, dump_recon_cache
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
 
@@ -55,6 +54,9 @@ class ObjectExpirer(Daemon):
         self.report_interval = int(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = join(self.recon_cache_path, 'object.recon')
 
     def report(self, final=False):
         """
@@ -68,6 +70,9 @@ class ObjectExpirer(Daemon):
             elapsed = time() - self.report_first_time
             self.logger.info(_('Pass completed in %ds; %d objects expired') %
                              (elapsed, self.report_objects))
+            dump_recon_cache({'object_expiration_pass': elapsed,
+                              'expired_last_pass': self.report_objects},
+                              self.rcache, self.logger)
         elif time() - self.report_last_time >= self.report_interval:
             elapsed = time() - self.report_first_time
             self.logger.info(_('Pass so far %ds; %d objects expired') %

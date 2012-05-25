@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from random import random
 
@@ -22,7 +23,7 @@ import swift.common.db
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, audit_location_generator, \
-    TRUE_VALUES
+    TRUE_VALUES, dump_recon_cache
 from swift.common.daemon import Daemon
 
 
@@ -36,11 +37,13 @@ class ContainerAuditor(Daemon):
         self.mount_check = conf.get('mount_check', 'true').lower() in \
                               ('true', 't', '1', 'on', 'yes', 'y')
         self.interval = int(conf.get('interval', 1800))
-        swift_dir = conf.get('swift_dir', '/etc/swift')
         self.container_passes = 0
         self.container_failures = 0
         swift.common.db.DB_PREALLOCATION = \
             conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, "container.recon")
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
@@ -56,6 +59,12 @@ class ContainerAuditor(Daemon):
                     {'time': time.ctime(reported),
                      'pass': self.container_passes,
                      'fail': self.container_failures})
+                dump_recon_cache({'container_audits_since': reported,
+                                  'container_audits_passed':
+                                    self.container_passes,
+                                  'container_audits_failed':
+                                    self.container_failures},
+                                 self.rcache, self.logger)
                 reported = time.time()
                 self.container_passes = 0
                 self.container_failures = 0
@@ -78,6 +87,8 @@ class ContainerAuditor(Daemon):
                 time.sleep(self.interval - elapsed)
             self.logger.info(
                 _('Container audit pass completed: %.02fs'), elapsed)
+            dump_recon_cache({'container_auditor_pass_completed': elapsed},
+                             self.rcache, self.logger)
 
     def run_once(self, *args, **kwargs):
         """Run the container audit once."""
@@ -87,6 +98,8 @@ class ContainerAuditor(Daemon):
         elapsed = time.time() - begin
         self.logger.info(
             _('Container audit "once" mode completed: %.02fs'), elapsed)
+        dump_recon_cache({'container_auditor_pass_completed': elapsed},
+                          self.recon_container)
 
     def container_audit(self, path):
         """
