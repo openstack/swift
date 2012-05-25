@@ -1,6 +1,38 @@
-swift (1.4.9)
+swift (1.5.0)
 
-    * Optional object versioning feature. (See docs for full description)
+    * New option to toggle SQLite database preallocation with account
+      and container servers.
+
+      IMPORTANT:
+      The default for database preallocation is now off when before
+      it was always on. This will affect performance on clusters that
+      use standard drives with shared account, container, object
+      servers. Such deployments will need to update their
+      configurations to turn database preallocation back on (see
+      account-server.conf-sample and container-server.conf.sample
+      files).
+
+      If you are using dedicated account and container servers with
+      SSDs, you should defragment your file systems after upgrade and
+      should notice dramatically less disk usage.
+
+    * swift3 middleware removed and moved to http://github.com/fujita/swift3.
+      This will require a config change in the proxy server and adds a new
+      dependency for deployers using this middleware.
+
+    * Moved proxy server logging to middleware. This requires a config change
+      in the proxy server.
+
+    * Added object versioning feature. (See docs for full description)
+
+    * Add statsd logging throughout the system (beta, some event names may
+      change)
+
+    * Expanded swift-recon middleware support
+
+    * The ring builder now supports as-unique-as-possible partition
+      placement, unified balancing methods, and can work on more than one
+      device at a time.
 
     * Numerous bug fixes to StaticWeb (previously unusable at scale).
 
@@ -10,14 +42,29 @@ swift (1.4.9)
 
     * Bug fix to object expirer that could cause infinite looping.
 
-    * Option to disable SQLite database preallocation with account and
-      container servers.
-
-    * Optional delay to account reaping.
-
-    * Overall disk usage reporting with swift-recon.
+    * Added optional delay to account reaping.
 
     * Async-pending write optimization.
+
+    * Dispersion tools now support multiple auth versions
+
+    * Updated man pages
+
+    * Proxy server can now deny requests to particular hostnames
+
+    * Updated docs for domain remap middleware
+
+    * Updated docs for cname lookup middleware
+
+    * Made swift CLI binary easier to wrap
+
+    * Proxy will now also return X-Timestamp header
+
+    * Added associated projects doc as a place to track ecosystem projects
+
+    * end_marker made consistent across both object and container listings
+
+    * Various other minor bug fixes and improvements
 
 swift (1.4.8)
 
