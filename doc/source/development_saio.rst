@@ -287,7 +287,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         log_facility = LOG_LOCAL1
 
         [pipeline:main]
-        pipeline = healthcheck cache tempauth proxy-server
+        pipeline = healthcheck cache tempauth proxy-logging proxy-server
 
         [app:proxy-server]
         use = egg:swift#proxy
@@ -306,6 +306,9 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [filter:cache]
         use = egg:swift#memcache
+
+        [filter:proxy-logging]
+        use = egg:swift#proxy_logging
 
   #. Create `/etc/swift/swift.conf`:
 

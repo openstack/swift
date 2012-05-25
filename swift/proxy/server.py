@@ -65,8 +65,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     is_client_error, is_server_error, HTTP_CONTINUE, HTTP_OK, HTTP_CREATED, \
     HTTP_ACCEPTED, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, \
-    HTTP_CLIENT_CLOSED_REQUEST, HTTP_INTERNAL_SERVER_ERROR, \
-    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE, HTTPClientDisconnect
+    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
+    HTTP_INSUFFICIENT_STORAGE, HTTPClientDisconnect
 
 
 def update_headers(response, headers):
@@ -129,11 +129,9 @@ class SegmentedIterable(object):
     """
     Iterable that returns the object contents for a segmented object in Swift.
 
-    If set, the response's `bytes_transferred` value will be updated (used to
-    log the size of the request). Also, if there's a failure that cuts the
-    transfer short, the response's `status_int` will be updated (again, just
-    for logging since the original status would have already been sent to the
-    client).
+    If there's a failure that cuts the transfer short, the response's
+    `status_int` will be updated (again, just for logging since the original
+    status would have already been sent to the client).
 
     :param controller: The ObjectController instance to work with.
     :param container: The container the object segments are within.
@@ -224,8 +222,6 @@ class SegmentedIterable(object):
                         except StopIteration:
                             self._load_next_segment()
                 self.position += len(chunk)
-                self.response.bytes_transferred = getattr(self.response,
-                    'bytes_transferred', 0) + len(chunk)
                 yield chunk
         except StopIteration:
             raise
@@ -268,9 +264,6 @@ class SegmentedIterable(object):
                     length -= len(chunk)
                     if length < 0:
                         # Chop off the extra:
-                        self.response.bytes_transferred = \
-                           getattr(self.response, 'bytes_transferred', 0) \
-                           + length
                         yield chunk[:length]
                         break
                 yield chunk
@@ -714,12 +707,8 @@ class Controller(object):
     def _make_app_iter(self, node, source, response):
         """
         Returns an iterator over the contents of the source (via its read
-        func). The response.bytes_transferred will be incremented as the
-        iterator is read so as to measure how much the client is actually sent.
-        response.client_disconnect will be set to true if the GeneratorExit
-        occurs before all the source is read. There is also quite a bit of
-        cleanup to ensure garbage collection works and the underlying socket of
-        the source is closed.
+        func).  There is also quite a bit of cleanup to ensure garbage
+        collection works and the underlying socket of the source is closed.
 
         :param response: The webob.Response object this iterator should be
                          assigned to via response.app_iter.
@@ -740,11 +729,9 @@ class Controller(object):
                     if not chunk:
                         break
                     yield chunk
-                    response.bytes_transferred += len(chunk)
             except Empty:
                 raise ChunkReadTimeout()
             except (GeneratorExit, Timeout):
-                response.client_disconnect = True
                 self.app.logger.warn(_('Client disconnected on read'))
             except Exception:
                 self.app.logger.exception(_('Trying to send to client'))
@@ -831,7 +818,6 @@ class Controller(object):
             if req.method == 'GET' and \
                source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
                 res = Response(request=req, conditional_response=True)
-                res.bytes_transferred = 0
                 res.app_iter = self._make_app_iter(node, source, res)
                 # See NOTE: swift_conn at top of file about this.
                 res.swift_conn = source.swift_conn
@@ -1340,13 +1326,13 @@ class ObjectController(Controller):
             self.app.logger.increment('errors')
             return HTTPServiceUnavailable(request=req)
         chunked = req.headers.get('transfer-encoding')
+        bytes_transferred = 0
         try:
             with ContextPool(len(nodes)) as pool:
                 for conn in conns:
                     conn.failed = False
                     conn.queue = Queue(self.app.put_queue_depth)
                     pool.spawn(self._send_file, conn, req.path)
-                req.bytes_transferred = 0
                 while True:
                     with ChunkReadTimeout(self.app.client_timeout):
                         try:
@@ -1355,8 +1341,8 @@ class ObjectController(Controller):
                             if chunked:
                                 [conn.queue.put('0\r\n\r\n') for conn in conns]
                             break
-                    req.bytes_transferred += len(chunk)
-                    if req.bytes_transferred > MAX_FILE_SIZE:
+                    bytes_transferred += len(chunk)
+                    if bytes_transferred > MAX_FILE_SIZE:
                         self.app.logger.increment('errors')
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):
@@ -1381,14 +1367,13 @@ class ObjectController(Controller):
             self.app.logger.increment('client_timeouts')
             return HTTPRequestTimeout(request=req)
         except (Exception, Timeout):
-            req.client_disconnect = True
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             self.app.logger.increment('client_disconnects')
             self.app.logger.timing_since(
                 '%s.timing' % (stats_type,), start_time)
             return HTTPClientDisconnect(request=req)
-        if req.content_length and req.bytes_transferred < req.content_length:
+        if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.warn(
                 _('Client disconnected without sending enough data'))
@@ -1438,8 +1423,6 @@ class ObjectController(Controller):
             for k, v in req.headers.items():
                 if k.lower().startswith('x-object-meta-'):
                     resp.headers[k] = v
-            # reset the bytes, since the user didn't actually send anything
-            req.bytes_transferred = 0
         resp.last_modified = float(req.headers['X-Timestamp'])
         self.app.logger.timing_since('%s.timing' % (stats_type,), start_time)
         return resp
@@ -1985,18 +1968,7 @@ class BaseApplication(object):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
             req = self.update_request(Request(env))
-            if 'eventlet.posthooks' in env:
-                env['eventlet.posthooks'].append(
-                    (self.posthooklogger, (req,), {}))
-                return self.handle_request(req)(env, start_response)
-            else:
-                # Lack of posthook support means that we have to log on the
-                # start of the response, rather than after all the data has
-                # been sent. This prevents logging client disconnects
-                # differently than full transmissions.
-                response = self.handle_request(req)(env, start_response)
-                self.posthooklogger(env, req)
-                return response
+            return self.handle_request(req)(env, start_response)
         except (Exception, Timeout):
             print "EXCEPTION IN __call__: %s: %s" % \
                   (traceback.format_exc(), env)
@@ -2004,12 +1976,7 @@ class BaseApplication(object):
                     [('Content-Type', 'text/plain')])
             return ['Internal server error.\n']
 
-    def posthooklogger(self, env, req):
-        pass
-
     def update_request(self, req):
-        req.bytes_transferred = '-'
-        req.client_disconnect = False
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
@@ -2097,45 +2064,6 @@ class Application(BaseApplication):
         req.start_time = time.time()
         req.response = super(Application, self).handle_request(req)
         return req.response
-
-    def posthooklogger(self, env, req):
-        response = getattr(req, 'response', None)
-        if not response:
-            return
-        trans_time = '%.4f' % (time.time() - req.start_time)
-        the_request = quote(unquote(req.path))
-        if req.query_string:
-            the_request = the_request + '?' + req.query_string
-        client = get_remote_client(req)
-        logged_headers = None
-        if self.log_headers:
-            logged_headers = '\n'.join('%s: %s' % (k, v)
-                for k, v in req.headers.items())
-        status_int = response.status_int
-        if getattr(req, 'client_disconnect', False) or \
-                getattr(response, 'client_disconnect', False):
-            status_int = HTTP_CLIENT_CLOSED_REQUEST
-        self.access_logger.info(' '.join(quote(str(x)) for x in (
-                client or '-',
-                req.remote_addr or '-',
-                time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),
-                req.method,
-                the_request,
-                req.environ['SERVER_PROTOCOL'],
-                status_int,
-                req.referer or '-',
-                req.user_agent or '-',
-                req.headers.get('x-auth-token', '-'),
-                getattr(req, 'bytes_transferred', 0) or '-',
-                getattr(response, 'bytes_transferred', 0) or '-',
-                req.headers.get('etag', '-'),
-                req.environ.get('swift.trans_id', '-'),
-                logged_headers or '-',
-                trans_time,
-                req.environ.get('swift.source', '-'),
-            )))
-        # done with this transaction
-        self.access_logger.txn_id = None
 
 
 def app_factory(global_conf, **local_conf):

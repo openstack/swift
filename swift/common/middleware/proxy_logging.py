@@ -1,0 +1,189 @@
+# Copyright (c) 2010-2011 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Logging middleware for the Swift proxy.
+
+This serves as both the default logging implementation and an example of how
+to plug in your own logging format/method.
+
+The logging format implemented below is as follows:
+
+client_ip remote_addr datetime request_method request_path protocol
+    status_int referer user_agent auth_token bytes_recvd bytes_sent
+    client_etag transaction_id headers request_time source
+
+These values are space-separated, and each is url-encoded, so that they can
+be separated with a simple .split()
+
+* remote_addr is the contents of the REMOTE_ADDR environment variable, while
+  client_ip is swift's best guess at the end-user IP, extracted variously
+  from the X-Forwarded-For header, X-Cluster-Ip header, or the REMOTE_ADDR
+  environment variable.
+
+* Values that are missing (e.g. due to a header not being present) or zero
+  are generally represented by a single hyphen ('-').
+"""
+
+import time
+from urllib import quote, unquote
+
+from webob import Request
+
+from swift.common.utils import get_logger, get_remote_client, TRUE_VALUES
+
+
+class InputProxy(object):
+    """
+    File-like object that counts bytes read.
+    To be swapped in for wsgi.input for accounting purposes.
+    """
+    def __init__(self, wsgi_input):
+        """
+        :param wsgi_input: file-like object to wrap the functionality of
+        """
+        self.wsgi_input = wsgi_input
+        self.bytes_received = 0
+        self.client_disconnect = False
+
+    def read(self, *args, **kwargs):
+        """
+        Pass read request to the underlying file-like object and
+        add bytes read to total.
+        """
+        try:
+            chunk = self.wsgi_input.read(*args, **kwargs)
+        except Exception:
+            self.client_disconnect = True
+            raise
+        self.bytes_received += len(chunk)
+        return chunk
+
+    def readline(self, *args, **kwargs):
+        """
+        Pass readline request to the underlying file-like object and
+        add bytes read to total.
+        """
+        try:
+            line = self.wsgi_input.readline(*args, **kwargs)
+        except Exception:
+            self.client_disconnect = True
+            raise
+        self.bytes_received += len(line)
+        return line
+
+
+class ProxyLoggingMiddleware(object):
+    """
+    Middleware that logs Swift proxy requests in the swift log format.
+    """
+
+    def __init__(self, app, conf):
+        self.app = app
+        self.log_hdrs = conf.get('log_headers', 'no').lower() in TRUE_VALUES
+        access_log_conf = {}
+        for key in ('log_facility', 'log_name', 'log_level'):
+            value = conf.get('access_' + key, conf.get(key, None))
+            if value:
+                access_log_conf[key] = value
+        self.access_logger = get_logger(access_log_conf,
+                        log_route='proxy-access')
+
+    def log_request(self, env, status_int, bytes_received, bytes_sent,
+                    request_time, client_disconnect):
+        """
+        Log a request.
+
+        :param env: WSGI environment
+        :param status_int: integer code for the response status
+        :param bytes_received: bytes successfully read from the request body
+        :param bytes_sent: bytes yielded to the WSGI server
+        :param request_time: time taken to satisfy the request, in seconds
+        """
+        req = Request(env)
+        if client_disconnect:  # log disconnected clients as '499' status code
+            status_int = 499
+        the_request = quote(unquote(req.path))
+        if req.query_string:
+            the_request = the_request + '?' + req.query_string
+        logged_headers = None
+        if self.log_hdrs:
+            logged_headers = '\n'.join('%s: %s' % (k, v)
+                for k, v in req.headers.items())
+        self.access_logger.info(' '.join(quote(str(x) if x else '-')
+            for x in (
+                get_remote_client(req),
+                req.remote_addr,
+                time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),
+                req.method,
+                the_request,
+                req.environ.get('SERVER_PROTOCOL'),
+                status_int,
+                req.referer,
+                req.user_agent,
+                req.headers.get('x-auth-token'),
+                bytes_received,
+                bytes_sent,
+                req.headers.get('etag', None),
+                req.environ.get('swift.trans_id'),
+                logged_headers,
+                '%.4f' % request_time,
+                req.environ.get('swift.source'),
+            )))
+        self.access_logger.txn_id = None
+
+    def __call__(self, env, start_response):
+        status_int = [500]
+        input_proxy = InputProxy(env['wsgi.input'])
+        env['wsgi.input'] = input_proxy
+        start_time = time.time()
+
+        def my_start_response(status, headers, exc_info=None):
+            status_int[0] = int(status.split()[0])
+            return start_response(status, headers, exc_info)
+
+        def iter_response(iterator):
+            bytes_sent = 0
+            client_disconnect = False
+            try:
+                for chunk in iterator:
+                    bytes_sent += len(chunk)
+                    yield chunk
+            except GeneratorExit:  # generator was closed before we finished
+                client_disconnect = True
+                raise
+            finally:
+                self.log_request(env, status_int[0],
+                        input_proxy.bytes_received, bytes_sent,
+                        time.time() - start_time,
+                        client_disconnect or input_proxy.client_disconnect)
+
+        try:
+            iterator = self.app(env, my_start_response)
+        except Exception:
+            self.log_request(env, 500, input_proxy.bytes_received, 0,
+                    time.time() - start_time, input_proxy.client_disconnect)
+            raise
+        else:
+            return iter_response(iterator)
+
+
+def filter_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
+
+    def proxy_logger(app):
+        return ProxyLoggingMiddleware(app, conf)
+    return proxy_logger

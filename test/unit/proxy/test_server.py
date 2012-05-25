@@ -546,131 +546,6 @@ class TestController(unittest.TestCase):
 
 class TestProxyServer(unittest.TestCase):
 
-    def test_access_log(self):
-
-        class MyApp(proxy_server.Application):
-
-            def handle_request(self, req):
-                resp = Response(request=req)
-                req.response = resp
-                req.start_time = time()
-                return resp
-
-        def start_response(*args):
-            pass
-
-        class MockLogger():
-
-            def __init__(self):
-                self.buffer = StringIO()
-
-            def info(self, msg, args=None):
-                if args:
-                    msg = msg % args
-                self.buffer.write(msg)
-
-            def strip_value(self):
-                rv = self.buffer.getvalue()
-                self.buffer.truncate(0)
-                return rv
-
-        class SnarfStream(object):
-            # i can't seem to subclass cStringIO
-
-            def __init__(self, *args, **kwargs):
-                self.sio = StringIO()
-
-            def strip_value(self):
-                rv = self.getvalue().strip()
-                self.truncate(0)
-                return rv
-
-            def __getattr__(self, name):
-                try:
-                    return object.__getattr__(self, name)
-                except AttributeError:
-                    try:
-                        return getattr(self.sio, name)
-                    except AttributeError:
-                        return self.__getattribute__(name)
-
-        snarf = SnarfStream()
-        _orig_get_logger = proxy_server.get_logger
-
-        def mock_get_logger(*args, **kwargs):
-            if kwargs.get('log_route') != 'proxy-access':
-                return _orig_get_logger(*args, **kwargs)
-            kwargs['log_route'] = 'snarf'
-            logger = _orig_get_logger(*args, **kwargs)
-            if [h for h in logger.logger.handlers if
-                isinstance(h, logging.StreamHandler) and h.stream is snarf]:
-                # snarf handler already setup!
-                return logger
-            formatter = logger.logger.handlers[0].formatter
-            formatter._fmt += ' %(levelname)s'
-            snarf_handler = logging.StreamHandler(snarf)
-            snarf_handler.setFormatter(formatter)
-            logger.logger.addHandler(snarf_handler)
-            return logger
-
-        def test_conf(conf):
-            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
-                        container_ring=FakeRing(), object_ring=FakeRing())
-            req = Request.blank('')
-            app(req.environ, start_response)
-
-        try:
-            proxy_server.get_logger = mock_get_logger
-            test_conf({})
-            line = snarf.strip_value()
-            self.assert_(line.startswith('swift'))
-            self.assert_(line.endswith('INFO'))
-            test_conf({'log_name': 'snarf-test'})
-            line = snarf.strip_value()
-            self.assert_(line.startswith('snarf-test'))
-            self.assert_(line.endswith('INFO'))
-            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR'})
-            line = snarf.strip_value()
-            self.assertFalse(line)
-            test_conf({'log_name': 'snarf-test', 'log_level': 'ERROR',
-                       'access_log_name': 'access-test',
-                       'access_log_level': 'INFO'})
-            line = snarf.strip_value()
-            self.assert_(line.startswith('access-test'))
-            self.assert_(line.endswith('INFO'))
-
-            # test facility
-            def get_facility(logger):
-                h = [h for h in logger.logger.handlers if
-                     isinstance(h, SysLogHandler)][0]
-                return h.facility
-
-            conf = {'log_facility': 'LOG_LOCAL0'}
-            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
-                        container_ring=FakeRing(), object_ring=FakeRing())
-            self.assertEquals(get_facility(app.logger),
-                              SysLogHandler.LOG_LOCAL0)
-            self.assertEquals(get_facility(app.access_logger),
-                              SysLogHandler.LOG_LOCAL0)
-            conf = {'log_facility': 'LOG_LOCAL0',
-                    'access_log_facility': 'LOG_LOCAL1'}
-            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
-                        container_ring=FakeRing(), object_ring=FakeRing())
-            self.assertEquals(get_facility(app.logger),
-                              SysLogHandler.LOG_LOCAL0)
-            self.assertEquals(get_facility(app.access_logger),
-                              SysLogHandler.LOG_LOCAL1)
-            conf = {'access_log_facility': 'LOG_LOCAL1'}
-            app = MyApp(conf, memcache=FakeMemcache(), account_ring=FakeRing(),
-                        container_ring=FakeRing(), object_ring=FakeRing())
-            self.assertEquals(get_facility(app.logger),
-                              SysLogHandler.LOG_LOCAL0)
-            self.assertEquals(get_facility(app.access_logger),
-                              SysLogHandler.LOG_LOCAL1)
-
-        finally:
-            proxy_server.get_logger = _orig_get_logger
-
     def test_unhandled_exception(self):
 
         class MyApp(proxy_server.Application):
@@ -2133,77 +2008,6 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('\r\nContent-Length: 0\r\n' in headers)
 
-    def test_client_ip_logging(self):
-        # test that the client ip field in the log gets populated with the
-        # ip instead of being blank
-        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv) = \
-                _test_servers
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
-                 _test_sockets
-
-        orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
-        prosrv.logger = prosrv.access_logger = FakeLogger()
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write(
-            'GET /v1/a?format=json HTTP/1.1\r\nHost: localhost\r\n'
-            'Connection: close\r\nX-Auth-Token: t\r\n'
-            'Content-Length: 0\r\n'
-            '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        exp = '127.0.0.1 127.0.0.1'
-        self.assertEquals(prosrv.logger.log_dict['exception'], [])
-        self.assert_(exp in prosrv.logger.log_dict['info'][-1][0][0])
-
-    def test_chunked_put_logging(self):
-        # GET account with a query string to test that
-        # Application.log_request logs the query string. Also, throws
-        # in a test for logging x-forwarded-for (first entry only).
-        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv) = \
-                _test_servers
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
-                 _test_sockets
-
-        orig_logger, orig_access_logger = prosrv.logger, prosrv.access_logger
-        prosrv.logger = prosrv.access_logger = FakeLogger()
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write(
-            'GET /v1/a?format=json HTTP/1.1\r\nHost: localhost\r\n'
-            'Connection: close\r\nX-Auth-Token: t\r\n'
-            'Content-Length: 0\r\nX-Forwarded-For: host1, host2\r\n'
-            '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        got_log_msg = prosrv.logger.log_dict['info'][-1][0][0]
-        self.assert_('/v1/a%3Fformat%3Djson' in got_log_msg,
-                     prosrv.logger.log_dict)
-        exp = 'host1'
-        self.assertEquals(got_log_msg[:len(exp)], exp)
-        # Turn on header logging.
-
-        prosrv.logger = prosrv.access_logger = FakeLogger()
-        prosrv.log_headers = True
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a HTTP/1.1\r\nHost: localhost\r\n'
-            'Connection: close\r\nX-Auth-Token: t\r\n'
-            'Content-Length: 0\r\nGoofy-Header: True\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('Goofy-Header%3A%20True' in
-                     prosrv.logger.log_dict['info'][-1][0][0],
-                     prosrv.logger.log_dict)
-        prosrv.log_headers = False
-        prosrv.logger, prosrv.access_logger = orig_logger, orig_access_logger
-
     def test_chunked_put_utf8_all_the_way_down(self):
         # Test UTF-8 Unicode all the way through the system
         ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
@@ -2914,87 +2718,6 @@ class TestObjectController(unittest.TestCase):
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int // 100, 4)  # client error
 
-    def test_request_bytes_transferred_attr(self):
-        with save_globals():
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                            'container', 'object')
-            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '10'},
-                                body='1234567890')
-            self.app.update_request(req)
-            res = controller.PUT(req)
-            self.assert_(hasattr(req, 'bytes_transferred'))
-            self.assertEquals(req.bytes_transferred, 10)
-
-    def test_copy_zero_bytes_transferred_attr(self):
-        with save_globals():
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
-                                  body='1234567890')
-            controller = proxy_server.ObjectController(self.app, 'account',
-                            'container', 'object')
-            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Copy-From': 'c/o2',
-                                         'Content-Length': '0'})
-            self.app.update_request(req)
-            res = controller.PUT(req)
-            self.assert_(hasattr(req, 'bytes_transferred'))
-            self.assertEquals(req.bytes_transferred, 0)
-
-    def test_response_bytes_transferred_attr(self):
-        with save_globals():
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, body='1234567890')
-            controller = proxy_server.ObjectController(self.app, 'account',
-                            'container', 'object')
-            req = Request.blank('/a/c/o')
-            self.app.update_request(req)
-            res = controller.GET(req)
-            res.body
-            self.assert_(hasattr(res, 'bytes_transferred'))
-            self.assertEquals(res.bytes_transferred, 10)
-
-    def test_request_client_disconnect_attr(self):
-        with save_globals():
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                            'container', 'object')
-            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '10'},
-                                body='12345')
-            self.app.update_request(req)
-            res = controller.PUT(req)
-            self.assertEquals(req.bytes_transferred, 5)
-            self.assert_(hasattr(req, 'client_disconnect'))
-            self.assert_(req.client_disconnect)
-
-    def test_response_client_disconnect_attr(self):
-        with save_globals():
-            proxy_server.http_connect = \
-                fake_http_connect(200, 200, 200, body='1234567890')
-            controller = proxy_server.ObjectController(self.app, 'account',
-                            'container', 'object')
-            req = Request.blank('/a/c/o')
-            self.app.update_request(req)
-            orig_object_chunk_size = self.app.object_chunk_size
-            try:
-                self.app.object_chunk_size = 5
-                res = controller.GET(req)
-                ix = 0
-                for v in res.app_iter:
-                    ix += 1
-                    if ix > 1:
-                        break
-                res.app_iter.close()
-                self.assertEquals(res.bytes_transferred, 5)
-                self.assert_(hasattr(res, 'client_disconnect'))
-                self.assert_(res.client_disconnect)
-            finally:
-                self.app.object_chunk_size = orig_object_chunk_size
-
     def test_response_get_accept_ranges_header(self):
         with save_globals():
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -3561,41 +3284,6 @@ class TestContainerController(unittest.TestCase):
             self.assert_status_map(controller.DELETE,
                                    (200, 404, 404, 404), 404)
 
-    def test_response_bytes_transferred_attr(self):
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
-            req = Request.blank('/a/c?format=json')
-            self.app.update_request(req)
-            res = controller.GET(req)
-            res.body
-            self.assert_(hasattr(res, 'bytes_transferred'))
-            self.assertEquals(res.bytes_transferred, 2)
-
-    def test_response_client_disconnect_attr(self):
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
-            req = Request.blank('/a/c?format=json')
-            self.app.update_request(req)
-            orig_object_chunk_size = self.app.object_chunk_size
-            try:
-                self.app.object_chunk_size = 1
-                res = controller.GET(req)
-                ix = 0
-                for v in res.app_iter:
-                    ix += 1
-                    if ix > 1:
-                        break
-                res.app_iter.close()
-                self.assertEquals(res.bytes_transferred, 1)
-                self.assert_(hasattr(res, 'client_disconnect'))
-                self.assert_(res.client_disconnect)
-            finally:
-                self.app.object_chunk_size = orig_object_chunk_size
-
     def test_response_get_accept_ranges_header(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
@@ -3950,17 +3638,6 @@ class TestAccountController(unittest.TestCase):
         resp = controller.HEAD(req)
         self.assertEquals(resp.status_int, 503)
 
-    def test_response_bytes_transferred_attr(self):
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
-            controller = proxy_server.AccountController(self.app, 'account')
-            req = Request.blank('/a?format=json')
-            self.app.update_request(req)
-            res = controller.GET(req)
-            res.body
-            self.assert_(hasattr(res, 'bytes_transferred'))
-            self.assertEquals(res.bytes_transferred, 2)
-
     def test_response_get_accept_ranges_header(self):
         with save_globals():
             proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
@@ -3981,28 +3658,6 @@ class TestAccountController(unittest.TestCase):
             res.body
             self.assert_('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
-
-    def test_response_client_disconnect_attr(self):
-        with save_globals():
-            proxy_server.http_connect = fake_http_connect(200, 200, body='{}')
-            controller = proxy_server.AccountController(self.app, 'account')
-            req = Request.blank('/a?format=json')
-            self.app.update_request(req)
-            orig_object_chunk_size = self.app.object_chunk_size
-            try:
-                self.app.object_chunk_size = 1
-                res = controller.GET(req)
-                ix = 0
-                for v in res.app_iter:
-                    ix += 1
-                    if ix > 1:
-                        break
-                res.app_iter.close()
-                self.assertEquals(res.bytes_transferred, 1)
-                self.assert_(hasattr(res, 'client_disconnect'))
-                self.assert_(res.client_disconnect)
-            finally:
-                self.app.object_chunk_size = orig_object_chunk_size
 
     def test_PUT(self):
         with save_globals():
@@ -4325,14 +3980,12 @@ class TestSegmentedIterable(unittest.TestCase):
             'o1'}])
         segit.response = Stub()
         self.assertEquals(''.join(segit), '1')
-        self.assertEquals(segit.response.bytes_transferred, 1)
 
     def test_iter_with_two_segments(self):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', [{'name':
             'o1'}, {'name': 'o2'}])
         segit.response = Stub()
         self.assertEquals(''.join(segit), '122')
-        self.assertEquals(segit.response.bytes_transferred, 3)
 
     def test_iter_with_get_error(self):
 
@@ -4372,7 +4025,6 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, None)), '1')
-        self.assertEquals(segit.response.bytes_transferred, 1)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         self.assertEquals(''.join(segit.app_iter_range(3, None)), '')
@@ -4383,7 +4035,6 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, 5)), '1')
-        self.assertEquals(segit.response.bytes_transferred, 1)
 
     def test_app_iter_range_with_two_segments(self):
         listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2}]
@@ -4391,22 +4042,18 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, None)), '122')
-        self.assertEquals(segit.response.bytes_transferred, 3)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(1, None)), '22')
-        self.assertEquals(segit.response.bytes_transferred, 2)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(1, 5)), '22')
-        self.assertEquals(segit.response.bytes_transferred, 2)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, 2)), '12')
-        self.assertEquals(segit.response.bytes_transferred, 2)
 
     def test_app_iter_range_with_many_segments(self):
         listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2},
@@ -4417,38 +4064,31 @@ class TestSegmentedIterable(unittest.TestCase):
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, None)),
             '122333444455555')
-        self.assertEquals(segit.response.bytes_transferred, 15)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(3, None)),
             '333444455555')
-        self.assertEquals(segit.response.bytes_transferred, 12)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(5, None)), '3444455555')
-        self.assertEquals(segit.response.bytes_transferred, 10)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, 6)), '122333')
-        self.assertEquals(segit.response.bytes_transferred, 6)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(None, 7)), '1223334')
-        self.assertEquals(segit.response.bytes_transferred, 7)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(3, 7)), '3334')
-        self.assertEquals(segit.response.bytes_transferred, 4)
 
         segit = proxy_server.SegmentedIterable(self.controller, 'lc', listing)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
-        self.assertEquals(segit.response.bytes_transferred, 2)
 
 
 if __name__ == '__main__':

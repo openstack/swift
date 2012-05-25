@@ -174,3 +174,10 @@ CNAME Lookup
 .. automodule:: swift.common.middleware.cname_lookup
     :members:
     :show-inheritance:
+
+Proxy Logging
+=============
+
+.. automodule:: swift.common.middleware.proxy_logging
+    :members:
+    :show-inheritance:

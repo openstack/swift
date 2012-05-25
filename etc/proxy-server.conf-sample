@@ -21,7 +21,7 @@
 # log_statsd_metric_prefix =
 
 [pipeline:main]
-pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-server
+pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -247,3 +247,6 @@ use = egg:swift#formpost
 use = egg:swift#name_check
 # forbidden_chars = '"`<>
 # maximum_length = 255
+
+[filter:proxy-logging]
+use = egg:swift#proxy_logging
