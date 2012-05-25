@@ -233,7 +233,7 @@ class AccountController(object):
                 limit = int(given_limit)
                 if limit > ACCOUNT_LISTING_LIMIT:
                     self.logger.increment('GET.errors')
-                    return  HTTPPreconditionFailed(request=req,
+                    return HTTPPreconditionFailed(request=req,
                         body='Maximum limit is %d' % ACCOUNT_LISTING_LIMIT)
             marker = get_param(req, 'marker', '')
             end_marker = get_param(req, 'end_marker')
