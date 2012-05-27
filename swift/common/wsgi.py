@@ -330,7 +330,7 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
         newenv['REQUEST_METHOD'] = method
     if path:
         newenv['PATH_INFO'] = path
-    if query_string:
+    if query_string is not None:
         newenv['QUERY_STRING'] = query_string
     if agent:
         newenv['HTTP_USER_AGENT'] = (

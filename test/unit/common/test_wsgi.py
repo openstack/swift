@@ -195,5 +195,17 @@ class TestWSGI(unittest.TestCase):
             body='tester', headers={})
         self.assertEquals(r.path, quote('/a space'))
 
+    def test_pre_auth_req_drops_query(self):
+        r = wsgi.make_pre_authed_request(
+            {'QUERY_STRING': 'original'}, 'GET', 'path')
+        self.assertEquals(r.query_string, 'original')
+        r = wsgi.make_pre_authed_request(
+            {'QUERY_STRING': 'original'}, 'GET', 'path?replacement')
+        self.assertEquals(r.query_string, 'replacement')
+        r = wsgi.make_pre_authed_request(
+            {'QUERY_STRING': 'original'}, 'GET', 'path?')
+        self.assertEquals(r.query_string, '')
+
+
 if __name__ == '__main__':
     unittest.main()
