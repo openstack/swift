@@ -301,11 +301,11 @@ the server will return a json formatted response::
 
     {"async_pending": 0}
 
-The following metrics and telemetry are currently exposed::
+The following metrics and telemetry are currently exposed:
 
-========================    ========================================================================================
+=========================   ========================================================================================
 Request URI                 Description
-------------------------    ----------------------------------------------------------------------------------------
+-------------------------   ----------------------------------------------------------------------------------------
 /recon/load                 returns 1,5, and 15 minute load average
 /recon/mem                  returns /proc/meminfo
 /recon/mounted              returns *ALL* currently mounted filesystems
@@ -320,7 +320,7 @@ Request URI                 Description
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)
-=========================   =======================================================================================
+=========================   ========================================================================================
 
 This information can also be queried via the swift-recon command line utility::
 
