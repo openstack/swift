@@ -1,9 +1,12 @@
 include AUTHORS LICENSE .functests .unittests .probetests test/__init__.py
 include CHANGELOG
 include babel.cfg
+include test/sample.conf
+include tox.ini
 graft doc
 graft etc
 graft locale
 graft test/functional
 graft test/probe
 graft test/unit
+graft tools
