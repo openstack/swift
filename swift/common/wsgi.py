@@ -21,6 +21,7 @@ import signal
 import time
 import mimetools
 from itertools import chain
+from StringIO import StringIO
 
 import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
@@ -340,4 +341,5 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
     newenv['swift.authorize'] = lambda req: None
     newenv['swift.authorize_override'] = True
     newenv['REMOTE_USER'] = '.wsgi.pre_authed'
+    newenv['wsgi.input'] = StringIO('')
     return newenv
