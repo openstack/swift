@@ -145,6 +145,9 @@ class FakeRecon(object):
     def fake_unmounted(self):
         return {'unmountedtest': "1"}
 
+    def fake_no_unmounted(self):
+        return []
+
     def fake_diskusage(self):
         return {'diskusagetest': "1"}
 
@@ -547,6 +550,21 @@ class TestReconSuccess(TestCase):
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
         self.assertEquals(rv, unmounted_resp)
 
+    def test_no_get_unmounted(self):
+
+        def fake_checkmount_true(*args):
+            return True
+
+        unmounted_resp = []
+        self.mockos.ls_output=[]
+        self.mockos.path_exists_output=False
+        real_checkmount = swift.common.constraints.check_mount
+        swift.common.constraints.check_mount = fake_checkmount_true
+        rv = self.app.get_unmounted()
+        swift.common.constraints.check_mount = real_checkmount
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(rv, unmounted_resp)
+
     def test_get_diskusage(self):
         #posix.statvfs_result(f_bsize=4096, f_frsize=4096, f_blocks=1963185,
         #                     f_bfree=1113075, f_bavail=1013351, f_files=498736,
@@ -778,9 +796,18 @@ class TestReconMiddleware(unittest.TestCase):
 
     def test_recon_get_unmounted(self):
         get_unmounted_resp = ['{"unmountedtest": "1"}']
+        self.app.get_unmounted = self.frecon.fake_unmounted
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, get_unmounted_resp)
+    
+    def test_recon_no_get_unmounted(self):
+        get_unmounted_resp = '[]'
+        self.app.get_unmounted = self.frecon.fake_no_unmounted
+        req = Request.blank('/recon/unmounted',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = ''.join(self.app(req.environ, start_response))
         self.assertEquals(resp, get_unmounted_resp)
 
     def test_recon_get_diskusage(self):
