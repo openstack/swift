@@ -310,7 +310,7 @@ class ReconMiddleware(object):
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",
                             body=content, content_type="text/plain")
-        if content:
+        if content is not None:
             return Response(request=req, body=json.dumps(content),
                             content_type="application/json")
         else:
