@@ -962,6 +962,30 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(errbuf.getvalue(), '')
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
+    def test_invalid_method_doesnt_exist(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        def start_response(*args):
+            outbuf.writelines(args)
+        self.controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
+                                  'PATH_INFO': '/sda1/p/a'},
+                                 start_response)
+        self.assertEquals(errbuf.getvalue(), '')
+        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+
+    def test_invalid_method_is_not_public(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        def start_response(*args):
+            outbuf.writelines(args)
+        self.controller.__call__({'REQUEST_METHOD': '__init__',
+                                  'PATH_INFO': '/sda1/p/a'},
+                                 start_response)
+        self.assertEquals(errbuf.getvalue(), '')
+        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+
     def test_params_utf8(self):
         self.controller.PUT(Request.blank('/sda1/p/a',
                             headers={'X-Timestamp': normalize_timestamp(1)},

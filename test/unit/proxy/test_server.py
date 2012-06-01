@@ -560,6 +560,22 @@ class TestProxyServer(unittest.TestCase):
         resp = app.handle_request(req)
         self.assertEquals(resp.status_int, 500)
 
+    def test_internal_method_request(self):
+        baseapp = proxy_server.BaseApplication({},
+            FakeMemcache(), container_ring=FakeRing(), object_ring=FakeRing(),
+            account_ring=FakeRing())
+        resp = baseapp.handle_request(
+            Request.blank('/v1/a', environ={'REQUEST_METHOD': '__init__'}))
+        self.assertEquals(resp.status, '405 Method Not Allowed')
+
+    def test_inexistent_method_request(self):
+        baseapp = proxy_server.BaseApplication({},
+            FakeMemcache(), container_ring=FakeRing(), account_ring=FakeRing(),
+            object_ring=FakeRing())
+        resp = baseapp.handle_request(
+            Request.blank('/v1/a', environ={'REQUEST_METHOD': '!invalid'}))
+        self.assertEquals(resp.status, '405 Method Not Allowed')
+
     def test_calls_authorize_allow(self):
         called = [False]
 

@@ -53,7 +53,7 @@ from webob import Request, Response
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, ContextPool, get_logger, \
-    get_remote_client, normalize_timestamp, split_path, TRUE_VALUES
+    get_remote_client, normalize_timestamp, split_path, TRUE_VALUES, public
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_utf8, CONTAINER_LISTING_LIMIT, MAX_ACCOUNT_NAME_LENGTH, \
@@ -84,21 +84,6 @@ def update_headers(response, headers):
         elif name not in ('date', 'content-length', 'content-type',
                           'connection', 'x-put-timestamp', 'x-delete-after'):
             response.headers[name] = value
-
-
-def public(func):
-    """
-    Decorator to declare which methods are publicly accessible as HTTP
-    requests
-
-    :param func: function to make public
-    """
-    func.publicly_accessible = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
 
 
 def delay_denial(func):
@@ -2022,11 +2007,8 @@ class BaseApplication(object):
             self.logger.client_ip = get_remote_client(req)
             try:
                 handler = getattr(controller, req.method)
-                if not getattr(handler, 'publicly_accessible'):
-                    handler = None
+                getattr(handler, 'publicly_accessible')
             except AttributeError:
-                handler = None
-            if not handler:
                 self.logger.increment('method_not_allowed')
                 return HTTPMethodNotAllowed(request=req)
             if path_parts['version']:

@@ -35,7 +35,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
 from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout, tpool
 
-from swift.common.utils import mkdirs, normalize_timestamp, \
+from swift.common.utils import mkdirs, normalize_timestamp, public, \
     storage_directory, hash_path, renamer, fallocate, \
     split_path, drop_buffer_cache, get_logger, write_pickle
 from swift.common.bufferedhttp import http_connect
@@ -484,6 +484,7 @@ class ObjectController(object):
             '%s-%s/%s/%s' % (delete_at, account, container, obj),
             host, partition, contdevice, headers_out, objdevice)
 
+    @public
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
         start_time = time.time()
@@ -543,6 +544,7 @@ class ObjectController(object):
         self.logger.timing_since('POST.timing', start_time)
         return response_class(request=request)
 
+    @public
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
         start_time = time.time()
@@ -641,6 +643,7 @@ class ObjectController(object):
         self.logger.timing_since('PUT.timing', start_time)
         return resp
 
+    @public
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
         start_time = time.time()
@@ -729,6 +732,7 @@ class ObjectController(object):
         self.logger.timing_since('GET.timing', start_time)
         return request.get_response(response)
 
+    @public
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         start_time = time.time()
@@ -774,6 +778,7 @@ class ObjectController(object):
         self.logger.timing_since('HEAD.timing', start_time)
         return response
 
+    @public
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         start_time = time.time()
@@ -824,6 +829,7 @@ class ObjectController(object):
         self.logger.timing_since('DELETE.timing', start_time)
         return resp
 
+    @public
     def REPLICATE(self, request):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
@@ -862,10 +868,14 @@ class ObjectController(object):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
-                if hasattr(self, req.method):
-                    res = getattr(self, req.method)(req)
-                else:
+                # disallow methods which have not been marked 'public'
+                try:
+                    method = getattr(self, req.method)
+                    getattr(method, 'publicly_accessible')
+                except AttributeError:
                     res = HTTPMethodNotAllowed()
+                else:
+                    res = method(req)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})

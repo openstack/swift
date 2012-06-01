@@ -31,7 +31,7 @@ import simplejson
 
 import swift.common.db
 from swift.common.db import AccountBroker
-from swift.common.utils import get_logger, get_param, hash_path, \
+from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, split_path, storage_directory, TRUE_VALUES
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
@@ -63,6 +63,7 @@ class AccountController(object):
         db_path = os.path.join(self.root, drive, db_dir, hsh + '.db')
         return AccountBroker(db_path, account=account, logger=self.logger)
 
+    @public
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         start_time = time.time()
@@ -88,6 +89,7 @@ class AccountController(object):
         self.logger.timing_since('DELETE.timing', start_time)
         return HTTPNoContent(request=req)
 
+    @public
     def PUT(self, req):
         """Handle HTTP PUT request."""
         start_time = time.time()
@@ -149,6 +151,7 @@ class AccountController(object):
             else:
                 return HTTPAccepted(request=req)
 
+    @public
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
         # TODO(refactor): The account server used to provide a 'account and
@@ -192,6 +195,7 @@ class AccountController(object):
         self.logger.timing_since('HEAD.timing', start_time)
         return HTTPNoContent(request=req, headers=headers)
 
+    @public
     def GET(self, req):
         """Handle HTTP GET request."""
         start_time = time.time()
@@ -292,6 +296,7 @@ class AccountController(object):
         self.logger.timing_since('GET.timing', start_time)
         return ret
 
+    @public
     def REPLICATE(self, req):
         """
         Handle HTTP REPLICATE request.
@@ -318,6 +323,7 @@ class AccountController(object):
         self.logger.timing_since('REPLICATE.timing', start_time)
         return ret
 
+    @public
     def POST(self, req):
         """Handle HTTP POST request."""
         start_time = time.time()
@@ -357,10 +363,14 @@ class AccountController(object):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
-                if hasattr(self, req.method):
-                    res = getattr(self, req.method)(req)
-                else:
+                # disallow methods which are not publicly accessible
+                try:
+                    method = getattr(self, req.method)
+                    getattr(method, 'publicly_accessible')
+                except AttributeError:
                     res = HTTPMethodNotAllowed()
+                else:
+                    res = method(req)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})

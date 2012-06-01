@@ -31,7 +31,7 @@ from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
 
 import swift.common.db
 from swift.common.db import ContainerBroker
-from swift.common.utils import get_logger, get_param, hash_path, \
+from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, split_path, validate_sync_to, \
     TRUE_VALUES
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
@@ -138,6 +138,7 @@ class ContainerController(object):
                      'device': account_device})
         return None
 
+    @public
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         start_time = time.time()
@@ -187,6 +188,7 @@ class ContainerController(object):
                 return HTTPNoContent(request=req)
             return HTTPNotFound()
 
+    @public
     def PUT(self, req):
         """Handle HTTP PUT request."""
         start_time = time.time()
@@ -255,6 +257,7 @@ class ContainerController(object):
             else:
                 return HTTPAccepted(request=req)
 
+    @public
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
         start_time = time.time()
@@ -288,6 +291,7 @@ class ContainerController(object):
         self.logger.timing_since('HEAD.timing', start_time)
         return HTTPNoContent(request=req, headers=headers)
 
+    @public
     def GET(self, req):
         """Handle HTTP GET request."""
         start_time = time.time()
@@ -409,6 +413,7 @@ class ContainerController(object):
         self.logger.timing_since('GET.timing', start_time)
         return ret
 
+    @public
     def REPLICATE(self, req):
         """
         Handle HTTP REPLICATE request (json-encoded RPC calls for replication.)
@@ -434,6 +439,7 @@ class ContainerController(object):
         self.logger.timing_since('REPLICATE.timing', start_time)
         return ret
 
+    @public
     def POST(self, req):
         """Handle HTTP POST request."""
         start_time = time.time()
@@ -485,10 +491,14 @@ class ContainerController(object):
             res = HTTPPreconditionFailed(body='Invalid UTF8')
         else:
             try:
-                if hasattr(self, req.method):
-                    res = getattr(self, req.method)(req)
-                else:
+                # disallow methods which have not been marked 'public'
+                try:
+                    method = getattr(self, req.method)
+                    getattr(method, 'publicly_accessible')
+                except AttributeError:
                     res = HTTPMethodNotAllowed()
+                else:
+                    res = method(req)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                     ' %(path)s '), {'method': req.method, 'path': req.path})

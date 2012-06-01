@@ -1342,6 +1342,30 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(errbuf.getvalue(), '')
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
+    def test_invalid_method_doesnt_exist(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        def start_response(*args):
+            outbuf.writelines(args)
+        self.object_controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
+                                         'PATH_INFO': '/sda1/p/a/c/o'},
+                                        start_response)
+        self.assertEquals(errbuf.getvalue(), '')
+        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+
+    def test_invalid_method_is_not_public(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        def start_response(*args):
+            outbuf.writelines(args)
+        self.object_controller.__call__({'REQUEST_METHOD': '__init__',
+                                         'PATH_INFO': '/sda1/p/a/c/o'},
+                                        start_response)
+        self.assertEquals(errbuf.getvalue(), '')
+        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+
     def test_chunked_put(self):
         listener = listen(('localhost', 0))
         port = listener.getsockname()[1]

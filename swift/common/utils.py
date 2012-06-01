@@ -1246,3 +1246,18 @@ def streq_const_time(s1, s2):
     for (a, b) in zip(s1, s2):
         result |= ord(a) ^ ord(b)
     return result == 0
+
+
+def public(func):
+    """
+    Decorator to declare which methods are publicly accessible as HTTP
+    requests
+
+    :param func: function to make public
+    """
+    func.publicly_accessible = True
+
+    @functools.wraps(func)
+    def wrapped(*a, **kw):
+        return func(*a, **kw)
+    return wrapped
