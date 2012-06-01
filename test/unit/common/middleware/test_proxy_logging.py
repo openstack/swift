@@ -27,7 +27,8 @@ class FakeApp(object):
         self.body = body
 
     def __call__(self, env, start_response):
-        start_response('200 OK', [('Content-Type', 'text/plain')])
+        start_response('200 OK', [('Content-Type', 'text/plain'),
+                            ('Content-Length', str(sum(map(len, self.body))))])
         while env['wsgi.input'].read(5):
             pass
         return self.body
@@ -46,7 +47,8 @@ class FileLikeExceptor(object):
 
 class FakeAppReadline(object):
     def __call__(self, env, start_response):
-        start_response('200 OK', [('Content-Type', 'text/plain')])
+        start_response('200 OK', [('Content-Type', 'text/plain'),
+                                 ('Content-Length', '8')])
         line = env['wsgi.input'].readline()
         return ["FAKE APP"]
 

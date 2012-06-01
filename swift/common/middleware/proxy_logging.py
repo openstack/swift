@@ -145,39 +145,58 @@ class ProxyLoggingMiddleware(object):
         self.access_logger.txn_id = None
 
     def __call__(self, env, start_response):
-        status_int = [500]
+        start_response_args = [None]
         input_proxy = InputProxy(env['wsgi.input'])
         env['wsgi.input'] = input_proxy
         start_time = time.time()
 
         def my_start_response(status, headers, exc_info=None):
-            status_int[0] = int(status.split()[0])
-            return start_response(status, headers, exc_info)
+            start_response_args[0] = (status, list(headers), exc_info)
 
-        def iter_response(iterator):
+        def iter_response(iterable):
+            iterator = iter(iterable)
+            try:
+                chunk = iterator.next()
+                while not chunk:
+                    chunk = iterator.next()
+            except StopIteration:
+                chunk = ''
+            for h, v in start_response_args[0][1]:
+                if h.lower() in ('content-length', 'transfer-encoding'):
+                    break
+            else:
+                if not chunk:
+                    start_response_args[0][1].append(('content-length', '0'))
+                else:
+                    raise Exception('WSGI [proxy-logging]: No content-length '
+                        'or transfer-encoding header sent and there is '
+                        'content! %r' % chunk)
+            start_response(*start_response_args[0])
             bytes_sent = 0
             client_disconnect = False
             try:
-                for chunk in iterator:
+                while chunk:
                     bytes_sent += len(chunk)
                     yield chunk
+                    chunk = iterator.next()
             except GeneratorExit:  # generator was closed before we finished
                 client_disconnect = True
                 raise
             finally:
-                self.log_request(env, status_int[0],
+                status_int = int(start_response_args[0][0].split(' ', 1)[0])
+                self.log_request(env, status_int,
                         input_proxy.bytes_received, bytes_sent,
                         time.time() - start_time,
                         client_disconnect or input_proxy.client_disconnect)
 
         try:
-            iterator = self.app(env, my_start_response)
+            iterable = self.app(env, my_start_response)
         except Exception:
             self.log_request(env, 500, input_proxy.bytes_received, 0,
                     time.time() - start_time, input_proxy.client_disconnect)
             raise
         else:
-            return iter_response(iterator)
+            return iter_response(iterable)
 
 
 def filter_factory(global_conf, **local_conf):
