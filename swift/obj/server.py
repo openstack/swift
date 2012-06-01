@@ -104,12 +104,15 @@ class DiskFile(object):
     :param container: container name for the object
     :param obj: object name for the object
     :param keep_data_fp: if True, don't close the fp, otherwise close it
-    :param disk_chunk_Size: size of chunks on file reads
+    :param disk_chunk_size: size of chunks on file reads
+    :param iter_hook: called when __iter__ returns a chunk
     """
 
     def __init__(self, path, device, partition, account, container, obj,
-                 logger, keep_data_fp=False, disk_chunk_size=65536):
+                 logger, keep_data_fp=False, disk_chunk_size=65536,
+                 iter_hook=None):
         self.disk_chunk_size = disk_chunk_size
+        self.iter_hook = iter_hook
         self.name = '/' + '/'.join((account, container, obj))
         name_hash = hash_path(account, container, obj)
         self.datadir = os.path.join(path, device,
@@ -173,6 +176,8 @@ class DiskFile(object):
                             read - dropped_cache)
                         dropped_cache = read
                     yield chunk
+                    if self.iter_hook:
+                        self.iter_hook()
                 else:
                     self.read_to_eof = True
                     self.drop_cache(self.fp.fileno(), dropped_cache,
@@ -590,6 +595,7 @@ class ObjectController(object):
                     tpool.execute(os.fdatasync, fd)
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
+                sleep()
 
             if 'content-length' in request.headers and \
                     int(request.headers['content-length']) != upload_size:
@@ -650,7 +656,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, keep_data_fp=True,
-                        disk_chunk_size=self.disk_chunk_size)
+                        disk_chunk_size=self.disk_chunk_size,
+                        iter_hook=sleep)
         if file.is_deleted() or ('X-Delete-At' in file.metadata and
                 int(file.metadata['X-Delete-At']) <= time.time()):
             if request.headers.get('if-match') == '*':
