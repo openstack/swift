@@ -361,6 +361,7 @@ class Replicator(Daemon):
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
+            full_info = broker.get_info()
         except (Exception, Timeout), e:
             if 'no such table' in str(e):
                 self.logger.error(_('Quarantining DB %s'), object_file)
@@ -385,10 +386,11 @@ class Replicator(Daemon):
         if delete_timestamp < (time.time() - self.reclaim_age) and \
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):
-            with lock_parent_directory(object_file):
-                shutil.rmtree(os.path.dirname(object_file), True)
-                self.stats['remove'] += 1
-                self.logger.increment('removes')
+            if self.report_up_to_date(full_info):
+                with lock_parent_directory(object_file):
+                    shutil.rmtree(os.path.dirname(object_file), True)
+                    self.stats['remove'] += 1
+                    self.logger.increment('removes')
             self.logger.timing_since('timing', start_time)
             return
         responses = []
@@ -421,6 +423,9 @@ class Replicator(Daemon):
                 self.stats['remove'] += 1
                 self.logger.increment('removes')
         self.logger.timing_since('timing', start_time)
+
+    def report_up_to_date(self, full_info):
+        return True
 
     def roundrobin_datadirs(self, datadirs):
         """
