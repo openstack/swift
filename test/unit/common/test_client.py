@@ -161,6 +161,12 @@ class TestGetAuth(MockHttpTest):
         self.assertEquals(url, None)
         self.assertEquals(token, None)
 
+    def test_invalid_auth(self):
+        c.http_connection = self.fake_http_connection(200)
+        self.assertRaises(c.ClientException, c.get_auth,
+                          'http://www.tests.com', 'asdf', 'asdf',
+                          auth_version="foo")
+
     def test_auth_v1(self):
         c.http_connection = self.fake_http_connection(200)
         url, token = c.get_auth('http://www.test.com', 'asdf', 'asdf',

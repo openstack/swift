@@ -241,6 +241,9 @@ def get_auth(url, user, key, snet=False, tenant_name=None, auth_version="1.0"):
         if not tenant_name:
             raise ClientException('No tenant specified')
         return _get_auth_v2_0(url, user, tenant_name, key, snet)
+    else:
+        raise ClientException('Unknown auth_version %s specified.' %
+                             auth_version)
 
 
 def get_account(url, token, marker=None, limit=None, prefix=None,
