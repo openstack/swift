@@ -860,6 +860,18 @@ log_name = %(yarr)s'''
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))
         self.assertFalse(utils.streq_const_time('ABC123', 'abc123'))
 
+    def test_rsync_ip_ipv4_localhost(self):
+        self.assertEqual(utils.rsync_ip('127.0.0.1'), '127.0.0.1')
+
+    def test_rsync_ip_ipv6_random_ip(self):
+        self.assertEqual(
+            utils.rsync_ip('fe80:0000:0000:0000:0202:b3ff:fe1e:8329'),
+            '[fe80:0000:0000:0000:0202:b3ff:fe1e:8329]')
+
+    def test_rsync_ip_ipv6_ipv4_compatible(self):
+        self.assertEqual(
+            utils.rsync_ip('::ffff:192.0.2.128'), '[::ffff:192.0.2.128]')
+
 
 class TestStatsdLogging(unittest.TestCase):
     def test_get_logger_statsd_client_not_specified(self):

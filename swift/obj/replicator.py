@@ -32,7 +32,8 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
-        compute_eta, get_logger, write_pickle, renamer, dump_recon_cache
+        compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
+        rsync_ip
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -315,10 +316,11 @@ class ObjectReplicator(Daemon):
             '--timeout=%s' % self.rsync_io_timeout,
             '--contimeout=%s' % self.rsync_io_timeout,
         ]
+        node_ip = rsync_ip(node['ip'])
         if self.vm_test_mode:
-            rsync_module = '[%s]::object%s' % (node['ip'], node['port'])
+            rsync_module = '%s::object%s' % (node_ip, node['port'])
         else:
-            rsync_module = '[%s]::object' % node['ip']
+            rsync_module = '%s::object' % node_ip
         had_any = False
         for suffix in suffixes:
             spath = join(job['path'], suffix)

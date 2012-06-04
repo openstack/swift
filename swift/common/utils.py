@@ -1261,3 +1261,22 @@ def public(func):
     def wrapped(*a, **kw):
         return func(*a, **kw)
     return wrapped
+
+
+def rsync_ip(ip):
+    """
+    Transform ip string to an rsync-compatible form
+
+    Will return ipv4 addresses unchanged, but will nest ipv6 addresses
+    inside square brackets.
+
+    :param ip: an ip string (ipv4 or ipv6)
+
+    :returns: a string ip address
+    """
+    try:
+        socket.inet_pton(socket.AF_INET6, ip)
+    except socket.error:  # it's IPv4
+        return ip
+    else:
+        return '[%s]' % ip

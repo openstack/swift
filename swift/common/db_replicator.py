@@ -32,7 +32,7 @@ from webob.exc import HTTPNotFound, HTTPNoContent, HTTPAccepted, \
 import swift.common.db
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than, \
-    dump_recon_cache
+    dump_recon_cache, rsync_ip
 from swift.common import ring
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
@@ -193,12 +193,13 @@ class Replicator(Daemon):
         :param replicate_method: remote operation to perform after rsync
         :param replicate_timeout: timeout to wait in seconds
         """
+        device_ip = rsync_ip(device['ip'])
         if self.vm_test_mode:
-            remote_file = '[%s]::%s%s/%s/tmp/%s' % (device['ip'],
+            remote_file = '%s::%s%s/%s/tmp/%s' % (device_ip,
                     self.server_type, device['port'], device['device'],
                     local_id)
         else:
-            remote_file = '[%s]::%s/%s/tmp/%s' % (device['ip'],
+            remote_file = '%s::%s/%s/tmp/%s' % (device_ip,
                     self.server_type, device['device'], local_id)
         mtime = os.path.getmtime(broker.db_file)
         if not self._rsync_file(broker.db_file, remote_file):

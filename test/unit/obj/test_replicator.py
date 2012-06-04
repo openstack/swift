@@ -118,8 +118,10 @@ def _create_test_ring(path):
         {'id': 2, 'device': 'sda', 'zone': 2, 'ip': '127.0.0.2', 'port': 6000},
         {'id': 3, 'device': 'sda', 'zone': 4, 'ip': '127.0.0.3', 'port': 6000},
         {'id': 4, 'device': 'sda', 'zone': 5, 'ip': '127.0.0.4', 'port': 6000},
-        {'id': 5, 'device': 'sda', 'zone': 6, 'ip': '127.0.0.5', 'port': 6000},
-        {'id': 6, 'device': 'sda', 'zone': 7, 'ip': '127.0.0.6', 'port': 6000},
+        {'id': 5, 'device': 'sda', 'zone': 6,
+         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+        {'id': 6, 'device': 'sda', 'zone': 7,
+         'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
         ]
     intended_part_shift = 30
     intended_reload_time = 15
@@ -180,7 +182,7 @@ class TestObjectReplicator(unittest.TestCase):
                  self.ring.get_part_nodes(int(cur_part)) \
                      if node['ip'] not in _ips()]
         for node in nodes:
-            rsync_mod = '[%s]::object/sda/objects/%s' % (node['ip'], cur_part)
+            rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
             process_arg_checker.append(
                 (0, '', ['rsync', whole_path_from, rsync_mod]))
         with _mock_process(process_arg_checker):
@@ -387,8 +389,8 @@ class TestObjectReplicator(unittest.TestCase):
                      self.ring.get_part_nodes(int(cur_part)) \
                          if node['ip'] not in _ips()]
             for node in nodes:
-                rsync_mod = '[%s]::object/sda/objects/%s' % (node['ip'],
-                                                             cur_part)
+                rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
+                                                           cur_part)
                 process_arg_checker.append(
                     (0, '', ['rsync', whole_path_from, rsync_mod]))
             self.assertTrue(os.access(os.path.join(self.objects,
@@ -451,8 +453,8 @@ class TestObjectReplicator(unittest.TestCase):
                      self.ring.get_part_nodes(int(cur_part)) \
                          if node['ip'] not in _ips()]
             for node in nodes:
-                rsync_mod = '[%s]::object/sda/objects/%s' % (node['ip'],
-                                                             cur_part)
+                rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
+                                                           cur_part)
                 process_arg_checker.append(
                     (0, '', ['rsync', whole_path_from, rsync_mod]))
             self.assertTrue(os.access(os.path.join(self.objects,
