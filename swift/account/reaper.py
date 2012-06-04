@@ -116,14 +116,18 @@ class AccountReaper(Daemon):
         """
         self.logger.debug(_('Begin devices pass: %s'), self.devices)
         begin = time()
-        for device in os.listdir(self.devices):
-            if self.mount_check and \
-                    not os.path.ismount(os.path.join(self.devices, device)):
-                self.logger.increment('errors')
-                self.logger.debug(
-                    _('Skipping %s as it is not mounted'), device)
-                continue
-            self.reap_device(device)
+        try:
+            for device in os.listdir(self.devices):
+                if self.mount_check and not os.path.ismount(
+                        os.path.join(self.devices, device)):
+                    self.logger.increment('errors')
+                    self.logger.debug(
+                        _('Skipping %s as it is not mounted'), device)
+                    continue
+                self.reap_device(device)
+        except (Exception, Timeout):
+            self.logger.exception(_("Exception in top-level account reaper " \
+                "loop"))
         elapsed = time() - begin
         self.logger.info(_('Devices pass completed: %.02fs'), elapsed)
 
