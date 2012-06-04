@@ -3492,6 +3492,18 @@ class TestContainerController(unittest.TestCase):
             res = controller.PUT(req)
         self.assert_(called[0])
 
+    def test_GET_no_content(self):
+        with save_globals():
+            proxy_server.http_connect = \
+                fake_http_connect(200, 204, 204, 204)
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+            req = Request.blank('/a/c')
+            self.app.update_request(req)
+            res = controller.GET(req)
+            self.assertEquals(res.content_length, 0)
+            self.assertTrue('transfer-encoding' not in res.headers)
+
     def test_GET_calls_authorize(self):
         called = [False]
 

@@ -839,11 +839,10 @@ class Controller(object):
                 res.environ['swift_x_timestamp'] = \
                     source.getheader('x-timestamp')
                 update_headers(res, {'accept-ranges': 'bytes'})
-                if req.method == 'HEAD':
-                    res.content_length = source.getheader('Content-Length')
-                    if source.getheader('Content-Type'):
-                        res.charset = None
-                        res.content_type = source.getheader('Content-Type')
+                res.content_length = source.getheader('Content-Length')
+                if source.getheader('Content-Type'):
+                    res.charset = None
+                    res.content_type = source.getheader('Content-Type')
                 return res
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
