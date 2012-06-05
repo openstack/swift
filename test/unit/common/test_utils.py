@@ -1149,6 +1149,17 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                         self.logger.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)
 
+    def test_get_valid_utf8_str(self):
+        unicode_sample = u'\uc77c\uc601'
+        valid_utf8_str = unicode_sample.encode('utf-8')
+        invalid_utf8_str = unicode_sample.encode('utf-8')[::-1]
+        self.assertEquals(valid_utf8_str,
+                          utils.get_valid_utf8_str(valid_utf8_str))
+        self.assertEquals(valid_utf8_str,
+                          utils.get_valid_utf8_str(unicode_sample))
+        self.assertEquals('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
+                          utils.get_valid_utf8_str(invalid_utf8_str))
+        
 
 if __name__ == '__main__':
     unittest.main()

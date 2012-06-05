@@ -32,10 +32,13 @@ class HealthCheckMiddleware(object):
 
     def __call__(self, env, start_response):
         req = Request(env)
-        if req.path == '/healthcheck':
-            return self.GET(req)(env, start_response)
-        else:
-            return self.app(env, start_response)
+        try:
+            if req.path == '/healthcheck':
+                return self.GET(req)(env, start_response)
+        except UnicodeError:
+            # definitely, this is not /healthcheck
+            pass
+        return self.app(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):

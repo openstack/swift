@@ -45,6 +45,9 @@ import eventlet
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import socket, threading
 import netifaces
+import codecs
+utf8_decoder = codecs.getdecoder('utf-8')
+utf8_encoder = codecs.getencoder('utf-8')
 
 from swift.common.exceptions import LockTimeout, MessageTimeout
 
@@ -114,8 +117,8 @@ def get_param(req, name, default=None):
     :param default: result to return if the parameter is not found
     :returns: HTTP request parameter value
     """
-    value = req.str_params.get(name, default)
-    if value:
+    value = req.params.get(name, default)
+    if value and not isinstance(value, unicode):
         value.decode('utf8')    # Ensure UTF8ness
     return value
 
@@ -1340,3 +1343,15 @@ def rsync_ip(ip):
         return ip
     else:
         return '[%s]' % ip
+
+
+def get_valid_utf8_str(str_or_unicode):
+    """
+    Get valid parts of utf-8 str from str, unicode and even invalid utf-8 str
+
+    :param str_or_unicode: a string or an unicode which can be invalid utf-8
+    """
+    if isinstance(str_or_unicode, unicode):
+        (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
+    (valid_utf8_str, _len) = utf8_decoder(str_or_unicode, 'replace')
+    return valid_utf8_str.encode('utf-8')

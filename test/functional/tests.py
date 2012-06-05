@@ -22,6 +22,7 @@ import time
 import threading
 import uuid
 import unittest
+from nose import SkipTest
 
 from test import get_config
 from test.functional.swift import Account, Connection, File, ResponseError
@@ -1077,6 +1078,17 @@ class TestFile(Base):
 
         hdrs = {'Range': '0-4'}
         self.assert_(file.read(hdrs=hdrs) == data, range_string)
+
+    def testRangedGetsWithLWSinHeader(self):
+        #Skip this test until webob 1.2 can tolerate LWS in Range header.
+        from webob.byterange import Range
+        if not isinstance(Range.parse('bytes =  0-99 '), Range):
+            raise SkipTest
+
+        file_length = 10000
+        range_size = file_length/10
+        file = self.env.container.file(Utils.create_name())
+        data = file.write_random(file_length)
 
         for r in ('BYTES=0-999', 'bytes = 0-999', 'BYTES = 0 - 999',
             'bytes = 0 - 999', 'bytes=0 - 999', 'bytes=0-999 '):

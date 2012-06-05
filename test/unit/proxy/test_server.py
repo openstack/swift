@@ -4075,10 +4075,11 @@ class FakeObjectController(object):
         req = args[0]
         path = args[4]
         body = data = path[-1] * int(path[-1])
-        if req.range and req.range.ranges:
-            body = ''
-            for start, stop in req.range.ranges:
-                body += data[start:stop]
+        if req.range:
+            r = req.range.range_for_length(len(data))
+            if r:
+                (start, stop) = r
+                body = data[start:stop]
         resp = Response(app_iter=iter(body))
         return resp
 

@@ -174,5 +174,21 @@ class TestConstraints(unittest.TestCase):
         self.assertFalse(constraints.check_float(''))
         self.assertTrue(constraints.check_float('0'))
 
+    def test_check_utf8(self):
+        unicode_sample = u'\uc77c\uc601'
+        valid_utf8_str = unicode_sample.encode('utf-8')
+        invalid_utf8_str = unicode_sample.encode('utf-8')[::-1]
+
+        for false_argument in [None,
+                               '',
+                               invalid_utf8_str,
+                               ]:
+            self.assertFalse(constraints.check_utf8(false_argument))
+
+        for true_argument in ['this is ascii and utf-8, too',
+                              unicode_sample,
+                              valid_utf8_str]:
+            self.assertTrue(constraints.check_utf8(true_argument))
+
 if __name__ == '__main__':
     unittest.main()

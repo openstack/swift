@@ -42,7 +42,8 @@ from urllib import quote, unquote
 
 from webob import Request
 
-from swift.common.utils import get_logger, get_remote_client, TRUE_VALUES
+from swift.common.utils import (get_logger, get_remote_client,
+                                get_valid_utf8_str, TRUE_VALUES)
 
 
 class InputProxy(object):
@@ -116,7 +117,8 @@ class ProxyLoggingMiddleware(object):
         req = Request(env)
         if client_disconnect:  # log disconnected clients as '499' status code
             status_int = 499
-        the_request = quote(unquote(req.path))
+        req_path = get_valid_utf8_str(env.get('PATH_INFO', ''))
+        the_request = quote(unquote(req_path))
         if req.query_string:
             the_request = the_request + '?' + req.query_string
         logged_headers = None

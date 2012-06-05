@@ -131,6 +131,11 @@ def http_connect(ipaddr, port, device, partition, method, path,
         conn = HTTPSConnection('%s:%s' % (ipaddr, port))
     else:
         conn = BufferedHTTPConnection('%s:%s' % (ipaddr, port))
+    if isinstance(path, unicode):
+        try:
+            path = path.encode("utf-8")
+        except UnicodeError:
+            pass   # what should I do?
     path = quote('/' + device + '/' + str(partition) + path)
     if query_string:
         path += '?' + query_string

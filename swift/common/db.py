@@ -1102,6 +1102,8 @@ class ContainerBroker(DatabaseBroker):
                 if prefix is None:
                     return [r for r in curs]
                 if not delimiter:
+                    if isinstance(prefix, unicode):
+                        prefix = prefix.encode("utf-8")
                     return [r for r in curs if r[0].startswith(prefix)]
                 rowcount = 0
                 for row in curs:

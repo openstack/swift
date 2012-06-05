@@ -809,6 +809,8 @@ class Controller(object):
                 res.swift_conn = source.swift_conn
                 update_headers(res, source.getheaders())
                 # Used by container sync feature
+                if res.environ is None:
+                    res.environ = dict()
                 res.environ['swift_x_timestamp'] = \
                     source.getheader('x-timestamp')
                 update_headers(res, {'accept-ranges': 'bytes'})
@@ -822,6 +824,8 @@ class Controller(object):
                 res = status_map[source.status](request=req)
                 update_headers(res, source.getheaders())
                 # Used by container sync feature
+                if res.environ is None:
+                    res.environ = dict()
                 res.environ['swift_x_timestamp'] = \
                     source.getheader('x-timestamp')
                 update_headers(res, {'accept-ranges': 'bytes'})
@@ -913,7 +917,7 @@ class ObjectController(Controller):
                     '%s.timing' % (stats_type,), start_time)
                 return resp
             resp = resp2
-            req.range = req_range
+            req.range = str(req_range)
 
         if 'x-object-manifest' in resp.headers:
             lcontainer, lprefix = \
@@ -1176,7 +1180,7 @@ class ObjectController(Controller):
             try:
                 req.headers['X-Timestamp'] = \
                     normalize_timestamp(float(req.headers['x-timestamp']))
-                if 'swift_x_timestamp' in hresp.environ and \
+                if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
                     float(hresp.environ['swift_x_timestamp']) >= \
                         float(req.headers['x-timestamp']):
                     self.app.logger.timing_since(
@@ -1240,6 +1244,8 @@ class ObjectController(Controller):
         if source_header:
             source_header = unquote(source_header)
             acct = req.path_info.split('/', 2)[1]
+            if isinstance(acct, unicode):
+                acct = acct.encode('utf-8')
             if not source_header.startswith('/'):
                 source_header = '/' + source_header
             source_header = '/' + acct + source_header
@@ -1964,9 +1970,10 @@ class BaseApplication(object):
                 self.memcache = cache_from_env(env)
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
+        except UnicodeError:
+            err = HTTPPreconditionFailed(request=req, body='Invalid UTF8')
+            return err(env, start_response)
         except (Exception, Timeout):
-            print "EXCEPTION IN __call__: %s: %s" % \
-                  (traceback.format_exc(), env)
             start_response('500 Server Error',
                     [('Content-Type', 'text/plain')])
             return ['Internal server error.\n']
@@ -1990,14 +1997,24 @@ class BaseApplication(object):
                 self.logger.increment('errors')
                 return HTTPBadRequest(request=req,
                                       body='Invalid Content-Length')
+
+            try:
+                if not check_utf8(req.path_info):
+                    self.logger.increment('errors')
+                    return HTTPPreconditionFailed(request=req,
+                                                  body='Invalid UTF8')
+            except UnicodeError:
+                self.logger.increment('errors')
+                return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
+
             try:
                 controller, path_parts = self.get_controller(req.path)
+                p = req.path_info
+                if isinstance(p, unicode):
+                    p = p.encode('utf-8')
             except ValueError:
                 self.logger.increment('errors')
                 return HTTPNotFound(request=req)
-            if not check_utf8(req.path_info):
-                self.logger.increment('errors')
-                return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             if not controller:
                 self.logger.increment('errors')
                 return HTTPPreconditionFailed(request=req, body='Bad URL')

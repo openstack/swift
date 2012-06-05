@@ -201,7 +201,6 @@ class Connection(object):
 
         path = self.make_path(path, cfg=cfg)
         headers = self.make_headers(hdrs, cfg=cfg)
-
         if isinstance(parms, dict) and parms:
             quote = urllib.quote
             if cfg.get('no_quote') or cfg.get('no_parms_quote'):
@@ -209,7 +208,6 @@ class Connection(object):
             query_args = ['%s=%s' % (quote(x), quote(str(y))) for (x,y) in
                 parms.items()]
             path = '%s?%s' % (path, '&'.join(query_args))
-
         if not cfg.get('no_content_length'):
             if cfg.get('set_content_length'):
                 headers['Content-Length'] = cfg.get('set_content_length')
@@ -230,7 +228,7 @@ class Connection(object):
                 self.response = try_request()
             except httplib.HTTPException:
                 continue
-            
+
             if self.response.status == 401:
                 self.authenticate()
                 continue
@@ -244,7 +242,7 @@ class Connection(object):
         if self.response:
             return self.response.status
 
-        raise RequestError('Unable to compelte http request')
+        raise RequestError('Unable to complete http request')
 
     def put_start(self, path, hdrs={}, parms={}, cfg={}, chunked=False):
         self.http_connect()
@@ -296,7 +294,6 @@ class Base:
 
     def header_fields(self, fields):
         headers = dict(self.conn.response.getheaders())
-
         ret = {}
         for field in fields:
             if not headers.has_key(field[1]):

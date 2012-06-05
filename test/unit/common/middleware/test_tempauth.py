@@ -140,16 +140,17 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(ath.auth_prefix, '/test/')
 
     def test_top_level_deny(self):
-        resp = self._make_request('/').get_response(self.test_auth)
+        req = self._make_request('/')
+        resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           self.test_auth.denied_response)
 
     def test_anon(self):
-        resp = \
-            self._make_request('/v1/AUTH_account').get_response(self.test_auth)
+        req = self._make_request('/v1/AUTH_account')
+        resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           self.test_auth.authorize)
 
     def test_override_asked_for_but_not_allowed(self):
@@ -159,7 +160,7 @@ class TestAuth(unittest.TestCase):
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           self.test_auth.authorize)
 
     def test_override_asked_for_and_allowed(self):
@@ -169,30 +170,32 @@ class TestAuth(unittest.TestCase):
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
-        self.assertTrue('swift.authorize' not in resp.environ)
+        self.assertTrue('swift.authorize' not in req.environ)
 
     def test_override_default_allowed(self):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
-        self.assertTrue('swift.authorize' not in resp.environ)
+        self.assertTrue('swift.authorize' not in req.environ)
 
     def test_auth_deny_non_reseller_prefix(self):
-        resp = self._make_request('/v1/BLAH_account',
-            headers={'X-Auth-Token': 'BLAH_t'}).get_response(self.test_auth)
+        req = self._make_request('/v1/BLAH_account',
+            headers={'X-Auth-Token': 'BLAH_t'})
+        resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           self.test_auth.denied_response)
 
     def test_auth_deny_non_reseller_prefix_no_override(self):
         fake_authorize = lambda x: Response(status='500 Fake')
-        resp = self._make_request('/v1/BLAH_account',
+        req = self._make_request('/v1/BLAH_account',
             headers={'X-Auth-Token': 'BLAH_t'},
             environ={'swift.authorize': fake_authorize}
-            ).get_response(self.test_auth)
+            )
+        resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
-        self.assertEquals(resp.environ['swift.authorize'], fake_authorize)
+        self.assertEquals(req.environ['swift.authorize'], fake_authorize)
 
     def test_auth_no_reseller_prefix_deny(self):
         # Ensures that when we have no reseller prefix, we don't deny a request
@@ -200,30 +203,33 @@ class TestAuth(unittest.TestCase):
         # down the chain.
         local_app = FakeApp()
         local_auth = auth.filter_factory({'reseller_prefix': ''})(local_app)
-        resp = self._make_request('/v1/account',
-            headers={'X-Auth-Token': 't'}).get_response(local_auth)
+        req = self._make_request('/v1/account',
+            headers={'X-Auth-Token': 't'})
+        resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 401)
         self.assertEquals(local_app.calls, 1)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           local_auth.denied_response)
 
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
         local_auth = \
             auth.filter_factory({'reseller_prefix': ''})(FakeApp(iter([])))
-        resp = self._make_request('/v1/account').get_response(local_auth)
+        req = self._make_request('/v1/account')
+        resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.environ['swift.authorize'],
+        self.assertEquals(req.environ['swift.authorize'],
                           local_auth.authorize)
         # Now make sure we don't override an existing swift.authorize when we
         # have no reseller prefix.
         local_auth = \
             auth.filter_factory({'reseller_prefix': ''})(FakeApp())
         local_authorize = lambda req: Response('test')
-        resp = self._make_request('/v1/account', environ={'swift.authorize':
-            local_authorize}).get_response(local_auth)
+        req = self._make_request('/v1/account', environ={'swift.authorize':
+            local_authorize})
+        resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.environ['swift.authorize'], local_authorize)
+        self.assertEquals(req.environ['swift.authorize'], local_authorize)
 
     def test_auth_fail(self):
         resp = self._make_request('/v1/AUTH_cfa',
