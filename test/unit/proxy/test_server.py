@@ -2879,7 +2879,7 @@ class TestObjectController(unittest.TestCase):
                 self.app.update_request(req)
                 res = controller.POST(req)
                 self.assertEquals(res.status, '202 Fake')
-                self.assertEquals(req.headers.get('x-delete-at'), 
+                self.assertEquals(req.headers.get('x-delete-at'),
                                   str(int(t + 60)))
 
                 self.app.object_post_as_copy = False
@@ -3889,6 +3889,8 @@ class FakeObjectController(object):
         self.trans_id = 'tx1'
         self.object_ring = FakeRing()
         self.node_timeout = 1
+        self.rate_limit_after_segment = 10
+        self.rate_limit_segments_per_sec = 1
 
     def exception(self, *args):
         self.exception_args = args

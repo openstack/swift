@@ -94,7 +94,7 @@ You can now start building the ring with::
 
     swift-ring-builder <builder_file> create <part_power> <replicas> <min_part_hours>
 
-This will start the ring build process creating the <builder_file> with 
+This will start the ring build process creating the <builder_file> with
 2^<part_power> partitions. <min_part_hours> is the time in hours before a
 specific partition can be moved in succession (24 is a good value for this).
 
@@ -213,7 +213,7 @@ The main rule to remember when working with Swift configuration files is:
 Object Server Configuration
 ---------------------------
 
-An Example Object Server configuration can be found at 
+An Example Object Server configuration can be found at
 etc/object-server.conf-sample in the source code repository.
 
 The following configuration options are available:
@@ -266,14 +266,14 @@ log_facility        LOG_LOCAL0         Syslog log facility
 log_level           INFO               Logging level
 daemonize           yes                Whether or not to run replication as a
                                        daemon
-run_pause           30                 Time in seconds to wait between 
+run_pause           30                 Time in seconds to wait between
                                        replication passes
 concurrency         1                  Number of replication workers to spawn
-timeout             5                  Timeout value sent to rsync --timeout 
+timeout             5                  Timeout value sent to rsync --timeout
                                        and --contimeout options
 stats_interval      3600               Interval in seconds between logging
                                        replication statistics
-reclaim_age         604800             Time elapsed in seconds before an 
+reclaim_age         604800             Time elapsed in seconds before an
                                        object can be reclaimed
 ==================  =================  =======================================
 
@@ -313,7 +313,7 @@ bytes_per_second    10000000        Maximum bytes audited per second. Should
 Container Server Configuration
 ------------------------------
 
-An example Container Server configuration can be found at 
+An example Container Server configuration can be found at
 etc/container-server.conf-sample in the source code repository.
 
 The following configuration options are available:
@@ -339,8 +339,8 @@ user                swift       User to run as
 ==================  ================  ========================================
 Option              Default           Description
 ------------------  ----------------  ----------------------------------------
-use                                   paste.deploy entry point for the 
-                                      container server.  For most cases, this 
+use                                   paste.deploy entry point for the
+                                      container server.  For most cases, this
                                       should be `egg:swift#container`.
 set log_name        container-server  Label used when logging
 set log_facility    LOG_LOCAL0        Syslog log facility
@@ -358,14 +358,14 @@ log_name            container-replicator  Label used when logging
 log_facility        LOG_LOCAL0            Syslog log facility
 log_level           INFO                  Logging level
 per_diff            1000
-concurrency         8                     Number of replication workers to 
+concurrency         8                     Number of replication workers to
                                           spawn
-run_pause           30                    Time in seconds to wait between 
+run_pause           30                    Time in seconds to wait between
                                           replication passes
 node_timeout        10                    Request timeout to external services
-conn_timeout        0.5                   Connection timeout to external 
+conn_timeout        0.5                   Connection timeout to external
                                           services
-reclaim_age         604800                Time elapsed in seconds before a 
+reclaim_age         604800                Time elapsed in seconds before a
                                           container can be reclaimed
 ==================  ====================  ====================================
 
@@ -383,7 +383,7 @@ node_timeout              3                  Request timeout to external
                                              services
 conn_timeout              0.5                Connection timeout to external
                                              services
-slowdown                  0.01               Time in seconds to wait between 
+slowdown                  0.01               Time in seconds to wait between
                                              containers
 account_suppression_time  60                 Seconds to suppress updating an
                                              account that has generated an
@@ -406,7 +406,7 @@ interval            1800               Minimum time for a pass to take
 Account Server Configuration
 ----------------------------
 
-An example Account Server configuration can be found at 
+An example Account Server configuration can be found at
 etc/account-server.conf-sample in the source code repository.
 
 The following configuration options are available:
@@ -454,11 +454,11 @@ log_facility        LOG_LOCAL0          Syslog log facility
 log_level           INFO                Logging level
 per_diff            1000
 concurrency         8                   Number of replication workers to spawn
-run_pause           30                  Time in seconds to wait between 
+run_pause           30                  Time in seconds to wait between
                                         replication passes
 node_timeout        10                  Request timeout to external services
 conn_timeout        0.5                 Connection timeout to external services
-reclaim_age         604800              Time elapsed in seconds before an 
+reclaim_age         604800              Time elapsed in seconds before an
                                         account can be reclaimed
 ==================  ==================  ======================================
 
@@ -496,7 +496,7 @@ delay_reaping       0                Normally, the reaper begins deleting
 Proxy Server Configuration
 --------------------------
 
-An example Proxy Server configuration can be found at 
+An example Proxy Server configuration can be found at
 etc/proxy-server.conf-sample in the source code repository.
 
 The following configuration options are available:
@@ -588,6 +588,11 @@ max_containers_whitelist                       This is a comma separated list
                                                of account hashes that ignore
                                                the max_containers_per_account
                                                cap.
+rate_limit_after_segment      10               Rate limit the download of
+                                               large object segments after
+                                               this segment is downloaded.
+rate_limit_segments_per_sec   1                Rate limit large object
+                                               downloads at this rate.
 ============================  ===============  =============================
 
 [tempauth]
@@ -657,7 +662,7 @@ Memcached Considerations
 Several of the Services rely on Memcached for caching certain types of
 lookups, such as auth tokens, and container/account existence.  Swift does
 not do any caching of actual object data.  Memcached should be able to run
-on any servers that have available RAM and CPU.  At Rackspace, we run 
+on any servers that have available RAM and CPU.  At Rackspace, we run
 Memcached on the proxy servers.  The `memcache_servers` config option
 in the `proxy-server.conf` should contain all memcached servers.
 
@@ -709,7 +714,7 @@ the best all-around choice. If you decide to use a filesystem other than
 XFS, we highly recommend thorough testing.
 
 If you are using XFS, some settings that can dramatically impact
-performance. We recommend the following when creating the XFS 
+performance. We recommend the following when creating the XFS
 partition::
 
     mkfs.xfs -i size=1024 -f /dev/sda1
@@ -730,7 +735,7 @@ For a standard swift install, all data drives are mounted directly under
 /srv/node (as can be seen in the above example of mounting /def/sda1 as
 /srv/node/sda). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to
-point to the correct directory.  
+point to the correct directory.
 
 ---------------------
 General System Tuning
