@@ -234,9 +234,9 @@ class InternalClient(object):
 
         :param path: Path to do POST on.
         :param metadata: Dict of metadata to set.
-        :param metadata_prefix: Prefix used to set metdata values in headers of
-                             requets, used to prefix keys in metadata when
-                             setting metdata, defaults to ''.
+        :param metadata_prefix: Prefix used to set metadata values in headers
+                                of requests, used to prefix keys in metadata
+                                when setting metadata, defaults to ''.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
@@ -330,9 +330,9 @@ class InternalClient(object):
 
         :param account: Account on which to get the metadata.
         :param metadata: Dict of metadata to set.
-        :param metadata_prefix: Prefix used to set metdata values in headers of
-                             requets, used to prefix keys in metadata when
-                             setting metdata, defaults to ''.
+        :param metadata_prefix: Prefix used to set metadata values in headers
+                                of requests, used to prefix keys in metadata
+                                when setting metadata, defaults to ''.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
@@ -464,9 +464,9 @@ class InternalClient(object):
         :param account: The container's account.
         :param container: Container to set metadata on.
         :param metadata: Dict of metadata to set.
-        :param metadata_prefix: Prefix used to set metdata values in headers of
-                             requets, used to prefix keys in metadata when
-                             setting metdata, defaults to ''.
+        :param metadata_prefix: Prefix used to set metadata values in headers
+                                of requests, used to prefix keys in metadata
+                                when setting metadata, defaults to ''.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
@@ -585,9 +585,9 @@ class InternalClient(object):
         :param container: The object's container.
         :param object_name: The object.
         :param metadata: Dict of metadata to set.
-        :param metadata_prefix: Prefix used to set metdata values in headers of
-                                requets, used to prefix keys in metadata when
-                                setting metdata, defaults to ''.
+        :param metadata_prefix: Prefix used to set metadata values in headers
+                                of requests, used to prefix keys in metadata
+                                when setting metadata, defaults to ''.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
