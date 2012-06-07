@@ -35,6 +35,11 @@ use = egg:swift#object
 # disk_chunk_size = 65536
 # max_upload_time = 86400
 # slow = 0
+# Objects smaller than this are not evicted from the buffercache once read
+# keep_cache_size = 5424880
+# If true, objects for authenticated GET requests may be kept in buffer cache
+# if small enough
+# keep_cache_private = False
 # on PUTs, sync data every n MB
 # mb_per_sync = 512
 # Comma separated list of headers that can be set in metadata on an object.

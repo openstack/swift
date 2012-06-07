@@ -254,6 +254,10 @@ disk_chunk_size     65536          Size of chunks to read/write to disk
 max_upload_time     86400          Maximum time allowed to upload an object
 slow                0              If > 0, Minimum time in seconds for a PUT
                                    or DELETE request to complete
+mb_per_sync         512            On PUT requests, sync file every n MB
+keep_cache_size     5242880        Largest object size to keep in buffer cache
+keep_cache_private  false          Allow non-public objects to stay in
+                                   kernel's buffer cache
 ==================  =============  ===========================================
 
 [object-replicator]
