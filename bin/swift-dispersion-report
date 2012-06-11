@@ -34,23 +34,29 @@ from swift.common.utils import compute_eta, get_time_units, TRUE_VALUES
 
 
 unmounted = []
+notfound = []
 json_output = False
+debug = False
 
 
 def get_error_log(prefix):
 
     def error_log(msg_or_exc):
-        global unmounted
-        if hasattr(msg_or_exc, 'http_status') and \
-                msg_or_exc.http_status == 507:
-            identifier = '%s:%s/%s'
-            if identifier not in unmounted:
-                unmounted.append(identifier)
-                print >>stderr, 'ERROR: %s:%s/%s is unmounted -- This will ' \
-                    'cause replicas designated for that device to be ' \
-                    'considered missing until resolved or the ring is ' \
-                    'updated.' % (msg_or_exc.http_host, msg_or_exc.http_port,
-                    msg_or_exc.http_device)
+        global debug, unmounted, notfound
+        if hasattr(msg_or_exc, 'http_status'):
+            identifier = '%s:%s/%s' % (msg_or_exc.http_host,
+                msg_or_exc.http_port, msg_or_exc.http_device)
+            if msg_or_exc.http_status == 507:
+                if identifier not in unmounted:
+                    unmounted.append(identifier)
+                    print >>stderr, 'ERROR: %s is unmounted -- This will ' \
+                        'cause replicas designated for that device to be ' \
+                        'considered missing until resolved or the ring is ' \
+                        'updated.' % (identifier)
+                    stderr.flush()
+            if debug and identifier not in notfound:
+                notfound.append(identifier)
+                print >>stderr, 'ERROR: %s returned a 404' % (identifier)
                 stderr.flush()
         if not hasattr(msg_or_exc, 'http_status') or \
                 msg_or_exc.http_status not in (404, 507):
@@ -260,6 +266,8 @@ Usage: %prog [options] [conf_file]
 [conf_file] defaults to /etc/swift/stats.conf'''.strip())
     parser.add_option('-j', '--dump-json', action='store_true', default=False,
                       help='dump dispersion report in json format')
+    parser.add_option('-d', '--debug', action='store_true', default=False,
+                      help='print 404s to standard error')
 
     options, args = parser.parse_args()
 
@@ -277,6 +285,8 @@ Usage: %prog [options] [conf_file]
     concurrency = int(conf.get('concurrency', 25))
     if options.dump_json or conf.get('dump_json', 'no').lower() in TRUE_VALUES:
         json_output = True
+    if options.debug:
+        debug = True
 
     coropool = GreenPool(size=concurrency)
 
