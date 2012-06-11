@@ -45,8 +45,11 @@ class Bench(object):
         self.key = conf.key
         self.auth_url = conf.auth
         self.use_proxy = conf.use_proxy.lower() in TRUE_VALUES
+        self.auth_version = conf.auth_version
+        self.logger.info("Auth version: %s" % self.auth_version)
         if self.use_proxy:
-            url, token = client.get_auth(self.auth_url, self.user, self.key)
+            url, token = client.get_auth(self.auth_url, self.user, self.key,
+                                         auth_version=self.auth_version)
             self.token = token
             self.account = url.split('/')[-1]
             if conf.url == '':
