@@ -60,16 +60,6 @@ WSGI
     :members:
     :show-inheritance:
 
-.. _client:
-
-Client
-======
-
-.. automodule:: swift.common.client
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 .. _direct_client:
 
 Direct Client

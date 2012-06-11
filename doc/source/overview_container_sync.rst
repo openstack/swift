@@ -78,6 +78,10 @@ Using the ``swift`` tool to set up synchronized containers
 
 .. note::
 
+    The ``swift`` tool is available from the `python-swiftclient`_ library.
+
+.. note::
+
     You must be the account admin on the account to set synchronization targets
     and keys.
 
@@ -144,6 +148,8 @@ as it gets synchronized over to the second::
 You can also set up a chain of synced containers if you want more than two.
 You'd point 1 -> 2, then 2 -> 3, and finally 3 -> 1 for three containers.
 They'd all need to share the same secret synchronization key.
+
+.. _`python-swiftclient`: http://github.com/openstack/python-swiftclient
 
 -----------------------------------
 Using curl (or other tools) instead

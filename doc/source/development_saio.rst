@@ -266,6 +266,9 @@ Do these commands as you on guest.
   #. Check out the swift repo with `git clone https://github.com/openstack/swift.git`
   #. Build a development installation of swift, for example:
      `cd ~/swift; sudo python setup.py develop`
+  #. Check out the python-swiftclient repo with `git clone https://github.com/openstack/python-swiftclient.git`
+  #. Build a development installation of python-swiftclient, for example:
+     `cd ~/python-swiftclient; sudo python setup.py develop`
   #. Edit `~/.bashrc` and add to the end::
 
         export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf

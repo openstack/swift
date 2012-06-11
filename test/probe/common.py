@@ -19,7 +19,7 @@ from subprocess import call, Popen
 from time import sleep
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
-from swift.common.client import get_auth
+from swiftclient import get_auth
 from swift.common.ring import Ring
 
 

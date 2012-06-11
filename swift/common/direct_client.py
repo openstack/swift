@@ -26,7 +26,7 @@ from urllib import quote as _quote
 from eventlet import sleep, Timeout
 
 from swift.common.bufferedhttp import http_connect
-from swift.common.client import ClientException, json_loads
+from swiftclient import ClientException, json_loads
 from swift.common.utils import normalize_timestamp
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error

@@ -2898,7 +2898,6 @@ class TestObjectController(unittest.TestCase):
             finally:
                 proxy_server.time.time = orig_time
 
-
     def test_POST_non_int_delete_after(self):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',

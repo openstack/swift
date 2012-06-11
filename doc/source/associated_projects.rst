@@ -7,6 +7,10 @@ Associated Projects
 Application Bindings
 --------------------
 
+* OpenStack supported binding:
+
+   * `Python-SwiftClient <http://pypi.python.org/pypi/python-swiftclient>`_
+
 * Made for Cloud Files, but mostly work with Swift too:
 
     * `CSharp-CloudFiles <https://github.com/rackspace/csharp-cloudfiles>`_
