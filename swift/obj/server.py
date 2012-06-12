@@ -37,7 +37,8 @@ from eventlet import sleep, Timeout, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, public, \
     storage_directory, hash_path, renamer, fallocate, \
-    split_path, drop_buffer_cache, get_logger, write_pickle
+    split_path, drop_buffer_cache, get_logger, write_pickle, \
+    TRUE_VALUES
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
@@ -54,7 +55,6 @@ ASYNCDIR = 'async_pending'
 PICKLE_PROTOCOL = 2
 METADATA_KEY = 'user.swift.metadata'
 MAX_OBJECT_NAME_LENGTH = 1024
-KEEP_CACHE_SIZE = (5 * 1024 * 1024)
 # keep these lower-case
 DISALLOWED_HEADERS = set('content-length content-type deleted etag'.split())
 
@@ -361,11 +361,14 @@ class ObjectController(object):
         self.logger = get_logger(conf, log_route='object-server')
         self.devices = conf.get('devices', '/srv/node/')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+            TRUE_VALUES
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
+        self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
+        self.keep_cache_private = \
+            conf.get('keep_cache_private', 'false').lower() in TRUE_VALUES
         self.log_requests = conf.get('log_requests', 't')[:1].lower() == 't'
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
@@ -722,9 +725,10 @@ class ObjectController(object):
         response.etag = file.metadata['ETag']
         response.last_modified = float(file.metadata['X-Timestamp'])
         response.content_length = file_size
-        if response.content_length < KEEP_CACHE_SIZE and \
-                'X-Auth-Token' not in request.headers and \
-                'X-Storage-Token' not in request.headers:
+        if response.content_length < self.keep_cache_size and \
+                (self.keep_cache_private or
+                 ('X-Auth-Token' not in request.headers and
+                  'X-Storage-Token' not in request.headers)):
             file.keep_cache = True
         if 'Content-Encoding' in file.metadata:
             response.content_encoding = file.metadata['Content-Encoding']
