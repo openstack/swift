@@ -65,7 +65,11 @@ elif len(sys.argv) > 2:
     target = "%s" % (account)
     loc = 'accounts'
 
-more_nodes = list(ring.get_more_nodes(part))
+more_nodes = []
+for more_node in ring.get_more_nodes(part):
+    more_nodes.append(more_node)
+    if len(more_nodes) >= ring.replica_count:
+        break
 
 print '\nAccount \t%s' % account
 print 'Container\t%s' % container
