@@ -20,6 +20,7 @@ from os.path import getmtime
 from struct import unpack_from
 from time import time
 import os
+from io import BufferedReader
 
 from swift.common.utils import hash_path, validate_configuration
 from swift.common.ring.utils import tiers_for_dev
@@ -61,7 +62,7 @@ class Ring(object):
     def _reload(self, force=False):
         self._rtime = time() + self.reload_time
         if force or self.has_changed():
-            ring_data = pickle.load(GzipFile(self.pickle_gz_path, 'rb'))
+            ring_data = pickle.load(self._get_gz_file())
             if not hasattr(ring_data, 'devs'):
                 ring_data = RingData(ring_data['replica2part2dev_id'],
                     ring_data['devs'], ring_data['part_shift'])
@@ -71,6 +72,14 @@ class Ring(object):
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
+
+    def _get_gz_file(self):
+        gz_file = GzipFile(self.pickle_gz_path, 'rb')
+        if hasattr(gz_file, '_checkReadable'):
+            return BufferedReader(gz_file)
+        else:
+            # Python 2.6 doesn't support BufferedIO
+            return gz_file
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
