@@ -572,6 +572,10 @@ class ObjectReplicator(Daemon):
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs()
             for job in jobs:
+                dev_path = join(self.devices_dir, job['device'])
+                if self.mount_check and not os.path.ismount(dev_path):
+                    self.logger.warn(_('%s is not mounted'), job['device'])
+                    continue
                 if not self.check_ring():
                     self.logger.info(_("Ring change detected. Aborting "
                             "current replication pass."))
