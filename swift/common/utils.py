@@ -263,6 +263,28 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     return segs
 
 
+def validate_device_partition(device, partition):
+    """
+    Validate that a device and a partition are valid and won't lead to
+    directory traversal when used.
+
+    :param device: device to validate
+    :param partition: partition to validate
+    :raises: ValueError if given an invalid device or partition
+    """
+    invalid_device = False
+    invalid_partition = False
+    if not device or '/' in device or device in ['.', '..']:
+        invalid_device = True
+    if not partition or '/' in partition or partition in ['.', '..']:
+        invalid_partition = True
+
+    if invalid_device:
+        raise ValueError('Invalid device: %s' % quote(device or ''))
+    elif invalid_partition:
+        raise ValueError('Invalid partition: %s' % quote(partition or ''))
+
+
 class NullLogger():
     """A no-op logger for eventlet wsgi."""
 
