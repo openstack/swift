@@ -163,9 +163,10 @@ class SegmentedIterable(object):
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
                 self.seek = 0
-            if self.segment > 10:
+            if self.segment > self.controller.app.rate_limit_after_segment:
                 sleep(max(self.next_get_time - time.time(), 0))
-                self.next_get_time = time.time() + 1
+                self.next_get_time = time.time() + \
+                    1.0 / self.controller.app.rate_limit_segments_per_sec
             shuffle(nodes)
             resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
@@ -1917,6 +1918,10 @@ class BaseApplication(object):
             if a.strip()]
         self.deny_host_headers = [host.strip() for host in
             conf.get('deny_host_headers', '').split(',') if host.strip()]
+        self.rate_limit_after_segment = \
+            int(conf.get('rate_limit_after_segment', 10))
+        self.rate_limit_segments_per_sec = \
+            int(conf.get('rate_limit_segments_per_sec', 1))
 
     def get_controller(self, path):
         """
