@@ -637,7 +637,7 @@ class RingBuilder(object):
                 candidate_tiers = [t for t in candidate_tiers
                                    if other_replicas[t] == min_count]
                 candidate_tiers.sort(
-                    key=lambda t: tier2devs[t][-1]['parts_wanted'])
+                    key=lambda t: tier2sort_key[t][-1])
 
                 if depth == max(tiers_by_depth.keys()):
                     return tier2devs[candidate_tiers[-1]][-1]
