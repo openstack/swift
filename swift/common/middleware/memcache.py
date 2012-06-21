@@ -27,20 +27,36 @@ class MemcacheMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.memcache_servers = conf.get('memcache_servers')
-        if not self.memcache_servers:
+        serialization_format = conf.get('memcache_serialization_support')
+
+        if not self.memcache_servers or serialization_format is None:
             path = os.path.join(conf.get('swift_dir', '/etc/swift'),
                                 'memcache.conf')
             memcache_conf = ConfigParser()
             if memcache_conf.read(path):
-                try:
-                    self.memcache_servers = \
-                        memcache_conf.get('memcache', 'memcache_servers')
-                except (NoSectionError, NoOptionError):
-                    pass
+                if not self.memcache_servers:
+                    try:
+                        self.memcache_servers = \
+                            memcache_conf.get('memcache', 'memcache_servers')
+                    except (NoSectionError, NoOptionError):
+                        pass
+                if serialization_format is None:
+                    try:
+                        serialization_format = \
+                            memcache_conf.get('memcache',
+                                              'memcache_serialization_support')
+                    except (NoSectionError, NoOptionError):
+                        pass
+
         if not self.memcache_servers:
             self.memcache_servers = '127.0.0.1:11211'
+        if serialization_format is None:
+            serialization_format = 2
+
         self.memcache = MemcacheRing(
-            [s.strip() for s in self.memcache_servers.split(',') if s.strip()])
+            [s.strip() for s in self.memcache_servers.split(',') if s.strip()],
+            allow_pickle=(serialization_format == 0),
+            allow_unpickle=(serialization_format <= 1))
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache

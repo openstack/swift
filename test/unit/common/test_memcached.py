@@ -1,3 +1,4 @@
+ # -*- coding: utf8 -*-
 # Copyright (c) 2010-2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -161,6 +162,9 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client.set('some_key', [4, 5, 6])
         self.assertEquals(memcache_client.get('some_key'), [4, 5, 6])
+        memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
+        # As per http://wiki.openstack.org/encoding, we should expect to have unicode
+        self.assertEquals(memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
         self.assert_(float(mock.cache.values()[0][1]) == 0)
         esttimeout = time.time() + 10
         memcache_client.set('some_key', [1, 2, 3], timeout=10)
@@ -239,6 +243,24 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get_multi(('some_key2', 'some_key1',
             'not_exists'), 'multi_key'), [[4, 5, 6], [1, 2, 3], None])
 
+    def test_serialization(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                 allow_pickle=True)
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client.set('some_key', [1, 2, 3])
+        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        memcache_client._allow_pickle = False
+        memcache_client._allow_unpickle = True
+        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        memcache_client._allow_unpickle = False
+        self.assertEquals(memcache_client.get('some_key'), None)
+        memcache_client.set('some_key', [1, 2, 3])
+        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        memcache_client._allow_unpickle = True
+        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        memcache_client._allow_pickle = True
+        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
 
 if __name__ == '__main__':
     unittest.main()

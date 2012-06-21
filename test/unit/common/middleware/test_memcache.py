@@ -47,6 +47,8 @@ class SetConfigParser(object):
         if section == 'memcache':
             if option == 'memcache_servers':
                 return '1.2.3.4:5'
+            elif option == 'memcache_serialization_support':
+                return '2'
             else:
                 raise NoOptionError(option)
         else:
@@ -86,7 +88,8 @@ class TestCacheMiddleware(unittest.TestCase):
         exc = None
         try:
             app = memcache.MemcacheMiddleware(
-                    FakeApp(), {'memcache_servers': '1.2.3.4:5'})
+                    FakeApp(), {'memcache_servers': '1.2.3.4:5',
+                                'memcache_serialization_support': '2'})
         except Exception, err:
             exc = err
         finally:

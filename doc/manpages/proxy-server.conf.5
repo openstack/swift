@@ -213,6 +213,21 @@ Logging address. The default is /dev/log.
 Enables the ability to log request headers. The default is False.
 .IP \fBmemcache_servers\fR
 If not set in the configuration file, the value for memcache_servers will be read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that file, it will default to the value below. You can specify multiple servers separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211. This can be a list separated by commas. The default is 127.0.0.1:11211.
+.IP \fBmemcache_serialization_support\fR
+This sets how memcache values are serialized and deserialized:
+.RE
+
+.PD 0
+.RS 10
+.IP "0 = older, insecure pickle serialization"
+.IP "1 = json serialization but pickles can still be read (still insecure)"
+.IP "2 = json serialization only (secure and the default)"
+.RE
+
+.RS 10
+To avoid an instant full cache flush, existing installations should upgrade with 0, then set to 1 and reload, then after some time (24 hours) set to 2 and reload. In the future, the ability to use pickle serialization will be removed.
+
+If not set in the configuration file, the value for memcache_serialization_support will be read from /etc/swift/memcache.conf if it exists (see memcache.conf-sample). Otherwise, the default value as indicated above will be used.
 .RE
 
 
