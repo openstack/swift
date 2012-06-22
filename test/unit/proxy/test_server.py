@@ -2485,6 +2485,109 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 2'  # 2xx response
         self.assertEquals(headers[:len(exp)], exp)
 
+    def test_chunked_put_lobjects_with_nonzero_size_manifest_file(self):
+        # Create a container for our segmented/manifest object testing
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
+            _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented_nonzero HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        # Create the object segments
+        segment_etags = []
+        for segment in xrange(5):
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/segmented_nonzero/name/%s HTTP/1.1\r\nHost: '
+                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                     't\r\nContent-Length: 5\r\n\r\n1234 ' % str(segment))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEquals(headers[:len(exp)], exp)
+            segment_etags.append(md5('1234 ').hexdigest())
+
+        # Create the nonzero size manifest file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
+                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                 't\r\nContent-Length: 5\r\n\r\nabcd ')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # Create the object manifest file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('POST /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
+                 'localhost\r\nConnection: close\r\nX-Storage-Token: t\r\n'
+                 'X-Object-Manifest: segmented_nonzero/name/\r\n'
+                 'Foo: barbaz\r\nContent-Type: text/jibberish\r\n'
+                 '\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 202'
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # Ensure retrieving the manifest file gets the whole object
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
+                 'localhost\r\nConnection: close\r\nX-Auth-Token: '
+                 't\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        self.assert_('Foo: barbaz' in headers)
+        expected_etag = md5(''.join(segment_etags)).hexdigest()
+        self.assert_('Etag: "%s"' % expected_etag in headers)
+        body = fd.read()
+        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
+
+        # Get lobjects with Range smaller than manifest file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
+                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
+                 'Range: bytes=0-4\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 206'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        self.assert_('Foo: barbaz' in headers)
+        expected_etag = md5(''.join(segment_etags)).hexdigest()
+        body = fd.read()
+        self.assertEquals(body, '1234 ')
+
+        # Get lobjects with Range bigger than manifest file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
+                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
+                 'Range: bytes=11-15\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 206'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
+        self.assert_('Content-Type: text/jibberish' in headers)
+        self.assert_('Foo: barbaz' in headers)
+        expected_etag = md5(''.join(segment_etags)).hexdigest()
+        body = fd.read()
+        self.assertEquals(body, '234 1')
+
     def test_chunked_put_lobjects(self):
         # Create a container for our segmented/manifest object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \

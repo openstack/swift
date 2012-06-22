@@ -895,16 +895,18 @@ class ObjectController(Controller):
         resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, len(nodes))
-
-        # If we get a 416 Requested Range Not Satisfiable we have to check if
-        # we were actually requesting a manifest and then redo
-        # the range request on the whole object.
-        if resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
+        # Whether we get a 416 Requested Range Not Satisfiable or not,
+        # we should request a manifest because size of manifest file
+        # can be not 0. After checking a manifest, redo the range request
+        # on the whole object.
+        if req.range:
             req_range = req.range
             req.range = None
             resp2 = self.GETorHEAD_base(req, _('Object'), partition,
-                    self.iter_nodes(partition, nodes, self.app.object_ring),
-                    req.path_info, len(nodes))
+                                        self.iter_nodes(partition,
+                                                        nodes,
+                                                        self.app.object_ring),
+                                        req.path_info, len(nodes))
             if 'x-object-manifest' not in resp2.headers:
                 self.app.logger.timing_since(
                     '%s.timing' % (stats_type,), start_time)
