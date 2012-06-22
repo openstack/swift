@@ -1865,7 +1865,8 @@ class BaseApplication(object):
         if logger is None:
             self.logger = get_logger(conf, log_route='proxy-server')
             access_log_conf = {}
-            for key in ('log_facility', 'log_name', 'log_level'):
+            for key in ('log_facility', 'log_name', 'log_level',
+                        'log_udp_host', 'log_udp_port'):
                 value = conf.get('access_' + key, conf.get(key, None))
                 if value:
                     access_log_conf[key] = value

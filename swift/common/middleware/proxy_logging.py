@@ -94,7 +94,8 @@ class ProxyLoggingMiddleware(object):
         self.app = app
         self.log_hdrs = conf.get('log_headers', 'no').lower() in TRUE_VALUES
         access_log_conf = {}
-        for key in ('log_facility', 'log_name', 'log_level'):
+        for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
+                    'log_udp_port'):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
