@@ -1,3 +1,58 @@
+swift (1.6.0)
+
+    * Removed bin/swift and swift/common/client.py from the swift repo. These
+      tools are now managed in the python-swiftclient project. The
+      python-swiftclient project is a second deliverable of the openstack
+      swift project.
+
+    * Moved swift_auth (openstack keystone) middleware from keystone project
+      into swift project
+
+    * Made dispersion report work with any replica count other than 3. This
+      substantially affects the JSON output of the dispersion report, and any
+      tools written to consume this output will need to be updated.
+
+    * Added Solaris (Illumos) compability
+
+    * Added -a option to swift-get-nodes to show all handoffs
+
+    * Add UDP protocol support for logger
+
+    * Added config options for rate limiting of large object downloads.
+
+    * swift-bench can now use auth 2.0
+
+    * Support forbidding substrings based on a regexp in name_filter
+      middleware
+
+    * Hardened internal server processes so only authorized methods can be
+      called.
+
+    * Made ranged requests on large objects work correctly when size of
+      manifest file is not 0 byte
+
+    * Added option to dispersion report to print 404s to stdout
+
+    * Fix object replication on older rsync versions when using ipv4
+
+    * Fixed bug with container reclaim/report race
+
+    * Make object server's caching more configurable.
+
+    * Check disk failure before syncing for each partition
+
+    * Allow special characters to be referenced by manifest objects
+
+    * Validate devices and partitions to avoid directory traversals
+
+    * Support WebOb 1.2
+
+    * Ensure that accessing the ring devs reloads the ring if necessary.
+      Specifically, this allows replication to work when it has been started
+      with an empty ring.
+
+    * Various other minor bug fixes and improvements
+
 swift (1.5.0)
 
     * New option to toggle SQLite database preallocation with account
