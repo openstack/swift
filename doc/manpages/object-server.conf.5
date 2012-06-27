@@ -76,6 +76,8 @@ Label used when logging. The default is swift.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .RE
 .PD
 
@@ -112,7 +114,9 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP "\fB set log_requests\fR 
 Enables request logging. The default is True.
-.IP \fBnode_timeout\fR 
+.IP "\fB set log_address\fR
+Logging address. The default is /dev/log.
+.IP \fBnode_timeout\fR
 Request timeout to external services. The default is 3 seconds. 
 .IP \fBconn_timeout\fR 
 Connection timeout to external services. The default is 0.5 seconds. 
@@ -165,6 +169,8 @@ Label used when logging. The default is object-replicator.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBvm_test_mode\fR 
 Indicates that you are using a VM environment. The default is no.
 .IP \fBdaemonize\fR 
@@ -206,6 +212,8 @@ Label used when logging. The default is object-updater.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBinterval\fR 
 Minimum time for a pass to take. The default is 300 seconds. 
 .IP \fBconcurrency\fR 
@@ -230,6 +238,8 @@ Label used when logging. The default is object-auditor.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 
 .IP \fBfiles_per_second\fR 
 Maximum files audited per second. Should be tuned according to individual 

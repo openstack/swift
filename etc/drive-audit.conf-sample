@@ -2,5 +2,6 @@
 # device_dir = /srv/node
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# log_address = /dev/log
 # minutes = 60
 # error_limit = 1

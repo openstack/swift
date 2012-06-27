@@ -76,6 +76,8 @@ Label used when logging. The default is swift.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .RE
 .PD
 
@@ -112,6 +114,8 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP "\fB set log_requests\fR 
 Enables request logging. The default is True.
+.IP "\fB set log_address\fR
+Logging address. The default is /dev/log.
 .IP \fBnode_timeout\fR 
 Request timeout to external services. The default is 3 seconds. 
 .IP \fBconn_timeout\fR 
@@ -152,6 +156,8 @@ Label used when logging. The default is container-replicator.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBvm_test_mode\fR 
 Indicates that you are using a VM environment. The default is no.
 .IP \fBer_diff\fR 
@@ -184,6 +190,8 @@ Label used when logging. The default is container-updater.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBinterval\fR 
 Minimum time for a pass to take. The default is 300 seconds. 
 .IP \fBconcurrency\fR 
@@ -210,6 +218,8 @@ Label used when logging. The default is container-auditor.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBinterval\fR 
 Will audit, at most, 1 container per device per interval. The default is 1800 seconds. 
 .RE
@@ -226,6 +236,8 @@ Label used when logging. The default is container-sync.
 Syslog log facility. The default is LOG_LOCAL0.
 .IP \fBlog_level\fR 
 Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
 .IP \fBsync_proxy\fR
 If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 .IP \fBinterval\fR 
