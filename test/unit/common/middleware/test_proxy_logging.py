@@ -34,6 +34,17 @@ class FakeApp(object):
         return self.body
 
 
+class FakeAppNoContentLengthNoTransferEncoding(object):
+    def __init__(self, body=['FAKE APP']):
+        self.body = body
+
+    def __call__(self, env, start_response):
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        while env['wsgi.input'].read(5):
+            pass
+        return self.body
+
+
 class FileLikeExceptor(object):
     def __init__(self):
         pass
@@ -225,6 +236,15 @@ class TestProxyLogging(unittest.TestCase):
         log_parts = app.access_logger.msg.split()
         self.assertEquals(log_parts[6], '499')
         self.assertEquals(log_parts[10], '-')  # read length
+
+    def test_no_content_length_no_transfer_encoding(self):
+        app = proxy_logging.ProxyLoggingMiddleware(
+                FakeAppNoContentLengthNoTransferEncoding(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        body = ''.join(resp)
+
 
 if __name__ == '__main__':
     unittest.main()

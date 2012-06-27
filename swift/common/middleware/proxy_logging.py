@@ -167,6 +167,9 @@ class ProxyLoggingMiddleware(object):
             else:
                 if not chunk:
                     start_response_args[0][1].append(('content-length', '0'))
+                elif isinstance(iterable, list):
+                    start_response_args[0][1].append(
+                        ('content-length', str(sum(len(i) for i in iterable))))
                 else:
                     raise Exception('WSGI [proxy-logging]: No content-length '
                         'or transfer-encoding header sent and there is '
