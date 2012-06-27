@@ -18,7 +18,8 @@ import unittest
 import os
 from uuid import uuid4
 
-from swift.common import client, direct_client
+from swiftclient import client
+from swift.common import direct_client
 from swift.common.utils import hash_path, readconf
 from swift.obj.server import write_metadata, read_metadata
 from test.probe.common import kill_pids, reset_environment

@@ -24,7 +24,8 @@ from uuid import uuid4
 import eventlet
 import sqlite3
 
-from swift.common import client, direct_client
+from swiftclient import client
+from swift.common import direct_client
 from swift.common.utils import hash_path, readconf
 
 from test.probe.common import get_to_final_state, kill_pids, reset_environment
