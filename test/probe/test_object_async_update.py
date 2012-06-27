@@ -21,7 +21,8 @@ from subprocess import Popen
 from time import sleep
 from uuid import uuid4
 
-from swift.common import client, direct_client
+from swiftclient import client
+from swift.common import direct_client
 
 from test.probe.common import kill_pids, reset_environment
 

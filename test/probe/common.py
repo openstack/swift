@@ -19,7 +19,7 @@ from subprocess import call, Popen
 from time import sleep
 
 from swift.common.bufferedhttp import http_connect_raw as http_connect
-from swiftclient import get_auth
+from swiftclient import get_auth, head_account
 from swift.common.ring import Ring
 
 
@@ -54,6 +54,7 @@ def reset_environment():
                 url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
                                       'test:tester', 'testing')
                 account = url.split('/')[-1]
+                head_account(url, token)
                 break
             except Exception, err:
                 if attempt > 9:
