@@ -135,7 +135,7 @@ use = egg:swift#memcache
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
-# Default for memcache_servers is to try to read the property from
+# If not set here, the value for memcache_servers will be read from
 # memcache.conf (see memcache.conf-sample) or lacking that file, it will
 # default to the value below. You can specify multiple servers separated with
 # commas, as in: 10.1.2.3:11211,10.1.2.4:11211
