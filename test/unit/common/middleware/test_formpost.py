@@ -75,8 +75,9 @@ class FakeApp(object):
         self.requests.append(Request.blank('', environ=env))
         if env.get('swift.authorize_override') and \
                 env.get('REMOTE_USER') != '.wsgi.pre_authed':
-            raise Exception('Invalid REMOTE_USER %r with '
-                'swift.authorize_override' % (env.get('REMOTE_USER'),))
+            raise Exception(
+                'Invalid REMOTE_USER %r with swift.authorize_override' % (
+                    env.get('REMOTE_USER'),))
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](self.requests[-1])
             if resp:
@@ -204,8 +205,9 @@ class TestIterRequests(unittest.TestCase):
         self.assertTrue(exc is not None)
 
     def test_readline(self):
-        it = formpost._iter_requests(StringIO('--unique\r\nab\r\ncd\ref\ng\r\n'
-            '--unique\r\nhi\r\n\r\njkl\r\n\r\n--unique--'), 'unique')
+        it = formpost._iter_requests(
+            StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n\r\n'
+                     'jkl\r\n\r\n--unique--'), 'unique')
         fp = it.next()
         self.assertEquals(fp.readline(), 'ab\r\n')
         self.assertEquals(fp.readline(), 'cd\ref\ng')
@@ -225,8 +227,9 @@ class TestIterRequests(unittest.TestCase):
         orig_read_chunk_size = formpost.READ_CHUNK_SIZE
         try:
             formpost.READ_CHUNK_SIZE = 2
-            it = formpost._iter_requests(StringIO('--unique\r\nab\r\ncd\ref\ng'
-                '\r\n--unique\r\nhi\r\n\r\njkl\r\n\r\n--unique--'), 'unique')
+            it = formpost._iter_requests(
+                StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n'
+                         '\r\njkl\r\n\r\n--unique--'), 'unique')
             fp = it.next()
             self.assertEquals(fp.readline(), 'ab\r\n')
             self.assertEquals(fp.readline(), 'cd\ref\ng')
@@ -298,8 +301,11 @@ class TestFormPost(unittest.TestCase):
 
     def _make_sig_env_body(self, path, redirect, max_file_size, max_file_count,
                            expires, key):
-        sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect,
-            max_file_size, max_file_count, expires), sha1).hexdigest()
+        sig = hmac.new(
+            key,
+            '%s\n%s\n%s\n%s\n%s' % (
+                path, redirect, max_file_size, max_file_count, expires),
+            sha1).hexdigest()
         body = [
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="redirect"',
@@ -323,13 +329,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="testfile1.txt"',
+            'filename="testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="testfile2.txt"',
+            'filename="testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -344,17 +350,17 @@ class TestFormPost(unittest.TestCase):
         wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
-                'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'HTTP_ACCEPT_ENCODING': 'gzip, deflate',
             'HTTP_ACCEPT_LANGUAGE': 'en-us',
             'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml;'
-                'q=0.9,*/*;q=0.8',
+            'q=0.9,*/*;q=0.8',
             'HTTP_CONNECTION': 'keep-alive',
             'HTTP_HOST': 'ubuntu:8080',
             'HTTP_ORIGIN': 'file://',
             'HTTP_USER_AGENT': 'Mozilla/5.0 (Macintosh; Intel Mac OS X '
-                '10_7_2) AppleWebKit/534.52.7 (KHTML, like Gecko) '
-                'Version/5.1.2 Safari/534.52.7',
+            '10_7_2) AppleWebKit/534.52.7 (KHTML, like Gecko) '
+            'Version/5.1.2 Safari/534.52.7',
             'PATH_INFO': path,
             'REMOTE_ADDR': '172.16.83.1',
             'REQUEST_METHOD': 'POST',
@@ -373,7 +379,8 @@ class TestFormPost(unittest.TestCase):
 
     def test_passthrough(self):
         for method in ('HEAD', 'GET', 'PUT', 'POST', 'DELETE'):
-            resp = self._make_request('/v1/a/c/o',
+            resp = self._make_request(
+                '/v1/a/c/o',
                 environ={'REQUEST_METHOD': method}).get_response(self.formpost)
             self.assertEquals(resp.status_int, 401)
             self.assertTrue('FormPost' not in resp.body)
@@ -385,8 +392,11 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect,
-            max_file_size, max_file_count, expires), sha1).hexdigest()
+        sig = hmac.new(
+            key,
+            '%s\n%s\n%s\n%s\n%s' % (
+                path, redirect, max_file_size, max_file_count, expires),
+            sha1).hexdigest()
         memcache = FakeMemcache()
         memcache.set('temp-url-key/AUTH_test', key)
         wsgi_input = StringIO('\r\n'.join([
@@ -412,13 +422,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="testfile1.txt"',
+            'filename="testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="testfile2.txt"',
+            'filename="testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -433,17 +443,17 @@ class TestFormPost(unittest.TestCase):
         wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
-                'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'HTTP_ACCEPT_ENCODING': 'gzip, deflate',
             'HTTP_ACCEPT_LANGUAGE': 'en-us',
             'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml;'
-                'q=0.9,*/*;q=0.8',
+            'q=0.9,*/*;q=0.8',
             'HTTP_CONNECTION': 'keep-alive',
             'HTTP_HOST': 'ubuntu:8080',
             'HTTP_ORIGIN': 'file://',
             'HTTP_USER_AGENT': 'Mozilla/5.0 (Macintosh; Intel Mac OS X '
-                '10_7_2) AppleWebKit/534.52.7 (KHTML, like Gecko) '
-                'Version/5.1.2 Safari/534.52.7',
+            '10_7_2) AppleWebKit/534.52.7 (KHTML, like Gecko) '
+            'Version/5.1.2 Safari/534.52.7',
             'PATH_INFO': path,
             'REMOTE_ADDR': '172.16.83.1',
             'REQUEST_METHOD': 'POST',
@@ -496,8 +506,11 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect,
-            max_file_size, max_file_count, expires), sha1).hexdigest()
+        sig = hmac.new(
+            key,
+            '%s\n%s\n%s\n%s\n%s' % (
+                path, redirect, max_file_size, max_file_count, expires),
+            sha1).hexdigest()
         memcache = FakeMemcache()
         memcache.set('temp-url-key/AUTH_test', key)
         wsgi_input = StringIO('\r\n'.join([
@@ -523,13 +536,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '-----------------------------168072824752491622650073',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="testfile1.txt"',
+            'filename="testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '-----------------------------168072824752491622650073',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="testfile2.txt"',
+            'filename="testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -544,16 +557,16 @@ class TestFormPost(unittest.TestCase):
         wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
-                'boundary=---------------------------168072824752491622650073',
+            'boundary=---------------------------168072824752491622650073',
             'HTTP_ACCEPT_CHARSET': 'ISO-8859-1,utf-8;q=0.7,*;q=0.7',
             'HTTP_ACCEPT_ENCODING': 'gzip, deflate',
             'HTTP_ACCEPT_LANGUAGE': 'en-us,en;q=0.5',
             'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml;'
-                'q=0.9,*/*;q=0.8',
+            'q=0.9,*/*;q=0.8',
             'HTTP_CONNECTION': 'keep-alive',
             'HTTP_HOST': 'ubuntu:8080',
             'HTTP_USER_AGENT': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.7; '
-                'rv:8.0.1) Gecko/20100101 Firefox/8.0.1',
+            'rv:8.0.1) Gecko/20100101 Firefox/8.0.1',
             'PATH_INFO': '/v1/AUTH_test/container',
             'REMOTE_ADDR': '172.16.83.1',
             'REQUEST_METHOD': 'POST',
@@ -606,8 +619,11 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect,
-            max_file_size, max_file_count, expires), sha1).hexdigest()
+        sig = hmac.new(
+            key,
+            '%s\n%s\n%s\n%s\n%s' % (
+                path, redirect, max_file_size, max_file_count, expires),
+            sha1).hexdigest()
         memcache = FakeMemcache()
         memcache.set('temp-url-key/AUTH_test', key)
         wsgi_input = StringIO('\r\n'.join([
@@ -633,13 +649,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="testfile1.txt"',
+            'filename="testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="testfile2.txt"',
+            'filename="testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -654,19 +670,19 @@ class TestFormPost(unittest.TestCase):
         wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
-                'boundary=----WebKitFormBoundaryq3CFxUjfsDMu8XsA',
+            'boundary=----WebKitFormBoundaryq3CFxUjfsDMu8XsA',
             'HTTP_ACCEPT_CHARSET': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
             'HTTP_ACCEPT_ENCODING': 'gzip,deflate,sdch',
             'HTTP_ACCEPT_LANGUAGE': 'en-US,en;q=0.8',
             'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml;'
-                'q=0.9,*/*;q=0.8',
+            'q=0.9,*/*;q=0.8',
             'HTTP_CACHE_CONTROL': 'max-age=0',
             'HTTP_CONNECTION': 'keep-alive',
             'HTTP_HOST': 'ubuntu:8080',
             'HTTP_ORIGIN': 'null',
             'HTTP_USER_AGENT': 'Mozilla/5.0 (Macintosh; Intel Mac OS X '
-                '10_7_2) AppleWebKit/535.7 (KHTML, like Gecko) '
-                'Chrome/16.0.912.63 Safari/535.7',
+            '10_7_2) AppleWebKit/535.7 (KHTML, like Gecko) '
+            'Chrome/16.0.912.63 Safari/535.7',
             'PATH_INFO': '/v1/AUTH_test/container',
             'REMOTE_ADDR': '172.16.83.1',
             'REQUEST_METHOD': 'POST',
@@ -719,8 +735,11 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect,
-            max_file_size, max_file_count, expires), sha1).hexdigest()
+        sig = hmac.new(
+            key,
+            '%s\n%s\n%s\n%s\n%s' % (
+                path, redirect, max_file_size, max_file_count, expires),
+            sha1).hexdigest()
         memcache = FakeMemcache()
         memcache.set('temp-url-key/AUTH_test', key)
         wsgi_input = StringIO('\r\n'.join([
@@ -746,13 +765,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '-----------------------------7db20d93017c',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="C:\\testfile1.txt"',
+            'filename="C:\\testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '-----------------------------7db20d93017c',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="C:\\testfile2.txt"',
+            'filename="C:\\testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -767,7 +786,7 @@ class TestFormPost(unittest.TestCase):
         wsgi_errors = StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
-                'boundary=---------------------------7db20d93017c',
+            'boundary=---------------------------7db20d93017c',
             'HTTP_ACCEPT_ENCODING': 'gzip, deflate',
             'HTTP_ACCEPT_LANGUAGE': 'en-US',
             'HTTP_ACCEPT': 'text/html, application/xhtml+xml, */*',
@@ -775,7 +794,7 @@ class TestFormPost(unittest.TestCase):
             'HTTP_CONNECTION': 'Keep-Alive',
             'HTTP_HOST': '172.16.83.128:8080',
             'HTTP_USER_AGENT': 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT '
-                '6.1; WOW64; Trident/5.0)',
+            '6.1; WOW64; Trident/5.0)',
             'PATH_INFO': '/v1/AUTH_test/container',
             'REMOTE_ADDR': '172.16.83.129',
             'REQUEST_METHOD': 'POST',
@@ -823,8 +842,9 @@ class TestFormPost(unittest.TestCase):
 
     def test_messed_up_start(self):
         key = 'abc'
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            'http://brim.net', 5, 10, int(time() + 86400), key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
+            int(time() + 86400), key)
         env['wsgi.input'] = StringIO('XX' + '\r\n'.join(body))
         env['swift.cache'] = FakeMemcache()
         env['swift.cache'].set('temp-url-key/AUTH_test', key)
@@ -832,6 +852,11 @@ class TestFormPost(unittest.TestCase):
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
         self.formpost = formpost.filter_factory({})(self.auth)
+
+        def log_assert_int_status(env, response_status_int):
+            self.assertTrue(isinstance(response_status_int, int))
+
+        self.formpost._log_request = log_assert_int_status
         status = [None]
         headers = [None]
         exc_info = [None]
@@ -852,8 +877,9 @@ class TestFormPost(unittest.TestCase):
 
     def test_max_file_size_exceeded(self):
         key = 'abc'
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            'http://brim.net', 5, 10, int(time() + 86400), key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
+            int(time() + 86400), key)
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.cache'] = FakeMemcache()
         env['swift.cache'].set('temp-url-key/AUTH_test', key)
@@ -881,8 +907,9 @@ class TestFormPost(unittest.TestCase):
 
     def test_max_file_count_exceeded(self):
         key = 'abc'
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            'http://brim.net', 1024, 1, int(time() + 86400), key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://brim.net', 1024, 1,
+            int(time() + 86400), key)
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.cache'] = FakeMemcache()
         env['swift.cache'].set('temp-url-key/AUTH_test', key)
@@ -908,7 +935,8 @@ class TestFormPost(unittest.TestCase):
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location,
+        self.assertEquals(
+            location,
             'http://brim.net?status=400&message=max%20file%20count%20exceeded')
         self.assertEquals(exc_info, None)
         self.assertTrue(
@@ -919,8 +947,9 @@ class TestFormPost(unittest.TestCase):
 
     def test_subrequest_fails(self):
         key = 'abc'
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            'http://brim.net', 1024, 10, int(time() + 86400), key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://brim.net', 1024, 10,
+            int(time() + 86400), key)
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.cache'] = FakeMemcache()
         env['swift.cache'].set('temp-url-key/AUTH_test', key)
@@ -957,8 +986,9 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            redirect, max_file_size, max_file_count, expires, key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', redirect, max_file_size, max_file_count,
+            expires, key)
         # Tack on an extra char to redirect, but shouldn't matter since it
         # should get truncated off on read.
         redirect += 'b'
@@ -985,13 +1015,13 @@ class TestFormPost(unittest.TestCase):
             sig,
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file1"; '
-                'filename="testfile1.txt"',
+            'filename="testfile1.txt"',
             'Content-Type: text/plain',
             '',
             'Test File\nOne\n',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="file2"; '
-                'filename="testfile2.txt"',
+            'filename="testfile2.txt"',
             'Content-Type: text/plain',
             '',
             'Test\nFile\nTwo\n',
@@ -1027,7 +1057,8 @@ class TestFormPost(unittest.TestCase):
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location,
+        self.assertEquals(
+            location,
             ('a' * formpost.MAX_VALUE_LENGTH) + '?status=201&message=')
         self.assertEquals(exc_info, None)
         self.assertTrue(
@@ -1042,8 +1073,9 @@ class TestFormPost(unittest.TestCase):
         max_file_size = 1024
         max_file_count = 10
         expires = int(time() + 86400)
-        sig, env, body = self._make_sig_env_body('/v1/AUTH_test/container',
-            redirect, max_file_size, max_file_count, expires, key)
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', redirect, max_file_size, max_file_count,
+            expires, key)
         env['wsgi.input'] = StringIO('\r\n'.join([
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="redirect"',
@@ -1092,7 +1124,8 @@ class TestFormPost(unittest.TestCase):
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location,
+        self.assertEquals(
+            location,
             'http://brim.net?status=400&message=no%20files%20to%20process')
         self.assertEquals(exc_info, None)
         self.assertTrue(

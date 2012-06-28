@@ -107,7 +107,6 @@ import rfc822
 from hashlib import sha1
 from StringIO import StringIO
 from time import gmtime, strftime, time
-from time import time
 from urllib import quote, unquote
 
 from swift.common.utils import get_logger, streq_const_time
@@ -315,32 +314,29 @@ class FormPost(object):
                     _parse_attrs(env.get('CONTENT_TYPE') or '')
                 if content_type == 'multipart/form-data' and \
                         'boundary' in attrs:
-                    resp_status = [0]
-
-                    def _start_response(status, headers, exc_info=None):
-                        resp_status[0] = int(status.split(' ', 1)[0])
-                        start_response(status, headers, exc_info)
-
-                    self._log_request(env, resp_status)
-                    return self._translate_form(env, start_response,
-                                                attrs['boundary'])
+                    status, headers, body = self._translate_form(
+                        env, attrs['boundary'])
+                    self._log_request(env, int(status.split(' ', 1)[0]))
+                    start_response(status, headers)
+                    return body
             except (FormInvalid, EOFError), err:
                 self._log_request(env, HTTP_BAD_REQUEST)
                 body = 'FormPost: %s' % err
-                start_response('400 Bad Request',
+                start_response(
+                    '400 Bad Request',
                     (('Content-Type', 'text/plain'),
                      ('Content-Length', str(len(body)))))
                 return [body]
         return self.app(env, start_response)
 
-    def _translate_form(self, env, start_response, boundary):
+    def _translate_form(self, env, boundary):
         """
         Translates the form data into subrequests and issues a
         response.
 
         :param env: The WSGI environment dict.
-        :param start_response: The WSGI start_response hook.
-        :returns: Response as per WSGI.
+        :param boundary: The MIME type boundary to look for.
+        :returns: status_line, headers_list, body
         """
         key = self._get_key(env)
         status = message = ''
@@ -363,8 +359,8 @@ class FormPost(object):
                 if 'content-type' not in attributes and 'content-type' in hdrs:
                     attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
-                status, message = self._perform_subrequest(env, start_response,
-                                                           attributes, fp, key)
+                status, message = self._perform_subrequest(env, attributes, fp,
+                                                           key)
                 if status[:1] != '2':
                     break
             else:
@@ -387,29 +383,29 @@ class FormPost(object):
             body = status
             if message:
                 body = status + '\r\nFormPost: ' + message.title()
-            start_response(status, [('Content-Type', 'text/plain'),
-                                    ('Content-Length', len(body))])
-            return [body]
+            headers = [('Content-Type', 'text/plain'),
+                       ('Content-Length', len(body))]
+            return status, headers, body
         status = status.split(' ', 1)[0]
         body = '<html><body><p><a href="%s?status=%s&message=%s">Click to ' \
                'continue...</a></p></body></html>' % \
                (attributes['redirect'], quote(status), quote(message))
-        start_response('303 See Other',
-            [('Location', '%s?status=%s&message=%s' %
-                (attributes['redirect'], quote(status), quote(message))),
-             ('Content-Length', str(len(body)))])
-        return [body]
+        headers = [
+            ('Location', '%s?status=%s&message=%s' % (
+                attributes['redirect'], quote(status), quote(message))),
+            ('Content-Length', str(len(body)))]
+        return '303 See Other', headers, body
 
-    def _perform_subrequest(self, env, start_response, attributes, fp, key):
+    def _perform_subrequest(self, orig_env, attributes, fp, key):
         """
-        Performs the subrequest and returns a new response.
+        Performs the subrequest and returns the response.
 
-        :param env: The WSGI environment dict.
-        :param start_response: The WSGI start_response hook.
+        :param orig_env: The WSGI environment dict; will only be used
+                         to form a new env for the subrequest.
         :param attributes: dict of the attributes of the form so far.
         :param fp: The file-like object containing the request body.
         :param key: The account key to validate the signature with.
-        :returns: Response as per WSGI.
+        :returns: (status_line, message)
         """
         if not key:
             return '401 Unauthorized', 'invalid signature'
@@ -417,7 +413,7 @@ class FormPost(object):
             max_file_size = int(attributes.get('max_file_size') or 0)
         except ValueError:
             raise FormInvalid('max_file_size not an integer')
-        subenv = make_pre_authed_env(env, 'PUT', agent=self.agent)
+        subenv = make_pre_authed_env(orig_env, 'PUT', agent=self.agent)
         subenv['HTTP_TRANSFER_ENCODING'] = 'chunked'
         subenv['wsgi.input'] = _CappedFileLikeObject(fp, max_file_size)
         if subenv['PATH_INFO'][-1] != '/' and \
@@ -435,12 +431,11 @@ class FormPost(object):
         except ValueError:
             raise FormInvalid('expired not an integer')
         hmac_body = '%s\n%s\n%s\n%s\n%s' % (
-                        env['PATH_INFO'],
-                        attributes.get('redirect') or '',
-                        attributes.get('max_file_size') or '0',
-                        attributes.get('max_file_count') or '0',
-                        attributes.get('expires') or '0'
-                    )
+            orig_env['PATH_INFO'],
+            attributes.get('redirect') or '',
+            attributes.get('max_file_size') or '0',
+            attributes.get('max_file_count') or '0',
+            attributes.get('expires') or '0')
         sig = hmac.new(key, hmac_body, sha1).hexdigest()
         if not streq_const_time(sig, (attributes.get('signature') or
                                       'invalid')):
