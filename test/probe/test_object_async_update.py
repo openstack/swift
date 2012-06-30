@@ -14,56 +14,57 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-from os import kill
-from signal import SIGTERM
 from subprocess import Popen
-from time import sleep
+from unittest import main, TestCase
 from uuid import uuid4
 
 from swiftclient import client
+
 from swift.common import direct_client
+from test.probe.common import kill_nonprimary_server, kill_server, \
+    kill_servers, reset_environment, start_server
 
-from test.probe.common import kill_pids, reset_environment
 
-
-class TestObjectAsyncUpdate(unittest.TestCase):
+class TestObjectAsyncUpdate(TestCase):
 
     def setUp(self):
-        self.pids, self.port2server, self.account_ring, self.container_ring, \
-            self.object_ring, self.url, self.token, self.account = \
-                reset_environment()
+        (self.pids, self.port2server, self.account_ring, self.container_ring,
+         self.object_ring, self.url, self.token,
+         self.account) = reset_environment()
 
     def tearDown(self):
-        kill_pids(self.pids)
+        kill_servers(self.port2server, self.pids)
 
     def test_main(self):
+        # Create container
+        # Kill container servers excepting two of the primaries
+        # Create container/obj
+        # Restart other primary server
+        # Assert it does not know about container/obj
+        # Run the object-updaters
+        # Assert the other primary server now knows about container/obj
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
-        apart, anodes = self.account_ring.get_nodes(self.account)
-        anode = anodes[0]
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
-        kill(self.pids[self.port2server[cnode['port']]], SIGTERM)
+        kill_nonprimary_server(cnodes, self.port2server, self.pids)
+        kill_server(cnode['port'], self.port2server, self.pids)
         obj = 'object-%s' % uuid4()
         client.put_object(self.url, self.token, container, obj, '')
-        self.pids[self.port2server[cnode['port']]] = \
-            Popen(['swift-container-server',
-                   '/etc/swift/container-server/%d.conf' %
-                    ((cnode['port'] - 6001) / 10)]).pid
-        sleep(2)
-        self.assert_(not direct_client.direct_get_container(cnode, cpart,
-                            self.account, container)[1])
-        ps = []
-        for n in xrange(1, 5):
-            ps.append(Popen(['swift-object-updater',
-                             '/etc/swift/object-server/%d.conf' % n, 'once']))
-        for p in ps:
-            p.wait()
-        objs = [o['name'] for o in direct_client.direct_get_container(cnode,
-                                    cpart, self.account, container)[1]]
+        start_server(cnode['port'], self.port2server, self.pids)
+        self.assert_(not direct_client.direct_get_container(
+            cnode, cpart, self.account, container)[1])
+        processes = []
+        for node in xrange(1, 5):
+            processes.append(Popen(['swift-object-updater',
+                                    '/etc/swift/object-server/%d.conf' % node,
+                                    'once']))
+        for process in processes:
+            process.wait()
+        objs = [o['name'] for o in direct_client.direct_get_container(
+            cnode, cpart, self.account, container)[1]]
         self.assert_(obj in objs)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    main()

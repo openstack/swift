@@ -14,33 +14,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-from os import kill
-from signal import SIGTERM
 from subprocess import call, Popen
-from time import sleep
+from unittest import main, TestCase
 from uuid import uuid4
 
 from swiftclient import client
+
 from swift.common import direct_client
+from test.probe.common import kill_server, kill_servers, reset_environment, \
+    start_server
 
-from test.probe.common import kill_pids, reset_environment
 
-
-class TestObjectHandoff(unittest.TestCase):
+class TestObjectHandoff(TestCase):
 
     def setUp(self):
-        self.pids, self.port2server, self.account_ring, self.container_ring, \
-            self.object_ring, self.url, self.token, self.account = \
-                reset_environment()
+        (self.pids, self.port2server, self.account_ring, self.container_ring,
+         self.object_ring, self.url, self.token,
+         self.account) = reset_environment()
 
     def tearDown(self):
-        kill_pids(self.pids)
+        kill_servers(self.port2server, self.pids)
 
     def test_main(self):
+        # Create container
+        # Kill one container/obj primary server
+        # Create container/obj (goes to two primary servers and one handoff)
+        # Kill other two container/obj primary servers
+        # Indirectly through proxy assert we can get container/obj
+        # Restart those other two container/obj primary servers
+        # Directly to handoff server assert we can get container/obj
+        # Assert container listing (via proxy and directly) has container/obj
+        # Bring the first container/obj primary server back up
+        # Assert that it doesn't have container/obj yet
+        # Run object replication, ensuring we run the handoff node last so it
+        #   should remove its extra handoff partition
+        # Assert the first container/obj primary server now has container/obj
+        # Assert the handoff server no longer has container/obj
+        # Kill the first container/obj primary server again (we have two
+        #   primaries and the handoff up now)
+        # Delete container/obj
+        # Assert we can't head container/obj
+        # Assert container/obj is not in the container listing, both indirectly
+        #   and directly
+        # Restart the first container/obj primary server again
+        # Assert it still has container/obj
+        # Run object replication, ensuring we run the handoff node last so it
+        #   should remove its extra handoff partition
+        # Assert primary node no longer has container/obj
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
-        apart, anodes = self.account_ring.get_nodes(self.account)
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
@@ -48,7 +70,7 @@ class TestObjectHandoff(unittest.TestCase):
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
-        kill(self.pids[self.port2server[onode['port']]], SIGTERM)
+        kill_server(onode['port'], self.port2server, self.pids)
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
         odata = client.get_object(self.url, self.token, container, obj)[-1]
         if odata != 'VERIFY':
@@ -56,22 +78,18 @@ class TestObjectHandoff(unittest.TestCase):
                             'returned: %s' % repr(odata))
         # Kill all primaries to ensure GET handoff works
         for node in onodes[1:]:
-            kill(self.pids[self.port2server[node['port']]], SIGTERM)
+            kill_server(node['port'], self.port2server, self.pids)
         odata = client.get_object(self.url, self.token, container, obj)[-1]
         if odata != 'VERIFY':
             raise Exception('Object GET did not return VERIFY, instead it '
                             'returned: %s' % repr(odata))
         for node in onodes[1:]:
-            self.pids[self.port2server[node['port']]] = Popen([
-                'swift-object-server',
-                '/etc/swift/object-server/%d.conf' %
-                ((node['port'] - 6000) / 10)]).pid
-        sleep(2)
+            start_server(node['port'], self.port2server, self.pids)
         # We've indirectly verified the handoff node has the object, but let's
         # directly verify it.
         another_onode = self.object_ring.get_more_nodes(opart).next()
-        odata = direct_client.direct_get_object(another_onode, opart,
-                    self.account, container, obj)[-1]
+        odata = direct_client.direct_get_object(
+            another_onode, opart, self.account, container, obj)[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -81,33 +99,28 @@ class TestObjectHandoff(unittest.TestCase):
             raise Exception('Container listing did not know about object')
         for cnode in cnodes:
             objs = [o['name'] for o in
-                    direct_client.direct_get_container(cnode, cpart,
-                        self.account, container)[1]]
+                    direct_client.direct_get_container(
+                        cnode, cpart, self.account, container)[1]]
             if obj not in objs:
                 raise Exception(
                     'Container server %s:%s did not know about object' %
                     (cnode['ip'], cnode['port']))
-        self.pids[self.port2server[onode['port']]] = Popen([
-            'swift-object-server',
-            '/etc/swift/object-server/%d.conf' %
-            ((onode['port'] - 6000) / 10)]).pid
-        sleep(2)
-        exc = False
+        start_server(onode['port'], self.port2server, self.pids)
+        exc = None
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except Exception:
-            exc = True
-        if not exc:
-            raise Exception('Previously downed object server had test object')
+        except direct_client.ClientException, err:
+            exc = err
+        self.assertEquals(exc.http_status, 404)
         # Run the extra server last so it'll remove its extra partition
-        ps = []
-        for n in onodes:
-            ps.append(Popen(['swift-object-replicator',
-                             '/etc/swift/object-server/%d.conf' %
-                             ((n['port'] - 6000) / 10), 'once']))
-        for p in ps:
-            p.wait()
+        processes = []
+        for node in onodes:
+            processes.append(Popen(['swift-object-replicator',
+                                    '/etc/swift/object-server/%d.conf' %
+                                    ((node['port'] - 6000) / 10), 'once']))
+        for process in processes:
+            process.wait()
         call(['swift-object-replicator',
               '/etc/swift/object-server/%d.conf' %
               ((another_onode['port'] - 6000) / 10), 'once'])
@@ -116,68 +129,22 @@ class TestObjectHandoff(unittest.TestCase):
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
-        exc = False
+        exc = None
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except Exception:
-            exc = True
-        if not exc:
-            raise Exception('Handoff object server still had test object')
+        except direct_client.ClientException, err:
+            exc = err
+        self.assertEquals(exc.http_status, 404)
 
-# Because POST has changed to a COPY by default, POSTs will succeed on all up
-# nodes now if at least one up node has the object.
-#       kill(self.pids[self.port2server[onode['port']]], SIGTERM)
-#       client.post_object(self.url, self.token, container, obj,
-#                          headers={'x-object-meta-probe': 'value'})
-#       oheaders = client.head_object(self.url, self.token, container, obj)
-#       if oheaders.get('x-object-meta-probe') != 'value':
-#           raise Exception('Metadata incorrect, was %s' % repr(oheaders))
-#       exc = False
-#       try:
-#           direct_client.direct_get_object(another_onode, opart, self.account,
-#                                           container, obj)
-#       except Exception:
-#           exc = True
-#       if not exc:
-#           raise Exception('Handoff server claimed it had the object when '
-#                           'it should not have it')
-#       self.pids[self.port2server[onode['port']]] = Popen([
-#           'swift-object-server',
-#           '/etc/swift/object-server/%d.conf' %
-#           ((onode['port'] - 6000) / 10)]).pid
-#       sleep(2)
-#       oheaders = direct_client.direct_get_object(onode, opart, self.account,
-#                                                   container, obj)[0]
-#       if oheaders.get('x-object-meta-probe') == 'value':
-#           raise Exception('Previously downed object server had the new '
-#                           'metadata when it should not have it')
-#       # Run the extra server last so it'll remove its extra partition
-#       ps = []
-#       for n in onodes:
-#           ps.append(Popen(['swift-object-replicator',
-#                            '/etc/swift/object-server/%d.conf' %
-#                            ((n['port'] - 6000) / 10), 'once']))
-#       for p in ps:
-#           p.wait()
-#       call(['swift-object-replicator',
-#             '/etc/swift/object-server/%d.conf' %
-#             ((another_onode['port'] - 6000) / 10), 'once'])
-#       oheaders = direct_client.direct_get_object(onode, opart, self.account,
-#                                                   container, obj)[0]
-#       if oheaders.get('x-object-meta-probe') != 'value':
-#           raise Exception(
-#               'Previously downed object server did not have the new metadata')
-
-        kill(self.pids[self.port2server[onode['port']]], SIGTERM)
+        kill_server(onode['port'], self.port2server, self.pids)
         client.delete_object(self.url, self.token, container, obj)
-        exc = False
+        exc = None
         try:
             client.head_object(self.url, self.token, container, obj)
-        except Exception:
-            exc = True
-        if not exc:
-            raise Exception('Regular object HEAD was still successful')
+        except direct_client.ClientException, err:
+            exc = err
+        self.assertEquals(exc.http_status, 404)
         objs = [o['name'] for o in
                 client.get_container(self.url, self.token, container)[1]]
         if obj in objs:
@@ -190,33 +157,28 @@ class TestObjectHandoff(unittest.TestCase):
                 raise Exception(
                     'Container server %s:%s still knew about object' %
                     (cnode['ip'], cnode['port']))
-        self.pids[self.port2server[onode['port']]] = Popen([
-            'swift-object-server',
-            '/etc/swift/object-server/%d.conf' %
-            ((onode['port'] - 6000) / 10)]).pid
-        sleep(2)
+        start_server(onode['port'], self.port2server, self.pids)
         direct_client.direct_get_object(onode, opart, self.account, container,
                                         obj)
         # Run the extra server last so it'll remove its extra partition
-        ps = []
-        for n in onodes:
-            ps.append(Popen(['swift-object-replicator',
-                             '/etc/swift/object-server/%d.conf' %
-                             ((n['port'] - 6000) / 10), 'once']))
-        for p in ps:
-            p.wait()
+        processes = []
+        for node in onodes:
+            processes.append(Popen(['swift-object-replicator',
+                                    '/etc/swift/object-server/%d.conf' %
+                                    ((node['port'] - 6000) / 10), 'once']))
+        for process in processes:
+            process.wait()
         call(['swift-object-replicator',
               '/etc/swift/object-server/%d.conf' %
               ((another_onode['port'] - 6000) / 10), 'once'])
-        exc = False
+        exc = None
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except Exception:
-            exc = True
-        if not exc:
-            raise Exception('Handoff object server still had the object')
+        except direct_client.ClientException, err:
+            exc = err
+        self.assertEquals(exc.http_status, 404)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    main()

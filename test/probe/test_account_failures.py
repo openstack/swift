@@ -14,28 +14,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-from os import kill
-from signal import SIGTERM
 from subprocess import Popen
-from time import sleep
+from unittest import main, TestCase
 
 from swiftclient import client
+
 from swift.common import direct_client
-from test.probe.common import get_to_final_state, kill_pids, reset_environment
+from test.probe.common import get_to_final_state, kill_nonprimary_server, \
+    kill_server, kill_servers, reset_environment, start_server
 
 
-class TestAccountFailures(unittest.TestCase):
+class TestAccountFailures(TestCase):
 
     def setUp(self):
-        self.pids, self.port2server, self.account_ring, self.container_ring, \
-            self.object_ring, self.url, self.token, self.account = \
-                reset_environment()
+        (self.pids, self.port2server, self.account_ring, self.container_ring,
+         self.object_ring, self.url, self.token,
+         self.account) = reset_environment()
 
     def tearDown(self):
-        kill_pids(self.pids)
+        kill_servers(self.port2server, self.pids)
 
     def test_main(self):
+        # Create container1 and container2
+        # Assert account level sees them
+        # Create container2/object1
+        # Assert account level doesn't see it yet
+        # Get to final state
+        # Assert account level now sees the container2/object1
+        # Kill account servers excepting two of the primaries
+        # Delete container1
+        # Assert account level knows container1 is gone but doesn't know about
+        #   container2/object2 yet
+        # Put container2/object2
+        # Run container updaters
+        # Assert account level now knows about container2/object2
+        # Restart other primary account server
+        # Assert that server doesn't know about container1's deletion or the
+        #   new container2/object2 yet
+        # Get to final state
+        # Assert that server is now up to date
+
         container1 = 'container1'
         client.put_container(self.url, self.token, container1)
         container2 = 'container2'
@@ -46,15 +64,15 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '0')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-                self.assertEquals(c['count'], 0)
-                self.assertEquals(c['bytes'], 0)
-            elif c['name'] == container2:
+                self.assertEquals(container['count'], 0)
+                self.assertEquals(container['bytes'], 0)
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 0)
-                self.assertEquals(c['bytes'], 0)
+                self.assertEquals(container['count'], 0)
+                self.assertEquals(container['bytes'], 0)
         self.assert_(found1)
         self.assert_(found2)
 
@@ -65,15 +83,15 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '0')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-                self.assertEquals(c['count'], 0)
-                self.assertEquals(c['bytes'], 0)
-            elif c['name'] == container2:
+                self.assertEquals(container['count'], 0)
+                self.assertEquals(container['bytes'], 0)
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 0)
-                self.assertEquals(c['bytes'], 0)
+                self.assertEquals(container['count'], 0)
+                self.assertEquals(container['bytes'], 0)
         self.assert_(found1)
         self.assert_(found2)
 
@@ -84,20 +102,21 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-                self.assertEquals(c['count'], 0)
-                self.assertEquals(c['bytes'], 0)
-            elif c['name'] == container2:
+                self.assertEquals(container['count'], 0)
+                self.assertEquals(container['bytes'], 0)
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 1)
-                self.assertEquals(c['bytes'], 4)
+                self.assertEquals(container['count'], 1)
+                self.assertEquals(container['bytes'], 4)
         self.assert_(found1)
         self.assert_(found2)
 
         apart, anodes = self.account_ring.get_nodes(self.account)
-        kill(self.pids[self.port2server[anodes[0]['port']]], SIGTERM)
+        kill_nonprimary_server(anodes, self.port2server, self.pids)
+        kill_server(anodes[0]['port'], self.port2server, self.pids)
 
         client.delete_container(self.url, self.token, container1)
         client.put_object(self.url, self.token, container2, 'object2', '12345')
@@ -107,46 +126,42 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-            elif c['name'] == container2:
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 1)
-                self.assertEquals(c['bytes'], 4)
+                self.assertEquals(container['count'], 1)
+                self.assertEquals(container['bytes'], 4)
         self.assert_(not found1)
         self.assert_(found2)
 
-        ps = []
-        for n in xrange(1, 5):
-            ps.append(Popen(['swift-container-updater',
-                             '/etc/swift/container-server/%d.conf' % n,
-                             'once']))
-        for p in ps:
-            p.wait()
+        processes = []
+        for node in xrange(1, 5):
+            processes.append(Popen([
+                'swift-container-updater',
+                '/etc/swift/container-server/%d.conf' % node,
+                'once']))
+        for process in processes:
+            process.wait()
         headers, containers = client.get_account(self.url, self.token)
         self.assertEquals(headers['x-account-container-count'], '1')
         self.assertEquals(headers['x-account-object-count'], '2')
         self.assertEquals(headers['x-account-bytes-used'], '9')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-            elif c['name'] == container2:
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 2)
-                self.assertEquals(c['bytes'], 9)
+                self.assertEquals(container['count'], 2)
+                self.assertEquals(container['bytes'], 9)
         self.assert_(not found1)
         self.assert_(found2)
 
-        self.pids[self.port2server[anodes[0]['port']]] = \
-            Popen(['swift-account-server',
-                   '/etc/swift/account-server/%d.conf' %
-                    ((anodes[0]['port'] - 6002) / 10)]).pid
-        sleep(2)
-        # This is the earlier counts and bytes because the first node doesn't
-        # have the newest udpates yet.
+        start_server(anodes[0]['port'], self.port2server, self.pids)
+
         headers, containers = \
             direct_client.direct_get_account(anodes[0], apart, self.account)
         self.assertEquals(headers['x-account-container-count'], '2')
@@ -154,17 +169,13 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '4')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-            elif c['name'] == container2:
+            elif container['name'] == container2:
                 found2 = True
-                # This is the earlier count and bytes because the first node
-                # doesn't have the newest udpates yet.
-                self.assertEquals(c['count'], 1)
-                self.assertEquals(c['bytes'], 4)
-        # This okay because the first node hasn't got the update that
-        # container1 was deleted yet.
+                self.assertEquals(container['count'], 1)
+                self.assertEquals(container['bytes'], 4)
         self.assert_(found1)
         self.assert_(found2)
 
@@ -176,16 +187,16 @@ class TestAccountFailures(unittest.TestCase):
         self.assertEquals(headers['x-account-bytes-used'], '9')
         found1 = False
         found2 = False
-        for c in containers:
-            if c['name'] == container1:
+        for container in containers:
+            if container['name'] == container1:
                 found1 = True
-            elif c['name'] == container2:
+            elif container['name'] == container2:
                 found2 = True
-                self.assertEquals(c['count'], 2)
-                self.assertEquals(c['bytes'], 9)
+                self.assertEquals(container['count'], 2)
+                self.assertEquals(container['bytes'], 9)
         self.assert_(not found1)
         self.assert_(found2)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    main()
