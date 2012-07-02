@@ -46,6 +46,7 @@ CONF_DEFAULTS = {
     'devices': 'sdb1',
     'log_level': 'INFO',
     'timeout': '10',
+    'auth_version': '1.0',
     }
 
 SAIO_DEFAULTS = {
@@ -67,6 +68,7 @@ if __name__ == '__main__':
     num_objects = 1000
     num_gets = 10000
     delete = yes
+    auth_version = 1.0
     """
     parser = OptionParser(usage=usage)
     parser.add_option('', '--saio', dest='saio', action='store_true',
@@ -89,6 +91,8 @@ if __name__ == '__main__':
                       help='Number of GET operations to perform')
     parser.add_option('-x', '--no-delete', dest='delete', action='store_false',
                       help='If set, will not delete the objects created')
+    parser.add_option('-V', '--auth_version', dest='auth_version',
+                      help='Authentication version')
 
     if len(sys.argv) == 1:
         parser.print_help()
