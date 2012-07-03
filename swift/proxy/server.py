@@ -851,8 +851,9 @@ class ObjectController(Controller):
         marker = ''
         while True:
             lreq = Request.blank('i will be overridden by env', environ=env)
+            # Don't quote PATH_INFO, by WSGI spec
             lreq.environ['PATH_INFO'] = \
-                '/%s/%s' % (quote(self.account_name), quote(lcontainer))
+                '/%s/%s' % (self.account_name, lcontainer)
             lreq.environ['REQUEST_METHOD'] = 'GET'
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
@@ -917,6 +918,8 @@ class ObjectController(Controller):
         if 'x-object-manifest' in resp.headers:
             lcontainer, lprefix = \
                 resp.headers['x-object-manifest'].split('/', 1)
+            lcontainer = unquote(lcontainer)
+            lprefix = unquote(lprefix)
             try:
                 listing = list(self._listing_iter(lcontainer, lprefix,
                                 req.environ))

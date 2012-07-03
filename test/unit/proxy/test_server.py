@@ -2590,13 +2590,16 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put_lobjects(self):
         # Create a container for our segmented/manifest object testing
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
-                 _test_sockets
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
+         obj2lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
+        fd.write('PUT /v1/a/segmented%20object HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2606,9 +2609,14 @@ class TestObjectController(unittest.TestCase):
         for segment in xrange(5):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
-            fd.write('PUT /v1/a/segmented/name/%s HTTP/1.1\r\nHost: '
-                'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                't\r\nContent-Length: 5\r\n\r\n1234 ' % str(segment))
+            fd.write('PUT /v1/a/segmented%%20object/object%%20name/%s '
+                     'HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Length: 5\r\n'
+                     '\r\n'
+                     '1234 ' % str(segment))
             fd.flush()
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 201'
@@ -2617,26 +2625,54 @@ class TestObjectController(unittest.TestCase):
         # Create the object manifest file
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented/name HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nX-Object-Manifest: '
-            'segmented/name/\r\nContent-Type: text/jibberish\r\n'
-            'Foo: barbaz\r\n\r\n')
+        fd.write('PUT /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Object-Manifest: segmented%20object/object%20name/\r\n'
+                 'Content-Type: text/jibberish\r\n'
+                 'Foo: barbaz\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
         self.assertEquals(headers[:len(exp)], exp)
-        # Ensure retrieving the manifest file gets the whole object
+        # Check retrieving the listing the manifest would retrieve
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/segmented%20object?prefix=object%20name/ '
+                 'HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented/name/' in headers)
+        body = fd.read()
+        self.assertEquals(
+            body,
+            'object name/0\n'
+            'object name/1\n'
+            'object name/2\n'
+            'object name/3\n'
+            'object name/4\n')
+        # Ensure retrieving the manifest file gets the whole object
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        self.assert_('X-Object-Manifest: segmented%20object/object%20name/' in
+                     headers)
         self.assert_('Content-Type: text/jibberish' in headers)
         self.assert_('Foo: barbaz' in headers)
         expected_etag = md5(''.join(segment_etags)).hexdigest()
@@ -2647,29 +2683,35 @@ class TestObjectController(unittest.TestCase):
         proxy_server.CONTAINER_LISTING_LIMIT = 2
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/segmented/name HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented/name/' in headers)
+        self.assert_('X-Object-Manifest: segmented%20object/object%20name/' in
+                     headers)
         self.assert_('Content-Type: text/jibberish' in headers)
         body = fd.read()
         # A bit fragile of a test; as it makes the assumption that all
         # will be sent in a single chunk.
-        self.assertEquals(body,
-            '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
+        self.assertEquals(
+            body, '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
         # Make a copy of the manifested object, which should
         # error since the number of segments exceeds
         # CONTAINER_LISTING_LIMIT.
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
-            '0\r\n\r\n')
+        fd.write('PUT /v1/a/segmented%20object/copy HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 'X-Copy-From: segmented%20object/object%20name\r\n'
+                 'Content-Length: 0\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 413'
@@ -2680,10 +2722,13 @@ class TestObjectController(unittest.TestCase):
         proxy_server.CONTAINER_LISTING_LIMIT = 10000
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented/copy HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\nX-Copy-From: segmented/name\r\nContent-Length: '
-            '0\r\n\r\n')
+        fd.write('PUT /v1/a/segmented%20object/copy HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 'X-Copy-From: segmented%20object/object%20name\r\n'
+                 'Content-Length: 0\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2692,9 +2737,11 @@ class TestObjectController(unittest.TestCase):
         # Retrieve and validate the copy.
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/segmented/copy HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/segmented%20object/copy HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -2706,10 +2753,14 @@ class TestObjectController(unittest.TestCase):
         # Create an object manifest file pointing to nothing
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented/empty HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nX-Object-Manifest: '
-            'segmented/empty/\r\nContent-Type: text/jibberish\r\n\r\n')
+        fd.write('PUT /v1/a/segmented%20object/empty HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Object-Manifest: segmented%20object/empty/\r\n'
+                 'Content-Type: text/jibberish\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2717,33 +2768,42 @@ class TestObjectController(unittest.TestCase):
         # Ensure retrieving the manifest file gives a zero-byte file
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/segmented/empty HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/segmented%20object/empty HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented/empty/' in headers)
+        self.assert_('X-Object-Manifest: segmented%20object/empty/' in headers)
         self.assert_('Content-Type: text/jibberish' in headers)
         body = fd.read()
         self.assertEquals(body, '')
         # Check copy content type
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nContent-Type: text/jibberish'
-            '\r\n\r\n')
+        fd.write('PUT /v1/a/c/obj HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'Content-Type: text/jibberish\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
         self.assertEquals(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nX-Copy-From: c/obj\r\n\r\n')
+        fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Copy-From: c/obj\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2751,9 +2811,11 @@ class TestObjectController(unittest.TestCase):
         # Ensure getting the copied file gets original content-type
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -2762,10 +2824,13 @@ class TestObjectController(unittest.TestCase):
         # Check set content type
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj3 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
-            '\r\n\r\n')
+        fd.write('PUT /v1/a/c/obj3 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'Content-Type: foo/bar\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2773,22 +2838,27 @@ class TestObjectController(unittest.TestCase):
         # Ensure getting the copied file gets original content-type
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj3 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/c/obj3 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('Content-Type: foo/bar' in
-                headers.split('\r\n'), repr(headers.split('\r\n')))
+                     headers.split('\r\n'), repr(headers.split('\r\n')))
         # Check set content type with charset
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj4 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Storage-Token: '
-            't\r\nContent-Length: 0\r\nContent-Type: foo/bar'
-            '; charset=UTF-8\r\n\r\n')
+        fd.write('PUT /v1/a/c/obj4 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'Content-Type: foo/bar; charset=UTF-8\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2796,15 +2866,17 @@ class TestObjectController(unittest.TestCase):
         # Ensure getting the copied file gets original content-type
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj4 HTTP/1.1\r\nHost: '
-            'localhost\r\nConnection: close\r\nX-Auth-Token: '
-            't\r\n\r\n')
+        fd.write('GET /v1/a/c/obj4 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('Content-Type: foo/bar; charset=UTF-8' in
-                headers.split('\r\n'), repr(headers.split('\r\n')))
+                     headers.split('\r\n'), repr(headers.split('\r\n')))
 
     def test_mismatched_etags(self):
         with save_globals():
