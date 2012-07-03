@@ -212,7 +212,7 @@ Logging address. The default is /dev/log.
 .IP "\fBset log_headers\fR "
 Enables the ability to log request headers. The default is False.
 .IP \fBmemcache_servers\fR
-Default for memcache_servers is to try to read the property from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that file, it will default to the value below. You can specify multiple servers separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211. This can be a list separated by commas. The default is 127.0.0.1:11211.
+If not set in the configuration file, the value for memcache_servers will be read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that file, it will default to the value below. You can specify multiple servers separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211. This can be a list separated by commas. The default is 127.0.0.1:11211.
 .RE
 
 
