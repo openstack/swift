@@ -54,8 +54,8 @@ Let's say the sig ends up equaling
 da39a3ee5e6b4b0d3255bfef95601890afd80709 and expires ends up
 1323479485. Then, for example, the website could provide a link to::
 
-    https://swift-cluster.example.com/v1/AUTH_account/container/object?
-    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    https://swift-cluster.example.com/v1/AUTH_account/container/object
+    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485
 
 Any alteration of the resource path or query arguments would result
@@ -69,6 +69,58 @@ locations in Swift.
 Note that changing the X-Account-Meta-Temp-URL-Key will invalidate
 any previously generated temporary URLs within 60 seconds (the
 memcache time for the key).
+
+If you want to create different temporary URLs for different users,
+first you need to request a user signature for each user. Using
+these signature you can create unique temporary URLs for each user
+and later on you can invalidate any URL as you wish.
+Let's say you want to share container/object with Jack and Bob.
+Fisrt, we should request user signature for each of them:
+
+    headers ={'User-For-Share-Add':'Jack',\
+              'X-Account-Meta-Temp-Url-Key':'mykey'}
+    response = requests.get('http://swiftnode.com/v1/AUTH_account
+                            /container/object',headers=headers)
+    if response.status_code == 200:
+        Jack_signature = response.headers[
+                            'user-for-share-add-response']
+
+    headers ={'User-For-Share-Add':'Bob',\
+              'X-Account-Meta-Temp-Url-Key':'mykey'}
+    response = requests.get('http://www.swiftnode.com/v1/AUTH_account
+                            /container/object',headers=headers)
+    if response.status_code == 200:
+        Bob_signature = response.headers[
+                                'user-for-share-add-response']
+        
+Using these signatures we can create temporary URLs for each of them:
+
+    expires = int(time() + 60)
+    method='GET'
+    key = 'mykey'
+    hmac_body = '%s\\n%s\\n%s\\n%s' % (method, expires,
+    '/v1/AUTH_account/container/object',Jack_signature)
+    Jack_URL = 'http://www.swiftnode.com/v1/AUTH_account/container/object
+    ?temp_url_sig=%s&temp_url_expires=%d&temp_url_id=%s'%
+    (hmac_body,expires,'Jack')
+    hmac_body = '%s\\n%s\\n%s\\n%s' % (method, expires,
+    '/v1/AUTH_account/container/object',Bob_signature)
+    Bob_URL = 'http://www.swiftnode.com/v1/AUTH_account/container/object
+    ?temp_url_sig=%s&temp_url_expires=%d&temp_url_id=%s'%(hmac_body,expires,'Bob')
+
+If for example you decide to stop Bob from accessing the object you
+can simply invalidate his temporary URL or just let it expire:
+
+    headers ={'User-For-Share-Remove':'Bob',\
+              'X-Account-Meta-Temp-Url-Key':'mykey'}
+    response = requests.get('http://www.swiftnode.com
+    /v1/AUTH_account/container/object',headers=headers)
+    if response.status_code == 200:
+        if response.headers['user-for-share-remove-response'] == 'Successful':
+            print "Bob removed from accessing container/object"
+Note removing Bob from accessing container/object won't affect his access from
+other objects that you previously granted him for.
+
 """
 
 __all__ = ['TempURL', 'filter_factory',
@@ -85,11 +137,11 @@ from StringIO import StringIO
 from time import gmtime, strftime, time
 from urllib import quote, unquote
 from urlparse import parse_qs
+import uuid
 
 from swift.common.utils import get_logger
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.http import HTTP_UNAUTHORIZED
-
 
 #: Default headers to remove from incoming requests. Simply a whitespace
 #: delimited list of header names and names can optionally end with '*' to
@@ -224,7 +276,26 @@ class TempURL(object):
         :param start_response: The WSGI start_response hook.
         :returns: Response as per WSGI.
         """
-        temp_url_sig, temp_url_expires = self._get_temp_url_info(env)
+        add_share_req,remove_share_req,temp_key,user_id = self._get_request_info(env)
+        if add_share_req and remove_share_req:
+            # cannot add and remove at the same time
+            return self._invalid(env, start_response)
+        if add_share_req or remove_share_req:
+            account = self._get_account(env)
+            if not account:
+                return self._invalid(env, start_response)
+            key = self._get_key(env, account)
+            if not key:
+                return self._invalid(env, start_response)
+            if key == temp_key:
+                if add_share_req:
+                    return self._add_id(env, start_response,user_id)
+                if remove_share_req:
+                    return self._remove_id(env, start_response,user_id)
+            else:
+                return self._invalid(env,start_response)
+            
+        temp_url_sig, temp_url_expires,temp_url_id = self._get_temp_url_info(env)
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -235,18 +306,24 @@ class TempURL(object):
         key = self._get_key(env, account)
         if not key:
             return self._invalid(env, start_response)
+        uid_sig =None
+        if temp_url_id != None:
+            uid_sig = self._isValid_uid(env,temp_url_id)
+            if not uid_sig:
+                return self._invalid(env, start_response)
         if env['REQUEST_METHOD'] == 'HEAD':
-            hmac_val = self._get_hmac(env, temp_url_expires, key,
+            hmac_val = self._get_hmac(env, temp_url_expires, key,uid_sig,
                                       request_method='GET')
             if temp_url_sig != hmac_val:
-                hmac_val = self._get_hmac(env, temp_url_expires, key,
+                hmac_val = self._get_hmac(env, temp_url_expires, key,uid_sig,
                                           request_method='PUT')
                 if temp_url_sig != hmac_val:
                     return self._invalid(env, start_response)
         else:
-            hmac_val = self._get_hmac(env, temp_url_expires, key)
+            hmac_val = self._get_hmac(env, temp_url_expires, key,uid_sig,request_method=None)
             if temp_url_sig != hmac_val:
-                return self._invalid(env, start_response)
+                return self._invalid(env,start_response)
+
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
@@ -267,6 +344,7 @@ class TempURL(object):
             return start_response(status, headers, exc_info)
 
         return self.app(env, _start_response)
+
 
     def _get_account(self, env):
         """
@@ -298,8 +376,10 @@ class TempURL(object):
         :param env: The WSGI environment for the request.
         :returns: (sig, expires) as described above.
         """
-        temp_url_sig = temp_url_expires = None
+        temp_url_sig = temp_url_expires =temp_url_id= None
         qs = parse_qs(env.get('QUERY_STRING', ''))
+        if 'temp_url_id' in qs:
+            temp_url_id = qs['temp_url_id'][0]
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
         if 'temp_url_expires' in qs:
@@ -309,7 +389,7 @@ class TempURL(object):
                 temp_url_expires = 0
             if temp_url_expires < time():
                 temp_url_expires = 0
-        return temp_url_sig, temp_url_expires
+        return temp_url_sig, temp_url_expires,temp_url_id
 
     def _get_key(self, env, account):
         """
@@ -346,7 +426,7 @@ class TempURL(object):
                 memcache.set('temp-url-key/%s' % account, key, timeout=60)
         return key
 
-    def _get_hmac(self, env, expires, key, request_method=None):
+    def _get_hmac(self, env, expires, key,uid_sig, request_method=None):
         """
         Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
         the request.
@@ -365,8 +445,12 @@ class TempURL(object):
         """
         if not request_method:
             request_method = env['REQUEST_METHOD']
-        return hmac.new(key, '%s\n%s\n%s' % (request_method, expires,
-            env['PATH_INFO']), sha1).hexdigest()
+        if not uid_sig:
+            return hmac.new(key, '%s\n%s\n%s' % (request_method, expires,
+                env['PATH_INFO']), sha1).hexdigest()
+        else:
+            return hmac.new(key, '%s\n%s\n%s\n%s' % (request_method, expires,
+                            env['PATH_INFO'],uid_sig), sha1).hexdigest()
 
     def _invalid(self, env, start_response):
         """
@@ -410,7 +494,59 @@ class TempURL(object):
                         break
             if remove:
                 del env[h]
+    def _get_request_info(self,env):
+        add_share_req = None
+        remove_share_req = None
+        temp_key = None
+        user_id = None
+        if "HTTP_X_ACCOUNT_META_TEMP_URL_KEY" in env.keys():
+            temp_key = env["HTTP_X_ACCOUNT_META_TEMP_URL_KEY"]
+        else:
+            return add_share_req,remove_share_req,temp_key,user_id
+        if "HTTP_USER_FOR_SHARE_ADD" in env.keys():
+            add_share_req = True
+            user_id = env["HTTP_USER_FOR_SHARE_ADD"]
+        if "HTTP_USER_FOR_SHARE_REMOVE" in env.keys():
+            remove_share_req = True
+            user_id = env["HTTP_USER_FOR_SHARE_REMOVE"]
+            
+        return add_share_req,remove_share_req,temp_key,user_id
+            
+    def _add_id(self,env,start_response,user_id):
+        body = ''
+        memcache = env.get('swift.cache')
+        if not memcache:
+            start_response('500 Internal Server Error',
+                [('User-For-Share-Remove-Add','Unsuccessful'),('Content-Type', 'text/plain'),
+                 ('Content-Length', str(len(body)))])
+            return []
+        uid = uuid.uuid4().hex
+        memcache.set(env['PATH_INFO']+'/'+user_id, uid)
+        start_response('200 OK',
+            [('User-For-Share-Add-Response',uid),('Content-Type', 'text/plain'),
+             ('Content-Length', str(len(body)))])
+        return []
+    def _remove_id(self,env, start_response,user_id):
+        memcache = env.get('swift.cache')
+        body = ''
+        if memcache:
+            memcache.delete(env['PATH_INFO']+'/'+user_id)
+            start_response('200 OK',
+                [('User-For-Share-Remove-Response','Successful'),('Content-Type', 'text/plain'),
+                 ('Content-Length', str(len(body)))])
+            return []
+        else:
+            start_response('500 Internal Server Error',
+                [('User-For-Share-Remove-Response','Unsuccessful'),('Content-Type', 'text/plain'),
+                 ('Content-Length', str(len(body)))])
+            return []
 
+    
+    def _isValid_uid(self,env,user_id):
+            memcache = env.get('swift.cache')
+            uid = memcache.get(env['PATH_INFO']+'/'+user_id)
+            return uid
+        
     def _clean_outgoing_headers(self, headers):
         """
         Removes any headers as per the middleware configuration for
