@@ -27,6 +27,7 @@ from swift.common.middleware import name_check
 
 MAX_LENGTH = 255
 FORBIDDEN_CHARS = '\'\"<>`'
+FORBIDDEN_REGEXP = "/\./|/\.\./|/\.$|/\.\.$"
 
 
 class FakeApp(object):
@@ -39,7 +40,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
 
     def setUp(self):
         self.conf = {'maximum_length': MAX_LENGTH, 'forbidden_chars':
-                     FORBIDDEN_CHARS}
+                     FORBIDDEN_CHARS, 'forbidden_regexp': FORBIDDEN_REGEXP}
         self.test_check = name_check.filter_factory(self.conf)(FakeApp())
 
     def test_valid_length_and_character(self):
@@ -66,6 +67,24 @@ class TestNameCheckMiddleware(unittest.TestCase):
                     ("Object/Container name longer than the allowed maximum %s"
                     % self.conf['maximum_length']))
         self.assertEquals(resp.status_int, 400)
+
+    def test_invalid_regexp(self):
+        for s in ['/.', '/..', '/./foo', '/../foo']:
+            path = '/V1.0/' + s
+            resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
+                             ).get_response(self.test_check)
+            self.assertEquals(resp.body,
+                    ("Object/Container name contains a forbidden substring "
+                     "from regular expression %s"
+                     % self.conf['forbidden_regexp']))
+            self.assertEquals(resp.status_int, 400)
+
+    def test_valid_regexp(self):
+        for s in ['/...', '/.\.', '/foo']:
+            path = '/V1.0/' + s
+            resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
+                             ).get_response(self.test_check)
+            self.assertEquals(resp.body, 'OK')
 
 
 if __name__ == '__main__':

@@ -257,6 +257,7 @@ use = egg:swift#formpost
 use = egg:swift#name_check
 # forbidden_chars = '"`<>
 # maximum_length = 255
+# forbidden_regexp = /\./|/\.\./|/\.$|/\.\.$
 
 [filter:proxy-logging]
 use = egg:swift#proxy_logging
