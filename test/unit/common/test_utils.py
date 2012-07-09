@@ -192,6 +192,27 @@ class TestUtils(unittest.TestCase):
         except ValueError, err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
+    def test_validate_device_partition(self):
+        """ Test swift.common.utils.validate_device_partition """
+        utils.validate_device_partition('foo', 'bar')
+        self.assertRaises(ValueError, utils.validate_device_partition, '', '')
+        self.assertRaises(ValueError, utils.validate_device_partition, '', 'foo')
+        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '')
+        self.assertRaises(ValueError, utils.validate_device_partition, 'foo/bar', 'foo')
+        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', 'foo/bar')
+        self.assertRaises(ValueError, utils.validate_device_partition, '.', 'foo')
+        self.assertRaises(ValueError, utils.validate_device_partition, '..', 'foo')
+        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '.')
+        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '..')
+        try:
+            utils.validate_device_partition,('o\nn e', 'foo')
+        except ValueError, err:
+            self.assertEquals(str(err), 'Invalid device: o%0An%20e')
+        try:
+            utils.validate_device_partition,('foo', 'o\nn e')
+        except ValueError, err:
+            self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
+
     def test_NullLogger(self):
         """ Test swift.common.utils.NullLogger """
         sio = StringIO()
