@@ -533,6 +533,8 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_facility = LOG_LOCAL0
         log_level = INFO
         log_name = swift
+        log_udp_host = (disabled)
+        log_udp_port = logging.handlers.SYSLOG_UDP_PORT
         log_statsd_host = (disabled)
         log_statsd_port = 8125
         log_statsd_default_sample_rate = 1
@@ -564,13 +566,19 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     # facility for this logger will be set by last call wins
     facility = getattr(SysLogHandler, conf.get('log_facility', 'LOG_LOCAL0'),
                        SysLogHandler.LOG_LOCAL0)
-    log_address = conf.get('log_address', '/dev/log')
-    try:
-        handler = SysLogHandler(address=log_address, facility=facility)
-    except socket.error, e:
-        if e.errno != errno.ENOTSOCK:  # Socket operation on non-socket
-            raise e
-        handler = SysLogHandler(facility=facility)
+    udp_host = conf.get('log_udp_host')
+    if udp_host:
+        udp_port = conf.get('log_udp_port', logging.handlers.SYSLOG_UDP_PORT)
+        handler = SysLogHandler(address=(udp_host, udp_port),
+                                facility=facility)
+    else:
+        log_address = conf.get('log_address', '/dev/log')
+        try:
+            handler = SysLogHandler(address=log_address, facility=facility)
+        except socket.error, e:
+            if e.errno != errno.ENOTSOCK:  # Socket operation on non-socket
+                raise e
+            handler = SysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     get_logger.handler4logger[logger] = handler
