@@ -1,5 +1,5 @@
 [dispersion]
-auth_url = http://saio:8080/auth/v1.0
+auth_url = http://localhost:8080/auth/v1.0
 auth_user = test:tester
 auth_key = testing
 # auth_url = http://saio:5000/v2.0/

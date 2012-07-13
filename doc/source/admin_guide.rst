@@ -180,7 +180,7 @@ swift-dispersion-populate and swift-dispersion-report use the same
 configuration file, /etc/swift/dispersion.conf. Example conf file::
 
     [dispersion]
-    auth_url = http://saio:11000/auth/v1.0
+    auth_url = http://localhost:8080/auth/v1.0
     auth_user = test:tester
     auth_key = testing
 
