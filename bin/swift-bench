@@ -50,7 +50,7 @@ CONF_DEFAULTS = {
     }
 
 SAIO_DEFAULTS = {
-    'auth': 'http://saio:11000/v1.0',
+    'auth': 'http://localhost:8080/auth/v1.0',
     'user': 'test:tester',
     'key': 'testing',
     }
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     usage += """\n\nConf file with SAIO defaults:
 
     [bench]
-    auth = http://saio:11000/v1.0
+    auth = http://localhost:8080/v1.0
     user = test:tester
     key = testing
     concurrency = 10
