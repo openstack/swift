@@ -1601,7 +1601,7 @@ class TestManager(unittest.TestCase):
             # test force graceful
             MockManager.reset_called()
             m = _orig_manager(['*-server'])
-            self.assert_(len(m.servers), 4)
+            self.assertEquals(len(m.servers), 4)
             for server in m.servers:
                 self.assert_(server.server in
                              manager.GRACEFUL_SHUTDOWN_SERVERS)
