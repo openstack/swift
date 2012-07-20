@@ -136,6 +136,19 @@ class TestRing(unittest.TestCase):
         self.assertEquals(len(self.ring.devs), 8)
         self.assertNotEquals(self.ring._mtime, orig_mtime)
 
+        os.utime(self.testgz, (time() - 300, time() - 300))
+        self.ring = ring.Ring(self.testdir, reload_time=0.001,
+                    ring_name='whatever')
+        orig_mtime = self.ring._mtime
+        self.assertEquals(len(self.ring.devs), 8)
+        self.intended_devs.append({'id': 5, 'zone': 4, 'weight': 1.0})
+        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift),
+            GzipFile(self.testgz, 'wb'))
+        sleep(0.1)
+        self.assertEquals(len(self.ring.devs), 9)
+        self.assertNotEquals(self.ring._mtime, orig_mtime)
+
     def test_get_part_nodes(self):
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(nodes, self.ring.get_part_nodes(part))
