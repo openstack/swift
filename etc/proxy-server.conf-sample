@@ -118,6 +118,32 @@ user_test_tester = testing .admin
 user_test2_tester2 = testing2 .admin
 user_test_tester3 = testing3
 
+# To enable Keystone authentication you need to have the auth token
+# middleware first to be configured. Here is an example below, please
+# refer to the keystone's documentation for details about the
+# different settings.
+#
+# You'll need to have as well the keystoneauth middleware enabled
+# and have it in your main pipeline so instead of having tempauth in
+# there you can change it to: authtoken keystone
+#
+# [filter:authtoken]
+# paste.filter_factory = keystone.middleware.auth_token:filter_factory
+# auth_host = keystonehost
+# auth_port = 35357
+# auth_protocol = http
+# auth_uri = http://keystonehost:5000/
+# admin_tenant_name = service
+# admin_user = swift
+# admin_password = password
+# delay_auth_decision = 1
+#
+# [filter:keystoneauth]
+# use = egg:swift#keystoneauth
+# Operator roles is the role which user would be allowed to manage a
+# tenant and be able to create container or give ACL to others.
+# operator_roles = admin, swiftoperator
+
 [filter:healthcheck]
 use = egg:swift#healthcheck
 # You can override the default log routing for this filter here:
