@@ -67,7 +67,7 @@ class Ring(object):
                 ring_data = RingData(ring_data['replica2part2dev_id'],
                     ring_data['devs'], ring_data['part_shift'])
             self._mtime = getmtime(self.pickle_gz_path)
-            self.devs = ring_data.devs
+            self._devs = ring_data.devs
 
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
@@ -83,7 +83,7 @@ class Ring(object):
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
-        for dev in self.devs:
+        for dev in self._devs:
             if not dev:
                 continue
             for tier in tiers_for_dev(dev):
@@ -106,6 +106,13 @@ class Ring(object):
     def partition_count(self):
         """Number of partitions in the ring."""
         return len(self._replica2part2dev_id[0])
+
+    @property
+    def devs(self):
+        """devices in the ring"""
+        if time() > self._rtime:
+            self._reload()
+        return self._devs
 
     def has_changed(self):
         """
@@ -131,7 +138,7 @@ class Ring(object):
         if time() > self._rtime:
             self._reload()
         seen_ids = set()
-        return [self.devs[r[part]] for r in self._replica2part2dev_id
+        return [self._devs[r[part]] for r in self._replica2part2dev_id
                 if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_nodes(self, account, container=None, obj=None):
@@ -167,7 +174,7 @@ class Ring(object):
             self._reload()
         part = unpack_from('>I', key)[0] >> self._part_shift
         seen_ids = set()
-        return part, [self.devs[r[part]] for r in self._replica2part2dev_id
+        return part, [self._devs[r[part]] for r in self._replica2part2dev_id
                 if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_more_nodes(self, part):
@@ -183,7 +190,7 @@ class Ring(object):
             self._reload()
         used_tiers = set()
         for part2dev_id in self._replica2part2dev_id:
-            for tier in tiers_for_dev(self.devs[part2dev_id[part]]):
+            for tier in tiers_for_dev(self._devs[part2dev_id[part]]):
                 used_tiers.add(tier)
 
         for level in self.tiers_by_length:
