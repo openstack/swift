@@ -92,7 +92,7 @@ def validate_configuration():
                  "from /etc/swift/swift.conf")
 
 
-def load_libc_function(func_name):
+def load_libc_function(func_name, log_error=True):
     """
     Attempt to find the function in libc, otherwise return a no-op func.
 
@@ -102,8 +102,9 @@ def load_libc_function(func_name):
         libc = ctypes.CDLL(ctypes.util.find_library('c'))
         return getattr(libc, func_name)
     except AttributeError:
-        logging.warn(_("Unable to locate %s in libc.  Leaving as a no-op."),
-                     func_name)
+        if log_error:
+            logging.warn(_("Unable to locate %s in libc.  Leaving as a "
+                         "no-op."), func_name)
         return noop_libc_function
 
 
@@ -128,9 +129,12 @@ class FallocateWrapper(object):
     def __init__(self):
         for func in ('fallocate', 'posix_fallocate'):
             self.func_name = func
-            self.fallocate = load_libc_function(func)
+            self.fallocate = load_libc_function(func, log_error=False)
             if self.fallocate is not noop_libc_function:
                 break
+        if self.fallocate is noop_libc_function:
+            logging.warn(_("Unable to locate fallocate, posix_fallocate in "
+                         "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, len):
         args = {
