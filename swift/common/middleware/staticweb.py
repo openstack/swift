@@ -471,8 +471,12 @@ class _StaticWebContext(WSGIContext):
             client = env['HTTP_X_FORWARDED_FOR'].split(',')[0].strip()
         logged_headers = None
         if self.log_headers:
-            logged_headers = '\n'.join('%s: %s' % (k, v)
-                for k, v in req.headers.items())
+            headers = []
+            for k, v in env.iteritems():
+                if k.startswith('HTTP_'):
+                    k = k[len('HTTP_'):].replace('_', '-').title()
+                    headers.append((k, v))
+            logged_headers = '\n'.join('%s: %s' % (k, v) for k, v in headers)
         self.access_logger.info(' '.join(quote(str(x)) for x in (
             client or '-',
             env.get('REMOTE_ADDR', '-'),
