@@ -551,11 +551,21 @@ class Controller(object):
         for node in nodes:
             if not self.error_limited(node):
                 yield node
+        handoffs = 0
         for node in ring.get_more_nodes(partition):
             if not self.error_limited(node):
+                handoffs += 1
+                if self.app.log_handoffs:
+                    self.app.logger.increment('handoff_count')
+                    self.app.logger.warning(
+                        'Handoff requested (%d)' % handoffs)
+                    if handoffs == len(nodes):
+                        self.app.logger.increment('handoff_all_count')
                 yield node
 
-    def _make_request(self, nodes, part, method, path, headers, query):
+    def _make_request(self, nodes, part, method, path, headers, query,
+                      logger_thread_locals):
+        self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -591,7 +601,7 @@ class Controller(object):
         pile = GreenPile(len(start_nodes))
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
-                    head, query_string)
+                       head, query_string, self.app.logger.thread_locals)
         response = [resp for resp in pile if resp]
         while len(response) < len(start_nodes):
             response.append((HTTP_SERVICE_UNAVAILABLE, '', ''))
@@ -642,7 +652,7 @@ class Controller(object):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req, stats_type='HEAD')
 
-    def _make_app_iter_reader(self, node, source, queue):
+    def _make_app_iter_reader(self, node, source, queue, logger_thread_locals):
         """
         Reads from the source and places data in the queue. It expects
         something else be reading from the queue and, if nothing does within
@@ -652,7 +662,11 @@ class Controller(object):
                      logging/error-limiting purposes.
         :param source: The httplib.Response object to read from.
         :param queue: The eventlet.queue.Queue to place read source data into.
+        :param logger_thread_locals: The thread local values to be set on the
+                                     self.app.logger to retain transaction
+                                     logging information.
         """
+        self.app.logger.thread_locals = logger_thread_locals
         try:
             try:
                 while True:
@@ -708,7 +722,8 @@ class Controller(object):
                 # We then drop any reference to the source or node, for garbage
                 # collection purposes.
                 queue = Queue(1)
-                spawn_n(self._make_app_iter_reader, node, source, queue)
+                spawn_n(self._make_app_iter_reader, node, source, queue,
+                        self.app.logger.thread_locals)
                 source = node = None
                 while True:
                     chunk = queue.get(timeout=self.app.node_timeout)
@@ -1101,8 +1116,10 @@ class ObjectController(Controller):
                         _('Trying to write to %s') % path)
             conn.queue.task_done()
 
-    def _connect_put_node(self, nodes, part, path, headers):
+    def _connect_put_node(self, nodes, part, path, headers,
+                          logger_thread_locals):
         """Method for a file PUT connect"""
+        self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -1312,7 +1329,7 @@ class ObjectController(Controller):
                 nheaders['X-Delete-At-Partition'] = delete_at_part
                 nheaders['X-Delete-At-Device'] = node['device']
             pile.spawn(self._connect_put_node, node_iter, partition,
-                        req.path_info, nheaders)
+                       req.path_info, nheaders, self.app.logger.thread_locals)
         conns = [conn for conn in pile if conn]
         if len(conns) <= len(nodes) / 2:
             self.app.logger.error(
@@ -1934,6 +1951,8 @@ class BaseApplication(object):
             int(conf.get('rate_limit_after_segment', 10))
         self.rate_limit_segments_per_sec = \
             int(conf.get('rate_limit_segments_per_sec', 1))
+        self.log_handoffs = \
+            conf.get('log_handoffs', 'true').lower() in TRUE_VALUES
 
     def get_controller(self, path):
         """
