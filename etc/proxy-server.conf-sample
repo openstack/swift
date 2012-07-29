@@ -35,6 +35,7 @@ use = egg:swift#proxy
 # set access_log_facility = LOG_LOCAL0
 # set access_log_level = INFO
 # set log_headers = False
+# set log_handoffs = True
 # recheck_account_existence = 60
 # recheck_container_existence = 60
 # object_chunk_size = 8192
