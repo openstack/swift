@@ -538,6 +538,9 @@ set log_facility              LOG_LOCAL0       Syslog log facility
 set log_level                 INFO             Log level
 set log_headers               True             If True, log headers in each
                                                request
+set log_handoffs              True             If True, the proxy will log
+                                               whenever it has to failover to a
+                                               handoff node
 recheck_account_existence     60               Cache timeout in seconds to
                                                send memcached for account
                                                existence

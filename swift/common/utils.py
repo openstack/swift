@@ -422,6 +422,14 @@ class LogAdapter(logging.LoggerAdapter, object):
     def client_ip(self, value):
         self._cls_thread_local.client_ip = value
 
+    @property
+    def thread_locals(self):
+        return (self.txn_id, self.client_ip)
+
+    @thread_locals.setter
+    def thread_locals(self, value):
+        self.txn_id, self.client_ip = value
+
     def getEffectiveLevel(self):
         return self.logger.getEffectiveLevel()
 

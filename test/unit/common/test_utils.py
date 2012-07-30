@@ -96,10 +96,12 @@ class MockSys():
 def reset_loggers():
     if hasattr(utils.get_logger, 'handler4logger'):
         for logger, handler in utils.get_logger.handler4logger.items():
+            logger.thread_locals = (None, None)
             logger.removeHandler(handler)
         delattr(utils.get_logger, 'handler4logger')
     if hasattr(utils.get_logger, 'console_handler4logger'):
         for logger, h in utils.get_logger.console_handler4logger.items():
+            logger.thread_locals = (None, None)
             logger.removeHandler(h)
         delattr(utils.get_logger, 'console_handler4logger')
 
@@ -1159,6 +1161,20 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                           utils.get_valid_utf8_str(unicode_sample))
         self.assertEquals('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
                           utils.get_valid_utf8_str(invalid_utf8_str))
+
+    def test_thread_locals(self):
+        logger = utils.get_logger(None)
+        orig_thread_locals = logger.thread_locals
+        try:
+            self.assertEquals(logger.thread_locals, (None, None))
+            logger.txn_id = '1234'
+            logger.client_ip = '1.2.3.4'
+            self.assertEquals(logger.thread_locals, ('1234', '1.2.3.4'))
+            logger.txn_id = '5678'
+            logger.client_ip = '5.6.7.8'
+            self.assertEquals(logger.thread_locals, ('5678', '5.6.7.8'))
+        finally:
+            logger.thread_locals = orig_thread_locals
         
 
 if __name__ == '__main__':
