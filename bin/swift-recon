@@ -212,11 +212,13 @@ class SwiftRecon(object):
             (self._ptime(), len(hosts))
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
+                stats[url] = []
                 for i in response:
-                    stats[url] = i['device']
+                    stats[url].append(i['device'])
         for host in stats:
             node = urlparse(host).netloc
-            print "Not mounted: %s on %s" % (stats[host], node)
+            for entry in stats[host]:
+                print "Not mounted: %s on %s" % (entry, node)
         print "=" * 79
 
     def expirer_check(self, hosts):
