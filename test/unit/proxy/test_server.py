@@ -354,8 +354,9 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account)
             proxy_server.http_connect = fake_http_connect(201,
                                             raise_timeout_exc=True)
-            self.controller._make_request(nodes, partition, 'POST',
-                                            '/', '', '')
+            self.controller._make_request(
+                nodes, partition, 'POST', '/', '', '',
+                self.controller.app.logger.thread_locals)
 
     # tests if 200 is cached and used
     def test_account_info_200(self):
@@ -1264,6 +1265,37 @@ class TestObjectController(unittest.TestCase):
                                                   self.app.object_ring):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 9)
+
+                self.app.log_handoffs = True
+                self.app.logger = FakeLogger()
+                self.app.object_ring.max_more_nodes = 2
+                controller = proxy_server.ObjectController(self.app, 'account',
+                                'container', 'object')
+                partition, nodes = self.app.object_ring.get_nodes('account',
+                                    'container', 'object')
+                collected_nodes = []
+                for node in controller.iter_nodes(partition, nodes,
+                                                  self.app.object_ring):
+                    collected_nodes.append(node)
+                self.assertEquals(len(collected_nodes), 5)
+                self.assertEquals(
+                    self.app.logger.log_dict['warning'],
+                    [(('Handoff requested (1)',), {}),
+                     (('Handoff requested (2)',), {})])
+
+                self.app.log_handoffs = False
+                self.app.logger = FakeLogger()
+                self.app.object_ring.max_more_nodes = 2
+                controller = proxy_server.ObjectController(self.app, 'account',
+                                'container', 'object')
+                partition, nodes = self.app.object_ring.get_nodes('account',
+                                    'container', 'object')
+                collected_nodes = []
+                for node in controller.iter_nodes(partition, nodes,
+                                                  self.app.object_ring):
+                    collected_nodes.append(node)
+                self.assertEquals(len(collected_nodes), 5)
+                self.assertEquals(self.app.logger.log_dict['warning'], [])
             finally:
                 self.app.object_ring.max_more_nodes = 0
 
@@ -3197,7 +3229,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             given_headers = {}
 
-            def fake_connect_put_node(nodes, part, path, headers):
+            def fake_connect_put_node(nodes, part, path, headers,
+                                      logger_thread_locals):
                 given_headers.update(headers)
 
             controller = proxy_server.ObjectController(self.app, 'account',
