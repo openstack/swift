@@ -37,6 +37,9 @@ CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
 MAX_ACCOUNT_NAME_LENGTH = 256
 MAX_CONTAINER_NAME_LENGTH = 256
+#: Query string format= values to their corresponding content-type values
+FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
+                       'xml': 'application/xml'}
 
 
 def check_metadata(req, target_type):
