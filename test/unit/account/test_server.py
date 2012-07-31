@@ -390,6 +390,15 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.content_type, 'text/plain')
         self.assertEquals(resp.charset, 'utf-8')
 
+        # test unknown format uses default plain
+        req = Request.blank('/sda1/p/a?format=somethinglese',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body.strip().split('\n'), ['c1', 'c2'])
+        self.assertEquals(resp.content_type, 'text/plain')
+        self.assertEquals(resp.charset, 'utf-8')
+
     def test_GET_with_containers_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})
@@ -995,10 +1004,6 @@ class TestAccountController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = self.controller.GET(req)
             self.assertEquals(resp.status_int, 200)
-        req = Request.blank('/sda1/p/a?format=Foo!',
-                             environ={'REQUEST_METHOD': 'GET'})
-        resp = self.controller.GET(req)
-        self.assertEquals(resp.status_int, 400)
 
     def test_params_utf8(self):
         self.controller.PUT(Request.blank('/sda1/p/a',
