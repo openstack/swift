@@ -349,9 +349,6 @@ class ContainerController(object):
                                   content_type='text/plain', request=req)
         if query_format:
             qfmt_lower = query_format.lower()
-            if qfmt_lower not in ['xml', 'json', 'plain']:
-                return HTTPBadRequest(body='format not supported',
-                                      content_type='text/plain', request=req)
             req.accept = 'application/%s' % qfmt_lower
         try:
             out_content_type = req.accept.best_match(
