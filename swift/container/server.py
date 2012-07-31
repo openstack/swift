@@ -35,7 +35,7 @@ from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, split_path, validate_sync_to, \
     TRUE_VALUES, validate_device_partition
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8
+    check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
@@ -348,8 +348,8 @@ class ContainerController(object):
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
         if query_format:
-            qfmt_lower = query_format.lower()
-            req.accept = 'application/%s' % qfmt_lower
+            req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
+                                                 FORMAT2CONTENT_TYPE['plain'])
         try:
             out_content_type = req.accept.best_match(
                                     ['text/plain', 'application/json',
