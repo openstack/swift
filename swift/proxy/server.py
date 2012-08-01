@@ -397,7 +397,13 @@ class Controller(object):
         attempts_left = len(nodes)
         path = '/%s' % account
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
-        for node in self.iter_nodes(partition, nodes, self.app.account_ring):
+        iternodes = self.iter_nodes(partition, nodes, self.app.account_ring)
+        while attempts_left > 0:
+            try:
+                node = iternodes.next()
+            except StopIteration:
+                break
+            attempts_left -= 1
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -420,9 +426,6 @@ class Controller(object):
                         continue
                     else:
                         result_code = -1
-                        attempts_left -= 1
-                        if attempts_left <= 0:
-                            break
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Account'),
                     _('Trying to get account info for %s') % path)
@@ -489,7 +492,13 @@ class Controller(object):
         versions = None
         attempts_left = len(nodes)
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
-        for node in self.iter_nodes(partition, nodes, self.app.container_ring):
+        iternodes = self.iter_nodes(partition, nodes, self.app.container_ring)
+        while attempts_left > 0:
+            try:
+                node = iternodes.next()
+            except StopIteration:
+                break
+            attempts_left -= 1
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
@@ -516,9 +525,6 @@ class Controller(object):
                         continue
                     else:
                         result_code = -1
-                        attempts_left -= 1
-                        if attempts_left <= 0:
-                            break
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Container'),
                     _('Trying to get container info for %s') % path)
@@ -758,8 +764,11 @@ class Controller(object):
         bodies = []
         source = None
         newest = req.headers.get('x-newest', 'f').lower() in TRUE_VALUES
-        for node in nodes:
-            if len(statuses) >= attempts:
+        nodes = iter(nodes)
+        while len(statuses) < attempts:
+            try:
+                node = nodes.next()
+            except StopIteration:
                 break
             if self.error_limited(node):
                 continue
@@ -803,6 +812,9 @@ class Controller(object):
                             source = possible_source
                     else:
                         source = possible_source
+                    statuses.append(source.status)
+                    reasons.append(source.reason)
+                    bodies.append('')
                     continue
                 else:
                     source = possible_source
