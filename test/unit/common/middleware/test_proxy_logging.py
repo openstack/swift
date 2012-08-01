@@ -245,6 +245,22 @@ class TestProxyLogging(unittest.TestCase):
         resp = app(req.environ, start_response)
         body = ''.join(resp)
 
+    def test_req_path_info_popping(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/v1/something', environ={'REQUEST_METHOD': 'GET'})
+        req.path_info_pop()
+        self.assertEquals(req.environ['PATH_INFO'], '/something')
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = app.access_logger.msg.split()
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/v1/something')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(resp_body, 'FAKE APP')
+        self.assertEquals(log_parts[11], str(len(resp_body)))
+
 
 if __name__ == '__main__':
     unittest.main()

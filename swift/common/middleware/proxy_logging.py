@@ -117,7 +117,7 @@ class ProxyLoggingMiddleware(object):
         req = Request(env)
         if client_disconnect:  # log disconnected clients as '499' status code
             status_int = 499
-        req_path = get_valid_utf8_str(env.get('PATH_INFO', ''))
+        req_path = get_valid_utf8_str(req.path)
         the_request = quote(unquote(req_path))
         if req.query_string:
             the_request = the_request + '?' + req.query_string
