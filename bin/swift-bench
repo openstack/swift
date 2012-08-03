@@ -35,6 +35,8 @@ CONF_DEFAULTS = {
     'del_concurrency': '10',
     'concurrency': '',
     'object_size': '1',
+    'lower_object_size': '10',
+    'upper_object_size': '10',
     'num_objects': '1000',
     'num_gets': '10000',
     'delete': 'yes',

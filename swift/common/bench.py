@@ -66,6 +66,8 @@ class Bench(object):
 
         self.object_size = int(conf.object_size)
         self.object_sources = conf.object_sources
+        self.lower_object_size = int(conf.lower_object_size)
+        self.upper_object_size = int(conf.upper_object_size)
         self.files = []
         if self.object_sources:
             self.object_sources = self.object_sources.split()
@@ -228,6 +230,9 @@ class BenchPUT(Bench):
         name = uuid.uuid4().hex
         if self.object_sources:
             source = random.choice(self.files)
+        elif self.upper_object_size > self.lower_object_size:
+            source = '0' * random.randint(self.lower_object_size,
+                        self.upper_object_size)
         else:
             source = '0' * self.object_size
         device = random.choice(self.devices)
