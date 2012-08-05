@@ -29,9 +29,9 @@ from swift.common.ring.utils import tiers_for_dev, build_tier_tree
 
 class RingBuilder(object):
     """
-    Used to build swift.common.RingData instances to be written to disk and
-    used with swift.common.ring.Ring instances. See bin/ring-builder.py for
-    example usage.
+    Used to build swift.common.ring.RingData instances to be written to disk
+    and used with swift.common.ring.Ring instances. See bin/swift-ring-builder
+    for example usage.
 
     The instance variable devs_changed indicates if the device information has
     changed since the last balancing. This can be used by tools to know whether
