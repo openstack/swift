@@ -73,9 +73,9 @@ another device when creating the VM, and follow these instructions.
   #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4]/ /var/run/swift` -- **Make sure to include the trailing slash after /srv/[1-4]/**
   #. Add to `/etc/rc.local` (before the `exit 0`)::
 
-        mkdir /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
+        mkdir -p /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
         chown <your-user-name>:<your-group-name> /var/cache/swift*
-        mkdir /var/run/swift
+        mkdir -p /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
   #. Next, skip to :ref:`rsync-section`.
 
