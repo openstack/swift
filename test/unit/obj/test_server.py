@@ -1641,6 +1641,41 @@ class TestObjectController(unittest.TestCase):
              'x-trans-id': '-'},
             'sda1'])
 
+    def test_delete_at_negative(self):
+        # Test negative is reset to 0
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.delete_at_update(
+            'PUT', -2, 'a', 'c', 'o', {'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, [
+            'PUT', '.expiring_objects', '0', '0-a/c/o', None, None, None,
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1',
+             'x-trans-id': '-'},
+            'sda1'])
+
+    def test_delete_at_cap(self):
+        # Test past cap is reset to cap
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        self.object_controller.delete_at_update(
+            'PUT', 12345678901, 'a', 'c', 'o', {'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, [
+            'PUT', '.expiring_objects', '9999936000', '9999999999-a/c/o', None,
+            None, None,
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1',
+             'x-trans-id': '-'},
+            'sda1'])
+
     def test_delete_at_update_put_with_info(self):
         given_args = []
 

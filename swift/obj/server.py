@@ -471,6 +471,10 @@ class ObjectController(object):
         :param headers_in: dictionary of headers from the original request
         :param objdevice: device name that the object is in
         """
+        # Quick cap that will work from now until Sat Nov 20 17:46:39 2286
+        # At that time, Swift will be so popular and pervasive I will have
+        # created income for thousands of future programmers.
+        delete_at = max(min(delete_at, 9999999999), 0)
         host = partition = contdevice = None
         headers_out = {'x-timestamp': headers_in['x-timestamp'],
                        'x-trans-id': headers_in.get('x-trans-id', '-')}
