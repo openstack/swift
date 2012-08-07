@@ -17,7 +17,7 @@ versioning flag turned on), the existing data in the file is redirected to a
 new object and the data in the ``PUT`` request is saved as the data for the
 versioned object. The new object name (for the previous version) is 
 ``<versions_container>/<length><object_name>/<timestamp>``, where ``length``
-is the 2-character zero-padded hexidecimal length of the ``<object_name>`` and
+is the 3-character zero-padded hexidecimal length of the ``<object_name>`` and
 ``<timestamp>`` is the timestamp of when the previous version was created.
 
 A ``GET`` to a versioned object will return the current version of the object
@@ -66,7 +66,7 @@ Now create a new version of that object::
 See a listing of the older versions of the object::
 
     curl -i -H "X-Auth-Token: <token>" \
-        http://<storage_url>/versions?prefix=myobject/
+        http://<storage_url>/versions?prefix=008myobject/
 
 Now delete the current version of the object and see that the older version is
 gone::
@@ -74,4 +74,4 @@ gone::
     curl -i -XDELETE -H "X-Auth-Token: <token>" \
         http://<storage_url>/container/myobject
     curl -i -H "X-Auth-Token: <token>" \
-        http://<storage_url>/versions?prefix=myobject/
+        http://<storage_url>/versions?prefix=008myobject/
