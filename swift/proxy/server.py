@@ -673,6 +673,7 @@ class Controller(object):
                                      logging information.
         """
         self.app.logger.thread_locals = logger_thread_locals
+        success = True
         try:
             try:
                 while True:
@@ -686,13 +687,15 @@ class Controller(object):
                     _('Client did not read from queue within %ss') %
                     self.app.client_timeout)
                 self.app.logger.increment('client_timeouts')
+                success = False
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Object'),
                    _('Trying to read during GET'))
+                success = False
         finally:
-            # Ensure the queue getter gets an empty-string-terminator.
+            # Ensure the queue getter gets a terminator.
             queue.resize(2)
-            queue.put('')
+            queue.put(success)
             # Close-out the connection as best as possible.
             if getattr(source, 'swift_conn', None):
                 try:
@@ -733,7 +736,11 @@ class Controller(object):
                 source = node = None
                 while True:
                     chunk = queue.get(timeout=self.app.node_timeout)
-                    if not chunk:
+                    if isinstance(chunk, bool):  # terminator
+                        success = chunk
+                        if not success:
+                            raise Exception(_('Failed to read all data'
+                                              ' from the source'))
                         break
                     yield chunk
             except Empty:
