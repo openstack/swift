@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import array
 import cPickle as pickle
 from collections import defaultdict
 from gzip import GzipFile
-from os.path import getmtime
-from struct import unpack_from
+import json
+from os.path import getmtime, join as pathjoin
+import struct
 from time import time
 import os
 from io import BufferedReader
@@ -34,6 +36,70 @@ class RingData(object):
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
 
+    @classmethod
+    def deserialize_v1(cls, gz_file):
+        json_len, = struct.unpack('!I', gz_file.read(4))
+        ring_dict = json.loads(gz_file.read(json_len))
+        ring_dict['replica2part2dev_id'] = []
+        partition_count = 1 << (32 - ring_dict['part_shift'])
+        for x in xrange(ring_dict['replica_count']):
+            ring_dict['replica2part2dev_id'].append(
+                array.array('H', gz_file.read(2 * partition_count)))
+        return ring_dict
+
+    @classmethod
+    def load(cls, filename):
+        """
+        Load ring data from a file.
+
+        :param filename: Path to a file serialized by the save() method.
+        :returns: A RingData instance containing the loaded data.
+        """
+        gz_file = GzipFile(filename, 'rb')
+        # Python 2.6 GzipFile doesn't support BufferedIO
+        if hasattr(gz_file, '_checkReadable'):
+            gz_file = BufferedReader(gz_file)
+
+        # See if the file is in the new format
+        magic = gz_file.read(4)
+        if magic == 'R1NG':
+            version, = struct.unpack('!H', gz_file.read(2))
+            if version == 1:
+                ring_data = cls.deserialize_v1(gz_file)
+            else:
+                raise Exception('Unknown ring format version %d' % version)
+        else:
+            # Assume old-style pickled ring
+            gz_file.seek(0)
+            ring_data = pickle.load(gz_file)
+        if not hasattr(ring_data, 'devs'):
+            ring_data = RingData(ring_data['replica2part2dev_id'],
+                ring_data['devs'], ring_data['part_shift'])
+        return ring_data
+
+    def serialize_v1(self, file_obj):
+        # Write out new-style serialization magic and version:
+        file_obj.write(struct.pack('!4sH', 'R1NG', 1))
+        ring = self.to_dict()
+        json_text = json.dumps(
+            {'devs': ring['devs'], 'part_shift': ring['part_shift'],
+             'replica_count': len(ring['replica2part2dev_id'])})
+        json_len = len(json_text)
+        file_obj.write(struct.pack('!I', json_len))
+        file_obj.write(json_text)
+        for part2dev_id in ring['replica2part2dev_id']:
+            file_obj.write(part2dev_id.tostring())
+
+    def save(self, filename):
+        """
+        Serialize this RingData instance to disk.
+
+        :param filename: File into which this instance should be serialized.
+        """
+        gz_file = GzipFile(filename, 'wb')
+        self.serialize_v1(gz_file)
+        gz_file.close()
+
     def to_dict(self):
         return {'devs': self.devs,
                 'replica2part2dev_id': self._replica2part2dev_id,
@@ -44,42 +110,31 @@ class Ring(object):
     """
     Partitioned consistent hashing ring.
 
-    :param pickle_gz_path: path to ring file
+    :param serialized_path: path to serialized RingData instance
     :param reload_time: time interval in seconds to check for a ring change
     """
 
-    def __init__(self, pickle_gz_path, reload_time=15, ring_name=None):
+    def __init__(self, serialized_path, reload_time=15, ring_name=None):
         # can't use the ring unless HASH_PATH_SUFFIX is set
         validate_configuration()
         if ring_name:
-            self.pickle_gz_path = os.path.join(pickle_gz_path,
+            self.serialized_path = os.path.join(serialized_path,
                     ring_name + '.ring.gz')
         else:
-            self.pickle_gz_path = os.path.join(pickle_gz_path)
+            self.serialized_path = os.path.join(serialized_path)
         self.reload_time = reload_time
         self._reload(force=True)
 
     def _reload(self, force=False):
         self._rtime = time() + self.reload_time
         if force or self.has_changed():
-            ring_data = pickle.load(self._get_gz_file())
-            if not hasattr(ring_data, 'devs'):
-                ring_data = RingData(ring_data['replica2part2dev_id'],
-                    ring_data['devs'], ring_data['part_shift'])
-            self._mtime = getmtime(self.pickle_gz_path)
+            ring_data = RingData.load(self.serialized_path)
+            self._mtime = getmtime(self.serialized_path)
             self._devs = ring_data.devs
 
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
-
-    def _get_gz_file(self):
-        gz_file = GzipFile(self.pickle_gz_path, 'rb')
-        if hasattr(gz_file, '_checkReadable'):
-            return BufferedReader(gz_file)
-        else:
-            # Python 2.6 doesn't support BufferedIO
-            return gz_file
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
@@ -121,7 +176,7 @@ class Ring(object):
 
         :returns: True if the ring on disk has changed, False otherwise
         """
-        return getmtime(self.pickle_gz_path) != self._mtime
+        return getmtime(self.serialized_path) != self._mtime
 
     def get_part_nodes(self, part):
         """
@@ -172,7 +227,7 @@ class Ring(object):
         key = hash_path(account, container, obj, raw_digest=True)
         if time() > self._rtime:
             self._reload()
-        part = unpack_from('>I', key)[0] >> self._part_shift
+        part = struct.unpack_from('>I', key)[0] >> self._part_shift
         seen_ids = set()
         return part, [self._devs[r[part]] for r in self._replica2part2dev_id
                 if not (r[part] in seen_ids or seen_ids.add(r[part]))]

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import array
 import cPickle as pickle
 import os
 import unittest
@@ -25,6 +26,20 @@ from swift.common import ring, utils
 
 class TestRingData(unittest.TestCase):
 
+    def setUp(self):
+        self.testdir = os.path.join(os.path.dirname(__file__), 'ring_data')
+        rmtree(self.testdir, ignore_errors=1)
+        os.mkdir(self.testdir)
+
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
+
+    def assert_ring_data_equal(self, rd_expected, rd_got):
+        self.assertEquals(rd_expected._replica2part2dev_id,
+                          rd_got._replica2part2dev_id)
+        self.assertEquals(rd_expected.devs, rd_got.devs)
+        self.assertEquals(rd_expected._part_shift, rd_got._part_shift)
+
     def test_attrs(self):
         r2p2d = [[0, 1, 0, 1], [0, 1, 0, 1]]
         d = [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}]
@@ -34,11 +49,23 @@ class TestRingData(unittest.TestCase):
         self.assertEquals(rd.devs, d)
         self.assertEquals(rd._part_shift, s)
 
-    def test_pickleable(self):
+    def test_can_load_pickled_ring_data(self):
         rd = ring.RingData([[0, 1, 0, 1], [0, 1, 0, 1]],
                 [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
         for p in xrange(pickle.HIGHEST_PROTOCOL):
-            pickle.loads(pickle.dumps(rd, protocol=p))
+            pickle.dump(rd, GzipFile(ring_fname, 'wb'), protocol=p)
+            ring_data = ring.RingData.load(ring_fname)
+            self.assert_ring_data_equal(rd, ring_data)
+
+    def test_roundtrip_serialization(self):
+        ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
+        rd = ring.RingData(
+            [array.array('H', [0, 1, 0, 1]), array.array('H',[0, 1, 0, 1])],
+            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        rd.save(ring_fname)
+        rd2 = ring.RingData.load(ring_fname)
+        self.assert_ring_data_equal(rd, rd2)
 
 
 class TestRing(unittest.TestCase):
@@ -49,9 +76,10 @@ class TestRing(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         self.testgz = os.path.join(self.testdir, 'whatever.ring.gz')
-        self.intended_replica2part2dev_id = [[0, 1, 0, 1],
-                                             [0, 1, 0, 1],
-                                             [3, 4, 3, 4]]
+        self.intended_replica2part2dev_id = [
+            array.array('H', [0, 1, 0, 1]),
+            array.array('H', [0, 1, 0, 1]),
+            array.array('H', [3, 4, 3, 4])]
         self.intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
                                'ip': '10.1.1.1', 'port': 6000},
                               {'id': 1, 'zone': 0, 'weight': 1.0,
@@ -63,9 +91,8 @@ class TestRing(unittest.TestCase):
                                'ip': '10.1.2.2', 'port': 6000}]
         self.intended_part_shift = 30
         self.intended_reload_time = 15
-        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
-            self.intended_devs, self.intended_part_shift),
-            GzipFile(self.testgz, 'wb'))
+        ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift).save(self.testgz)
         self.ring = ring.Ring(self.testdir,
             reload_time=self.intended_reload_time, ring_name='whatever')
 
@@ -78,7 +105,7 @@ class TestRing(unittest.TestCase):
         self.assertEquals(self.ring._part_shift, self.intended_part_shift)
         self.assertEquals(self.ring.devs, self.intended_devs)
         self.assertEquals(self.ring.reload_time, self.intended_reload_time)
-        self.assertEquals(self.ring.pickle_gz_path, self.testgz)
+        self.assertEquals(self.ring.serialized_path, self.testgz)
         # test invalid endcap
         _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
         try:
@@ -99,9 +126,8 @@ class TestRing(unittest.TestCase):
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 5)
         self.intended_devs.append({'id': 3, 'zone': 3, 'weight': 1.0})
-        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
-            self.intended_devs, self.intended_part_shift),
-            GzipFile(self.testgz, 'wb'))
+        ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 6)
@@ -113,9 +139,8 @@ class TestRing(unittest.TestCase):
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 6)
         self.intended_devs.append({'id': 5, 'zone': 4, 'weight': 1.0})
-        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
-            self.intended_devs, self.intended_part_shift),
-            GzipFile(self.testgz, 'wb'))
+        ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_part_nodes(0)
         self.assertEquals(len(self.ring.devs), 7)
@@ -128,9 +153,8 @@ class TestRing(unittest.TestCase):
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 7)
         self.intended_devs.append({'id': 6, 'zone': 5, 'weight': 1.0})
-        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
-            self.intended_devs, self.intended_part_shift),
-            GzipFile(self.testgz, 'wb'))
+        ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_more_nodes(part).next()
         self.assertEquals(len(self.ring.devs), 8)
@@ -142,9 +166,8 @@ class TestRing(unittest.TestCase):
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 8)
         self.intended_devs.append({'id': 5, 'zone': 4, 'weight': 1.0})
-        pickle.dump(ring.RingData(self.intended_replica2part2dev_id,
-            self.intended_devs, self.intended_part_shift),
-            GzipFile(self.testgz, 'wb'))
+        ring.RingData(self.intended_replica2part2dev_id,
+            self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.assertEquals(len(self.ring.devs), 9)
         self.assertNotEquals(self.ring._mtime, orig_mtime)

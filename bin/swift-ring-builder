@@ -610,13 +610,11 @@ swift-ring-builder <builder_file> rebalance
             print '-' * 79
             status = EXIT_WARNING
         ts = time()
-        pickle.dump(builder.get_ring().to_dict(),
-                    GzipFile(pathjoin(backup_dir, '%d.' % ts +
-                        basename(ring_file)), 'wb'), protocol=2)
+        builder.get_ring().save(
+            pathjoin(backup_dir, '%d.' % ts + basename(ring_file)))
         pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
             '%d.' % ts + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder.get_ring().to_dict(), GzipFile(ring_file, 'wb'),
-                    protocol=2)
+        builder.get_ring().save(ring_file)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(status)
 
@@ -644,10 +642,9 @@ swift-ring-builder <builder_file> write_ring
                       '"rebalance"?'
             else:
                 print 'Warning: Writing an empty ring'
-        pickle.dump(ring_data.to_dict(),
-                    GzipFile(pathjoin(backup_dir, '%d.' % time() +
-                        basename(ring_file)), 'wb'), protocol=2)
-        pickle.dump(ring_data.to_dict(), GzipFile(ring_file, 'wb'), protocol=2)
+        ring_data.save(
+            pathjoin(backup_dir, '%d.' % time() + basename(ring_file)))
+        ring_data.save(ring_file)
         exit(EXIT_SUCCESS)
 
     def pretend_min_part_hours_passed():
