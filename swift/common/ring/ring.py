@@ -17,7 +17,6 @@ import array
 import cPickle as pickle
 from collections import defaultdict
 from gzip import GzipFile
-import json
 from os.path import getmtime, join as pathjoin
 import struct
 from time import time
@@ -26,6 +25,11 @@ from io import BufferedReader
 
 from swift.common.utils import hash_path, validate_configuration
 from swift.common.ring.utils import tiers_for_dev
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
 
 
 class RingData(object):
@@ -74,7 +78,7 @@ class RingData(object):
             ring_data = pickle.load(gz_file)
         if not hasattr(ring_data, 'devs'):
             ring_data = RingData(ring_data['replica2part2dev_id'],
-                ring_data['devs'], ring_data['part_shift'])
+                                 ring_data['devs'], ring_data['part_shift'])
         return ring_data
 
     def serialize_v1(self, file_obj):
@@ -119,7 +123,7 @@ class Ring(object):
         validate_configuration()
         if ring_name:
             self.serialized_path = os.path.join(serialized_path,
-                    ring_name + '.ring.gz')
+                                                ring_name + '.ring.gz')
         else:
             self.serialized_path = os.path.join(serialized_path)
         self.reload_time = reload_time
@@ -230,7 +234,7 @@ class Ring(object):
         part = struct.unpack_from('>I', key)[0] >> self._part_shift
         seen_ids = set()
         return part, [self._devs[r[part]] for r in self._replica2part2dev_id
-                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
+                      if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_more_nodes(self, part):
         """
