@@ -833,7 +833,11 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
     flags = os.O_CREAT | os.O_RDWR
     if append:
         flags |= os.O_APPEND
+        mode = 'a+'
+    else:
+        mode = 'r+'
     fd = os.open(filename, flags)
+    file_obj = os.fdopen(fd, mode)
     try:
         with LockTimeout(timeout, filename):
             while True:
@@ -844,10 +848,6 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
                     if err.errno != errno.EAGAIN:
                         raise
                 sleep(0.01)
-        mode = 'r+'
-        if append:
-            mode = 'a+'
-        file_obj = os.fdopen(fd, mode)
         yield file_obj
     finally:
         try:
