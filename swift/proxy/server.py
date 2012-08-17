@@ -439,7 +439,9 @@ class Controller(object):
                 self.app.account_ring, partition, 'PUT',
                 path, [headers] * len(nodes))
             if not is_success(resp.status_int):
-                raise Exception('Could not autocreate account %r' % path)
+                self.app.logger.warning('Could not autocreate account %r' % \
+                                        path)
+                return None, None, None
             result_code = HTTP_OK
         if self.app.memcache and result_code in (HTTP_OK, HTTP_NOT_FOUND):
             if result_code == HTTP_OK:
@@ -1808,8 +1810,9 @@ class AccountController(Controller):
                 self.app.account_ring, partition, 'PUT',
                 '/' + self.account_name, [headers] * len(nodes))
             if not is_success(resp.status_int):
-                raise Exception('Could not autocreate account %r' %
-                                self.account_name)
+                self.app.logger.warning('Could not autocreate account %r' %
+                                        self.account_name)
+                return resp
             resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), len(nodes))
         self.app.logger.timing_since('%s.timing' % (stats_type,), start_time)
@@ -1876,8 +1879,9 @@ class AccountController(Controller):
                 self.app.account_ring, account_partition, 'PUT',
                 '/' + self.account_name, [headers] * len(accounts))
             if not is_success(resp.status_int):
-                raise Exception('Could not autocreate account %r' %
-                                self.account_name)
+                self.app.logger.warning('Could not autocreate account %r' %
+                                        self.account_name)
+                return resp
         self.app.logger.timing_since('POST.timing', start_time)
         return resp
 
