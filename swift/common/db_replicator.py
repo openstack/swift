@@ -21,6 +21,7 @@ import time
 import shutil
 import uuid
 import errno
+import re
 
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
@@ -130,6 +131,8 @@ class Replicator(Daemon):
         self.recon_replicator = '%s.recon' % self.server_type
         self.rcache = os.path.join(self.recon_cache_path,
                                    self.recon_replicator)
+        self.extract_device_re = re.compile('%s%s([^%s]+)' % (
+            self.root, os.path.sep, os.path.sep))
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -388,10 +391,7 @@ class Replicator(Daemon):
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):
             if self.report_up_to_date(full_info):
-                with lock_parent_directory(object_file):
-                    shutil.rmtree(os.path.dirname(object_file), True)
-                    self.stats['remove'] += 1
-                    self.logger.increment('removes')
+                self.delete_db(object_file)
             self.logger.timing_since('timing', start_time)
             return
         responses = []
@@ -419,11 +419,27 @@ class Replicator(Daemon):
         if not shouldbehere and all(responses):
             # If the db shouldn't be on this node and has been successfully
             # synced to all of its peers, it can be removed.
-            with lock_parent_directory(object_file):
-                shutil.rmtree(os.path.dirname(object_file), True)
-                self.stats['remove'] += 1
-                self.logger.increment('removes')
+            self.delete_db(object_file)
         self.logger.timing_since('timing', start_time)
+
+    def delete_db(self, object_file):
+        with lock_parent_directory(object_file):
+            shutil.rmtree(os.path.dirname(object_file), True)
+        self.stats['remove'] += 1
+        device_name = self.extract_device(object_file)
+        self.logger.increment('removes.' + device_name)
+
+    def extract_device(self, object_file):
+        """
+        Extract the device name from an object path.  Returns "UNKNOWN" if the
+        path could not be extracted successfully for some reason.
+
+        :param object_file: the path to a database file.
+        """
+        match = self.extract_device_re.match(object_file)
+        if match:
+            return match.groups()[0]
+        return "UNKNOWN"
 
     def report_up_to_date(self, full_info):
         return True

@@ -6,6 +6,7 @@ import copy
 import logging
 from sys import exc_info
 from contextlib import contextmanager
+from collections import defaultdict
 from tempfile import NamedTemporaryFile
 from eventlet.green import socket
 from tempfile import mkdtemp
@@ -117,30 +118,28 @@ class FakeLogger(object):
             self.facility = kwargs['facility']
 
     def _clear(self):
-        self.log_dict = dict(
-            error=[], info=[], warning=[], debug=[], exception=[])
+        self.log_dict = defaultdict(list)
 
-    def error(self, *args, **kwargs):
-        self.log_dict['error'].append((args, kwargs))
+    def _store_in(store_name):
+        def stub_fn(self, *args, **kwargs):
+            self.log_dict[store_name].append((args, kwargs))
+        return stub_fn
 
-    def info(self, *args, **kwargs):
-        self.log_dict['info'].append((args, kwargs))
-
-    def warning(self, *args, **kwargs):
-        self.log_dict['warning'].append((args, kwargs))
-
-    def debug(self, *args, **kwargs):
-        self.log_dict['debug'].append((args, kwargs))
+    error = _store_in('error')
+    info = _store_in('info')
+    warning = _store_in('warning')
+    debug = _store_in('debug')
 
     def exception(self, *args, **kwargs):
         self.log_dict['exception'].append((args, kwargs, str(exc_info()[1])))
 
     # mock out the StatsD logging methods:
-    def set_statsd_prefix(self, *a, **kw):
-        pass
-
-    increment = decrement = timing = timing_since = update_stats = \
-            set_statsd_prefix
+    increment = _store_in('increment')
+    decrement = _store_in('decrement')
+    timing = _store_in('timing')
+    timing_since = _store_in('timing_since')
+    update_stats = _store_in('update_stats')
+    set_statsd_prefix = _store_in('set_statsd_prefix')
 
     def setFormatter(self, obj):
         self.formatter = obj

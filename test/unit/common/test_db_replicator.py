@@ -18,20 +18,25 @@ from contextlib import contextmanager
 import os
 import logging
 import errno
+from tempfile import mkdtemp, NamedTemporaryFile
 
 from swift.common import db_replicator
 from swift.common import utils
 from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 
+from test.unit import FakeLogger
+
 
 def teardown_module():
     "clean up my monkey patching"
     reload(db_replicator)
 
+
 @contextmanager
 def lock_parent_directory(filename):
     yield True
+
 
 class FakeRing:
     class Ring:
@@ -42,6 +47,30 @@ class FakeRing:
             return []
         def get_more_nodes(self, *args):
             return []
+
+
+class FakeRingWithNodes:
+    class Ring:
+        devs = [dict(
+            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
+            meta=''
+        ), dict(
+            id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6000, device='sdb',
+            meta=''
+        ), dict(
+            id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6000, device='sdb',
+            meta=''
+        ), dict(
+            id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6000, device='sdb',
+            meta='')]
+
+        def __init__(self, path, reload_time=15, ring_name=None):
+            pass
+        def get_part_nodes(self, part):
+            return self.devs[:3]
+        def get_more_nodes(self, *args):
+            return (d for d in self.devs[3:])
+
 
 class FakeProcess:
     def __init__(self, *codes):
@@ -56,12 +85,14 @@ class FakeProcess:
                 raise next
         return Failure()
 
+
 @contextmanager
 def _mock_process(*args):
     orig_process = db_replicator.subprocess.Popen
     db_replicator.subprocess.Popen = FakeProcess(*args)
     yield
     db_replicator.subprocess.Popen = orig_process
+
 
 class ReplHttp:
     def __init__(self, response=None):
@@ -77,6 +108,7 @@ class ReplHttp:
                 return self.response
         return Response()
 
+
 class ChangingMtimesOs:
     def __init__(self):
         self.mtime = 0
@@ -86,9 +118,11 @@ class ChangingMtimesOs:
         self.mtime += 1
         return self.mtime
 
+
 class FakeBroker:
     db_file = __file__
     get_repl_missing_table = False
+    stub_replication_info = None
     db_type = 'container'
     def __init__(self, *args, **kwargs):
         return None
@@ -110,11 +144,13 @@ class FakeBroker:
     def get_replication_info(self):
         if self.get_repl_missing_table:
             raise Exception('no such table')
+        if self.stub_replication_info:
+            return self.stub_replication_info
         return {'delete_timestamp': 0, 'put_timestamp': 1, 'count': 0}
     def reclaim(self, item_timestamp, sync_timestamp):
         pass
-
-db_replicator.ring = FakeRing()
+    def get_info(self):
+        pass
 
 
 class TestReplicator(db_replicator.Replicator):
@@ -124,7 +160,15 @@ class TestReplicator(db_replicator.Replicator):
     datadir = container_server.DATADIR
     default_port = 1000
 
+
 class TestDBReplicator(unittest.TestCase):
+    def setUp(self):
+        db_replicator.ring = FakeRing()
+        self.delete_db_calls = []
+
+    def stub_delete_db(self, object_file):
+        self.delete_db_calls.append(object_file)
+
 
     def test_repl_connection(self):
         node = {'ip': '127.0.0.1', 'port': 80, 'device': 'sdb1'}
@@ -204,9 +248,11 @@ class TestDBReplicator(unittest.TestCase):
         replicator._report_stats()
 
     def test_replicate_object(self):
-        db_replicator.lock_parent_directory = lock_parent_directory
+        db_replicator.ring = FakeRingWithNodes()
         replicator = TestReplicator({})
-        replicator._replicate_object('0', 'file', 'node_id')
+        replicator.delete_db = self.stub_delete_db
+        replicator._replicate_object('0', '/path/to/file', 'node_id')
+        self.assertEquals([], self.delete_db_calls)
 
     def test_replicate_object_quarantine(self):
         replicator = TestReplicator({})
@@ -227,7 +273,6 @@ class TestDBReplicator(unittest.TestCase):
                 return mock_renamer(was, new, cause_colision=True)
             was_renamer = db_replicator.renamer
             db_replicator.renamer = mock_renamer
-            db_replicator.lock_parent_directory = lock_parent_directory
             replicator.brokerclass.get_repl_missing_table = True
             replicator.brokerclass.db_file = '/a/b/c/d/e/hey'
             replicator._replicate_object('0', 'file', 'node_id')
@@ -237,6 +282,51 @@ class TestDBReplicator(unittest.TestCase):
         finally:
             replicator.brokerclass.db_file = was_db_file
             db_replicator.renamer = was_renamer
+
+    def test_replicate_object_delete_because_deleted(self):
+        replicator = TestReplicator({})
+        try:
+            replicator.delete_db = self.stub_delete_db
+            replicator.brokerclass.stub_replication_info = {
+                'delete_timestamp': 2, 'put_timestamp': 1, 'count': 0}
+            replicator._replicate_object('0', '/path/to/file', 'node_id')
+        finally:
+            replicator.brokerclass.stub_replication_info = None
+        self.assertEquals(['/path/to/file'], self.delete_db_calls)
+
+    def test_replicate_object_delete_because_not_shouldbehere(self):
+        replicator = TestReplicator({})
+        replicator.delete_db = self.stub_delete_db
+        replicator._replicate_object('0', '/path/to/file', 'node_id')
+        self.assertEquals(['/path/to/file'], self.delete_db_calls)
+
+    def test_delete_db(self):
+        db_replicator.lock_parent_directory = lock_parent_directory
+        replicator = TestReplicator({})
+        replicator._zero_stats()
+        replicator.extract_device = lambda _: 'some_device'
+        replicator.logger = FakeLogger()
+
+        temp_dir = mkdtemp()
+        temp_file = NamedTemporaryFile(dir=temp_dir, delete=False)
+
+        # sanity-checks
+        self.assertTrue(os.path.exists(temp_dir))
+        self.assertTrue(os.path.exists(temp_file.name))
+        self.assertEqual(0, replicator.stats['remove'])
+
+        replicator.delete_db(temp_file.name)
+
+        self.assertFalse(os.path.exists(temp_dir))
+        self.assertFalse(os.path.exists(temp_file.name))
+        self.assertEqual([(('removes.some_device',), {})],
+                         replicator.logger.log_dict['increment'])
+        self.assertEqual(1, replicator.stats['remove'])
+
+    def test_extract_device(self):
+        replicator = TestReplicator({'devices': '/some/root'})
+        self.assertEqual('some_device', replicator.extract_device(
+            '/some/root/some_device/deeper/and/deeper'))
 
 #    def test_dispatch(self):
 #        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
@@ -270,6 +360,7 @@ class TestDBReplicator(unittest.TestCase):
         args = ('a', 'b')
         rpc.merge_syncs(fake_broker, args)
         self.assertEquals(fake_broker.args, (args[0],))
+
 
 if __name__ == '__main__':
     unittest.main()
