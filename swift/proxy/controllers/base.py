@@ -30,8 +30,7 @@ import functools
 from eventlet import spawn_n, GreenPile, Timeout
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
-from webob.exc import \
-    status_map
+from webob.exc import status_map
 from webob import Request, Response
 
 from swift.common.utils import normalize_timestamp, TRUE_VALUES, public
@@ -457,12 +456,12 @@ class Controller(object):
     @public
     def GET(self, req):
         """Handler for HTTP GET requests."""
-        return self.GETorHEAD(req, stats_type='GET')
+        return self.GETorHEAD(req)
 
     @public
     def HEAD(self, req):
         """Handler for HTTP HEAD requests."""
-        return self.GETorHEAD(req, stats_type='HEAD')
+        return self.GETorHEAD(req)
 
     def _make_app_iter_reader(self, node, source, queue, logger_thread_locals):
         """

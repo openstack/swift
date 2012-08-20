@@ -759,55 +759,57 @@ Metric Name                   Description
 `object-updater.failures`     Count of failed continer updates.
 ============================  ====================================================
 
-Metrics for `proxy-server` (in the table, `<type>` may be `Account`, `Container`,
-or `Object`, and corresponds to the internal Controller object which handled the
-request):
+Metrics for `proxy-server` (in the table, `<type>` is the proxy-server
+controller responsible for the request and will be one of "account",
+"container", or "object"):
 
-=========================================  ====================================================
-Metric Name                                Description
------------------------------------------  ----------------------------------------------------
-`proxy-server.errors`                      Count of errors encountered while serving requests
-                                           before the controller type is determined.  Includes
-                                           invalid Content-Length, errors finding the internal
-                                           controller to handle the request, invalid utf8, and
-                                           bad URLs.
-`proxy-server.<type>.errors`               Count of errors encountered after the controller
-                                           type is known.  The details of which responses are
-                                           errors depend on the controller type and request
-                                           type (GET, PUT, etc.).  Failed
-                                           authentication/authorization and "Not Found"
-                                           responses are not counted as errors.
-`proxy-server.<type>.client_timeouts`      Count of client timeouts (client did not read from
-                                           queue within `client_timeout` seconds).
-`proxy-server.<type>.client_disconnects`   Count of detected client disconnects.
-`proxy-server.<type>.method_not_allowed`   Count of MethodNotAllowed responses sent by the
-`proxy-server.<type>.auth_short_circuits`  Count of requests which short-circuited with an
-                                           authentication/authorization failure.
-`proxy-server.<type>.GET.timing`           Timing data for GET requests (excluding requests
-                                           with errors or failed authentication/authorization).
-`proxy-server.<type>.HEAD.timing`          Timing data for HEAD requests (excluding requests
-                                           with errors or failed authentication/authorization).
-`proxy-server.<type>.POST.timing`          Timing data for POST requests (excluding requests
-                                           with errors or failed authentication/authorization).
-                                           Requests with a client disconnect ARE included in
-                                           the timing data.
-`proxy-server.<type>.PUT.timing`           Timing data for PUT requests (excluding requests
-                                           with errors or failed authentication/authorization).
-                                           Account PUT requests which return MethodNotAllowed
-                                           because allow_account_management is disabled ARE
-                                           included.
-`proxy-server.<type>.DELETE.timing`        Timing data for DELETE requests (excluding requests
-                                           with errors or failed authentication/authorization).
-                                           Account DELETE requests which return
-                                           MethodNotAllowed because allow_account_management is
-                                           disabled ARE included.
-`proxy-server.Object.COPY.timing`          Timing data for object COPY requests (excluding
-                                           requests with errors or failed
-                                           authentication/authorization).
-=========================================  ====================================================
+========================================  ====================================================
+Metric Name                               Description
+----------------------------------------  ----------------------------------------------------
+`proxy-server.errors`                     Count of errors encountered while serving requests
+                                          before the controller type is determined.  Includes
+                                          invalid Content-Length, errors finding the internal
+                                          controller to handle the request, invalid utf8, and
+                                          bad URLs.
+`proxy-server.<type>.handoff_count`       Count of node hand-offs; only tracked if log_handoffs
+                                          is set in the proxy-server config.
+`proxy-server.<type>.handoff_all_count`   Count of times *only* hand-off locations were
+                                          utilized; only tracked if log_handoffs is set in the
+                                          proxy-server config.
+`proxy-server.<type>.client_timeouts`     Count of client timeouts (client did not read within
+                                          `client_timeout` seconds during a GET or did not
+                                          supply data within `client_timeout` seconds during
+                                          a PUT).
+`proxy-server.<type>.client_disconnects`  Count of detected client disconnects during PUT
+                                          operations (does NOT include caught Exceptions in
+                                          the proxy-server which caused a client disconnect).
+========================================  ====================================================
 
-Metrics for `tempauth` (in the table, `<reseller_prefix>` represents the actual configured
-reseller_prefix or "`NONE`" if the reseller_prefix is the empty string):
+Metrics for `proxy-logging` middleware (in the table, `<type>` is either the
+proxy-server controller responsible for the request: "account", "container",
+"object", or the string "SOS" if the request came from the `Swift Origin Server`_
+middleware.  The `<verb>` portion will be one of "GET", "HEAD", "POST", "PUT",
+"DELETE", "COPY", or "BAD_METHOD".  The list of valid HTTP methods is
+configurable via the `log_statsd_valid_http_methods` config variable and the
+default setting yields the above behavior.
+
+.. _Swift Origin Server: https://github.com/dpgoetz/sos
+
+============================================  ====================================================
+Metric Name                                   Description
+--------------------------------------------  ----------------------------------------------------
+`proxy-server.<type>.<verb>.<status>.timing`  Timing data for requests.  The <status> portion is
+                                              the numeric HTTP status code for the request (eg.
+                                              "200" or "404")
+`proxy-server.<type>.<verb>.<status>.xfer`    The count of the sum of bytes transferred in (from
+                                              clients) and out (to clients) for requests.  The
+                                              <type>, <verb>, and <status> portions of the metric
+                                              are just like the timing metric.
+============================================  ====================================================
+
+Metrics for `tempauth` middleware (in the table, `<reseller_prefix>` represents
+the actual configured reseller_prefix or "`NONE`" if the reseller_prefix is the
+empty string):
 
 =========================================  ====================================================
 Metric Name                                Description

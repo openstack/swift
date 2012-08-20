@@ -45,9 +45,8 @@ class AccountController(Controller):
         Controller.__init__(self, app)
         self.account_name = unquote(account_name)
 
-    def GETorHEAD(self, req, stats_type):
+    def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
-        start_time = time.time()
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
@@ -57,8 +56,6 @@ class AccountController(Controller):
                 resp = HTTPBadRequest(request=req)
                 resp.body = 'Account name length of %d longer than %d' % \
                             (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
-                self.app.logger.timing_since(
-                    '%s.timing' % (stats_type,), start_time)
                 return resp
             headers = {'X-Timestamp': normalize_timestamp(time.time()),
                        'X-Trans-Id': self.trans_id,
@@ -73,25 +70,20 @@ class AccountController(Controller):
                 return resp
             resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
                 req.path_info.rstrip('/'), len(nodes))
-        self.app.logger.timing_since('%s.timing' % (stats_type,), start_time)
         return resp
 
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
-        start_time = time.time()
         if not self.app.allow_account_management:
-            self.app.logger.timing_since('PUT.timing', start_time)
             return HTTPMethodNotAllowed(request=req)
         error_response = check_metadata(req, 'account')
         if error_response:
-            self.app.logger.increment('errors')
             return error_response
         if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Account name length of %d longer than %d' % \
                         (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
-            self.app.logger.increment('errors')
             return resp
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
@@ -103,16 +95,13 @@ class AccountController(Controller):
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
         resp = self.make_requests(req, self.app.account_ring,
             account_partition, 'PUT', req.path_info, [headers] * len(accounts))
-        self.app.logger.timing_since('PUT.timing', start_time)
         return resp
 
     @public
     def POST(self, req):
         """HTTP POST request handler."""
-        start_time = time.time()
         error_response = check_metadata(req, 'account')
         if error_response:
-            self.app.logger.increment('errors')
             return error_response
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
@@ -130,7 +119,6 @@ class AccountController(Controller):
                 resp = HTTPBadRequest(request=req)
                 resp.body = 'Account name length of %d longer than %d' % \
                             (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
-                self.app.logger.increment('errors')
                 return resp
             resp = self.make_requests(
                 Request.blank('/v1/' + self.account_name),
@@ -140,15 +128,12 @@ class AccountController(Controller):
                 self.app.logger.warning('Could not autocreate account %r' %
                                         self.account_name)
                 return resp
-        self.app.logger.timing_since('POST.timing', start_time)
         return resp
 
     @public
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        start_time = time.time()
         if not self.app.allow_account_management:
-            self.app.logger.timing_since('DELETE.timing', start_time)
             return HTTPMethodNotAllowed(request=req)
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
@@ -160,5 +145,4 @@ class AccountController(Controller):
         resp = self.make_requests(req, self.app.account_ring,
             account_partition, 'DELETE', req.path_info,
             [headers] * len(accounts))
-        self.app.logger.timing_since('DELETE.timing', start_time)
         return resp

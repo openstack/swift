@@ -680,7 +680,7 @@ Setting up scripts for running Swift
         sudo chown <your-user-name>:<your-group-name> /mnt/sdb1/*
         mkdir -p /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4
         sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
-        find /var/cache/swift* -type f -name *.recon -exec -rm -f {} \;
+        find /var/cache/swift* -type f -name *.recon -exec rm -f {} \;
         sudo service rsyslog restart
         sudo service memcached restart
 

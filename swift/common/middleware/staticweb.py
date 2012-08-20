@@ -523,7 +523,7 @@ class StaticWeb(object):
         self.access_logger = get_logger(access_log_conf,
                                         log_route='staticweb-access')
         #: Indicates whether full HTTP headers should be logged or not.
-        self.log_headers = conf.get('log_headers', 'f').lower() in TRUE_VALUES
+        self.log_headers = conf.get('log_headers', 'no').lower() in TRUE_VALUES
 
     def __call__(self, env, start_response):
         """

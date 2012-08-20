@@ -6,7 +6,10 @@
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
-# You can enable default statsD logging here if you want:
+# If set, log_udp_host will override log_address
+# log_udp_host =
+# log_udp_port = 514
+# You can enable StatsD logging here:
 # log_statsd_host = localhost
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1

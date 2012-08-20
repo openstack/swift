@@ -561,9 +561,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_name = swift
         log_udp_host = (disabled)
         log_udp_port = logging.handlers.SYSLOG_UDP_PORT
+        log_address = /dev/log
         log_statsd_host = (disabled)
         log_statsd_port = 8125
         log_statsd_default_sample_rate = 1
+        log_statsd_metric_prefix = (empty-string)
 
     :param conf: Configuration dict to read settings from
     :param name: Name of the logger

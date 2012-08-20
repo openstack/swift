@@ -43,8 +43,8 @@ from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController, Controller
 
 
-class BaseApplication(object):
-    """Base WSGI application for the proxy server"""
+class Application(object):
+    """WSGI application for the proxy server."""
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
                  container_ring=None, object_ring=None):
@@ -52,16 +52,8 @@ class BaseApplication(object):
             conf = {}
         if logger is None:
             self.logger = get_logger(conf, log_route='proxy-server')
-            access_log_conf = {}
-            for key in ('log_facility', 'log_name', 'log_level',
-                        'log_udp_host', 'log_udp_port'):
-                value = conf.get('access_' + key, conf.get(key, None))
-                if value:
-                    access_log_conf[key] = value
-            self.access_logger = get_logger(access_log_conf,
-                                            log_route='proxy-access')
         else:
-            self.logger = self.access_logger = logger
+            self.logger = logger
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
@@ -70,7 +62,6 @@ class BaseApplication(object):
         self.put_queue_depth = int(conf.get('put_queue_depth', 10))
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
-        self.log_headers = conf.get('log_headers', 'no').lower() in TRUE_VALUES
         self.error_suppression_interval = \
             int(conf.get('error_suppression_interval', 60))
         self.error_suppression_limit = \
@@ -202,7 +193,7 @@ class BaseApplication(object):
                 return HTTPForbidden(request=req, body='Invalid host header')
 
             self.logger.set_statsd_prefix('proxy-server.' +
-                                          controller.server_type)
+                                          controller.server_type.lower())
             controller = controller(self, **path_parts)
             if 'swift.trans_id' not in req.environ:
                 # if this wasn't set by an earlier middleware, set it now
@@ -216,7 +207,6 @@ class BaseApplication(object):
                 handler = getattr(controller, req.method)
                 getattr(handler, 'publicly_accessible')
             except AttributeError:
-                self.logger.increment('method_not_allowed')
                 return HTTPMethodNotAllowed(request=req)
             if path_parts['version']:
                 req.path_info_pop()
@@ -234,24 +224,15 @@ class BaseApplication(object):
                     # Response indicates denial, but we might delay the denial
                     # and recheck later. If not delayed, return the error now.
                     if not getattr(handler, 'delay_denial', None):
-                        self.logger.increment('auth_short_circuits')
                         return resp
+            # Save off original request method (GET, POST, etc.) in case it
+            # gets mutated during handling.  This way logging can display the
+            # method the client actually sent.
+            req.environ['swift.orig_req_method'] = req.method
             return handler(req)
         except (Exception, Timeout):
             self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)
-
-
-class Application(BaseApplication):
-    """WSGI application for the proxy server."""
-
-    def handle_request(self, req):
-        """
-        Wraps the BaseApplication.handle_request and logs the request.
-        """
-        req.start_time = time.time()
-        req.response = super(Application, self).handle_request(req)
-        return req.response
 
 
 def app_factory(global_conf, **local_conf):
