@@ -65,7 +65,7 @@ class TempAuth(object):
         self.app = app
         self.conf = conf
         self.logger = get_logger(conf, log_route='tempauth')
-        self.log_headers = conf.get('log_headers') == 'True'
+        self.log_headers = conf.get('log_headers', 'f').lower() in TRUE_VALUES
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
             self.reseller_prefix += '_'

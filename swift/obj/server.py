@@ -369,7 +369,8 @@ class ObjectController(object):
         self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
         self.keep_cache_private = \
             conf.get('keep_cache_private', 'false').lower() in TRUE_VALUES
-        self.log_requests = conf.get('log_requests', 't')[:1].lower() == 't'
+        self.log_requests = \
+            conf.get('log_requests', 'true').lower() in TRUE_VALUES
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
         self.slow = int(conf.get('slow', 0))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
