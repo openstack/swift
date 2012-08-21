@@ -80,7 +80,7 @@ class SegmentedIterable(object):
         self.controller = controller
         self.container = container
         self.listing = iter(listing)
-        self.segment = -1
+        self.segment = 0
         self.segment_dict = None
         self.segment_peek = None
         self.seek = 0
@@ -114,8 +114,8 @@ class SegmentedIterable(object):
                 self.seek = 0
             if self.segment > self.controller.app.rate_limit_after_segment:
                 sleep(max(self.next_get_time - time.time(), 0))
-                self.next_get_time = time.time() + \
-                    1.0 / self.controller.app.rate_limit_segments_per_sec
+            self.next_get_time = time.time() + \
+                1.0 / self.controller.app.rate_limit_segments_per_sec
             shuffle(nodes)
             resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,

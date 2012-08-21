@@ -325,7 +325,6 @@ def save_globals():
         yield True
     finally:
         proxy_server.Controller.account_info = orig_account_info
-        proxy_server.http_connect = orig_http_connect
         swift.proxy.controllers.base.http_connect = orig_http_connect
         swift.proxy.controllers.obj.http_connect = orig_http_connect
         swift.proxy.controllers.account.http_connect = orig_http_connect
@@ -334,7 +333,6 @@ def save_globals():
 
 def set_http_connect(*args, **kwargs):
     new_connect = fake_http_connect(*args, **kwargs)
-    proxy_server.http_connect = new_connect
     swift.proxy.controllers.base.http_connect = new_connect
     swift.proxy.controllers.obj.http_connect = new_connect
     swift.proxy.controllers.account.http_connect = new_connect
@@ -480,8 +478,7 @@ class TestController(unittest.TestCase):
             self.assertEquals(None, count)
 
             self.memcache.store = {}
-            proxy_server.http_connect = \
-                fake_http_connect(404, 404, 404, 403, 403, 403)
+            set_http_connect(404, 404, 404, 403, 403, 403)
             exc = None
             partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=True)
@@ -489,8 +486,7 @@ class TestController(unittest.TestCase):
             self.assertEquals(None, count)
             
             self.memcache.store = {}
-            proxy_server.http_connect = \
-                fake_http_connect(404, 404, 404, 409, 409, 409)
+            set_http_connect(404, 404, 404, 409, 409, 409)
             exc = None
             partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=True)
@@ -4044,8 +4040,8 @@ class FakeObjectController(object):
         self.trans_id = 'tx1'
         self.object_ring = FakeRing()
         self.node_timeout = 1
-        self.rate_limit_after_segment = 10
-        self.rate_limit_segments_per_sec = 1
+        self.rate_limit_after_segment = 3
+        self.rate_limit_segments_per_sec = 2
 
     def exception(self, *args):
         self.exception_args = args
@@ -4112,6 +4108,37 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '22')
+
+    def test_load_next_segment_rate_limiting(self):
+        sleep_calls = []
+        def _stub_sleep(sleepy_time):
+            sleep_calls.append(sleepy_time)
+        orig_sleep = swift.proxy.controllers.obj.sleep
+        try:
+            swift.proxy.controllers.obj.sleep = _stub_sleep
+            segit = SegmentedIterable(
+                self.controller, 'lc', [
+                    {'name': 'o1'}, {'name': 'o2'}, {'name': 'o3'},
+                    {'name': 'o4'}, {'name': 'o5'}])
+
+            # rate_limit_after_segment == 3, so the first 3 segments should invoke
+            # no sleeping.
+            for _ in xrange(3):
+                segit._load_next_segment()
+            self.assertEquals([], sleep_calls)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o3')
+
+            # Loading of next (4th) segment starts rate-limiting.
+            segit._load_next_segment()
+            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o4')
+
+            sleep_calls = []
+            segit._load_next_segment()
+            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o5')
+        finally:
+            swift.proxy.controllers.obj.sleep = orig_sleep
 
     def test_load_next_segment_with_two_segments_skip_first(self):
         segit = SegmentedIterable(self.controller, 'lc', [{'name':
