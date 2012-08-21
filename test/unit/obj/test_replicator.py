@@ -27,7 +27,7 @@ import tempfile
 from contextlib import contextmanager
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
-from test.unit import FakeLogger
+from test.unit import FakeLogger, mock
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
@@ -208,6 +208,41 @@ class TestObjectReplicator(unittest.TestCase):
                                                       recalculate=['a83'])
         self.assertEquals(hashed, 1)
         self.assert_('a83' in hashes)
+
+    def test_get_hashes_unmodified(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        with open(os.path.join(df.datadir, normalize_timestamp(
+                    time.time()) + '.ts'), 'wb') as f:
+            f.write('1234567890')
+        part = os.path.join(self.objects, '0')
+        hashed, hashes = object_replicator.get_hashes(part)
+        i = [0]
+        def getmtime(filename):
+            i[0] += 1
+            return 1
+        with mock({'os.path.getmtime': getmtime}):
+            hashed, hashes = object_replicator.get_hashes(
+                part, recalculate=['a83'])
+        self.assertEquals(i[0], 2)
+
+    def test_get_hashes_modified(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        with open(os.path.join(df.datadir, normalize_timestamp(
+                    time.time()) + '.ts'), 'wb') as f:
+            f.write('1234567890')
+        part = os.path.join(self.objects, '0')
+        hashed, hashes = object_replicator.get_hashes(part)
+        i = [0]
+        def getmtime(filename):
+            if i[0] < 3:
+                i[0] += 1
+            return i[0]
+        with mock({'os.path.getmtime': getmtime}):
+            hashed, hashes = object_replicator.get_hashes(
+                part, recalculate=['a83'])
+        self.assertEquals(i[0], 3)
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())

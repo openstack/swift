@@ -166,50 +166,59 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
 
     hashed = 0
     hashes_file = join(partition_dir, HASH_FILE)
-    with lock_path(partition_dir):
-        modified = False
-        hashes = {}
-        try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
-        except Exception:
-            do_listdir = True
-        if do_listdir:
-            hashes = dict(((suff, hashes.get(suff, None))
-                       for suff in os.listdir(partition_dir)
-                       if len(suff) == 3 and isdir(join(partition_dir, suff))))
+    modified = False
+    hashes = {}
+    mtime = -1
+    try:
+        with open(hashes_file, 'rb') as fp:
+            hashes = pickle.load(fp)
+        mtime = os.path.getmtime(hashes_file)
+    except Exception:
+        do_listdir = True
+    if do_listdir:
+        for suff in os.listdir(partition_dir):
+            if len(suff) == 3 and isdir(join(partition_dir, suff)):
+                hashes.setdefault(suff, None)
+        modified = True
+    hashes.update((hash_, None) for hash_ in recalculate)
+    for suffix, hash_ in hashes.items():
+        if not hash_:
+            suffix_dir = join(partition_dir, suffix)
+            if isdir(suffix_dir):
+                try:
+                    hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
+                    hashed += 1
+                except OSError:
+                    logging.exception(_('Error hashing suffix'))
+            else:
+                del hashes[suffix]
             modified = True
-        for hash_ in recalculate:
-            hashes[hash_] = None
-        for suffix, hash_ in hashes.items():
-            if not hash_:
-                suffix_dir = join(partition_dir, suffix)
-                if os.path.exists(suffix_dir):
-                    try:
-                        hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
-                        hashed += 1
-                    except OSError:
-                        logging.exception(_('Error hashing suffix'))
-                        hashes[suffix] = None
-                else:
-                    del hashes[suffix]
-                modified = True
-                sleep()
-        if modified:
-            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+    if modified:
+        with lock_path(partition_dir):
+            if not os.path.exists(hashes_file) or \
+                        os.path.getmtime(hashes_file) == mtime:
+                write_pickle(
+                    hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+                return hashed, hashes
+        return get_hashes(partition_dir, recalculate, do_listdir,
+                          reclaim_age)
+    else:
         return hashed, hashes
 
 
-def tpooled_get_hashes(*args, **kwargs):
+def tpool_reraise(func, *args, **kwargs):
     """
     Hack to work around Eventlet's tpool not catching and reraising Timeouts.
-    We return the Timeout, Timeout if it's raised, the caller looks for it
-    and reraises it if found.
     """
-    try:
-        return get_hashes(*args, **kwargs)
-    except Timeout, err:
-        return err, err
+    def inner():
+        try:
+            return func(*args, **kwargs)
+        except BaseException, err:
+            return err
+    resp = tpool.execute(inner)
+    if isinstance(resp, BaseException):
+        raise resp
+    return resp
 
 
 class ObjectReplicator(Daemon):
@@ -392,12 +401,9 @@ class ObjectReplicator(Daemon):
         self.logger.increment('partition.update.count.%s' % (job['device'],))
         begin = time.time()
         try:
-            hashed, local_hash = tpool.execute(tpooled_get_hashes, job['path'],
+            hashed, local_hash = tpool_reraise(get_hashes, job['path'],
                     do_listdir=(self.replication_count % 10) == 0,
                     reclaim_age=self.reclaim_age)
-            # See tpooled_get_hashes "Hack".
-            if isinstance(hashed, BaseException):
-                raise hashed
             self.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
             attempts_left = len(job['nodes'])
@@ -428,12 +434,9 @@ class ObjectReplicator(Daemon):
                             local_hash[suffix] != remote_hash.get(suffix, -1)]
                     if not suffixes:
                         continue
-                    hashed, recalc_hash = tpool.execute(tpooled_get_hashes,
+                    hashed, recalc_hash = tpool_reraise(get_hashes,
                         job['path'], recalculate=suffixes,
                         reclaim_age=self.reclaim_age)
-                    # See tpooled_get_hashes "Hack".
-                    if isinstance(hashed, BaseException):
-                        raise hashed
                     self.logger.update_stats('suffix.hashes', hashed)
                     local_hash = recalc_hash
                     suffixes = [suffix for suffix in local_hash if
