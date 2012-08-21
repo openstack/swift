@@ -102,9 +102,9 @@ If you want to use a loopback device instead of another partition, follow these 
   #. `chown -R <your-user-name>:<your-group-name> /etc/swift /srv/[1-4]/ /var/run/swift` -- **Make sure to include the trailing slash after /srv/[1-4]/**
   #. Add to `/etc/rc.local` (before the `exit 0`)::
 
-        mkdir /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
+        mkdir -p /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
         chown <your-user-name>:<your-group-name> /var/cache/swift*
-        mkdir /var/run/swift
+        mkdir -p /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
 
 .. _rsync-section:
@@ -256,6 +256,7 @@ Optional: Setting up rsyslog for individual logging
 
   #. `mkdir -p /var/log/swift/hourly`
   #. `chown -R syslog.adm /var/log/swift`
+  #. `chmod -R g+w /var/log/swift`
   #. `service rsyslog restart`
 
 ------------------------------------------------
@@ -733,6 +734,10 @@ On Ubuntu:
 On MacOS:
   #. `sudo easy_install -U sphinx`
   #. `python setup.py build_sphinx`
+
+Install tox so you find Py26 and PEP8 problems before Jenkins does:
+  #. `sudo apt-get install python2.6-dev python-pip`
+  #. `sudo pip install tox`
 
 ----------------
 Debugging Issues
