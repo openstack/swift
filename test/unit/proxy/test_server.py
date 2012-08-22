@@ -450,13 +450,28 @@ class TestController(unittest.TestCase):
             proxy_server.http_connect = \
                 fake_http_connect(404, 404, 404, 503, 201, 503)
             exc = None
-            try:
-                partition, nodes, count = \
-                    self.controller.account_info(self.account, autocreate=True)
-            except Exception, err:
-                exc = err
-            self.assertEquals(str(exc),
-                              "Could not autocreate account '/some_account'")
+            partition, nodes, count = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes, is_none=True)
+            self.assertEquals(None, count)
+
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 403, 403, 403)
+            exc = None
+            partition, nodes, count = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes, is_none=True)
+            self.assertEquals(None, count)
+            
+            self.memcache.store = {}
+            proxy_server.http_connect = \
+                fake_http_connect(404, 404, 404, 409, 409, 409)
+            exc = None
+            partition, nodes, count = \
+                self.controller.account_info(self.account, autocreate=True)
+            self.check_account_info_return(partition, nodes, is_none=True)
+            self.assertEquals(None, count)
 
     def check_container_info_return(self, ret, is_none=False):
         if is_none:
@@ -3812,6 +3827,11 @@ class TestAccountController(unittest.TestCase):
             controller.app.account_autocreate = True
             self.assert_status_map(controller.GET,
                 (404, 404, 404, 201, 201, 201, 204), 204)
+            self.assert_status_map(controller.GET,
+                (404, 404, 404, 403, 403, 403, 403), 403)
+            self.assert_status_map(controller.GET,
+                (404, 404, 404, 409, 409, 409, 409), 409)
+
 
     def test_HEAD(self):
         with save_globals():
@@ -3840,6 +3860,10 @@ class TestAccountController(unittest.TestCase):
             controller.app.account_autocreate = True
             self.assert_status_map(controller.HEAD,
                 (404, 404, 404, 201, 201, 201, 204), 204)
+            self.assert_status_map(controller.HEAD,
+                (404, 404, 404, 403, 403, 403, 403), 403)
+            self.assert_status_map(controller.HEAD,
+                (404, 404, 404, 409, 409, 409, 409), 409)
 
     def test_POST_autocreate(self):
         with save_globals():
@@ -3850,6 +3874,10 @@ class TestAccountController(unittest.TestCase):
             controller.app.account_autocreate = True
             self.assert_status_map(controller.POST,
                 (404, 404, 404, 201, 201, 201), 201)
+            self.assert_status_map(controller.POST,
+                (404, 404, 404, 403, 403, 403, 403), 403)
+            self.assert_status_map(controller.POST,
+                (404, 404, 404, 409, 409, 409, 409), 409)
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')
