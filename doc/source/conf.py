@@ -207,8 +207,8 @@ htmlhelp_basename = 'swiftdoc'
 # (source start file, target name, title, author, documentclass
 # [howto/manual]).
 latex_documents = [
-  ('index', 'Swift.tex', u'Swift Documentation',
-   u'Swift Team', 'manual'),
+    ('index', 'Swift.tex', u'Swift Documentation',
+     u'Swift Team', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
