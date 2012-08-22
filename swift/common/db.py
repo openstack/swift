@@ -1048,7 +1048,7 @@ class ContainerBroker(DatabaseBroker):
             conn.commit()
 
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
-                          path=None, format=None):
+                          path=None):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -1061,7 +1061,6 @@ class ContainerBroker(DatabaseBroker):
         :param delimeter: delimeter for query
         :param path: if defined, will set the prefix and delimter based on
                      the path
-        :param format: TOOD: remove as it is no longer used
 
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag)
@@ -1373,14 +1372,14 @@ class AccountBroker(DatabaseBroker):
     def reclaim(self, container_timestamp, sync_timestamp):
         """
         Delete rows from the container table that are marked deleted and
-        whose created_at timestamp is < object_timestamp.  Also deletes rows
+        whose created_at timestamp is < container_timestamp.  Also deletes rows
         from incoming_sync and outgoing_sync where the updated_at timestamp is
         < sync_timestamp.
 
         In addition, this calls the DatabaseBroker's :func:_reclaim method.
 
-        :param object_timestamp: max created_at timestamp of container rows to
-                                 delete
+        :param container_timestamp: max created_at timestamp of container rows
+                                    to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
 
