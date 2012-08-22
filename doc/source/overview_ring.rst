@@ -29,7 +29,7 @@ Ring Builder
 
 The rings are built and managed manually by a utility called the ring-builder.
 The ring-builder assigns partitions to devices and writes an optimized Python
-structure to a gzipped, pickled file on disk for shipping out to the servers.
+structure to a gzipped, serialized file on disk for shipping out to the servers.
 The server processes just check the modification time of the file occasionally
 and reload their in-memory copies of the ring structure as needed. Because of
 how the ring-builder manages changes to the ring, using a slightly older ring

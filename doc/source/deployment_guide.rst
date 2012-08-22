@@ -351,6 +351,7 @@ set log_facility    LOG_LOCAL0        Syslog log facility
 set log_level       INFO              Logging level
 node_timeout        3                 Request timeout to external services
 conn_timeout        0.5               Connection timeout to external services
+allow_versions      false             Enable/Disable object versioning feature
 ==================  ================  ========================================
 
 [container-replicator]
@@ -592,7 +593,7 @@ max_containers_per_account    0                If set to a positive value,
                                                recheck_account_existence before
                                                the 403s kick in.
 max_containers_whitelist                       This is a comma separated list
-                                               of account hashes that ignore
+                                               of account names that ignore
                                                the max_containers_per_account
                                                cap.
 rate_limit_after_segment      10               Rate limit the download of
