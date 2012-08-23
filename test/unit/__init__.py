@@ -234,3 +234,25 @@ class MockTrue(object):
 
     def __ne__(self, other):
         return other is not True
+
+
+@contextmanager
+def mock(update):
+    returns = []
+    deletes = []
+    for key, value in update.items():
+        imports = key.split('.')
+        attr = imports.pop(-1)
+        module = __import__(imports[0], fromlist=imports[1:])
+        for modname in imports[1:]:
+            module = getattr(module, modname)
+        if hasattr(module, attr):
+            returns.append((module, attr, getattr(module, attr)))
+        else:
+            deletes.append((module, attr))
+        setattr(module, attr, value)
+    yield True
+    for module, attr, value in returns:
+        setattr(module, attr, value)
+    for module, attr in deletes:
+        delattr(module, attr)

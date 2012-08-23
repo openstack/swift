@@ -17,8 +17,6 @@
 
 import cPickle as pickle
 import os
-import sys
-import shutil
 import unittest
 from shutil import rmtree
 from StringIO import StringIO
@@ -37,7 +35,6 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
 from swift.common.exceptions import DiskFileNotExist
-from swift.obj import replicator
 from eventlet import tpool
 
 
@@ -2124,13 +2121,11 @@ class TestObjectController(unittest.TestCase):
         def fake_get_hashes(*args, **kwargs):
             return 0, {1: 2}
 
-        def my_tpool_execute(*args, **kwargs):
-            func = args[0]
-            args = args[1:]
+        def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = replicator.get_hashes
-        replicator.get_hashes = fake_get_hashes
+        was_get_hashes = object_server.get_hashes
+        object_server.get_hashes = fake_get_hashes
         was_tpool_exe = tpool.execute
         tpool.execute = my_tpool_execute
         try:
@@ -2143,20 +2138,18 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(p_data, {1: 2})
         finally:
             tpool.execute = was_tpool_exe
-            replicator.get_hashes = was_get_hashes
+            object_server.get_hashes = was_get_hashes
 
     def test_REPLICATE_timeout(self):
 
         def fake_get_hashes(*args, **kwargs):
             raise Timeout()
 
-        def my_tpool_execute(*args, **kwargs):
-            func = args[0]
-            args = args[1:]
+        def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = replicator.get_hashes
-        replicator.get_hashes = fake_get_hashes
+        was_get_hashes = object_server.get_hashes
+        object_server.get_hashes = fake_get_hashes
         was_tpool_exe = tpool.execute
         tpool.execute = my_tpool_execute
         try:
@@ -2166,7 +2159,7 @@ class TestObjectController(unittest.TestCase):
             self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
         finally:
             tpool.execute = was_tpool_exe
-            replicator.get_hashes = was_get_hashes
+            object_server.get_hashes = was_get_hashes
 
 if __name__ == '__main__':
     unittest.main()
