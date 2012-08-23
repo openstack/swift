@@ -22,7 +22,7 @@ from webob import Request
 
 from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
-from swift.proxy.server import get_container_memcache_key
+from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
 
 
