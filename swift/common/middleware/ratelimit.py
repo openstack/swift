@@ -16,7 +16,7 @@ import eventlet
 from webob import Request, Response
 
 from swift.common.utils import split_path, cache_from_env, get_logger
-from swift.proxy.server import get_container_memcache_key
+from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
 
 
