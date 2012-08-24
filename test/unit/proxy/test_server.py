@@ -20,6 +20,7 @@ from logging.handlers import SysLogHandler
 import os
 import sys
 import unittest
+import signal
 from ConfigParser import ConfigParser
 from contextlib import contextmanager
 from cStringIO import StringIO
@@ -703,6 +704,42 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
+
+    def test_GET_newest_large_file(self):
+        calls = [0]
+
+        def handler(_junk1, _junk2):
+            calls[0] += 1
+
+        try:
+            signal.signal(signal.SIGPIPE, handler)
+            prolis = _test_sockets[0]
+            prosrv = _test_servers[0]
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            obj = 'a' * (1024 * 1024)
+            path = '/v1/a/c/o.large'
+            fd.write('PUT %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (path, str(len(obj)),  obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEqual(headers[:len(exp)], exp)
+            req = Request.blank(path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Content-Type': 'application/octet-stream',
+                         'X-Newest':'true'})
+            res = req.get_response(prosrv)
+            self.assertEqual(res.status_int, 200)
+            self.assertEqual(res.body, obj)
+            self.assertEqual(calls[0], 0)
+        finally:
+            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
     def test_PUT_auto_content_type(self):
         with save_globals():
