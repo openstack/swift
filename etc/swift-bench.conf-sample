@@ -1,0 +1,60 @@
+[bench]
+# auth = http://localhost:8080/auth/v1.0
+# user = test:tester
+# key = testing
+# auth_version = 1.0
+# log-level = INFO
+# timeout = 10
+
+# You can configure PUT, GET, and DELETE concurrency independently or set all
+# three with "concurrency"
+# put_concurrency = 10
+# get_concurrency = 10
+# del_concurrency = 10
+# concurrency =
+
+# A space-sep list of files whose contents will be read and randomly chosen
+# as the body (object contents) for each PUT.
+# object_sources =
+
+# If object_sources is not set and lower_object_size != upper_object_size,
+# each PUT will randomly select an object size between the two values.  Units
+# are bytes.
+# lower_object_size = 10
+# upper_object_size = 10
+
+# If object_sources is not set and lower_object_size == upper_object_size,
+# every object PUT will contain this many bytes.
+# object_size = 1
+
+# num_objects = 1000
+# num_gets = 10000
+# num_containers = 20
+
+# The base name for created containers.
+# container_name = (randomly-chosen uuid4)
+
+# Should swift-bench benchmark DELETEing the created objects and then delete
+# all created containers?
+# delete = yes
+
+# Without use_proxy, swift-bench will talk directly to the backend Swift
+# servers.  Doing that will require "url", "account", and at least one
+# "devices" entry.
+# use_proxy = yes
+
+# If use_proxy = yes, this will override any returned X-Storage-Url returned
+# by authenticaion (the account name will still be extracted from
+# X-Storage-Url though and may NOT be set with the "account" conf var).  If
+# use_proxy = no, this setting is required and used as the X-Storage-Url when
+# deleting containers and as a source for IP and port for back-end Swift server
+# connections.  The IP and port specified in this setting must have local
+# storage access to every device specified in "devices".
+# url =
+
+# Only used (and required) when use_proxy = no.
+# account =
+
+# A space-sep list of devices names; only relevant (and required) when
+# use_proxy = no.
+# devices = sdb1
