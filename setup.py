@@ -47,6 +47,7 @@ setup(
         'bin/swift-account-replicator',
         'bin/swift-account-server',
         'bin/swift-bench',
+        'bin/swift-bench-client',
         'bin/swift-container-auditor',
         'bin/swift-container-replicator',
         'bin/swift-container-server',
