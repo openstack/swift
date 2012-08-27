@@ -99,7 +99,7 @@ def load_libc_function(func_name, log_error=True):
     :param func_name: name of the function to pull from libc.
     """
     try:
-        libc = ctypes.CDLL(ctypes.util.find_library('c'))
+        libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
         return getattr(libc, func_name)
     except AttributeError:
         if log_error:
@@ -127,6 +127,9 @@ def get_param(req, name, default=None):
 class FallocateWrapper(object):
 
     def __init__(self):
+        ## fallocate is prefered because we need the on-disk size to match
+        ## the allocated size. Older versions of sqlite require that the
+        ## two sizes match. However, fallocate is Linux only.
         for func in ('fallocate', 'posix_fallocate'):
             self.func_name = func
             self.fallocate = load_libc_function(func, log_error=False)
@@ -146,7 +149,7 @@ class FallocateWrapper(object):
 
 def fallocate(fd, size):
     """
-    Pre-allocate disk space for a file file.
+    Pre-allocate disk space for a file.
 
     :param fd: file descriptor
     :param size: size to allocate (in bytes)
@@ -157,9 +160,8 @@ def fallocate(fd, size):
     if size > 0:
         # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
         ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
-        # XXX: in (not very thorough) testing, errno always seems to be 0?
         err = ctypes.get_errno()
-        if ret and err not in (0, errno.ENOSYS):
+        if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP):
             raise OSError(err, 'Unable to fallocate(%s)' % size)
 
 

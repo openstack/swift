@@ -2161,5 +2161,39 @@ class TestObjectController(unittest.TestCase):
             tpool.execute = was_tpool_exe
             object_server.get_hashes = was_get_hashes
 
+    def test_PUT_with_full_drive(self):
+
+        class IgnoredBody():
+
+            def __init__(self):
+                self.read_called = False
+
+            def read(self, size=-1):
+                if not self.read_called:
+                    self.read_called = True
+                    return 'VERIFY'
+                return ''
+
+        def fake_fallocate(fd, size):
+            raise OSError(42, 'Unable to fallocate(%d)' % size)
+
+        orig_fallocate = object_server.fallocate
+        try:
+            object_server.fallocate = fake_fallocate
+            timestamp = normalize_timestamp(time())
+            body_reader = IgnoredBody()
+            req = Request.blank('/sda1/p/a/c/o',
+                    environ={'REQUEST_METHOD': 'PUT',
+                             'wsgi.input': body_reader},
+                    headers={'X-Timestamp': timestamp,
+                             'Content-Length': '6',
+                             'Content-Type': 'application/octet-stream',
+                             'Expect': '100-continue'})
+            resp = self.object_controller.PUT(req)
+            self.assertEquals(resp.status_int, 507)
+            self.assertFalse(body_reader.read_called)
+        finally:
+            object_server.fallocate = orig_fallocate
+
 if __name__ == '__main__':
     unittest.main()
