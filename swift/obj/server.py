@@ -230,7 +230,6 @@ class DiskFile(object):
                 if verify_file:
                     self._handle_close_quarantine()
             except (Exception, Timeout), e:
-                import traceback
                 self.logger.error(_('ERROR DiskFile %(data_file)s in '
                      '%(data_dir)s close failure: %(exc)s : %(stack)'),
                      {'exc': e, 'stack': ''.join(traceback.format_stack()),
