@@ -40,7 +40,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 
 class ContainerController(Controller):
     """WSGI controller for container requests"""
-    server_type = _('Container')
+    server_type = 'Container'
 
     # Ensure these are all lowercase
     pass_through_headers = ['x-container-read', 'x-container-write',

@@ -232,7 +232,7 @@ class SegmentedIterable(object):
 
 class ObjectController(Controller):
     """WSGI controller for object requests."""
-    server_type = _('Object')
+    server_type = 'Object'
 
     def __init__(self, app, account_name, container_name, object_name,
                  **kwargs):
