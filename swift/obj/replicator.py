@@ -33,7 +33,7 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
         compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
-        rsync_ip
+        rsync_ip, mkdirs
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -539,6 +539,7 @@ class ObjectReplicator(Daemon):
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
             if not os.path.exists(obj_path):
+                mkdirs(obj_path)
                 continue
             for partition in os.listdir(obj_path):
                 try:
