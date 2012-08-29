@@ -7,6 +7,7 @@
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
+# disable_fallocate = false
 # This is a comma separated list of hosts allowed in the X-Container-Sync-To
 # field for containers.
 # allowed_sync_hosts = 127.0.0.1

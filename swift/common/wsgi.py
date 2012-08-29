@@ -30,8 +30,9 @@ from eventlet.green import socket, ssl
 from webob import Request
 from urllib import unquote
 
-from swift.common.utils import get_logger, drop_privileges, \
-    validate_configuration, capture_stdio, NullLogger
+from swift.common.utils import capture_stdio, disable_fallocate, \
+    drop_privileges, get_logger, NullLogger, TRUE_VALUES, \
+    validate_configuration
 
 
 def monkey_patch_mimetools():
@@ -123,6 +124,10 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     else:
         logger = get_logger(conf, log_name,
             log_to_console=kwargs.pop('verbose', False), log_route='wsgi')
+
+    # disable fallocate if desired
+    if conf.get('disable_fallocate', 'no').lower() in TRUE_VALUES:
+        disable_fallocate()
 
     # bind to address and port
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))

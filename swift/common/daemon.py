@@ -84,6 +84,11 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     else:
         logger = utils.get_logger(conf, conf.get('log_name', section_name),
            log_to_console=kwargs.pop('verbose', False), log_route=section_name)
+
+    # disable fallocate if desired
+    if conf.get('disable_fallocate', 'no').lower() in utils.TRUE_VALUES:
+        utils.disable_fallocate()
+
     try:
         klass(conf).run(once=once, **kwargs)
     except KeyboardInterrupt:

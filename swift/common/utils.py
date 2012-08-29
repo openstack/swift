@@ -126,7 +126,11 @@ def get_param(req, name, default=None):
 
 class FallocateWrapper(object):
 
-    def __init__(self):
+    def __init__(self, noop=False):
+        if noop:
+            self.func_name = 'posix_fallocate'
+            self.fallocate = noop_libc_function
+            return
         ## fallocate is prefered because we need the on-disk size to match
         ## the allocated size. Older versions of sqlite require that the
         ## two sizes match. However, fallocate is Linux only.
@@ -145,6 +149,11 @@ class FallocateWrapper(object):
             'posix_fallocate': (fd, offset, len)
         }
         return self.fallocate(*args[self.func_name])
+
+
+def disable_fallocate():
+    global _sys_fallocate
+    _sys_fallocate = FallocateWrapper(noop=True)
 
 
 def fallocate(fd, size):

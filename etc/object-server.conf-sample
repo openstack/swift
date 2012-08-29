@@ -7,6 +7,7 @@
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
+# disable_fallocate = false
 # expiring_objects_container_divisor = 86400
 # You can specify default log routing here if you want:
 # log_name = swift

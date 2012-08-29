@@ -331,6 +331,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/1/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6012
         user = <your-user-name>
         log_facility = LOG_LOCAL2
@@ -357,6 +358,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/2/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6022
         user = <your-user-name>
         log_facility = LOG_LOCAL3
@@ -383,6 +385,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/3/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6032
         user = <your-user-name>
         log_facility = LOG_LOCAL4
@@ -409,6 +412,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/4/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6042
         user = <your-user-name>
         log_facility = LOG_LOCAL5
@@ -435,6 +439,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/1/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6011
         user = <your-user-name>
         log_facility = LOG_LOCAL2
@@ -463,6 +468,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/2/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6021
         user = <your-user-name>
         log_facility = LOG_LOCAL3
@@ -491,6 +497,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/3/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6031
         user = <your-user-name>
         log_facility = LOG_LOCAL4
@@ -519,6 +526,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/4/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6041
         user = <your-user-name>
         log_facility = LOG_LOCAL5
@@ -548,6 +556,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/1/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6010
         user = <your-user-name>
         log_facility = LOG_LOCAL2
@@ -574,6 +583,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/2/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6020
         user = <your-user-name>
         log_facility = LOG_LOCAL3
@@ -600,6 +610,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/3/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6030
         user = <your-user-name>
         log_facility = LOG_LOCAL4
@@ -626,6 +637,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [DEFAULT]
         devices = /srv/4/node
         mount_check = false
+        disable_fallocate = true
         bind_port = 6040
         user = <your-user-name>
         log_facility = LOG_LOCAL5
