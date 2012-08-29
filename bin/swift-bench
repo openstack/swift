@@ -26,43 +26,43 @@ from swift.common.utils import readconf, LogAdapter
 
 # The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
-    'auth': '',
-    'user': '',
-    'key': '',
-    'object_sources': '',
+    'auth': os.environ.get('ST_AUTH', ''),
+    'user': os.environ.get('ST_USER', ''),
+    'key': os.environ.get('ST_KEY', ''),
+    'auth_version': '1.0',
+    'use_proxy': 'yes',
     'put_concurrency': '10',
     'get_concurrency': '10',
     'del_concurrency': '10',
-    'concurrency': '',
-    'object_size': '1',
-    'lower_object_size': '10',
+    'concurrency': '',  # set all 3 in one shot
+    'object_sources': '',  # set of file contents to read and use for PUTs
+    'lower_object_size': '10',  # bounded random size used if these differ
     'upper_object_size': '10',
+    'object_size': '1',  # only if not object_sources and lower == upper
     'num_objects': '1000',
     'num_gets': '10000',
     'delete': 'yes',
-    'container_name': uuid.uuid4().hex,
+    'container_name': uuid.uuid4().hex,  # really "container name base"
     'num_containers': '20',
-    'use_proxy': 'yes',
-    'url': '',
-    'account': '',
-    'devices': 'sdb1',
+    'url': '',  # used when use_proxy = no or overrides auth X-Storage-Url
+    'account': '',  # used when use_proxy = no
+    'devices': 'sdb1',  # space-sep list
     'log_level': 'INFO',
     'timeout': '10',
-    'auth_version': '1.0',
-    }
+}
 
 SAIO_DEFAULTS = {
     'auth': 'http://localhost:8080/auth/v1.0',
     'user': 'test:tester',
     'key': 'testing',
-    }
+}
 
 if __name__ == '__main__':
     usage = "usage: %prog [OPTIONS] [CONF_FILE]"
     usage += """\n\nConf file with SAIO defaults:
 
     [bench]
-    auth = http://localhost:8080/v1.0
+    auth = http://localhost:8080/auth/v1.0
     user = test:tester
     key = testing
     concurrency = 10
@@ -87,6 +87,9 @@ if __name__ == '__main__':
                       help='Number of concurrent connections to use')
     parser.add_option('-s', '--object-size', dest='object_size',
                       help='Size of objects to PUT (in bytes)')
+    parser.add_option('-l', '--lower-object-size', dest='lower_object_size',
+                      help=('Lower size of objects (in bytes); '
+                            '--object-size will be upper-object-size'))
     parser.add_option('-n', '--num-objects', dest='num_objects',
                       help='Number of objects to PUT')
     parser.add_option('-g', '--num-gets', dest='num_gets',
@@ -102,12 +105,18 @@ if __name__ == '__main__':
     options, args = parser.parse_args()
     if options.saio:
         CONF_DEFAULTS.update(SAIO_DEFAULTS)
+    if getattr(options, 'lower_object_size', None):
+        if options.object_size <= options.lower_object_size:
+            raise ValueError('--lower-object-size (%s) must be '
+                             '< --object-size (%s)' %
+                             (options.lower_object_size, options.object_size))
+        CONF_DEFAULTS['upper_object_size'] = options.object_size
     if args:
         conf = args[0]
         if not os.path.exists(conf):
             sys.exit("No such conf file: %s" % conf)
         conf = readconf(conf, 'bench', log_name='swift-bench',
-            defaults=CONF_DEFAULTS)
+                        defaults=CONF_DEFAULTS)
     else:
         conf = CONF_DEFAULTS
     parser.set_defaults(**conf)
