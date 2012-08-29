@@ -39,7 +39,7 @@ from swift.proxy.controllers.base import Controller
 
 class AccountController(Controller):
     """WSGI controller for account requests"""
-    server_type = _('Account')
+    server_type = 'Account'
 
     def __init__(self, app, account_name, **kwargs):
         Controller.__init__(self, app)

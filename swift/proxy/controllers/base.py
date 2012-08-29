@@ -87,7 +87,7 @@ def get_container_memcache_key(account, container):
 
 class Controller(object):
     """Base WSGI controller class for the proxy"""
-    server_type = _('Base')
+    server_type = 'Base'
 
     # Ensure these are all lowercase
     pass_through_headers = []
