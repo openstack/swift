@@ -166,9 +166,9 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
-        constraints.os = MockTrue() # mock os module
+        constraints.os = MockTrue()  # mock os module
         self.assertTrue(constraints.check_mount('/srv', '1'))
-        reload(constraints) # put it back
+        reload(constraints)  # put it back
 
     def test_check_float(self):
         self.assertFalse(constraints.check_float(''))

@@ -41,10 +41,13 @@ def lock_parent_directory(filename):
 class FakeRing:
     class Ring:
         devs = []
+
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
+
         def get_part_nodes(self, part):
             return []
+
         def get_more_nodes(self, *args):
             return []
 
@@ -66,8 +69,10 @@ class FakeRingWithNodes:
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
+
         def get_part_nodes(self, part):
             return self.devs[:3]
+
         def get_more_nodes(self, *args):
             return (d for d in self.devs[3:])
 
@@ -75,6 +80,7 @@ class FakeRingWithNodes:
 class FakeProcess:
     def __init__(self, *codes):
         self.codes = iter(codes)
+
     def __call__(self, *args, **kwargs):
         class Failure:
             def communicate(innerself):
@@ -99,11 +105,14 @@ class ReplHttp:
         self.response = response
     replicated = False
     host = 'localhost'
+
     def replicate(self, *args):
         self.replicated = True
+
         class Response:
             status = 200
             data = self.response
+
             def read(innerself):
                 return self.response
         return Response()
@@ -114,6 +123,7 @@ class ChangingMtimesOs:
         self.mtime = 0
         self.path = self
         self.basename = os.path.basename
+
     def getmtime(self, file):
         self.mtime += 1
         return self.mtime
@@ -124,31 +134,41 @@ class FakeBroker:
     get_repl_missing_table = False
     stub_replication_info = None
     db_type = 'container'
+
     def __init__(self, *args, **kwargs):
         return None
+
     @contextmanager
     def lock(self):
         yield True
+
     def get_sync(self, *args, **kwargs):
         return 5
+
     def get_syncs(self):
         return []
+
     def get_items_since(self, point, *args):
         if point == 0:
             return [{'ROWID': 1}]
         return []
+
     def merge_syncs(self, *args, **kwargs):
         self.args = args
+
     def merge_items(self, *args):
         self.args = args
+
     def get_replication_info(self):
         if self.get_repl_missing_table:
             raise Exception('no such table')
         if self.stub_replication_info:
             return self.stub_replication_info
         return {'delete_timestamp': 0, 'put_timestamp': 1, 'count': 0}
+
     def reclaim(self, item_timestamp, sync_timestamp):
         pass
+
     def get_info(self):
         pass
 
@@ -169,20 +189,23 @@ class TestDBReplicator(unittest.TestCase):
     def stub_delete_db(self, object_file):
         self.delete_db_calls.append(object_file)
 
-
     def test_repl_connection(self):
         node = {'ip': '127.0.0.1', 'port': 80, 'device': 'sdb1'}
         conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
                     logging.getLogger())
+
         def req(method, path, body, headers):
             self.assertEquals(method, 'REPLICATE')
             self.assertEquals(headers['Content-Type'], 'application/json')
+
         class Resp:
-            def read(self): return 'data'
+            def read(self):
+                return 'data'
         resp = Resp()
         conn.request = req
         conn.getresponse = lambda *args: resp
         self.assertEquals(conn.replicate(1, 2, 3), resp)
+
         def other_req(method, path, body, headers):
             raise Exception('blah')
         conn.request = other_req
@@ -236,7 +259,8 @@ class TestDBReplicator(unittest.TestCase):
                     'created_at': 100, 'put_timestamp': 0,
                     'delete_timestamp': 0,
                     'metadata': {'Test': ('Value', normalize_timestamp(1))}}
-        replicator._http_connect = lambda *args: ReplHttp('{"id": 3, "point": -1}')
+        replicator._http_connect = lambda *args: ReplHttp(
+                                                   '{"id": 3, "point": -1}')
         self.assertEquals(replicator._repl_to_node(
             fake_node, FakeBroker(), '0', fake_info), True)
 
@@ -337,8 +361,10 @@ class TestDBReplicator(unittest.TestCase):
 #        self.assertEquals(rpc.dispatch(('drv', 'part', 'hash'), ['op',]
 #                ).status_int, 507)
 #        rpc.mount_check = False
-#        rpc.rsync_then_merge = lambda drive, db_file, args: self.assertEquals(args, ['test1'])
-#        rpc.complete_rsync = lambda drive, db_file, args: self.assertEquals(args, ['test2'])
+#        rpc.rsync_then_merge = lambda drive, db_file,
+#                                      args: self.assertEquals(args, ['test1'])
+#        rpc.complete_rsync = lambda drive, db_file,
+#                                      args: self.assertEquals(args, ['test2'])
 #        rpc.dispatch(('drv', 'part', 'hash'), ['rsync_then_merge','test1'])
 #        rpc.dispatch(('drv', 'part', 'hash'), ['complete_rsync','test2'])
 #        rpc.dispatch(('drv', 'part', 'hash'), ['other_op',])
@@ -364,4 +390,3 @@ class TestDBReplicator(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
