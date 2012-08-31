@@ -1,3 +1,73 @@
+swift (1.7.0)
+
+    * Use custom encoding for ring data instead of pickle
+
+      Serialize RingData in a versioned, custom format which is a combination
+      of a JSON-encoded header and .tostring() dumps of the
+      replica2part2dev_id arrays.  This format deserializes hundreds of times
+      faster than rings serialized with Python 2.7's pickle (a significant
+      performance regression for ring loading between Python 2.6 and Python
+      2.7).  Fixes bug 1031954.
+
+      The new implementation is backward-compatible; if a ring
+      does not begin with a new-style magic string, it is assumed to be an
+      old-style pickle-dumped ring and is handled as before.  So new Swift
+      code can read old rings, but old Swift code will not be able to read
+      newly-serialized rings.
+
+    * Do not use pickle for serialization in memcache, but JSON
+
+      To avoid issues on upgrades (unability to read pickled values, and cache
+      poisoning for old servers not understanding JSON), we add a
+      memcache_serialization_support configuration option, with the following
+      values:
+
+       0 = older, insecure pickle serialization
+       1 = json serialization but pickles can still be read (still insecure)
+       2 = json serialization only (secure and the default)
+
+      To avoid an instant full cache flush, existing installations should
+      upgrade with 0, then set to 1 and reload, then after some time (24
+      hours) set to 2 and reload. Support for 0 and 1 will be removed in
+      future versions.
+
+    * Update proxy-server StatsD logging. This is a significant change to the
+      existing StatsD intigration. Docs for this feature can be found in
+      doc/source/admin_guide.rst.
+
+    * Improved swift-bench to allow random object sizes and better usability
+
+    * Updated probe tests
+
+    * Replicator removal metrics are now generated on a per-device basis
+
+    * Made object replicator locking more optimistic
+
+    * Split proxy-server code into separate modules
+
+    * Fixed bug where swift-recon would not report all unmounted drives
+
+    * Fixed issue where a LockTimeout may have caused a file descriptor to
+      not be closed properly
+
+    * Fixed a bug where an error may have caused the proxy to stop returning
+      data to a client
+
+    * Fixed bug where expirer would get confused by odd deletion times
+
+    * Fixed a bug where auto-creating accounts would return an error if they
+      were recreated after being deleted
+
+    * Fix when rate_limit_after_segment kicks in
+
+    * fallocate() failures properly return HTTPInsufficientStorage from
+      object-server before reading from wsgi.input, allowing the proxy
+      server to quickly error_limit that node
+
+    * Fixed error with large object manifests and x-newest headers on GET
+
+    * Various other minor bug fixes and improvements
+
 swift (1.6.0)
 
     * Removed bin/swift and swift/common/client.py from the swift repo. These
