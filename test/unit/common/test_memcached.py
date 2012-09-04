@@ -17,7 +17,6 @@
 """ Tests for swift.common.utils """
 
 from __future__ import with_statement
-import hashlib
 import logging
 import socket
 import time
@@ -30,17 +29,22 @@ from test.unit import NullLoggingHandler
 
 class ExplodingMockMemcached(object):
     exploded = False
+
     def sendall(self, string):
         self.exploded = True
         raise socket.error()
+
     def readline(self):
         self.exploded = True
         raise socket.error()
+
     def read(self, size):
         self.exploded = True
         raise socket.error()
 
+
 class MockMemcached(object):
+
     def __init__(self):
         self.inbuf = ''
         self.outbuf = ''
@@ -58,13 +62,13 @@ class MockMemcached(object):
             parts = cmd.split()
             if parts[0].lower() == 'set':
                 self.cache[parts[1]] = parts[2], parts[3], \
-                        self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4])+2:]
+                    self.inbuf[:int(parts[4])]
+                self.inbuf = self.inbuf[int(parts[4]) + 2:]
                 if len(parts) < 6 or parts[5] != 'noreply':
                     self.outbuf += 'STORED\r\n'
             elif parts[0].lower() == 'add':
                 value = self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4])+2:]
+                self.inbuf = self.inbuf[int(parts[4]) + 2:]
                 if parts[1] in self.cache:
                     if len(parts) < 6 or parts[5] != 'noreply':
                         self.outbuf += 'NOT_STORED\r\n'
@@ -85,7 +89,8 @@ class MockMemcached(object):
                 for key in parts[1:]:
                     if key in self.cache:
                         val = self.cache[key]
-                        self.outbuf += 'VALUE %s %s %s\r\n' % (key, val[0], len(val[2]))
+                        self.outbuf += 'VALUE %s %s %s\r\n' % (
+                            key, val[0], len(val[2]))
                         self.outbuf += val[2] + '\r\n'
                 self.outbuf += 'END\r\n'
             elif parts[0].lower() == 'incr':
@@ -107,6 +112,7 @@ class MockMemcached(object):
                     self.outbuf += str(val[2]) + '\r\n'
                 else:
                     self.outbuf += 'NOT_FOUND\r\n'
+
     def readline(self):
         if self.read_return_none:
             return None
@@ -114,7 +120,8 @@ class MockMemcached(object):
             raise Exception('mock is down')
         if '\n' in self.outbuf:
             response, self.outbuf = self.outbuf.split('\n', 1)
-            return response+'\n'
+            return response + '\n'
+
     def read(self, size):
         if self.down:
             raise Exception('mock is down')
@@ -122,6 +129,7 @@ class MockMemcached(object):
             response = self.outbuf[:size]
             self.outbuf = self.outbuf[size:]
             return response
+
 
 class TestMemcached(unittest.TestCase):
     """ Tests for swift.common.memcached"""
@@ -163,8 +171,10 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [4, 5, 6])
         self.assertEquals(memcache_client.get('some_key'), [4, 5, 6])
         memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
-        # As per http://wiki.openstack.org/encoding, we should expect to have unicode
-        self.assertEquals(memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
+        # As per http://wiki.openstack.org/encoding,
+        # we should expect to have unicode
+        self.assertEquals(
+            memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
         self.assert_(float(mock.cache.values()[0][1]) == 0)
         esttimeout = time.time() + 10
         memcache_client.set('some_key', [1, 2, 3], timeout=10)
@@ -204,10 +214,10 @@ class TestMemcached(unittest.TestCase):
         self.assertRaises(memcached.MemcacheConnectionError,
                           memcache_client.decr, 'some_key', delta=15)
 
-
     def test_retry(self):
         logging.getLogger().addHandler(NullLoggingHandler())
-        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211', '1.2.3.5:11211'])
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211', '1.2.3.5:11211'])
         mock1 = ExplodingMockMemcached()
         mock2 = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = [(mock2, mock2)]
@@ -240,8 +250,9 @@ class TestMemcached(unittest.TestCase):
             timeout=10)
         self.assert_(-1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         self.assert_(-1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
-        self.assertEquals(memcache_client.get_multi(('some_key2', 'some_key1',
-            'not_exists'), 'multi_key'), [[4, 5, 6], [1, 2, 3], None])
+        self.assertEquals(memcache_client.get_multi(
+            ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
+            [[4, 5, 6], [1, 2, 3], None])
 
     def test_serialization(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -262,6 +273,6 @@ class TestMemcached(unittest.TestCase):
         memcache_client._allow_pickle = True
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
 
+
 if __name__ == '__main__':
     unittest.main()
-
