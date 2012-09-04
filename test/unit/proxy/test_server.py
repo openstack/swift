@@ -35,8 +35,6 @@ from tempfile import mkdtemp
 import eventlet
 from eventlet import sleep, spawn, Timeout, util, wsgi, listen
 import simplejson
-from webob import Request, Response
-from webob.exc import HTTPNotFound, HTTPUnauthorized
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger
 from swift.proxy import server as proxy_server
@@ -54,6 +52,8 @@ from swift.proxy.controllers.obj import SegmentedIterable
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key
 import swift.proxy.controllers
+from swift.common.swob import Request, Response, HTTPNotFound, \
+    HTTPUnauthorized
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -2742,6 +2742,7 @@ class TestObjectController(unittest.TestCase):
         # Do it again but exceeding the container listing limit
         swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = 2
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
         fd = sock.makefile()
         fd.write('GET /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
                  'Host: localhost\r\n'

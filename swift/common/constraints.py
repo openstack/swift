@@ -17,7 +17,7 @@ import os
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
     RawConfigParser
 
-from webob.exc import HTTPBadRequest, HTTPLengthRequired, \
+from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
 
 constraints_conf = ConfigParser()

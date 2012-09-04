@@ -16,10 +16,10 @@
 import unittest
 from test.unit import MockTrue
 
-from webob import Request
-from webob.exc import HTTPBadRequest, HTTPLengthRequired, \
-    HTTPRequestEntityTooLarge
-
+from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
+    HTTPRequestEntityTooLarge, Request
+from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
+    HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED
 from swift.common import constraints
 
 
@@ -47,8 +47,8 @@ class TestConstraints(unittest.TestCase):
             headers=headers), 'object'), None)
         name = 'a' * (constraints.MAX_META_NAME_LENGTH + 1)
         headers = {'X-Object-Meta-%s' % name: 'v'}
-        self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers), 'object'), HTTPBadRequest))
+        self.assertEquals(constraints.check_metadata(Request.blank('/',
+            headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
@@ -57,8 +57,8 @@ class TestConstraints(unittest.TestCase):
             headers=headers), 'object'), None)
         value = 'a' * (constraints.MAX_META_VALUE_LENGTH + 1)
         headers = {'X-Object-Meta-Name': value}
-        self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers), 'object'), HTTPBadRequest))
+        self.assertEquals(constraints.check_metadata(Request.blank('/',
+            headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_metadata_count(self):
         headers = {}
@@ -67,8 +67,8 @@ class TestConstraints(unittest.TestCase):
         self.assertEquals(constraints.check_metadata(Request.blank('/',
             headers=headers), 'object'), None)
         headers['X-Object-Meta-Too-Many'] = 'v'
-        self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers), 'object'), HTTPBadRequest))
+        self.assertEquals(constraints.check_metadata(Request.blank('/',
+            headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_metadata_size(self):
         headers = {}
@@ -92,8 +92,8 @@ class TestConstraints(unittest.TestCase):
         headers['X-Object-Meta-%04d%s' %
                 (x + 1, 'a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
                     'v' * constraints.MAX_META_VALUE_LENGTH
-        self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
-            headers=headers), 'object'), HTTPBadRequest))
+        self.assertEquals(constraints.check_metadata(Request.blank('/',
+            headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),
@@ -102,17 +102,17 @@ class TestConstraints(unittest.TestCase):
             headers=headers), 'object_name'), None)
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                    'Content-Type': 'text/plain'}
-        self.assert_(isinstance(constraints.check_object_creation(
-            Request.blank('/', headers=headers), 'object_name'),
-            HTTPRequestEntityTooLarge))
+        self.assertEquals(constraints.check_object_creation(
+            Request.blank('/', headers=headers), 'object_name').status_int,
+            HTTP_REQUEST_ENTITY_TOO_LARGE)
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
         self.assertEquals(constraints.check_object_creation(Request.blank('/',
             headers=headers), 'object_name'), None)
         headers = {'Content-Type': 'text/plain'}
-        self.assert_(isinstance(constraints.check_object_creation(
-            Request.blank('/', headers=headers), 'object_name'),
-            HTTPLengthRequired))
+        self.assertEquals(constraints.check_object_creation(
+            Request.blank('/', headers=headers), 'object_name').status_int,
+            HTTP_LENGTH_REQUIRED)
 
     def test_check_object_creation_name_length(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -121,9 +121,9 @@ class TestConstraints(unittest.TestCase):
         self.assertEquals(constraints.check_object_creation(Request.blank('/',
             headers=headers), name), None)
         name = 'o' * (constraints.MAX_OBJECT_NAME_LENGTH + 1)
-        self.assert_(isinstance(constraints.check_object_creation(
-            Request.blank('/', headers=headers), name),
-            HTTPBadRequest))
+        self.assertEquals(constraints.check_object_creation(
+            Request.blank('/', headers=headers), name).status_int,
+            HTTP_BAD_REQUEST)
 
     def test_check_object_creation_content_type(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -131,16 +131,16 @@ class TestConstraints(unittest.TestCase):
         self.assertEquals(constraints.check_object_creation(Request.blank('/',
             headers=headers), 'object_name'), None)
         headers = {'Transfer-Encoding': 'chunked'}
-        self.assert_(isinstance(constraints.check_object_creation(
-            Request.blank('/', headers=headers), 'object_name'),
-            HTTPBadRequest))
+        self.assertEquals(constraints.check_object_creation(
+            Request.blank('/', headers=headers), 'object_name').status_int,
+            HTTP_BAD_REQUEST)
 
     def test_check_object_creation_bad_content_type(self):
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': '\xff\xff'}
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         self.assert_('Content-Type' in resp.body)
 
     def test_check_object_manifest_header(self):
@@ -151,23 +151,23 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(Request.blank('/',
             headers={'X-Object-Manifest': 'container', 'Content-Length': '0',
             'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         resp = constraints.check_object_creation(Request.blank('/',
             headers={'X-Object-Manifest': '/container/prefix',
             'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         resp = constraints.check_object_creation(Request.blank('/',
             headers={'X-Object-Manifest': 'container/prefix?query=param',
             'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         resp = constraints.check_object_creation(Request.blank('/',
             headers={'X-Object-Manifest': 'container/prefix&query=param',
             'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         resp = constraints.check_object_creation(Request.blank('/',
             headers={'X-Object-Manifest': 'http://host/container/prefix',
             'Content-Length': '0', 'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(isinstance(resp, HTTPBadRequest))
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))

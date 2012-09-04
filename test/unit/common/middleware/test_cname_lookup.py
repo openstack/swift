@@ -16,8 +16,6 @@
 import unittest
 from nose import SkipTest
 
-from webob import Request
-
 try:
     # this test requires the dnspython package to be installed
     import dns.resolver
@@ -26,6 +24,7 @@ except ImportError:
 else:  # executed if the try has no errors
     skip = False
 from swift.common.middleware import cname_lookup
+from swift.common.swob import Request
 
 class FakeApp(object):
 

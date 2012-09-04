@@ -26,18 +26,18 @@ import re
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
 import simplejson
-from webob import Response
-from webob.exc import HTTPNotFound, HTTPNoContent, HTTPAccepted, \
-    HTTPInsufficientStorage, HTTPBadRequest
 
 import swift.common.db
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than, \
     dump_recon_cache, rsync_ip
 from swift.common import ring
+from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
 from swift.common.daemon import Daemon
+from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
+    HTTPAccepted, HTTPInsufficientStorage, HTTPBadRequest
 
 
 DEBUG_TIMINGS_THRESHOLD = 10
@@ -324,11 +324,11 @@ class Replicator(Daemon):
                 info['delete_timestamp'], info['metadata'])
         if not response:
             return False
-        elif response.status == HTTPNotFound.code:  # completely missing, rsync
+        elif response.status == HTTP_NOT_FOUND:  # completely missing, rsync
             self.stats['rsync'] += 1
             self.logger.increment('rsyncs')
             return self._rsync_db(broker, node, http, info['id'])
-        elif response.status == HTTPInsufficientStorage.code:
+        elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif response.status >= 200 and response.status < 300:
             rinfo = simplejson.loads(response.data)

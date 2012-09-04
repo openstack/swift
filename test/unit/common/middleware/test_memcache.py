@@ -16,10 +16,10 @@
 import unittest
 from ConfigParser import NoSectionError, NoOptionError
 
-from webob import Request
-
 from swift.common.middleware import memcache
 from swift.common.memcached import MemcacheRing
+from swift.common.swob import Request
+
 
 class FakeApp(object):
     def __call__(self, env, start_response):

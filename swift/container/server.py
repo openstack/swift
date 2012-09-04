@@ -23,10 +23,6 @@ from xml.sax import saxutils
 from datetime import datetime
 
 from eventlet import Timeout
-from webob import Request, Response
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
-    HTTPCreated, HTTPInternalServerError, HTTPNoContent, \
-    HTTPNotFound, HTTPPreconditionFailed, HTTPMethodNotAllowed
 
 import swift.common.db
 from swift.common.db import ContainerBroker
@@ -38,7 +34,10 @@ from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
-from swift.common.http import HTTP_NOT_FOUND, is_success, \
+from swift.common.http import HTTP_NOT_FOUND, is_success
+from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
+    HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
+    HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage
 
 DATADIR = 'containers'
@@ -90,7 +89,7 @@ class ContainerController(object):
         """
         Update the account server with latest container info.
 
-        :param req: webob.Request object
+        :param req: swob.Request object
         :param account: account name
         :param container: container name
         :param borker: container DB broker object

@@ -21,8 +21,8 @@ from StringIO import StringIO
 
 import simplejson
 import xml.dom.minidom
-from webob import Request
 
+from swift.common.swob import Request
 from swift.account.server import AccountController, ACCOUNT_LISTING_LIMIT
 from swift.common.utils import normalize_timestamp
 
@@ -111,9 +111,9 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers['x-account-container-count'], 0)
-        self.assertEquals(resp.headers['x-account-object-count'], 0)
-        self.assertEquals(resp.headers['x-account-bytes-used'], 0)
+        self.assertEquals(resp.headers['x-account-container-count'], '0')
+        self.assertEquals(resp.headers['x-account-object-count'], '0')
+        self.assertEquals(resp.headers['x-account-bytes-used'], '0')
 
     def test_HEAD_with_containers(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
@@ -136,9 +136,9 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers['x-account-container-count'], 2)
-        self.assertEquals(resp.headers['x-account-object-count'], 0)
-        self.assertEquals(resp.headers['x-account-bytes-used'], 0)
+        self.assertEquals(resp.headers['x-account-container-count'], '2')
+        self.assertEquals(resp.headers['x-account-object-count'], '0')
+        self.assertEquals(resp.headers['x-account-bytes-used'], '0')
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -157,9 +157,9 @@ class TestAccountController(unittest.TestCase):
             'HTTP_X_TIMESTAMP': '5'})
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers['x-account-container-count'], 2)
-        self.assertEquals(resp.headers['x-account-object-count'], 4)
-        self.assertEquals(resp.headers['x-account-bytes-used'], 6)
+        self.assertEquals(resp.headers['x-account-container-count'], '2')
+        self.assertEquals(resp.headers['x-account-object-count'], '4')
+        self.assertEquals(resp.headers['x-account-bytes-used'], '6')
 
     def test_PUT_not_found(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},

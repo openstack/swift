@@ -30,8 +30,6 @@ import functools
 from eventlet import spawn_n, GreenPile, Timeout
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
-from webob.exc import status_map
-from webob import Request, Response
 
 from swift.common.utils import normalize_timestamp, TRUE_VALUES, public
 from swift.common.bufferedhttp import http_connect
@@ -41,13 +39,14 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE
+from swift.common.swob import Request, Response, status_map
 
 
 def update_headers(response, headers):
     """
     Helper function to update headers in the response.
 
-    :param response: webob.Response object
+    :param response: swob.Response object
     :param headers: dictionary headers
     """
     if hasattr(headers, 'items'):
@@ -406,7 +405,7 @@ class Controller(object):
 
         :param headers: a list of dicts, where each dict represents one
                         backend request that should be made.
-        :returns: a webob Response object
+        :returns: a swob.Response object
         """
         start_nodes = ring.get_part_nodes(part)
         nodes = self.iter_nodes(part, start_nodes, ring)
@@ -427,13 +426,13 @@ class Controller(object):
         Given a list of responses from several servers, choose the best to
         return to the API.
 
-        :param req: webob.Request object
+        :param req: swob.Request object
         :param statuses: list of statuses returned
         :param reasons: list of reasons for each status
         :param bodies: bodies of each response
         :param server_type: type of server the responses came from
         :param etag: etag
-        :returns: webob.Response object with the correct status, body, etc. set
+        :returns: swob.Response object with the correct status, body, etc. set
         """
         resp = Response(request=req)
         if len(statuses):
@@ -562,13 +561,13 @@ class Controller(object):
         """
         Base handler for HTTP GET or HEAD requests.
 
-        :param req: webob.Request object
+        :param req: swob.Request object
         :param server_type: server type
         :param partition: partition
         :param nodes: nodes
         :param path: path for the request
         :param attempts: number of attempts to try
-        :returns: webob.Response object
+        :returns: swob.Response object
         """
         statuses = []
         reasons = []

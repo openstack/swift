@@ -19,12 +19,11 @@ from paste.deploy import loadapp
 import struct
 from sys import exc_info
 from urllib import quote
-from webob import Request
 import zlib
 from zlib import compressobj
 
-
 from swift.common.http import HTTP_NOT_FOUND
+from swift.common.swob import Request
 
 
 class UnexpectedResponse(Exception):

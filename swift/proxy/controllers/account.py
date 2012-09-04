@@ -28,13 +28,11 @@ import time
 from urllib import unquote
 from random import shuffle
 
-from webob.exc import HTTPBadRequest, HTTPMethodNotAllowed
-from webob import Request
-
 from swift.common.utils import normalize_timestamp, public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
 from swift.common.http import is_success, HTTP_NOT_FOUND
 from swift.proxy.controllers.base import Controller
+from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed, Request
 
 
 class AccountController(Controller):

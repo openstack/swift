@@ -27,9 +27,9 @@ import eventlet
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
 from paste.deploy import loadapp, appconfig
 from eventlet.green import socket, ssl
-from webob import Request
 from urllib import unquote
 
+from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, TRUE_VALUES, \
     validate_configuration
@@ -265,7 +265,7 @@ class WSGIContext(object):
 def make_pre_authed_request(env, method=None, path=None, body=None,
                             headers=None, agent='Swift'):
     """
-    Makes a new webob.Request based on the current env but with the
+    Makes a new swob.Request based on the current env but with the
     parameters specified. Note that this request will be preauthorized.
 
     :param env: The WSGI environment to base the new request on.
@@ -285,7 +285,7 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
                   '%(orig)s StaticWeb'. You also set agent to None to
                   use the original env's HTTP_USER_AGENT or '' to
                   have no HTTP_USER_AGENT.
-    :returns: Fresh webob.Request object.
+    :returns: Fresh swob.Request object.
     """
     query_string = None
     if path and '?' in path:

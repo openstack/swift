@@ -118,14 +118,13 @@ import cgi
 import time
 from urllib import unquote, quote as urllib_quote
 
-from webob import Response
-from webob.exc import HTTPMovedPermanently, HTTPNotFound
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
                                split_path, TRUE_VALUES
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request, \
                               WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
+from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
 
 
 def quote(value, safe='/'):

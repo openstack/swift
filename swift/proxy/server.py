@@ -31,9 +31,6 @@ from ConfigParser import ConfigParser
 import uuid
 
 from eventlet import Timeout
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPMethodNotAllowed, \
-    HTTPNotFound, HTTPPreconditionFailed, HTTPServerError
-from webob import Request
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
@@ -41,6 +38,10 @@ from swift.common.utils import cache_from_env, get_logger, \
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController, Controller
+from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPForbidden, \
+    HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
+    HTTPRequestEntityTooLarge, HTTPRequestTimeout, HTTPServerError, \
+    HTTPServiceUnavailable, HTTPClientDisconnect, status_map, Request, Response
 
 
 class Application(object):
@@ -130,7 +131,7 @@ class Application(object):
     def __call__(self, env, start_response):
         """
         WSGI entry point.
-        Wraps env in webob.Request object and passes it down.
+        Wraps env in swob.Request object and passes it down.
 
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
@@ -157,9 +158,9 @@ class Application(object):
     def handle_request(self, req):
         """
         Entry point for proxy server.
-        Should return a WSGI-style callable (such as webob.Response).
+        Should return a WSGI-style callable (such as swob.Response).
 
-        :param req: webob.Request object
+        :param req: swob.Request object
         """
         try:
             self.logger.set_statsd_prefix('proxy-server')

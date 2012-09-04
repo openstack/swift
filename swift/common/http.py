@@ -13,40 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from webob.exc import HTTPClientError,\
-    HTTPInsufficientStorage as BaseHTTPInsufficientStorage
-
-
-class HTTPClientDisconnect(HTTPClientError):
-    """
-    subclass of :class:`~HTTPClientError`
-
-    This code is introduced to log the case when the connection is closed by
-    client while HTTP server is processing its request
-
-    code: 499, title: Client Disconnect
-    """
-    code = 499
-    title = 'Client Disconnect'
-    explanation = (
-        'This code is introduced to log the case when the connection '
-        'is closed by client while HTTP server is processing its request')
-
-
-class HTTPInsufficientStorage(BaseHTTPInsufficientStorage):
-    """
-    subclass of :class:`~HTTPInsufficientStorage`
-
-    The server is unable to store the representation needed to
-    complete the request.
-
-    code: 507, title: Insufficient Storage
-    """
-    def __init__(self, drive=None, *args, **kwargs):
-        if drive:
-            self.explanation = ('%s is not mounted' % drive)
-        super(HTTPInsufficientStorage, self).__init__(*args, **kwargs)
-
 
 def is_informational(status):
     """

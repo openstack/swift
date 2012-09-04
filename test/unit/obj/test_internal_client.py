@@ -166,7 +166,7 @@ class TestInternalClient(unittest.TestCase):
 
             def fake_app(self, env, start_response):
                 self.test.assertEquals(self.user_agent, env['HTTP_USER_AGENT'])
-                start_response('200 Ok', [{'Content-Length': '0'}])
+                start_response('200 Ok', [('Content-Length', '0')])
                 return []
 
         client = InternalClient(self)
