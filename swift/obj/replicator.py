@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import os
-from os.path import basename, dirname, isdir, join
+from os.path import basename, dirname, isdir, isfile, join
 import random
 import shutil
 import time
@@ -543,16 +543,24 @@ class ObjectReplicator(Daemon):
                 continue
             for partition in os.listdir(obj_path):
                 try:
+                    job_path = join(obj_path, partition)
+                    if isfile(job_path):
+                        # Clean up any (probably zero-byte) files where a
+                        # partition should be.
+                        self.logger.warning('Removing partition directory '
+                                            'which was a file: %s', job_path)
+                        os.remove(job_path)
+                        continue
                     part_nodes = \
                         self.object_ring.get_part_nodes(int(partition))
                     nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
-                    jobs.append(dict(path=join(obj_path, partition),
+                    jobs.append(dict(path=job_path,
                         device=local_dev['device'],
                         nodes=nodes,
                         delete=len(nodes) > len(part_nodes) - 1,
                         partition=partition))
-                except ValueError:
+                except ValueError, OSError:
                     continue
         random.shuffle(jobs)
         # Partititons that need to be deleted take priority
