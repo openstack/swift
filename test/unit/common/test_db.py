@@ -124,6 +124,7 @@ class TestDatabaseBroker(unittest.TestCase):
                           DatabaseBroker(':memory:').initialize,
                           normalize_timestamp('1'))
         stub_dict = {}
+
         def stub(*args, **kwargs):
             for key in stub_dict.keys():
                 del stub_dict[key]
@@ -156,6 +157,7 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.commit()
         stub_called = [False]
+
         def delete_stub(*a, **kw):
             stub_called[0] = True
         broker = DatabaseBroker(':memory:')
@@ -198,6 +200,7 @@ class TestDatabaseBroker(unittest.TestCase):
         except Exception:
             got_exc = True
         self.assert_(got_exc)
+
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
@@ -273,6 +276,7 @@ class TestDatabaseBroker(unittest.TestCase):
         except Exception:
             got_exc = True
         self.assert_(got_exc)
+
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
@@ -281,7 +285,8 @@ class TestDatabaseBroker(unittest.TestCase):
             pass
         with broker.lock():
             pass
-        broker2 = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
+        broker2 = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                 timeout=.1)
         broker2._initialize = stub
         with broker.lock():
             got_exc = False
@@ -304,6 +309,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
+
         def _initialize(conn, timestamp):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
@@ -350,6 +356,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(':memory:')
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
+
         def _initialize(conn, timestamp):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('INSERT INTO test (one) VALUES ("1")')
@@ -372,6 +379,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
+
         def _initialize(conn, timestamp):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
@@ -408,6 +416,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_merge_syncs(self):
         broker = DatabaseBroker(':memory:')
+
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
@@ -445,6 +454,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker_uuid = str(uuid4())
         broker_metadata = metadata and simplejson.dumps(
                 {'Test': ('Value', normalize_timestamp(1))}) or ''
+
         def _initialize(conn, put_timestamp):
             if put_timestamp is None:
                 put_timestamp = normalize_timestamp(0)
@@ -688,7 +698,6 @@ class TestContainerBroker(unittest.TestCase):
         res = broker.reclaim(normalize_timestamp(time()), time())
         broker.delete_db(normalize_timestamp(time()))
 
-        
     def test_delete_object(self):
         """ Test swift.common.db.ContainerBroker.delete_object """
         broker = ContainerBroker(':memory:', account='a', container='c')
@@ -890,7 +899,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
         # Put event from after last put but before last post
-        timestamp =  in_between_timestamp
+        timestamp = in_between_timestamp
         broker.put_object('"{<object \'&\' name>}"', timestamp, 456,
                           'application/x-test3',
                           '6af83e3196bf99f440f31f2e1a6c9afe')
@@ -913,7 +922,8 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_get_info(self):
         """ Test swift.common.db.ContainerBroker.get_info """
-        broker = ContainerBroker(':memory:', account='test1', container='test2')
+        broker = ContainerBroker(':memory:', account='test1',
+                                 container='test2')
         broker.initialize(normalize_timestamp('1'))
 
         info = broker.get_info()
@@ -962,7 +972,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['x_container_sync_point2'], -1)
 
     def test_set_x_syncs(self):
-        broker = ContainerBroker(':memory:', account='test1', container='test2')
+        broker = ContainerBroker(':memory:', account='test1',
+                                 container='test2')
         broker.initialize(normalize_timestamp('1'))
 
         info = broker.get_info()
@@ -975,7 +986,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['x_container_sync_point2'], 2)
 
     def test_get_report_info(self):
-        broker = ContainerBroker(':memory:', account='test1', container='test2')
+        broker = ContainerBroker(':memory:', account='test1',
+                                 container='test2')
         broker.initialize(normalize_timestamp('1'))
 
         info = broker.get_info()
@@ -1098,7 +1110,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(len(listing), 2)
         self.assertEquals([row[0] for row in listing], ['2/', '3/'])
 
-        listing = broker.list_objects_iter(10, '2/',None,  None, '/')
+        listing = broker.list_objects_iter(10, '2/', None,  None, '/')
         self.assertEquals(len(listing), 1)
         self.assertEquals([row[0] for row in listing], ['3/'])
 
@@ -1167,14 +1179,17 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('/snakes', normalize_timestamp(0), 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
 
-        #def list_objects_iter(self, limit, marker, prefix, delimiter, path=None,
-        #                          format=None):
+        #def list_objects_iter(self, limit, marker, prefix, delimiter,
+        #                      path=None, format=None):
         listing = broker.list_objects_iter(100, None, None, '/pets/f', '/')
-        self.assertEquals([row[0] for row in listing], ['/pets/fish/', '/pets/fish_info.txt'])
+        self.assertEquals([row[0] for row in listing],
+                          ['/pets/fish/', '/pets/fish_info.txt'])
         listing = broker.list_objects_iter(100, None, None, '/pets/fish', '/')
-        self.assertEquals([row[0] for row in listing], ['/pets/fish/', '/pets/fish_info.txt'])
+        self.assertEquals([row[0] for row in listing],
+                          ['/pets/fish/', '/pets/fish_info.txt'])
         listing = broker.list_objects_iter(100, None, None, '/pets/fish/', '/')
-        self.assertEquals([row[0] for row in listing], ['/pets/fish/a', '/pets/fish/b'])
+        self.assertEquals([row[0] for row in listing],
+                          ['/pets/fish/a', '/pets/fish/b'])
 
     def test_double_check_trailing_delimiter(self):
         """ Test swift.common.db.ContainerBroker.list_objects_iter for a
@@ -1204,15 +1219,15 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(15, None, None, None, None)
         self.assertEquals(len(listing), 10)
         self.assertEquals([row[0] for row in listing],
-            ['a', 'a/', 'a/a', 'a/a/a', 'a/a/b', 'a/b', 'b', 'b/a', 'b/b', 'c'])
+        ['a', 'a/', 'a/a', 'a/a/a', 'a/a/b', 'a/b', 'b', 'b/a', 'b/b', 'c'])
         listing = broker.list_objects_iter(15, None, None, '', '/')
         self.assertEquals(len(listing), 5)
         self.assertEquals([row[0] for row in listing],
-            ['a', 'a/', 'b', 'b/', 'c'])
+        ['a', 'a/', 'b', 'b/', 'c'])
         listing = broker.list_objects_iter(15, None, None, 'a/', '/')
         self.assertEquals(len(listing), 4)
         self.assertEquals([row[0] for row in listing],
-            ['a/', 'a/a', 'a/a/', 'a/b'])
+        ['a/', 'a/a', 'a/a/', 'a/b'])
         listing = broker.list_objects_iter(15, None, None, 'b/', '/')
         self.assertEquals(len(listing), 2)
         self.assertEquals([row[0] for row in listing], ['b/a', 'b/b'])
@@ -1226,12 +1241,14 @@ class TestContainerBroker(unittest.TestCase):
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         hasha = hashlib.md5('%s-%s' % ('a', '0000000001.00000')).digest()
         hashb = hashlib.md5('%s-%s' % ('b', '0000000002.00000')).digest()
-        hashc = ''.join(('%2x' % (ord(a)^ord(b)) for a, b in zip(hasha, hashb)))
+        hashc = ''.join(('%2x' % (ord(a) ^ ord(b)) for a, b in zip(hasha,
+                                                                 hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
         broker.put_object('b', normalize_timestamp(3), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         hashb = hashlib.md5('%s-%s' % ('b', '0000000003.00000')).digest()
-        hashc = ''.join(('%02x' % (ord(a)^ord(b)) for a, b in zip(hasha, hashb)))
+        hashc = ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha,
+                                                                  hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
 
     def test_newid(self):
@@ -1623,7 +1640,6 @@ class TestAccountBroker(unittest.TestCase):
         # self.assert_('z' in containers)
         # self.assert_('a' not in containers)
 
-
     def test_delete_container(self):
         """ Test swift.common.db.AccountBroker.delete_container """
         broker = AccountBroker(':memory:', account='a')
@@ -1674,7 +1690,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
@@ -1685,7 +1702,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
@@ -1698,7 +1716,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
@@ -1710,7 +1729,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
@@ -1722,7 +1742,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT delete_timestamp FROM container").fetchone()[0],
                 dtimestamp)
@@ -1752,7 +1773,8 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
             self.assertEquals(conn.execute(
-                "SELECT put_timestamp FROM container").fetchone()[0], timestamp)
+                "SELECT put_timestamp FROM container").fetchone()[0],
+                timestamp)
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
@@ -1936,7 +1958,7 @@ class TestAccountBroker(unittest.TestCase):
             ('b', '0000000002.00000-0000000000.00000-0-0')
         ).digest()
         hashc = \
-            ''.join(('%02x' % (ord(a)^ord(b)) for a, b in zip(hasha, hashb)))
+            ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
         broker.put_container('b', normalize_timestamp(3),
                              normalize_timestamp(0), 0, 0)
@@ -1944,7 +1966,7 @@ class TestAccountBroker(unittest.TestCase):
             ('b', '0000000003.00000-0000000000.00000-0-0')
         ).digest()
         hashc = \
-            ''.join(('%02x' % (ord(a)^ord(b)) for a, b in zip(hasha, hashb)))
+            ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
 
     def test_merge_items(self):

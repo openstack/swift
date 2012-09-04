@@ -24,6 +24,7 @@ class TestBufferedHTTP(unittest.TestCase):
 
     def test_http_connect(self):
         bindsock = listen(('127.0.0.1', 0))
+
         def accept(expected_par):
             try:
                 with Timeout(3):

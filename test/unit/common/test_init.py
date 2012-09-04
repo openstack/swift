@@ -17,6 +17,7 @@ import re
 import unittest
 import swift
 
+
 class TestVersioning(unittest.TestCase):
     def test_canonical_version_is_clean(self):
         """Ensure that a non-clean canonical_version never happens"""
