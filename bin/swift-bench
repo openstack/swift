@@ -21,7 +21,8 @@ import signal
 import uuid
 from optparse import OptionParser
 
-from swift.common.bench import BenchController
+from swift.common.bench import (BenchController, DistributedBenchController,
+                                create_containers, delete_containers)
 from swift.common.utils import readconf, LogAdapter
 
 # The defaults should be sufficient to run swift-bench on a SAIO
@@ -49,6 +50,8 @@ CONF_DEFAULTS = {
     'devices': 'sdb1',  # space-sep list
     'log_level': 'INFO',
     'timeout': '10',
+    'auth_version': '1.0',
+    'bench_clients': [],
 }
 
 SAIO_DEFAULTS = {
@@ -81,6 +84,13 @@ if __name__ == '__main__':
                       help='User name for obtaining an auth token')
     parser.add_option('-K', '--key', dest='key',
                       help='Key for obtaining an auth token')
+    parser.add_option('-b', '--bench-clients', action='append',
+                      metavar='<ip>:<port>',
+                      help=('A string of the form "<ip>:<port>" which matches '
+                            'the arguments supplied to a swift-bench-client '
+                            'process.  This argument must be specified '
+                            'once per swift-bench-client you want to '
+                            'utilize.'))
     parser.add_option('-u', '--url', dest='url',
                       help='Storage URL')
     parser.add_option('-c', '--concurrency', dest='concurrency',
@@ -125,6 +135,8 @@ if __name__ == '__main__':
         options.put_concurrency = options.concurrency
         options.get_concurrency = options.concurrency
         options.del_concurrency = options.concurrency
+    options.containers = ['%s_%d' % (options.container_name, i)
+                          for i in xrange(int(options.num_containers))]
 
     def sigterm(signum, frame):
         sys.exit('Termination signal received.')
@@ -145,5 +157,13 @@ if __name__ == '__main__':
                                   '%(message)s')
     loghandler.setFormatter(logformat)
 
-    controller = BenchController(logger, options)
+    if options.use_proxy:
+        create_containers(logger, options)
+
+    controller_class = DistributedBenchController if options.bench_clients \
+        else BenchController
+    controller = controller_class(logger, options)
     controller.run()
+
+    if options.delete:
+        delete_containers(logger, options)
