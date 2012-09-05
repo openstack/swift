@@ -31,7 +31,8 @@ Installing dependencies and the core code
   #. `apt-get install curl gcc git-core memcached python-configobj
      python-coverage python-dev python-nose python-setuptools python-simplejson
      python-xattr sqlite3 xfsprogs python-webob python-eventlet
-     python-greenlet python-pastedeploy python-netifaces`
+     python-greenlet python-pastedeploy python-netifaces python-pip`
+  #. `pip install mock`
   #. Install anything else you want, like screen, ssh, vim, etc.
 
 * On Fedora, log in as root and do:
@@ -40,7 +41,7 @@ Installing dependencies and the core code
      openstack-swift-account openstack-swift-container openstack-swift-object`
   #. `yum install xinetd rsync`
   #. `yum install memcached`
-  #. `yum install python-netifaces python-nose`
+  #. `yum install python-netifaces python-nose python-mock`
 
   This installs all necessary dependencies, and also creates user `swift`
   and group `swift`. So, `swift:swift` ought to be used in every place where

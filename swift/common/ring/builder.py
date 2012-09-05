@@ -16,8 +16,11 @@
 import bisect
 import itertools
 import math
+import cPickle as pickle
+
 
 from array import array
+from sys import modules
 from collections import defaultdict
 from random import randint, shuffle
 from time import time
@@ -83,7 +86,7 @@ class RingBuilder(object):
         """
         try:
             return self.parts * self.replicas / \
-                     sum(d['weight'] for d in self._iter_devs())
+                sum(d['weight'] for d in self._iter_devs())
         except ZeroDivisionError:
             raise exceptions.EmptyRingError('There are no devices in this '
                                             'ring, or all devices have been '
@@ -190,8 +193,9 @@ class RingBuilder(object):
                 self._ring = RingData([], devs, 32 - self.part_power)
             else:
                 self._ring = \
-                RingData([array('H', p2d) for p2d in self._replica2part2dev],
-                         devs, 32 - self.part_power)
+                    RingData([array('H', p2d) for p2d in
+                              self._replica2part2dev],
+                             devs, 32 - self.part_power)
         return self._ring
 
     def add_dev(self, dev):
@@ -222,7 +226,7 @@ class RingBuilder(object):
         """
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
-                    'Duplicate device id: %d' % dev['id'])
+                'Duplicate device id: %d' % dev['id'])
         # Add holes to self.devs to ensure self.devs[dev['id']] will be the dev
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
@@ -454,7 +458,7 @@ class RingBuilder(object):
         """
         self._replica2part2dev = \
             [array('H', (0 for _junk in xrange(self.parts)))
-                   for _junk in xrange(self.replicas)]
+             for _junk in xrange(self.replicas)]
 
         replicas = range(self.replicas)
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
@@ -518,7 +522,8 @@ class RingBuilder(object):
                 removed_replica = False
                 for tier in tiers_for_dev(dev):
                     if (replicas_at_tier[tier] > max_allowed_replicas[tier] and
-                           self._last_part_moves[part] >= self.min_part_hours):
+                            self._last_part_moves[part] >=
+                            self.min_part_hours):
                         self._last_part_moves[part] = 0
                         spread_out_parts[part].append(replica)
                         dev['parts_wanted'] += 1
@@ -737,3 +742,107 @@ class RingBuilder(object):
                     mr.update(walk_tree(subtier, submax))
             return mr
         return walk_tree((), self.replicas)
+
+    @classmethod
+    def load(cls, builder_file, open=open):
+        """
+        Obtain RingBuilder instance of the provided builder file
+
+        :param builder_file: path to builder file to load
+        :return: RingBuilder instance
+        """
+        builder = pickle.load(open(builder_file, 'rb'))
+        if not hasattr(builder, 'devs'):
+            builder_dict = builder
+            builder = RingBuilder(1, 1, 1)
+            builder.copy_from(builder_dict)
+        for dev in builder.devs:
+            #really old rings didn't have meta keys
+            if dev and 'meta' not in dev:
+                dev['meta'] = ''
+        return builder
+
+    def search_devs(self, search_value):
+        """
+The <search-value> can be of the form:
+    d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>
+    Any part is optional, but you must include at least one part.
+    Examples:
+        d74              Matches the device id 74
+        z1               Matches devices in zone 1
+        z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4
+        1.2.3.4          Matches devices in any zone with the ip 1.2.3.4
+        z1:5678          Matches devices in zone 1 using port 5678
+        :5678            Matches devices that use port 5678
+        /sdb1            Matches devices with the device name sdb1
+        _shiny           Matches devices with shiny in the meta data
+        _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
+        [::1]            Matches devices in any zone with the ip ::1
+        z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678
+    Most specific example:
+        d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
+    Nerd explanation:
+        All items require their single character prefix except the ip, in which
+        case the - is optional unless the device id or zone is also included.
+        """
+        orig_search_value = search_value
+        match = []
+        if search_value.startswith('d'):
+            i = 1
+            while i < len(search_value) and search_value[i].isdigit():
+                i += 1
+            match.append(('id', int(search_value[1:i])))
+            search_value = search_value[i:]
+        if search_value.startswith('z'):
+            i = 1
+            while i < len(search_value) and search_value[i].isdigit():
+                i += 1
+            match.append(('zone', int(search_value[1:i])))
+            search_value = search_value[i:]
+        if search_value.startswith('-'):
+            search_value = search_value[1:]
+        if len(search_value) and search_value[0].isdigit():
+            i = 1
+            while i < len(search_value) and search_value[i] in '0123456789.':
+                i += 1
+            match.append(('ip', search_value[:i]))
+            search_value = search_value[i:]
+        elif len(search_value) and search_value[0] == '[':
+            i = 1
+            while i < len(search_value) and search_value[i] != ']':
+                i += 1
+            i += 1
+            match.append(('ip', search_value[:i].lstrip('[').rstrip(']')))
+            search_value = search_value[i:]
+        if search_value.startswith(':'):
+            i = 1
+            while i < len(search_value) and search_value[i].isdigit():
+                i += 1
+            match.append(('port', int(search_value[1:i])))
+            search_value = search_value[i:]
+        if search_value.startswith('/'):
+            i = 1
+            while i < len(search_value) and search_value[i] != '_':
+                i += 1
+            match.append(('device', search_value[1:i]))
+            search_value = search_value[i:]
+        if search_value.startswith('_'):
+            match.append(('meta', search_value[1:]))
+            search_value = ''
+        if search_value:
+            raise ValueError('Invalid <search-value>: %s' %
+                             repr(orig_search_value))
+        matched_devs = []
+        for dev in self.devs:
+            if not dev:
+                continue
+            matched = True
+            for key, value in match:
+                if key == 'meta':
+                    if value not in dev.get(key):
+                        matched = False
+                elif dev.get(key) != value:
+                    matched = False
+            if matched:
+                matched_devs.append(dev)
+        return matched_devs
