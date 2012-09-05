@@ -57,7 +57,7 @@ class AccountReaper(Daemon):
         self.logger = get_logger(conf, log_route='account-reaper')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+            TRUE_VALUES
         self.interval = int(conf.get('interval', 3600))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring = None
@@ -126,8 +126,8 @@ class AccountReaper(Daemon):
                     continue
                 self.reap_device(device)
         except (Exception, Timeout):
-            self.logger.exception(_("Exception in top-level account reaper " \
-                "loop"))
+            self.logger.exception(_("Exception in top-level account reaper "
+                                    "loop"))
         elapsed = time() - begin
         self.logger.info(_('Devices pass completed: %.02fs'), elapsed)
 
@@ -252,15 +252,15 @@ class AccountReaper(Daemon):
             log += _(', %s objects deleted') % self.stats_objects_deleted
         if self.stats_containers_remaining:
             log += _(', %s containers remaining') % \
-                   self.stats_containers_remaining
+                self.stats_containers_remaining
         if self.stats_objects_remaining:
             log += _(', %s objects remaining') % self.stats_objects_remaining
         if self.stats_containers_possibly_remaining:
             log += _(', %s containers possibly remaining') % \
-                   self.stats_containers_possibly_remaining
+                self.stats_containers_possibly_remaining
         if self.stats_objects_possibly_remaining:
             log += _(', %s objects possibly remaining') % \
-                   self.stats_objects_possibly_remaining
+                self.stats_objects_possibly_remaining
         if self.stats_return_codes:
             log += _(', return codes: ')
             for code in sorted(self.stats_return_codes.keys()):
@@ -315,9 +315,11 @@ class AccountReaper(Daemon):
         while True:
             objects = None
             try:
-                objects = direct_get_container(node, part, account, container,
-                        marker=marker, conn_timeout=self.conn_timeout,
-                        response_timeout=self.node_timeout)[1]
+                objects = direct_get_container(
+                    node, part, account, container,
+                    marker=marker,
+                    conn_timeout=self.conn_timeout,
+                    response_timeout=self.node_timeout)[1]
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
                 self.logger.increment('return_codes.2')
@@ -340,15 +342,18 @@ class AccountReaper(Daemon):
                 pool.waitall()
             except (Exception, Timeout):
                 self.logger.exception(_('Exception with objects for container '
-                    '%(container)s for account %(account)s'),
-                    {'container': container, 'account': account})
+                                        '%(container)s for account %(account)s'
+                                        ),
+                                      {'container': container,
+                                       'account': account})
             marker = objects[-1]['name']
         successes = 0
         failures = 0
         for node in nodes:
             anode = account_nodes.pop()
             try:
-                direct_delete_container(node, part, account, container,
+                direct_delete_container(
+                    node, part, account, container,
                     conn_timeout=self.conn_timeout,
                     response_timeout=self.node_timeout,
                     headers={'X-Account-Host': '%(ip)s:%(port)s' % anode,
@@ -407,7 +412,8 @@ class AccountReaper(Daemon):
         for node in nodes:
             cnode = container_nodes.pop()
             try:
-                direct_delete_object(node, part, account, container, obj,
+                direct_delete_object(
+                    node, part, account, container, obj,
                     conn_timeout=self.conn_timeout,
                     response_timeout=self.node_timeout,
                     headers={'X-Container-Host': '%(ip)s:%(port)s' % cnode,
