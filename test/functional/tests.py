@@ -23,11 +23,55 @@ import threading
 import uuid
 import unittest
 from nose import SkipTest
+from ConfigParser import ConfigParser
 
 from test import get_config
-from test.functional.swift import Account, Connection, File, ResponseError
+from test.functional.swift_test_client import Account, Connection, File, \
+    ResponseError
+from swift.common.constraints import MAX_FILE_SIZE, MAX_META_NAME_LENGTH, \
+    MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
+    MAX_OBJECT_NAME_LENGTH, CONTAINER_LISTING_LIMIT, ACCOUNT_LISTING_LIMIT, \
+    MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
 
+default_constraints = dict((
+    ('max_file_size', MAX_FILE_SIZE),
+    ('max_meta_name_length', MAX_META_NAME_LENGTH),
+    ('max_meta_value_length', MAX_META_VALUE_LENGTH),
+    ('max_meta_count', MAX_META_COUNT),
+    ('max_meta_overall_size', MAX_META_OVERALL_SIZE),
+    ('max_object_name_length', MAX_OBJECT_NAME_LENGTH),
+    ('container_listing_limit', CONTAINER_LISTING_LIMIT),
+    ('account_listing_limit', ACCOUNT_LISTING_LIMIT),
+    ('max_account_name_length', MAX_ACCOUNT_NAME_LENGTH),
+    ('max_container_name_length', MAX_CONTAINER_NAME_LENGTH)))
+constraints_conf = ConfigParser()
+conf_exists = constraints_conf.read('/etc/swift/swift.conf')
+# Constraints are set first from the test config, then from
+# /etc/swift/swift.conf if it exists. If swift.conf doesn't exist,
+# then limit test coverage. This allows SAIO tests to work fine but
+# requires remote funtional testing to know something about the cluster
+# that is being tested.
 config = get_config('func_test')
+for k in default_constraints:
+    if k in config:
+        # prefer what's in test.conf
+        config[k] = int(config[k])
+    elif conf_exists:
+        # swift.conf exists, so use what's defined there (or swift defaults)
+        # This normally happens when the test is running locally to the cluster
+        # as in a SAIO.
+        config[k] = default_constraints[k]
+    else:
+        # .functests don't know what the constraints of the tested cluster are,
+        # so the tests can't reliably pass or fail. Therefore, skip those
+        # tests.
+        config[k] = '%s constraint is not defined' % k
+
+def load_constraint(name):
+    c = config[name]
+    if not isinstance(c, int):
+        raise SkipTest(c)
+    return c
 
 locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
@@ -231,8 +275,7 @@ class TestAccount(Base):
                                   'application/xml; charset=utf-8')
 
     def testListingLimit(self):
-        limit = 10000
-
+        limit = load_constraint('account_listing_limit')
         for l in (1, 100, limit / 2, limit - 1, limit, limit + 1, limit * 2):
             p = {'limit': l}
 
@@ -367,7 +410,7 @@ class TestContainer(Base):
     set_up = False
 
     def testContainerNameLimit(self):
-        limit = 256
+        limit = load_constraint('max_container_name_length')
 
         for l in (limit - 100, limit - 10, limit - 1, limit,
                   limit + 1, limit + 10, limit + 100):
@@ -412,6 +455,7 @@ class TestContainer(Base):
             self.assert_(cont.files(parms={'prefix': f}) == [f])
 
     def testPrefixAndLimit(self):
+        load_constraint('container_listing_limit')
         cont = self.env.account.container(Utils.create_name())
         self.assert_(cont.create())
 
@@ -967,7 +1011,7 @@ class TestFile(Base):
             self.assert_status(404)
 
     def testNameLimit(self):
-        limit = 1024
+        limit = load_constraint('max_object_name_length')
 
         for l in (1, 10, limit / 2, limit - 1, limit, limit + 1, limit * 2):
             file = self.env.container.file('a' * l)
@@ -1014,11 +1058,11 @@ class TestFile(Base):
         self.assert_status(400)
 
     def testMetadataNumberLimit(self):
-        number_limit = 90
+        number_limit = load_constraint('max_meta_count')
+        size_limit = load_constraint('max_meta_overall_size')
 
         for i in (number_limit - 10, number_limit - 1, number_limit,
                   number_limit + 1, number_limit + 10, number_limit + 100):
-            size_limit = 4096
 
             j = size_limit / (i * 2)
 
@@ -1120,7 +1164,7 @@ class TestFile(Base):
             self.assert_(file.read(hdrs={'Range': r}) == data[0:1000])
 
     def testFileSizeLimit(self):
-        limit = 5 * 2 ** 30 + 2
+        limit = load_constraint('max_file_size')
         tsecs = 3
 
         for i in (limit - 100, limit - 10, limit - 1, limit, limit + 1,
@@ -1176,7 +1220,8 @@ class TestFile(Base):
         self.assert_status(200)
 
     def testMetadataLengthLimits(self):
-        key_limit, value_limit = 128, 256
+        key_limit = load_constraint('max_meta_name_length')
+        value_limit = load_constraint('max_meta_value_length')
         lengths = [[key_limit, value_limit], [key_limit, value_limit + 1],
                    [key_limit + 1, value_limit], [key_limit, 0],
                    [key_limit, value_limit * 10],
