@@ -35,7 +35,7 @@ class AccountAuditor(Daemon):
         self.logger = get_logger(conf, log_route='account-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+            TRUE_VALUES
         self.interval = int(conf.get('interval', 1800))
         self.account_passes = 0
         self.account_failures = 0
@@ -47,21 +47,23 @@ class AccountAuditor(Daemon):
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
-            account_server.DATADIR, mount_check=self.mount_check,
-            logger=self.logger)
+                                            account_server.DATADIR,
+                                            mount_check=self.mount_check,
+                                            logger=self.logger)
         for path, device, partition in all_locs:
             self.account_audit(path)
             if time.time() - reported >= 3600:  # once an hour
                 self.logger.info(_('Since %(time)s: Account audits: '
-                   '%(passed)s passed audit, %(failed)s failed audit'),
-                      {'time': time.ctime(reported),
-                       'passed': self.account_passes,
-                       'failed': self.account_failures})
+                                   '%(passed)s passed audit,'
+                                   '%(failed)s failed audit'),
+                                 {'time': time.ctime(reported),
+                                 'passed': self.account_passes,
+                                 'failed': self.account_failures})
                 self.account_audit(path)
                 dump_recon_cache({'account_audits_since': reported,
                                   'account_audits_passed': self.account_passes,
                                   'account_audits_failed':
-                                    self.account_failures},
+                                  self.account_failures},
                                  self.rcache, self.logger)
                 reported = time.time()
                 self.account_passes = 0
@@ -119,5 +121,5 @@ class AccountAuditor(Daemon):
             self.logger.increment('failures')
             self.account_failures += 1
             self.logger.exception(_('ERROR Could not get account info %s'),
-                (broker.db_file))
+                                  (broker.db_file))
         self.logger.timing_since('timing', start_time)
