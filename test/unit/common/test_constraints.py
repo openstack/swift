@@ -84,8 +84,13 @@ class TestConstraints(unittest.TestCase):
             x += 1
         self.assertEquals(constraints.check_metadata(Request.blank('/',
             headers=headers), 'object'), None)
-        headers['X-Object-Meta-9999%s' %
-                ('a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
+        # add two more headers in case adding just one falls exactly on the
+        # limit (eg one header adds 1024 and the limit is 2048)
+        headers['X-Object-Meta-%04d%s' %
+                (x, 'a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
+                    'v' * constraints.MAX_META_VALUE_LENGTH
+        headers['X-Object-Meta-%04d%s' %
+                (x + 1, 'a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
                     'v' * constraints.MAX_META_VALUE_LENGTH
         self.assert_(isinstance(constraints.check_metadata(Request.blank('/',
             headers=headers), 'object'), HTTPBadRequest))
