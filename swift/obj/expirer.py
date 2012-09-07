@@ -49,8 +49,9 @@ class ObjectExpirer(Daemon):
             'expiring_objects'
         conf_path = conf.get('__file__') or '/etc/swift/object-expirer.conf'
         request_tries = int(conf.get('request_tries') or 3)
-        self.swift = InternalClient(conf_path, 'Swift Object Expirer',
-            request_tries)
+        self.swift = InternalClient(conf_path,
+                                    'Swift Object Expirer',
+                                    request_tries)
         self.report_interval = int(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
@@ -72,7 +73,7 @@ class ObjectExpirer(Daemon):
                              (elapsed, self.report_objects))
             dump_recon_cache({'object_expiration_pass': elapsed,
                               'expired_last_pass': self.report_objects},
-                              self.rcache, self.logger)
+                             self.rcache, self.logger)
         elif time() - self.report_last_time >= self.report_interval:
             elapsed = time() - self.report_first_time
             self.logger.info(_('Pass so far %ds; %d objects expired') %
@@ -95,14 +96,14 @@ class ObjectExpirer(Daemon):
             containers, objects = \
                 self.swift.get_account_info(self.expiring_objects_account)
             self.logger.info(_('Pass beginning; %s possible containers; %s '
-                'possible objects') % (containers, objects))
+                               'possible objects') % (containers, objects))
             for c in self.swift.iter_containers(self.expiring_objects_account):
                 container = c['name']
                 timestamp = int(container)
                 if timestamp > int(time()):
                     break
                 for o in self.swift.iter_objects(self.expiring_objects_account,
-                        container):
+                                                 container):
                     obj = o['name']
                     timestamp, actual_obj = obj.split('-', 1)
                     timestamp = int(timestamp)
@@ -112,7 +113,7 @@ class ObjectExpirer(Daemon):
                     try:
                         self.delete_actual_object(actual_obj, timestamp)
                         self.swift.delete_object(self.expiring_objects_account,
-                            container, obj)
+                                                 container, obj)
                         self.report_objects += 1
                         self.logger.increment('objects')
                     except (Exception, Timeout), err:
@@ -124,9 +125,9 @@ class ObjectExpirer(Daemon):
                     self.report()
                 try:
                     self.swift.delete_container(
-                        self.expiring_objects_account, container,
-                            acceptable_statuses=(2, HTTP_NOT_FOUND,
-                            HTTP_CONFLICT))
+                        self.expiring_objects_account,
+                        container,
+                        acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
                 except (Exception, Timeout), err:
                     self.logger.exception(
                         _('Exception while deleting container %s %s') %
@@ -168,5 +169,5 @@ class ObjectExpirer(Daemon):
                           perform the actual delete.
         """
         self.swift.make_request('DELETE', '/v1/%s' % (quote(actual_obj),),
-            {'X-If-Delete-At': str(timestamp)}, (2, HTTP_NOT_FOUND,
-            HTTP_PRECONDITION_FAILED))
+                                {'X-If-Delete-At': str(timestamp)},
+                                (2, HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED))
