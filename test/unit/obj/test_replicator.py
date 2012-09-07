@@ -154,6 +154,7 @@ class TestObjectReplicator(unittest.TestCase):
             timeout='300', stats_interval='1')
         self.replicator = object_replicator.ObjectReplicator(
             self.conf)
+        self.replicator.logger = FakeLogger()
 
     def tearDown(self):
         process_errors = []
@@ -387,6 +388,44 @@ class TestObjectReplicator(unittest.TestCase):
                 self.assertEquals(node['device'], 'sda')
             self.assertEquals(jobs_by_part[part]['path'],
                               os.path.join(self.objects, part))
+
+    def test_collect_jobs_removes_zbf(self):
+        """
+        After running xfs_repair, a partition directory could become a
+        zero-byte file.  If this happens, collect_jobs() should clean it up and
+        *not* create a job which will hit an exception as it tries to listdir()
+        a file.
+        """
+        # Surprise! Partition dir 1 is actually a zero-byte-file
+        part_1_path = os.path.join(self.objects, '1')
+        rmtree(part_1_path)
+        with open(part_1_path, 'w'):
+            pass
+        self.assertTrue(os.path.isfile(part_1_path))  # sanity check
+        jobs = self.replicator.collect_jobs()
+        jobs_to_delete = [j for j in jobs if j['delete']]
+        jobs_to_keep = [j for j in jobs if not j['delete']]
+        jobs_by_part = {}
+        for job in jobs:
+            jobs_by_part[job['partition']] = job
+        self.assertEquals(len(jobs_to_delete), 0)
+        self.assertEquals(
+            [node['id'] for node in jobs_by_part['0']['nodes']], [1, 2])
+        self.assertFalse('1' in jobs_by_part)
+        self.assertEquals(
+            [node['id'] for node in jobs_by_part['2']['nodes']], [2, 3])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_part['3']['nodes']], [3, 1])
+        for part in ['0', '2', '3']:
+            for node in jobs_by_part[part]['nodes']:
+                self.assertEquals(node['device'], 'sda')
+            self.assertEquals(jobs_by_part[part]['path'],
+                              os.path.join(self.objects, part))
+        self.assertFalse(os.path.exists(part_1_path))
+        self.assertEquals(
+            [(('Removing partition directory which was a file: %s',
+               part_1_path), {})],
+            self.replicator.logger.log_dict['warning'])
 
     def test_delete_partition(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
