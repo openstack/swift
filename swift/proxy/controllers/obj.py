@@ -278,8 +278,9 @@ class ObjectController(Controller):
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
-        _junk, _junk, req.acl, _junk, _junk, object_versions = \
-            self.container_info(self.account_name, self.container_name)
+        container_info = self.container_info(self.account_name,
+                                             self.container_name)
+        req.acl = container_info['read_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -413,9 +414,12 @@ class ObjectController(Controller):
             error_response = check_metadata(req, 'object')
             if error_response:
                 return error_response
-            container_partition, containers, _junk, req.acl, _junk, _junk = \
-                self.container_info(self.account_name, self.container_name,
-                    account_autocreate=self.app.account_autocreate)
+            container_info = self.container_info(
+                self.account_name, self.container_name,
+                account_autocreate=self.app.account_autocreate)
+            container_partition = container_info['partition']
+            containers = container_info['nodes']
+            req.acl = container_info['write_acl']
             if 'swift.authorize' in req.environ:
                 aresp = req.environ['swift.authorize'](req)
                 if aresp:
@@ -498,10 +502,14 @@ class ObjectController(Controller):
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
-        (container_partition, containers, _junk, req.acl,
-         req.environ['swift_sync_key'], object_versions) = \
-            self.container_info(self.account_name, self.container_name,
-                account_autocreate=self.app.account_autocreate)
+        container_info = self.container_info(
+            self.account_name, self.container_name,
+            account_autocreate=self.app.account_autocreate)
+        container_partition = container_info['partition']
+        containers = container_info['nodes']
+        req.acl = container_info['write_acl']
+        req.environ['swift_sync_key'] = container_info['sync_key']
+        object_versions = container_info['versions']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -776,9 +784,13 @@ class ObjectController(Controller):
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        (container_partition, containers, _junk, req.acl,
-         req.environ['swift_sync_key'], object_versions) = \
-            self.container_info(self.account_name, self.container_name)
+        container_info = self.container_info(self.account_name,
+                                             self.container_name)
+        container_partition = container_info['partition']
+        containers = container_info['nodes']
+        req.acl = container_info['write_acl']
+        req.environ['swift_sync_key'] = container_info['sync_key']
+        object_versions = container_info['versions']
         if object_versions:
             # this is a version manifest and needs to be handled differently
             lcontainer = object_versions.split('/')[0]
@@ -824,9 +836,11 @@ class ObjectController(Controller):
                 self.container_name = lcontainer
                 self.object_name = last_item['name']
                 new_del_req = Request.blank(copy_path, environ=req.environ)
-                (container_partition, containers,
-                    _junk, new_del_req.acl, _junk, _junk) = \
-                    self.container_info(self.account_name, self.container_name)
+                container_info = self.container_info(self.account_name,
+                                                     self.container_name)
+                container_partition = container_info['partition']
+                containers = container_info['nodes']
+                new_del_req.acl = container_info['write_acl']
                 new_del_req.path_info = copy_path
                 req = new_del_req
         if 'swift.authorize' in req.environ:

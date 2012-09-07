@@ -184,7 +184,7 @@ class TestRateLimit(unittest.TestCase):
                      'container_ratelimit_3': 200}
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_container_memcache_key('a', 'c')] = \
-            {'container_size': 5}
+            {'count': 5}
         the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
                                                 logger=FakeLogger())
         the_app.memcache_client = fake_memcache
@@ -198,6 +198,19 @@ class TestRateLimit(unittest.TestCase):
                     'GET', 'a', 'c', 'o')), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'PUT', 'a', 'c', 'o')), 1)
+
+    def test_ratelimit_old_memcache_format(self):
+        current_rate = 13
+        conf_dict = {'account_ratelimit': current_rate,
+                     'container_ratelimit_3': 200}
+        fake_memcache = FakeMemcache()
+        fake_memcache.store[get_container_memcache_key('a', 'c')] = \
+            {'container_size': 5}
+        the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
+                                                logger=FakeLogger())
+        the_app.memcache_client = fake_memcache
+        tuples = the_app.get_ratelimitable_key_tuples('PUT', 'a', 'c', 'o')
+        self.assertEquals(tuples, [('ratelimit/a/c', 200.0)])
 
     def test_account_ratelimit(self):
         current_rate = 5

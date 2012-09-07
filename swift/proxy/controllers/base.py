@@ -266,89 +266,79 @@ class Controller(object):
 
         :param account: account name for the container
         :param container: container name to look up
-        :returns: tuple of (container partition, container nodes, container
-                  read acl, container write acl, container sync key) or (None,
-                  None, None, None, None) if the container does not exist
+        :returns: dict containing at least container partition ('partition'),
+                  container nodes ('containers'), container read
+                  acl ('read_acl'), container write acl ('write_acl'),
+                  and container sync key ('sync_key').
+                  Values are set to None if the container does not exist.
         """
-        partition, nodes = self.app.container_ring.get_nodes(
-                account, container)
+        part, nodes = self.app.container_ring.get_nodes(account, container)
         path = '/%s/%s' % (account, container)
+        container_info = {'status': 0, 'read_acl': None,
+                          'write_acl': None, 'sync_key': None,
+                          'count': None, 'bytes': None,
+                          'versions': None, 'partition': None,
+                          'nodes': None}
         if self.app.memcache:
             cache_key = get_container_memcache_key(account, container)
             cache_value = self.app.memcache.get(cache_key)
             if isinstance(cache_value, dict):
-                status = cache_value['status']
-                read_acl = cache_value['read_acl']
-                write_acl = cache_value['write_acl']
-                sync_key = cache_value.get('sync_key')
-                versions = cache_value.get('versions')
-                if status == HTTP_OK:
-                    return partition, nodes, read_acl, write_acl, sync_key, \
-                            versions
-                elif status == HTTP_NOT_FOUND:
-                    return None, None, None, None, None, None
+                if 'container_size' in cache_value:
+                    cache_value['count'] = cache_value['container_size']
+                if is_success(cache_value['status']):
+                    container_info.update(cache_value)
+                    container_info['partition'] = part
+                    container_info['nodes'] = nodes
+                return container_info
         if not self.account_info(account, autocreate=account_autocreate)[1]:
-            return None, None, None, None, None, None
-        result_code = 0
-        read_acl = None
-        write_acl = None
-        sync_key = None
-        container_size = None
-        versions = None
+            return container_info
         attempts_left = len(nodes)
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
-        iternodes = self.iter_nodes(partition, nodes, self.app.container_ring)
-        while attempts_left > 0:
-            try:
-                node = iternodes.next()
-            except StopIteration:
-                break
-            attempts_left -= 1
+        for node in self.iter_nodes(part, nodes, self.app.container_ring):
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
-                            node['device'], partition, 'HEAD', path, headers)
+                                        node['device'], part, 'HEAD',
+                                        path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     body = resp.read()
-                    if is_success(resp.status):
-                        result_code = HTTP_OK
-                        read_acl = resp.getheader('x-container-read')
-                        write_acl = resp.getheader('x-container-write')
-                        sync_key = resp.getheader('x-container-sync-key')
-                        container_size = \
-                            resp.getheader('X-Container-Object-Count')
-                        versions = resp.getheader('x-versions-location')
-                        break
-                    elif resp.status == HTTP_NOT_FOUND:
-                        if result_code == 0:
-                            result_code = HTTP_NOT_FOUND
-                        elif result_code != HTTP_NOT_FOUND:
-                            result_code = -1
-                    elif resp.status == HTTP_INSUFFICIENT_STORAGE:
+                if is_success(resp.status):
+                    container_info.update({
+                        'status': HTTP_OK,
+                        'read_acl': resp.getheader('x-container-read'),
+                        'write_acl': resp.getheader('x-container-write'),
+                        'sync_key': resp.getheader('x-container-sync-key'),
+                        'count': resp.getheader('x-container-object-count'),
+                        'bytes': resp.getheader('x-container-bytes-used'),
+                        'versions': resp.getheader('x-versions-location')})
+                    break
+                elif resp.status == HTTP_NOT_FOUND:
+                    container_info['status'] = HTTP_NOT_FOUND
+                else:
+                    container_info['status'] = -1
+                    if resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node)
-                        continue
-                    else:
-                        result_code = -1
             except (Exception, Timeout):
-                self.exception_occurred(node, _('Container'),
+                self.exception_occurred(
+                    node, _('Container'),
                     _('Trying to get container info for %s') % path)
-        if self.app.memcache and result_code in (HTTP_OK, HTTP_NOT_FOUND):
-            if result_code == HTTP_OK:
-                cache_timeout = self.app.recheck_container_existence
-            else:
-                cache_timeout = self.app.recheck_container_existence * 0.1
-            self.app.memcache.set(cache_key,
-                                  {'status': result_code,
-                                   'read_acl': read_acl,
-                                   'write_acl': write_acl,
-                                   'sync_key': sync_key,
-                                   'container_size': container_size,
-                                   'versions': versions},
-                                  timeout=cache_timeout)
-        if result_code == HTTP_OK:
-            return partition, nodes, read_acl, write_acl, sync_key, versions
-        return None, None, None, None, None, None
+            attempts_left -= 1
+            if attempts_left <= 0:
+                break
+        if self.app.memcache:
+            if container_info['status'] == HTTP_OK:
+                self.app.memcache.set(
+                    cache_key, container_info,
+                    timeout=self.app.recheck_container_existence)
+            elif container_info['status'] == HTTP_NOT_FOUND:
+                self.app.memcache.set(
+                    cache_key, container_info,
+                    timeout=self.app.recheck_container_existence * 0.1)
+        if container_info['status'] == HTTP_OK:
+            container_info['partition'] = part
+            container_info['nodes'] = nodes
+        return container_info
 
     def iter_nodes(self, partition, nodes, ring):
         """
