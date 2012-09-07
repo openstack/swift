@@ -15,12 +15,15 @@
 
 import os
 import unittest
+import cPickle as pickle
 from collections import defaultdict
 from shutil import rmtree
+from mock import Mock, call as mock_call
 
 from swift.common import exceptions
 from swift.common import ring
 from swift.common.ring import RingBuilder, RingData
+
 
 class TestRingBuilder(unittest.TestCase):
 
@@ -38,7 +41,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(rb.part_power, 8)
         self.assertEquals(rb.replicas, 3)
         self.assertEquals(rb.min_part_hours, 1)
-        self.assertEquals(rb.parts, 2**8)
+        self.assertEquals(rb.parts, 2 ** 8)
         self.assertEquals(rb.devs, [])
         self.assertEquals(rb.devs_changed, False)
         self.assertEquals(rb.version, 0)
@@ -159,10 +162,10 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_shuffled_gather(self):
         if self._shuffled_gather_helper() and \
-            self._shuffled_gather_helper():
+                self._shuffled_gather_helper():
                 raise AssertionError('It is highly likely the ring is no '
-                    'longer shuffling the set of partitions to reassign on a '
-                    'rebalance.')
+                                     'longer shuffling the set of partitions '
+                                     'to reassign on a rebalance.')
 
     def _shuffled_gather_helper(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -492,6 +495,84 @@ class TestRingBuilder(unittest.TestCase):
         rb.remove_dev(1)
 
         rb.rebalance()
+
+    def test_load(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        devs = [{'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.0',
+                 'port': 10000, 'device': 'sda1', 'meta': 'meta0'},
+                {'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                 'port': 10001, 'device': 'sdb1', 'meta': 'meta1'},
+                {'id': 2, 'zone': 2, 'weight': 2, 'ip': '127.0.0.2',
+                 'port': 10002, 'device': 'sdc1', 'meta': 'meta2'},
+                {'id': 3, 'zone': 3, 'weight': 2, 'ip': '127.0.0.3',
+                 'port': 10003, 'device': 'sdd1'}]
+        for d in devs:
+            rb.add_dev(d)
+        rb.rebalance()
+
+        real_pickle = pickle.load
+        try:
+            #test a legit builder
+            fake_pickle = Mock(return_value=rb)
+            fake_open = Mock(return_value=None)
+            pickle.load = fake_pickle
+            builder = RingBuilder.load('fake.builder', open=fake_open)
+            self.assertEquals(fake_pickle.call_count, 1)
+            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            self.assertEquals(builder, rb)
+            fake_pickle.reset_mock()
+            fake_open.reset_mock()
+
+            #test old style builder
+            fake_pickle.return_value = rb.to_dict()
+            pickle.load = fake_pickle
+            builder = RingBuilder.load('fake.builder', open=fake_open)
+            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            self.assertEquals(builder.devs, rb.devs)
+            fake_pickle.reset_mock()
+            fake_open.reset_mock()
+
+            #test old devs but no meta
+            no_meta_builder = rb
+            for dev in no_meta_builder.devs:
+                del(dev['meta'])
+            print no_meta_builder.devs
+            fake_pickle.return_value = no_meta_builder
+            pickle.load = fake_pickle
+            builder = RingBuilder.load('fake.builder', open=fake_open)
+            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            self.assertEquals(builder.devs, rb.devs)
+            fake_pickle.reset_mock()
+        finally:
+            pickle.load = real_pickle
+
+    def test_search_devs(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        devs = [{'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.0',
+                 'port': 10000, 'device': 'sda1', 'meta': 'meta0'},
+                {'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                 'port': 10001, 'device': 'sdb1', 'meta': 'meta1'},
+                {'id': 2, 'zone': 2, 'weight': 2, 'ip': '127.0.0.2',
+                 'port': 10002, 'device': 'sdc1', 'meta': 'meta2'},
+                {'id': 3, 'zone': 3, 'weight': 2, 'ip': '127.0.0.3',
+                 'port': 10003, 'device': 'sdd1', 'meta': 'meta3'}]
+        for d in devs:
+            rb.add_dev(d)
+        rb.rebalance()
+        res = rb.search_devs('d1')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('z1')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('-127.0.0.1')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('-[127.0.0.1]:10001')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs(':10001')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('/sdb1')
+        self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('_meta1')
+        self.assertRaises(ValueError, rb.search_devs, 'OMGPONIES')
 
     def test_validate(self):
         rb = ring.RingBuilder(8, 3, 1)

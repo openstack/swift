@@ -17,7 +17,7 @@ import array
 import cPickle as pickle
 from collections import defaultdict
 from gzip import GzipFile
-from os.path import getmtime, join as pathjoin
+from os.path import getmtime
 import struct
 from time import time
 import os
