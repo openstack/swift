@@ -210,6 +210,17 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEquals(hashed, 1)
         self.assert_('a83' in hashes)
 
+    def test_get_hashes_bad_dir(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        with open(os.path.join(self.objects, '0', 'bad'), 'wb') as f:
+            f.write('1234567890')
+        part = os.path.join(self.objects, '0')
+        hashed, hashes = object_replicator.get_hashes(part)
+        self.assertEquals(hashed, 1)
+        self.assert_('a83' in hashes)
+        self.assert_('bad' not in hashes)
+
     def test_get_hashes_unmodified(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)

@@ -37,6 +37,7 @@ from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
+from swift.common.exceptions import PathNotDir
 
 hubs.use_hub('poll')
 
@@ -75,9 +76,17 @@ def hash_suffix(path, reclaim_age):
     Performs reclamation and returns an md5 of all (remaining) files.
 
     :param reclaim_age: age in seconds at which to remove tombstones
+    :raises PathNotDir: if given path is not a valid directory
+    :raises OSError: for non-ENOTDIR errors
     """
     md5 = hashlib.md5()
-    for hsh in sorted(os.listdir(path)):
+    try:
+        path_contents = sorted(os.listdir(path))
+    except OSError, err:
+        if err.errno == errno.ENOTDIR:
+            raise PathNotDir()
+        raise
+    for hsh in path_contents:
         hsh_path = join(path, hsh)
         try:
             files = os.listdir(hsh_path)
@@ -177,21 +186,20 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
         do_listdir = True
     if do_listdir:
         for suff in os.listdir(partition_dir):
-            if len(suff) == 3 and isdir(join(partition_dir, suff)):
+            if len(suff) == 3:
                 hashes.setdefault(suff, None)
         modified = True
     hashes.update((hash_, None) for hash_ in recalculate)
     for suffix, hash_ in hashes.items():
         if not hash_:
             suffix_dir = join(partition_dir, suffix)
-            if isdir(suffix_dir):
-                try:
-                    hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
-                    hashed += 1
-                except OSError:
-                    logging.exception(_('Error hashing suffix'))
-            else:
+            try:
+                hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
+                hashed += 1
+            except PathNotDir:
                 del hashes[suffix]
+            except OSError:
+                logging.exception(_('Error hashing suffix'))
             modified = True
     if modified:
         with lock_path(partition_dir):
