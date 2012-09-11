@@ -502,10 +502,10 @@ class TestController(unittest.TestCase):
             partition, nodes = self.container_ring.get_nodes(self.account,
                 self.container)
             read_acl, write_acl = self.read_acl, self.write_acl
-        self.assertEqual(partition, ret[0])
-        self.assertEqual(nodes, ret[1])
-        self.assertEqual(read_acl, ret[2])
-        self.assertEqual(write_acl, ret[3])
+        self.assertEqual(partition, ret['partition'])
+        self.assertEqual(nodes, ret['nodes'])
+        self.assertEqual(read_acl, ret['read_acl'])
+        self.assertEqual(write_acl, ret['write_acl'])
 
     def test_container_info_invalid_account(self):
         def account_info(self, account, autocreate=False):

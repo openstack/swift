@@ -82,7 +82,8 @@ class ContainerController(Controller):
                'read_acl': resp.headers.get('x-container-read'),
                'write_acl': resp.headers.get('x-container-write'),
                'sync_key': resp.headers.get('x-container-sync-key'),
-               'container_size': resp.headers.get('x-container-object-count'),
+               'count': resp.headers.get('x-container-object-count'),
+               'bytes': resp.headers.get('x-container-bytes-used'),
                'versions': resp.headers.get('x-versions-location')},
                                   timeout=self.app.recheck_container_existence)
 
@@ -173,9 +174,8 @@ class ContainerController(Controller):
                    'Connection': 'close'}
         self.transfer_headers(req.headers, headers)
         if self.app.memcache:
-            cache_key = get_container_memcache_key(self.account_name,
-                                                   self.container_name)
-            self.app.memcache.delete(cache_key)
+            self.app.memcache.delete(get_container_memcache_key(
+                self.account_name, self.container_name))
         resp = self.make_requests(req, self.app.container_ring,
                 container_partition, 'POST', req.path_info,
                 [headers] * len(containers))
