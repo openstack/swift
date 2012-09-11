@@ -63,20 +63,25 @@ def get_devices(device_dir, logger):
 def get_errors(minutes):
     errors = {}
     start_time = datetime.datetime.now() - datetime.timedelta(minutes=minutes)
-    for line in open('/var/log/kern.log'):
-        if '[    0.000000]' in line:
-            # Ignore anything before the last boot
-            errors = {}
-            continue
-        log_time_string = '%s %s' % (start_time.year,
-                                     ' '.join(line.split()[:3]))
-        log_time = datetime.datetime.strptime(
-            log_time_string, '%Y %b %d %H:%M:%S')
-        if log_time > start_time:
-            for err in error_re:
-                for device in err.findall(line):
-                    errors[device] = errors.get(device, 0) + 1
-    return errors
+    try:
+        for line in open('/var/log/kern.log'):
+            if '[    0.000000]' in line:
+                # Ignore anything before the last boot
+                errors = {}
+                continue
+            log_time_string = '%s %s' % (start_time.year,
+                                         ' '.join(line.split()[:3]))
+            log_time = datetime.datetime.strptime(
+                log_time_string, '%Y %b %d %H:%M:%S')
+            if log_time > start_time:
+                for err in error_re:
+                    for device in err.findall(line):
+                        errors[device] = errors.get(device, 0) + 1
+        return errors
+    except IOError:
+        logger.error("Error: Unable to open /var/log/kern.log")
+        print("Unable to open /var/log/kern.log")
+        sys.exit(1)
 
 
 def comment_fstab(mount_point):
