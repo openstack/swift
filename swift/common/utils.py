@@ -170,7 +170,8 @@ def fallocate(fd, size):
         # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
         ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
         err = ctypes.get_errno()
-        if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP):
+        if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP,
+                               errno.EINVAL):
             raise OSError(err, 'Unable to fallocate(%s)' % size)
 
 
