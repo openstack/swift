@@ -269,18 +269,17 @@ swift-ring-builder <builder_file> add
                     print "The on-disk ring builder is unchanged.\n"
                     exit(EXIT_ERROR)
 
-            next_dev_id = 0
-            if builder.devs:
-                next_dev_id = max(d['id'] for d in builder.devs if d) + 1
-            builder.add_dev({'id': next_dev_id, 'zone': zone, 'ip': ip,
-                             'port': port, 'device': device_name,
-                             'weight': weight, 'meta': meta})
+            builder.add_dev({'zone': zone, 'ip': ip, 'port': port,
+                             'device': device_name, 'weight': weight,
+                             'meta': meta})
+            new_dev = builder.search_devs(
+                'z%s-%s:%s/%s' % (zone, ip, port, device_name))[0]['id']
             if ':' in ip:
                 print 'Device z%s-[%s]:%s/%s_"%s" with %s weight got id %s' % \
-                      (zone, ip, port, device_name, meta, weight, next_dev_id)
+                      (zone, ip, port, device_name, meta, weight, new_dev)
             else:
                 print 'Device z%s-%s:%s/%s_"%s" with %s weight got id %s' % \
-                      (zone, ip, port, device_name, meta, weight, next_dev_id)
+                      (zone, ip, port, device_name, meta, weight, new_dev)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 

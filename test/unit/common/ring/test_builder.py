@@ -74,6 +74,13 @@ class TestRingBuilder(unittest.TestCase):
             {'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1', 'port': 10000}
         rb.add_dev(dev)
         self.assertRaises(exceptions.DuplicateDeviceError, rb.add_dev, dev)
+        rb = ring.RingBuilder(8, 3, 1)
+        #test add new dev with no id
+        rb.add_dev({'zone': 0, 'weight': 1, 'ip': '127.0.0.1', 'port': 6000})
+        self.assertEquals(rb.devs[0]['id'], 0)
+        #test add another dev with no id
+        rb.add_dev({'zone': 3, 'weight': 1, 'ip': '127.0.0.1', 'port': 6000})
+        self.assertEquals(rb.devs[1]['id'], 1)
 
     def test_set_dev_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -536,7 +543,6 @@ class TestRingBuilder(unittest.TestCase):
             no_meta_builder = rb
             for dev in no_meta_builder.devs:
                 del(dev['meta'])
-            print no_meta_builder.devs
             fake_pickle.return_value = no_meta_builder
             pickle.load = fake_pickle
             builder = RingBuilder.load('fake.builder', open=fake_open)
