@@ -1,3 +1,8 @@
+swift (1.7.2)
+
+    * Fix issue where memcache serialization was not properly loading
+      the config value
+
 swift (1.7.0)
 
     * Use custom encoding for ring data instead of pickle
