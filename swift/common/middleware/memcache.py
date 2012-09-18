@@ -52,6 +52,8 @@ class MemcacheMiddleware(object):
             self.memcache_servers = '127.0.0.1:11211'
         if serialization_format is None:
             serialization_format = 2
+        else:
+            serialization_format = int(serialization_format)
 
         self.memcache = MemcacheRing(
             [s.strip() for s in self.memcache_servers.split(',') if s.strip()],
