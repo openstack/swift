@@ -20,7 +20,6 @@ import cPickle as pickle
 
 
 from array import array
-from sys import modules
 from collections import defaultdict
 from random import randint, shuffle
 from time import time
@@ -204,7 +203,8 @@ class RingBuilder(object):
         following keys:
 
         ======  ===============================================================
-        id      unique integer identifier amongst devices
+        id      unique integer identifier amongst devices. Defaults to the next
+                id if the 'id' key is not provided in the dict
         weight  a float of the relative weight of this device as compared to
                 others; this indicates how many partitions the builder will try
                 to assign to this device
@@ -224,6 +224,10 @@ class RingBuilder(object):
 
         :param dev: device dict
         """
+        if 'id' not in dev:
+            dev['id'] = 0
+            if self.devs:
+                dev['id'] = max(d['id'] for d in self.devs if d) + 1
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
                 'Duplicate device id: %d' % dev['id'])
