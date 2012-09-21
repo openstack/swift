@@ -36,7 +36,7 @@ from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, public, \
-    storage_directory, hash_path, renamer, fallocate, \
+    storage_directory, hash_path, renamer, fallocate, fsync, \
     split_path, drop_buffer_cache, get_logger, write_pickle, \
     TRUE_VALUES, validate_device_partition
 from swift.common.bufferedhttp import http_connect
@@ -281,7 +281,7 @@ class DiskFile(object):
         write_metadata(fd, metadata)
         if 'Content-Length' in metadata:
             self.drop_cache(fd, 0, int(metadata['Content-Length']))
-        tpool.execute(os.fsync, fd)
+        tpool.execute(fsync, fd)
         invalidate_hash(os.path.dirname(self.datadir))
         renamer(tmppath, os.path.join(self.datadir, timestamp + extension))
         self.metadata = metadata
@@ -607,7 +607,7 @@ class ObjectController(object):
                     chunk = chunk[written:]
                 # For large files sync every 512MB (by default) written
                 if upload_size - last_sync >= self.bytes_per_sync:
-                    tpool.execute(os.fdatasync, fd)
+                    tpool.execute(fsync, fd)
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
                 sleep()
