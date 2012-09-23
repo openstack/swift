@@ -685,7 +685,12 @@ def capture_stdio(logger, **kwargs):
     with open(os.devnull, 'r+b') as nullfile:
         # close stdio (excludes fds open for logging)
         for f in stdio_files:
-            f.flush()
+            # some platforms throw an error when attempting an stdin flush
+            try:
+                f.flush()
+            except IOError:
+                pass
+
             try:
                 os.dup2(nullfile.fileno(), f.fileno())
             except OSError:
