@@ -58,9 +58,29 @@ import swift.proxy.controllers
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
+_request_instances = 0
+
+
+def request_init(self, *args, **kwargs):
+    global _request_instances
+    self._orig_init(*args, **kwargs)
+    _request_instances += 1
+
+
+def request_del(self):
+    global _request_instances
+    if self._orig_del:
+        self._orig_del()
+    _request_instances -= 1
+
+
 def setup():
     global _testdir, _test_servers, _test_sockets, \
             _orig_container_listing_limit, _test_coros
+    Request._orig_init = Request.__init__
+    Request.__init__ = request_init
+    Request._orig_del = getattr(Request, '__del__', None)
+    Request.__del__ = request_del
     monkey_patch_mimetools()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
@@ -152,6 +172,9 @@ def teardown():
     swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = \
         _orig_container_listing_limit
     rmtree(os.path.dirname(_testdir))
+    Request.__init__ = Request._orig_init
+    if Request._orig_del:
+        Request.__del__ = Request._orig_del
 
 
 def fake_http_connect(*code_iter, **kwargs):
@@ -711,8 +734,8 @@ class TestObjectController(unittest.TestCase):
         def handler(_junk1, _junk2):
             calls[0] += 1
 
+        old_handler = signal.signal(signal.SIGPIPE, handler)
         try:
-            signal.signal(signal.SIGPIPE, handler)
             prolis = _test_sockets[0]
             prosrv = _test_servers[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -739,7 +762,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(res.body, obj)
             self.assertEqual(calls[0], 0)
         finally:
-            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            signal.signal(signal.SIGPIPE, old_handler)
 
     def test_PUT_auto_content_type(self):
         with save_globals():
@@ -3250,6 +3273,43 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 400)
             self.assertTrue('X-Delete-At in past' in resp.body)
 
+    def test_leak_1(self):
+        global _request_instances
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        obj_len = prosrv.client_chunk_size * 2
+        # PUT test file
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (obj_len,  'a' * obj_len))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        # Remember Request instance count
+        before_request_instances = _request_instances
+        # GET test file, but disconnect early
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Auth-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        fd.read(1)
+        fd.close()
+        sock.close()
+        self.assertEquals(before_request_instances, _request_instances)
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"

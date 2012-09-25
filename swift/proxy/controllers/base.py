@@ -505,45 +505,40 @@ class Controller(object):
             if getattr(source, 'swift_conn', None):
                 self.close_swift_conn(source)
 
-    def _make_app_iter(self, node, source, response):
+    def _make_app_iter(self, node, source):
         """
         Returns an iterator over the contents of the source (via its read
         func).  There is also quite a bit of cleanup to ensure garbage
         collection works and the underlying socket of the source is closed.
 
-        :param response: The webob.Response object this iterator should be
-                         assigned to via response.app_iter.
         :param source: The httplib.Response object this iterator should read
                        from.
         :param node: The node the source is reading from, for logging purposes.
         """
         try:
-            try:
-                # Spawn reader to read from the source and place in the queue.
-                # We then drop any reference to the source or node, for garbage
-                # collection purposes.
-                queue = Queue(1)
-                spawn_n(self._make_app_iter_reader, node, source, queue,
-                        self.app.logger.thread_locals)
-                source = node = None
-                while True:
-                    chunk = queue.get(timeout=self.app.node_timeout)
-                    if isinstance(chunk, bool):  # terminator
-                        success = chunk
-                        if not success:
-                            raise Exception(_('Failed to read all data'
-                                              ' from the source'))
-                        break
-                    yield chunk
-            except Empty:
-                raise ChunkReadTimeout()
-            except (GeneratorExit, Timeout):
-                self.app.logger.warn(_('Client disconnected on read'))
-            except Exception:
-                self.app.logger.exception(_('Trying to send to client'))
-                raise
-        finally:
-            response.app_iter = None
+            # Spawn reader to read from the source and place in the queue.
+            # We then drop any reference to the source or node, for garbage
+            # collection purposes.
+            queue = Queue(1)
+            spawn_n(self._make_app_iter_reader, node, source, queue,
+                    self.app.logger.thread_locals)
+            source = node = None
+            while True:
+                chunk = queue.get(timeout=self.app.node_timeout)
+                if isinstance(chunk, bool):  # terminator
+                    success = chunk
+                    if not success:
+                        raise Exception(_('Failed to read all data'
+                                          ' from the source'))
+                    break
+                yield chunk
+        except Empty:
+            raise ChunkReadTimeout()
+        except (GeneratorExit, Timeout):
+            self.app.logger.warn(_('Client disconnected on read'))
+        except Exception:
+            self.app.logger.exception(_('Trying to send to client'))
+            raise
 
     def close_swift_conn(self, src):
         try:
@@ -656,7 +651,7 @@ class Controller(object):
                         self.close_swift_conn(src)
 
                 res = Response(request=req, conditional_response=True)
-                res.app_iter = self._make_app_iter(node, source, res)
+                res.app_iter = self._make_app_iter(node, source)
                 # See NOTE: swift_conn at top of file about this.
                 res.swift_conn = source.swift_conn
                 update_headers(res, source.getheaders())
