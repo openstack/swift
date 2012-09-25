@@ -1,3 +1,7 @@
+swift (1.7.4)
+
+    * Fix issue where early client disconnects may have caused a memory leak
+
 swift (1.7.2)
 
     * Fix issue where memcache serialization was not properly loading
