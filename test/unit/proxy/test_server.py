@@ -712,8 +712,8 @@ class TestObjectController(unittest.TestCase):
         def handler(_junk1, _junk2):
             calls[0] += 1
 
+        old_handler = signal.signal(signal.SIGPIPE, handler)
         try:
-            signal.signal(signal.SIGPIPE, handler)
             prolis = _test_sockets[0]
             prosrv = _test_servers[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -740,7 +740,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(res.body, obj)
             self.assertEqual(calls[0], 0)
         finally:
-            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            signal.signal(signal.SIGPIPE, old_handler)
 
     def test_PUT_auto_content_type(self):
         with save_globals():
