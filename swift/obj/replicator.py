@@ -33,7 +33,7 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
     compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
-    rsync_ip, mkdirs, TRUE_VALUES
+    rsync_ip, mkdirs, TRUE_VALUES, list_from_csv
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -594,7 +594,7 @@ class ObjectReplicator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self):
+    def replicate(self, override_devices=[], override_partitions=[]):
         """Run a replication pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -610,6 +610,11 @@ class ObjectReplicator(Daemon):
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs()
             for job in jobs:
+                if override_devices and job['device'] not in override_devices:
+                    continue
+                if override_partitions and \
+                        job['partition'] not in override_partitions:
+                    continue
                 dev_path = join(self.devices_dir, job['device'])
                 if self.mount_check and not os.path.ismount(dev_path):
                     self.logger.warn(_('%s is not mounted'), job['device'])
@@ -635,7 +640,11 @@ class ObjectReplicator(Daemon):
     def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Running object replicator in script mode."))
-        self.replicate()
+        override_devices = list_from_csv(kwargs.get('devices'))
+        override_partitions = list_from_csv(kwargs.get('partitions'))
+        self.replicate(
+            override_devices=override_devices,
+            override_partitions=override_partitions)
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object replication complete. (%.02f minutes)"), total)

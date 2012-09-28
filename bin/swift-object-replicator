@@ -17,7 +17,15 @@
 from swift.obj.replicator import ObjectReplicator
 from swift.common.utils import parse_options
 from swift.common.daemon import run_daemon
+from optparse import OptionParser
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('-d', '--devices',
+                      help='Replicate only given devices. '
+                           'Comma-separated list')
+    parser.add_option('-p', '--partitions',
+                      help='Replicate only given partitions. '
+                           'Comma-separated list')
+    conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectReplicator, conf_file, **options)
