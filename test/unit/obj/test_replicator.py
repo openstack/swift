@@ -448,6 +448,21 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.replicate()
         self.assertFalse(os.access(part_path, os.F_OK))
 
+    def test_delete_partition_override_params(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        part_path = os.path.join(self.objects, '1')
+        self.assertTrue(os.access(part_path, os.F_OK))
+        self.replicator.replicate(override_devices=['sdb'])
+        self.assertTrue(os.access(part_path, os.F_OK))
+        self.replicator.replicate(override_partitions=['9'])
+        self.assertTrue(os.access(part_path, os.F_OK))
+        self.replicator.replicate(override_devices=['sda'],
+                                  override_partitions=['1'])
+        self.assertFalse(os.access(part_path, os.F_OK))
+
     def test_run_once_recover_from_failure(self):
         replicator = object_replicator.ObjectReplicator(
             dict(swift_dir=self.testdir, devices=self.devices,
