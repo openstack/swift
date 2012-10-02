@@ -54,6 +54,11 @@ class TempAuth(object):
         user_test_tester = testing .admin
         user_test2_tester2 = testing2 .admin
         user_test_tester3 = testing3
+        # To allow accounts/users with underscores you can base64 encode them.
+        # Here is the account "under_score" and username "a_b" (note the lack
+        # of padding equal signs):
+        user64_dW5kZXJfc2NvcmU_YV9i = testing4
+
 
     See the proxy-server.conf-sample for more information.
 
@@ -86,7 +91,15 @@ class TempAuth(object):
             conf.get('allow_overrides', 't').lower() in TRUE_VALUES
         self.users = {}
         for conf_key in conf:
-            if conf_key.startswith('user_'):
+            if conf_key.startswith('user_') or conf_key.startswith('user64_'):
+                account, username = conf_key.split('_', 1)[1].split('_')
+                if conf_key.startswith('user64_'):
+                    # Because trailing equal signs would screw up config file
+                    # parsing, we auto-pad with '=' chars.
+                    account += '=' * (len(account) % 4)
+                    account = base64.b64decode(account)
+                    username += '=' * (len(username) % 4)
+                    username = base64.b64decode(username)
                 values = conf[conf_key].split()
                 if not values:
                     raise ValueError('%s has no key set' % conf_key)
@@ -100,8 +113,8 @@ class TempAuth(object):
                         ip = '127.0.0.1'
                     url += ip
                     url += ':' + conf.get('bind_port', '8080') + '/v1/' + \
-                           self.reseller_prefix + conf_key.split('_')[1]
-                self.users[conf_key.split('_', 1)[1].replace('_', ':')] = {
+                        self.reseller_prefix + account
+                self.users[account + ':' + username] = {
                     'key': key, 'url': url, 'groups': values}
 
     def __call__(self, env, start_response):

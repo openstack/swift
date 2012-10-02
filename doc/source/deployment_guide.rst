@@ -644,6 +644,12 @@ is::
 
     user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 
+or if you want to be able to include underscores in the ``<account>`` or
+``<user>`` portions, you can base64 encode them (with *no* equal signs) in a
+line like this::
+
+    user64_<account_b64>_<user_b64> = <key> [group] [group] [...] [storage_url]
+
 There are special groups of::
 
     .reseller_admin = can do anything to any account for this auth
@@ -668,6 +674,9 @@ Here are example entries, required for running the tests::
     user_test_tester = testing .admin
     user_test2_tester2 = testing2 .admin
     user_test_tester3 = testing3
+
+    # account "test_y" and user "tester_y" (note the lack of padding = chars)
+    user64_dGVzdF95_dGVzdGVyX3k = testing4 .admin
 
 ------------------------
 Memcached Considerations
