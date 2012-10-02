@@ -83,7 +83,7 @@ def hash_suffix(path, reclaim_age):
     try:
         path_contents = sorted(os.listdir(path))
     except OSError, err:
-        if err.errno == errno.ENOTDIR:
+        if err.errno in (errno.ENOTDIR, errno.ENOENT):
             raise PathNotDir()
         raise
     for hsh in path_contents:
