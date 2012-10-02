@@ -106,6 +106,9 @@ use = egg:swift#tempauth
 # allow_overrides = true
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
+# or if you want underscores in <account> or <user>, you can base64 encode them
+# (with no equal signs) and use this format:
+#   user64_<account_b64>_<user_b64> = <key> [group] [group] [...] [storage_url]
 # There are special groups of:
 #   .reseller_admin = can do anything to any account for this auth
 #   .admin = can do anything within the account

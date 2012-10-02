@@ -20,6 +20,7 @@ except ImportError:
 import unittest
 from contextlib import contextmanager
 from time import time
+from base64 import b64encode
 
 from webob import Request, Response
 
@@ -578,20 +579,74 @@ class TestAuth(unittest.TestCase):
 class TestParseUserCreation(unittest.TestCase):
     def test_parse_user_creation(self):
         auth_filter = auth.filter_factory({
+            'reseller_prefix': 'ABC',
+            'bind_ip': '1.2.3.4',
             'user_test_tester3': 'testing',
+            'user_has_url': 'urlly .admin http://a.b/v1/DEF_has',
             'user_admin_admin': 'admin .admin .reseller_admin',
         })(FakeApp())
         self.assertEquals(auth_filter.users, {
             'admin:admin': {
-                'url': 'http://127.0.0.1:8080/v1/AUTH_admin', 
-                'groups': ['.admin', '.reseller_admin'], 
+                'url': 'http://1.2.3.4:8080/v1/ABC_admin',
+                'groups': ['.admin', '.reseller_admin'],
                 'key': 'admin'
             }, 'test:tester3': {
-                'url': 'http://127.0.0.1:8080/v1/AUTH_test', 
-                'groups': [], 
+                'url': 'http://1.2.3.4:8080/v1/ABC_test',
+                'groups': [],
                 'key': 'testing'
+            }, 'has:url': {
+                'url': 'http://a.b/v1/DEF_has',
+                'groups': ['.admin'],
+                'key': 'urlly'
             },
         })
+
+    def test_base64_encoding(self):
+        auth_filter = auth.filter_factory({
+            'reseller_prefix': 'ABC',
+            'bind_ip': '1.2.3.4',
+            'user64_%s_%s' % (
+                b64encode('test').rstrip('='),
+                b64encode('tester3').rstrip('=')):
+                'testing .reseller_admin',
+            'user64_%s_%s' % (
+                b64encode('user_foo').rstrip('='),
+                b64encode('ab').rstrip('=')):
+                'urlly .admin http://a.b/v1/DEF_has',
+        })(FakeApp())
+        self.assertEquals(auth_filter.users, {
+            'test:tester3': {
+                'url': 'http://1.2.3.4:8080/v1/ABC_test',
+                'groups': ['.reseller_admin'],
+                'key': 'testing'
+            }, 'user_foo:ab': {
+                'url': 'http://a.b/v1/DEF_has',
+                'groups': ['.admin'],
+                'key': 'urlly'
+            },
+        })
+
+    def test_bind_ip_all_zeroes(self):
+        auth_filter = auth.filter_factory({
+            'reseller_prefix': 'ABC',
+            'bind_ip': '0.0.0.0',
+            'user_admin_admin': 'admin .admin .reseller_admin',
+        })(FakeApp())
+        self.assertEquals(auth_filter.users, {
+            'admin:admin': {
+                'url': 'http://127.0.0.1:8080/v1/ABC_admin',
+                'groups': ['.admin', '.reseller_admin'],
+                'key': 'admin',
+            },
+        })
+
+    def test_key_with_no_value(self):
+        self.assertRaises(ValueError, auth.filter_factory({
+            'user_test_tester3': 'testing',
+            'user_bob_bobby': '',
+            'user_admin_admin': 'admin .admin .reseller_admin',
+        }), FakeApp())
+
 
 if __name__ == '__main__':
     unittest.main()
