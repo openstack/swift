@@ -444,6 +444,8 @@ class Server():
                     if kwargs.get('verbose'):
                         print _("Removing stale pid file %s") % pid_file
                     remove_file(pid_file)
+                elif e.errno == errno.EPERM:
+                    print _("No permission to signal PID %d") % pid
             else:
                 # process exists
                 pids[pid] = pid_file

@@ -32,6 +32,7 @@ DUMMY_SIG = 1
 
 
 class MockOs():
+    RAISE_EPERM_SIG = 99
 
     def __init__(self, pids):
         self.running_pids = pids
@@ -41,6 +42,8 @@ class MockOs():
         self.execlp_called = False
 
     def kill(self, pid, sig):
+        if sig == self.RAISE_EPERM_SIG:
+            raise OSError(errno.EPERM, 'Operation not permitted')
         if pid not in self.running_pids:
             raise OSError(3, 'No such process')
         self.pid_sigs[pid].append(sig)
@@ -520,6 +523,7 @@ class TestServer(unittest.TestCase):
         pid_files = (
             ('proxy-server.pid', 1),
             ('auth-server.pid', 2),
+            ('object-server.pid', 3),
         )
         files, pids = zip(*pid_files)
         with temptree(files, pids) as t:
@@ -565,6 +569,12 @@ class TestServer(unittest.TestCase):
                     self.assert_('stale pid' in output.lower())
                     auth_pid = self.join_run_dir('auth-server.pid')
                     self.assert_(auth_pid in output)
+                    # test warning with insufficient permissions
+                    server = manager.Server('object')
+                    pids = server.signal_pids(manager.os.RAISE_EPERM_SIG)
+                    output = pop_stream(f)
+                    self.assert_('no permission to signal pid 3' in
+                                 output.lower(), output)
             finally:
                 sys.stdout = old_stdout
 
