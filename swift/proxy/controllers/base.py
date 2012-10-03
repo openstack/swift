@@ -606,7 +606,7 @@ class Controller(object):
                     statuses.append(HTTP_NOT_FOUND)
                     reasons.append('')
                     bodies.append('')
-                    close_swift_conn(possible_source)
+                    self.close_swift_conn(possible_source)
                 else:
                     statuses.append(possible_source.status)
                     reasons.append(possible_source.reason)
