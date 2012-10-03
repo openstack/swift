@@ -22,11 +22,6 @@ from urllib import unquote
 from xml.sax import saxutils
 
 from eventlet import Timeout
-from webob import Request, Response
-from webob.exc import HTTPAccepted, HTTPBadRequest, \
-    HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
-    HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
-    HTTPPreconditionFailed, HTTPConflict
 
 import swift.common.db
 from swift.common.db import AccountBroker
@@ -36,7 +31,11 @@ from swift.common.utils import get_logger, get_param, hash_path, public, \
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.db_replicator import ReplicatorRpc
-from swift.common.http import HTTPInsufficientStorage
+from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
+    HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
+    HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
+    HTTPPreconditionFailed, HTTPConflict, Request, Response, \
+    HTTPInsufficientStorage
 
 
 DATADIR = 'accounts'

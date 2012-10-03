@@ -23,8 +23,8 @@ from tempfile import mkdtemp
 
 from eventlet import spawn, Timeout, listen
 import simplejson
-from webob import Request
 
+from swift.common.swob import Request
 from swift.container import server as container_server
 from swift.common.utils import normalize_timestamp, mkdirs
 

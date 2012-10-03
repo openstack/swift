@@ -38,9 +38,10 @@ The filter returns HTTPBadRequest if path is invalid.
 
 import re
 from swift.common.utils import get_logger
-from webob import Request
-from webob.exc import HTTPBadRequest
 from urllib2 import unquote
+
+from swift.common.swob import Request, HTTPBadRequest
+
 
 FORBIDDEN_CHARS = "\'\"`<>"
 MAX_LENGTH = 255

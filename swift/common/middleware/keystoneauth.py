@@ -14,10 +14,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import webob
-
 from swift.common import utils as swift_utils
 from swift.common.middleware import acl as swift_acl
+from swift.common.swob import HTTPNotFound, HTTPForbidden, HTTPUnauthorized
 
 
 class KeystoneAuth(object):
@@ -153,7 +152,7 @@ class KeystoneAuth(object):
             part = swift_utils.split_path(req.path, 1, 4, True)
             version, account, container, obj = part
         except ValueError:
-            return webob.exc.HTTPNotFound(request=req)
+            return HTTPNotFound(request=req)
 
         user_roles = env_identity.get('roles', [])
 
@@ -226,7 +225,7 @@ class KeystoneAuth(object):
             part = swift_utils.split_path(req.path, 1, 4, True)
             version, account, container, obj = part
         except ValueError:
-            return webob.exc.HTTPNotFound(request=req)
+            return HTTPNotFound(request=req)
 
         is_authoritative_authz = (account and
                                   account.startswith(self.reseller_prefix))
@@ -274,9 +273,9 @@ class KeystoneAuth(object):
         depending on whether the REMOTE_USER is set or not.
         """
         if req.remote_user:
-            return webob.exc.HTTPForbidden(request=req)
+            return HTTPForbidden(request=req)
         else:
-            return webob.exc.HTTPUnauthorized(request=req)
+            return HTTPUnauthorized(request=req)
 
 
 def filter_factory(global_conf, **local_conf):

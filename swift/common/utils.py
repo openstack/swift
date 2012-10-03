@@ -40,6 +40,8 @@ import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import socket
+import itertools
+import types
 
 import eventlet
 from eventlet import GreenPool, sleep, Timeout
@@ -114,7 +116,7 @@ def get_param(req, name, default=None):
     Get parameters from an HTTP request ensuring proper handling UTF-8
     encoding.
 
-    :param req: Webob request object
+    :param req: request object
     :param name: parameter name
     :param default: result to return if the parameter is not found
     :returns: HTTP request parameter value
@@ -1440,3 +1442,24 @@ def list_from_csv(comma_separated_str):
     if comma_separated_str:
         return [v.strip() for v in comma_separated_str.split(',') if v.strip()]
     return []
+
+
+def reiterate(iterable):
+    """
+    Consume the first item from an iterator, then re-chain it to the rest of
+    the iterator.  This is useful when you want to make sure the prologue to
+    downstream generators have been executed before continuing.
+
+    :param iterable: an iterable object
+    """
+    if isinstance(iterable, (list, tuple)):
+        return iterable
+    else:
+        iterator = iter(iterable)
+        try:
+            chunk = ''
+            while not chunk:
+                chunk = next(iterable)
+            return itertools.chain([chunk], iterable)
+        except StopIteration:
+            return []

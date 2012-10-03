@@ -1128,7 +1128,7 @@ class TestFile(Base):
 
             range_string = 'bytes=-%d' % (i)
             hdrs = {'Range': range_string}
-            self.assert_(file.read(hdrs=hdrs) == data[-i:], range_string)
+            self.assertEquals(file.read(hdrs=hdrs), data[-i:])
 
             range_string = 'bytes=%d-' % (i)
             hdrs = {'Range': range_string}
@@ -1149,10 +1149,6 @@ class TestFile(Base):
 
     def testRangedGetsWithLWSinHeader(self):
         #Skip this test until webob 1.2 can tolerate LWS in Range header.
-        from webob.byterange import Range
-        if not isinstance(Range.parse('bytes =  0-99 '), Range):
-            raise SkipTest
-
         file_length = 10000
         range_size = file_length / 10
         file = self.env.container.file(Utils.create_name())

@@ -14,13 +14,14 @@
 # limitations under the License.
 
 import unittest
-from webob import Request
-from swift.common.middleware import recon
 from unittest import TestCase
 from contextlib import contextmanager
 from posix import stat_result, statvfs_result
 import os
+
 import swift.common.constraints
+from swift.common.swob import Request
+from swift.common.middleware import recon
 
 
 class FakeApp(object):

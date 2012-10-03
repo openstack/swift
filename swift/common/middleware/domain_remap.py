@@ -49,8 +49,7 @@ advised. With container sync, you should use the true storage end points as
 sync destinations.
 """
 
-from webob import Request
-from webob.exc import HTTPBadRequest
+from swift.common.swob import Request, HTTPBadRequest
 
 
 class DomainRemapMiddleware(object):

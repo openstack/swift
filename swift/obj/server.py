@@ -27,11 +27,6 @@ from tempfile import mkstemp
 from urllib import unquote
 from contextlib import contextmanager
 
-from webob import Request, Response, UTC
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
-    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
-    HTTPNotModified, HTTPPreconditionFailed, \
-    HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout, tpool
 
@@ -46,8 +41,12 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist
 from swift.obj.replicator import tpool_reraise, invalidate_hash, \
     quarantine_renamer, get_hashes
-from swift.common.http import is_success, HTTPInsufficientStorage, \
-    HTTPClientDisconnect
+from swift.common.http import is_success
+from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
+    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
+    HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
+    HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
+    HTTPInsufficientStorage
 
 
 DATADIR = 'objects'

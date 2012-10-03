@@ -18,12 +18,12 @@ import time
 import eventlet
 from contextlib import contextmanager
 from threading import Thread
-from webob import Request
 
 from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
 from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
+from swift.common.swob import Request
 
 
 class FakeMemcache(object):

@@ -14,10 +14,9 @@
 # limitations under the License.
 
 from eventlet import Timeout
-from webob import Request
-from webob.exc import HTTPServerError
 import uuid
 
+from swift.common.swob import Request, HTTPServerError
 from swift.common.utils import get_logger
 
 

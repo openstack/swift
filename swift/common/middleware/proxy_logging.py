@@ -40,8 +40,7 @@ be separated with a simple .split()
 import time
 from urllib import quote, unquote
 
-from webob import Request
-
+from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, TRUE_VALUES)
 

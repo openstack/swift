@@ -29,8 +29,8 @@ from collections import defaultdict
 from urllib import quote
 
 from eventlet import sleep
-from webob import Request
 
+from swift.common.swob import Request
 from swift.common import wsgi
 
 class TestWSGI(unittest.TestCase):

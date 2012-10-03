@@ -27,8 +27,6 @@ maximum lookup depth. If a match is found, the environment's Host header is
 rewritten and the request is passed further down the WSGI chain.
 """
 
-from webob import Request
-from webob.exc import HTTPBadRequest
 try:
     import dns.resolver
     from dns.exception import DNSException
@@ -39,6 +37,7 @@ except ImportError:
 else:  # executed if the try block finishes with no errors
     MODULE_DEPENDENCY_MET = True
 
+from swift.common.swob import Request, HTTPBadRequest
 from swift.common.utils import cache_from_env, get_logger
 
 

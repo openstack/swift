@@ -28,13 +28,13 @@ import time
 from urllib import unquote
 from random import shuffle
 
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound
-
 from swift.common.utils import normalize_timestamp, public
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
     get_container_memcache_key
+from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
+    HTTPNotFound
 
 
 class ContainerController(Controller):

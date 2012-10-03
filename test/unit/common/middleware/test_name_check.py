@@ -22,7 +22,8 @@ Created on February 29, 2012
 '''
 
 import unittest
-from webob import Request, Response
+
+from swift.common.swob import Request, Response
 from swift.common.middleware import name_check
 
 MAX_LENGTH = 255

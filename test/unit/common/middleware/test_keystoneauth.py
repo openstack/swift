@@ -14,9 +14,10 @@
 # limitations under the License.
 
 import unittest
-import webob
 
 from swift.common.middleware import keystoneauth
+from swift.common.swob import Request, Response, HTTPForbidden
+from swift.common.http import HTTP_FORBIDDEN
 
 
 class FakeApp(object):
@@ -28,13 +29,13 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.calls += 1
-        self.request = webob.Request.blank('', environ=env)
+        self.request = Request.blank('', environ=env)
         if 'swift.authorize' in env:
             resp = env['swift.authorize'](self.request)
             if resp:
                 return resp(env, start_response)
         status, headers, body = self.status_headers_body_iter.next()
-        return webob.Response(status=status, headers=headers,
+        return Response(status=status, headers=headers,
                               body=body)(env, start_response)
 
 
@@ -45,7 +46,7 @@ class SwiftAuth(unittest.TestCase):
     def _make_request(self, path=None, headers=None, **kwargs):
         if not path:
             path = '/v1/%s/c/o' % self.test_auth._get_account_for_tenant('foo')
-        return webob.Request.blank(path, headers=headers, **kwargs)
+        return Request.blank(path, headers=headers, **kwargs)
 
     def _get_identity_headers(self, status='Confirmed', tenant_id='1',
                           tenant_name='acct', user='usr', role=''):
@@ -118,7 +119,7 @@ class TestAuthorize(unittest.TestCase):
         self.test_auth = keystoneauth.filter_factory({})(FakeApp())
 
     def _make_request(self, path, **kwargs):
-        return webob.Request.blank(path, **kwargs)
+        return Request.blank(path, **kwargs)
 
     def _get_account(self, identity=None):
         if not identity:
@@ -147,17 +148,17 @@ class TestAuthorize(unittest.TestCase):
         req.acl = acl
         result = self.test_auth.authorize(req)
         if exception:
-            self.assertTrue(isinstance(result, exception))
+            self.assertEquals(result.status_int, exception)
         else:
             self.assertTrue(result is None)
         return req
 
     def test_authorize_fails_for_unauthorized_user(self):
-        self._check_authenticate(exception=webob.exc.HTTPForbidden)
+        self._check_authenticate(exception=HTTP_FORBIDDEN)
 
     def test_authorize_fails_for_invalid_reseller_prefix(self):
         self._check_authenticate(account='BLAN_a',
-                                 exception=webob.exc.HTTPForbidden)
+                                 exception=HTTP_FORBIDDEN)
 
     def test_authorize_succeeds_for_reseller_admin(self):
         roles = [self.test_auth.reseller_admin_role]
@@ -185,22 +186,22 @@ class TestAuthorize(unittest.TestCase):
     def test_authorize_fails_as_owner_for_tenant_owner_match(self):
         self.test_auth.is_admin = False
         self._check_authorize_for_tenant_owner_match(
-            exception=webob.exc.HTTPForbidden)
+            exception=HTTP_FORBIDDEN)
 
     def test_authorize_succeeds_for_container_sync(self):
         env = {'swift_sync_key': 'foo', 'REMOTE_ADDR': '127.0.0.1'}
-        headers = {'x-container-sync-key': 'foo', 'x-timestamp': None}
+        headers = {'x-container-sync-key': 'foo', 'x-timestamp': '1'}
         self._check_authenticate(env=env, headers=headers)
 
     def test_authorize_fails_for_invalid_referrer(self):
         env = {'HTTP_REFERER': 'http://invalid.com/index.html'}
         self._check_authenticate(acl='.r:example.com', env=env,
-                                 exception=webob.exc.HTTPForbidden)
+                                 exception=HTTP_FORBIDDEN)
 
     def test_authorize_fails_for_referrer_without_rlistings(self):
         env = {'HTTP_REFERER': 'http://example.com/index.html'}
         self._check_authenticate(acl='.r:example.com', env=env,
-                                 exception=webob.exc.HTTPForbidden)
+                                 exception=HTTP_FORBIDDEN)
 
     def test_authorize_succeeds_for_referrer_with_rlistings(self):
         env = {'HTTP_REFERER': 'http://example.com/index.html'}

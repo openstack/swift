@@ -22,8 +22,8 @@ import hmac
 import base64
 
 from eventlet import Timeout
-from webob import Response, Request
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
+from swift.common.swob import Response, Request
+from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
@@ -298,7 +298,7 @@ class TempAuth(object):
         """
         WSGI entry point for auth requests (ones that match the
         self.auth_prefix).
-        Wraps env in webob.Request object and passes it down.
+        Wraps env in swob.Request object and passes it down.
 
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
@@ -334,9 +334,9 @@ class TempAuth(object):
     def handle_request(self, req):
         """
         Entry point for auth requests (ones that match the self.auth_prefix).
-        Should return a WSGI-style callable (such as webob.Response).
+        Should return a WSGI-style callable (such as swob.Response).
 
-        :param req: webob.Request object
+        :param req: swob.Request object
         """
         req.start_time = time()
         handler = None
@@ -376,8 +376,8 @@ class TempAuth(object):
         X-Storage-Token set to the token to use with Swift and X-Storage-URL
         set to the URL to the default Swift cluster to use.
 
-        :param req: The webob.Request to process.
-        :returns: webob.Response, 2xx on success with data set as explained
+        :param req: The swob.Request to process.
+        :returns: swob.Response, 2xx on success with data set as explained
                   above.
         """
         # Validate the request info

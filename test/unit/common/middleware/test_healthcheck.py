@@ -15,8 +15,7 @@
 
 import unittest
 
-from webob import Request
-
+from swift.common.swob import Request
 from swift.common.middleware import healthcheck
 
 class FakeApp(object):

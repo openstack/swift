@@ -13,11 +13,11 @@
 # limitations under the License.
 import time
 import eventlet
-from webob import Request, Response
 
 from swift.common.utils import split_path, cache_from_env, get_logger
 from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
+from swift.common.swob import Request, Response
 
 
 class MaxSleepTimeHitError(Exception):
@@ -205,7 +205,7 @@ class RateLimitMiddleware(object):
     def __call__(self, env, start_response):
         """
         WSGI entry point.
-        Wraps env in webob.Request object and passes it down.
+        Wraps env in swob.Request object and passes it down.
 
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable

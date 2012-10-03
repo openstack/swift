@@ -63,7 +63,7 @@ Example Authentication with TempAuth:
 
 Authorization is performed through callbacks by the Swift Proxy server to the
 WSGI environment's swift.authorize value, if one is set. The swift.authorize
-value should simply be a function that takes a webob.Request as an argument and
+value should simply be a function that takes a Request as an argument and
 returns None if access is granted or returns a callable(environ,
 start_response) if access is denied. This callable is a standard WSGI callable.
 Generally, you should return 403 Forbidden for requests by an authenticated
@@ -71,7 +71,7 @@ user and 401 Unauthorized for an unauthenticated request. For example, here's
 an authorize function that only allows GETs (in this case you'd probably return
 405 Method Not Allowed, but ignore that for the moment).::
 
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     def authorize(req):
@@ -87,7 +87,7 @@ middleware as authentication and authorization are often paired together. But,
 you could create separate authorization middleware that simply sets the
 callback before passing on the request. To continue our example above::
 
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -127,7 +127,7 @@ then swift.authorize will be called once more. These are called delay_denial
 requests and currently include container read requests and object read and
 write requests. For these requests, the read or write access control string
 (X-Container-Read and X-Container-Write) will be fetched and set as the 'acl'
-attribute in the webob.Request passed to swift.authorize.
+attribute in the Request passed to swift.authorize.
 
 The delay_denial procedures allow skipping possibly expensive access control
 string retrievals for requests that can be approved without that information,
@@ -138,7 +138,7 @@ control string set to same value as the authenticated user string. Note that
 you probably wouldn't do this exactly as the access control string represents a
 list rather than a single user, but it'll suffice for this example::
 
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -185,7 +185,7 @@ Let's continue our example to use parse_acl and referrer_allowed. Now we'll
 only allow GETs after a referrer check and any requests after a group check::
 
     from swift.common.middleware.acl import parse_acl, referrer_allowed
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -235,7 +235,7 @@ standard Swift format. Let's improve our example by making use of that::
 
     from swift.common.middleware.acl import \
         clean_acl, parse_acl, referrer_allowed
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     class Authorization(object):
@@ -293,7 +293,7 @@ folks a start on their own code if they want to use repoze.what::
     from swift.common.bufferedhttp import http_connect_raw as http_connect
     from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
     from swift.common.utils import cache_from_env, split_path
-    from webob.exc import HTTPForbidden, HTTPUnauthorized
+    from swift.common.swob import HTTPForbidden, HTTPUnauthorized
 
 
     class DevAuthorization(object):

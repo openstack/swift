@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from webob import Request, Response
+from swift.common.swob import Request, Response
 
 
 class HealthCheckMiddleware(object):

@@ -39,10 +39,6 @@ from random import shuffle
 from eventlet import sleep, GreenPile, Timeout
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
-from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
-    HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable
-from webob import Request, Response
 
 from swift.common.utils import ContextPool, normalize_timestamp, TRUE_VALUES, \
     public
@@ -55,8 +51,12 @@ from swift.common.exceptions import ChunkReadTimeout, \
 from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
     HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTPClientDisconnect
+    HTTP_INSUFFICIENT_STORAGE
 from swift.proxy.controllers.base import Controller, delay_denial
+from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
+    HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
+    HTTPServerError, HTTPServiceUnavailable, Request, Response, \
+    HTTPClientDisconnect
 
 
 class SegmentedIterable(object):
@@ -72,7 +72,7 @@ class SegmentedIterable(object):
     :param listing: The listing of object segments to iterate over; this may
                     be an iterator or list that returns dicts with 'name' and
                     'bytes' keys.
-    :param response: The webob.Response this iterable is associated with, if
+    :param response: The swob.Response this iterable is associated with, if
                      any (default: None)
     """
 
@@ -327,11 +327,11 @@ class ObjectController(Controller):
                 resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
                 if req.method == 'HEAD':
-                    # These shenanigans are because webob translates the HEAD
-                    # request into a webob EmptyResponse for the body, which
+                    # These shenanigans are because swob translates the HEAD
+                    # request into a swob EmptyResponse for the body, which
                     # has a len, which eventlet translates as needing a
                     # content-length header added. So we call the original
-                    # webob resp for the headers but return an empty iterator
+                    # swob resp for the headers but return an empty iterator
                     # for the body.
 
                     def head_response(environ, start_response):

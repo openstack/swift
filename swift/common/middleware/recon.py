@@ -16,7 +16,7 @@
 import errno
 import os
 
-from webob import Request, Response
+from swift.common.swob import Request, Response
 from swift.common.utils import split_path, get_logger, TRUE_VALUES
 from swift.common.constraints import check_mount
 from resource import getpagesize
