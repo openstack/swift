@@ -126,12 +126,20 @@ class TestRange(unittest.TestCase):
         self.assertEquals(range.range_for_length(10), (1, 10))
         self.assertEquals(range.range_for_length(5), (1, 5))
         self.assertEquals(range.range_for_length(None), None)
+        # This used to freak out:
+        range = swift.common.swob.Range('bytes=100-')
+        self.assertEquals(range.range_for_length(5), None)
+        self.assertEquals(range.range_for_length(None), None)
 
     def test_range_for_length_no_start(self):
         range = swift.common.swob.Range('bytes=-7')
         self.assertEquals(range.range_for_length(10), (3, 10))
-        self.assertEquals(range.range_for_length(5), None)
+        self.assertEquals(range.range_for_length(5), (0, 5))
         self.assertEquals(range.range_for_length(None), None)
+
+    def test_range_invalid_syntax(self):
+        range = swift.common.swob.Range('bytes=10-2')
+        self.assertEquals(range.ranges, [])
 
 
 class TestMatch(unittest.TestCase):
@@ -359,12 +367,47 @@ class TestResponse(unittest.TestCase):
         resp.conditional_response = True
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '234')
+        self.assertEquals(resp.status, '206 Partial Content')
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,
             conditional_response=True)
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '234')
+        self.assertEquals(resp.status, '206 Partial Content')
+
+        # No body for 416
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=-0'})
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        body = ''.join(resp([], start_response))
+        self.assertEquals(body, '')
+        self.assertEquals(resp.content_length, 0)
+        self.assertEquals(resp.status, '416 Request Range Not Satisfiable')
+
+        resp = swift.common.swob.Response(
+            body='1234567890', request=req,
+            conditional_response=True)
+        body = ''.join(resp([], start_response))
+        self.assertEquals(body, '')
+        self.assertEquals(resp.status, '416 Request Range Not Satisfiable')
+
+        # Syntactically-invalid Range headers "MUST" be ignored
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=3-2'})
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        body = ''.join(resp([], start_response))
+        self.assertEquals(body, '1234567890')
+        self.assertEquals(resp.status, '200 OK')
+
+        resp = swift.common.swob.Response(
+            body='1234567890', request=req,
+            conditional_response=True)
+        body = ''.join(resp([], start_response))
+        self.assertEquals(body, '1234567890')
+        self.assertEquals(resp.status, '200 OK')
 
     def test_content_type(self):
         resp = self._get_response()

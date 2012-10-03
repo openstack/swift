@@ -433,6 +433,13 @@ class Range(object):
     After initialization, "range.ranges" is populated with a list
     of (start, end) tuples denoting the requested ranges.
 
+    If there were any syntactically-invalid byte-range-spec values,
+    "range.ranges" will be an empty list, per the relevant RFC:
+
+    "The recipient of a byte-range-set that includes one or more syntactically
+    invalid byte-range-spec values MUST ignore the header field that includes
+    that byte-range-set."
+
     :param headerval: value of the header as a str
     """
     def __init__(self, headerval):
@@ -448,6 +455,13 @@ class Range(object):
                 start = None
             if end:
                 end = int(end)
+                if start is not None and not end >= start:
+                    # If the last-byte-pos value is present, it MUST be greater
+                    # than or equal to the first-byte-pos in that
+                    # byte-range-spec, or the byte- range-spec is syntactically
+                    # invalid.  [which "MUST" be ignored]
+                    self.ranges = []
+                    break
             else:
                 end = None
             self.ranges.append((start, end))
@@ -478,14 +492,20 @@ class Range(object):
         begin, end = self.ranges[0]
         if begin is None:
             if end == 0:
-                return (0, length)
-            if end > length:
                 return None
+            if end > length:
+                return (0, length)
             return (length - end, length)
         if end is None:
-            if begin == 0:
-                return (0, length)
-            return (begin, length)
+            if begin < length:
+                # If a syntactically valid byte-range-set includes at least one
+                # byte-range-spec whose first-byte-pos is LESS THAN THE CURRENT
+                # LENGTH OF THE ENTITY-BODY..., then the byte-range-set is
+                # satisfiable.
+                return (begin, length)
+            else:
+                # Otherwise, the byte-range-set is unsatisfiable.
+                return None
         if begin > length:
             return None
         return (begin, min(end + 1, length))
@@ -766,12 +786,16 @@ class Response(object):
 
     def _response_iter(self, app_iter, body):
         if self.request and self.request.method == 'HEAD':
+            # We explicitly do NOT want to set self.content_length to 0 here
             return ['']
         if self.conditional_response and self.request and \
-                self.request.range and not self.content_range:
+                self.request.range and self.request.range.ranges and \
+                not self.content_range:
             args = self.request.range.range_for_length(self.content_length)
             if not args:
                 self.status = 416
+                self.content_length = 0
+                return ['']
             else:
                 start, end = args
                 self.status = 206
