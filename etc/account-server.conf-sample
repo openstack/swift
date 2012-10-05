@@ -13,6 +13,10 @@
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+# comma separated list of functions to call to setup custom log handlers.
+# functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+# adapted_logger
+# log_custom_handlers =
 # If set, log_udp_host will override log_address
 # log_udp_host =
 # log_udp_port = 514
