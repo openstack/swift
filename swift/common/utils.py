@@ -689,6 +689,20 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         logger.statsd_client = None
 
     adapted_logger = LogAdapter(logger, name)
+    other_handlers = conf.get('log_custom_handlers', None)
+    if other_handlers:
+        log_custom_handlers = [s.strip() for s in other_handlers.split(',')
+                               if s.strip()]
+        for hook in log_custom_handlers:
+            try:
+                mod, fnc = hook.rsplit('.', 1)
+                logger_hook = getattr(__import__(mod, fromlist=[fnc]), fnc)
+                logger_hook(conf, name, log_to_console, log_route, fmt,
+                            logger, adapted_logger)
+            except (AttributeError, ImportError):
+                print >>sys.stderr, 'Error calling custom handler [%s]' % hook
+            except ValueError:
+                print >>sys.stderr, 'Invalid custom handler format [%s]' % hook
     return adapted_logger
 
 
