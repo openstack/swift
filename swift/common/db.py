@@ -1555,7 +1555,7 @@ class AccountBroker(DatabaseBroker):
         :param marker: marker query
         :param end_marker: end marker query
         :param prefix: prefix query
-        :param delimeter: delimeter for query
+        :param delimiter: delimiter for query
 
         :returns: list of tuples of (name, object_count, bytes_used, 0)
         """

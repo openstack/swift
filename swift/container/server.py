@@ -92,7 +92,7 @@ class ContainerController(object):
         :param req: swob.Request object
         :param account: account name
         :param container: container name
-        :param borker: container DB broker object
+        :param broker: container DB broker object
         :returns: if the account request returns a 404 error code,
                   HTTPNotFound response object, otherwise None.
         """
