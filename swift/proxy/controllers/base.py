@@ -107,15 +107,21 @@ class Controller(object):
         self.trans_id = '-'
 
     def transfer_headers(self, src_headers, dst_headers):
-        x_remove = 'x-remove-%s-meta-' % self.server_type.lower()
-        x_meta = 'x-%s-meta-' % self.server_type.lower()
+
+        st = self.server_type.lower()
+        x_remove = 'x-remove-%s-meta-' % st
+        x_remove_read = 'x-remove-%s-read' % st
+        x_remove_write = 'x-remove-%s-write' % st
+        x_meta = 'x-%s-meta-' % st
         dst_headers.update((k.lower().replace('-remove', '', 1), '')
                            for k in src_headers
-                           if k.lower().startswith(x_remove))
+                           if k.lower().startswith(x_remove) or
+                           k.lower() in (x_remove_read, x_remove_write))
+
         dst_headers.update((k.lower(), v)
                            for k, v in src_headers.iteritems()
                            if k.lower() in self.pass_through_headers or
-                              k.lower().startswith(x_meta))
+                           k.lower().startswith(x_meta))
 
     def error_increment(self, node):
         """
@@ -135,7 +141,8 @@ class Controller(object):
         """
         self.error_increment(node)
         self.app.logger.error(_('%(msg)s %(ip)s:%(port)s'),
-            {'msg': msg, 'ip': node['ip'], 'port': node['port']})
+                              {'msg': msg, 'ip': node['ip'],
+                              'port': node['port']})
 
     def exception_occurred(self, node, typ, additional_info):
         """
@@ -220,7 +227,8 @@ class Controller(object):
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
-                            node['device'], partition, 'HEAD', path, headers)
+                                        node['device'], partition, 'HEAD',
+                                        path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     body = resp.read()
@@ -241,7 +249,8 @@ class Controller(object):
                         result_code = -1
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Account'),
-                    _('Trying to get account info for %s') % path)
+                                        _('Trying to get account info for %s')
+                                        % path)
         if result_code == HTTP_NOT_FOUND and autocreate:
             if len(account) > MAX_ACCOUNT_NAME_LENGTH:
                 return None, None, None
@@ -249,10 +258,10 @@ class Controller(object):
                        'X-Trans-Id': self.trans_id,
                        'Connection': 'close'}
             resp = self.make_requests(Request.blank('/v1' + path),
-                self.app.account_ring, partition, 'PUT',
-                path, [headers] * len(nodes))
+                                      self.app.account_ring, partition, 'PUT',
+                                      path, [headers] * len(nodes))
             if not is_success(resp.status_int):
-                self.app.logger.warning('Could not autocreate account %r' % \
+                self.app.logger.warning('Could not autocreate account %r' %
                                         path)
                 return None, None, None
             result_code = HTTP_OK
@@ -262,8 +271,9 @@ class Controller(object):
             else:
                 cache_timeout = self.app.recheck_account_existence * 0.1
             self.app.memcache.set(cache_key,
-                {'status': result_code, 'container_count': container_count},
-                timeout=cache_timeout)
+                                  {'status': result_code,
+                                  'container_count': container_count},
+                                  timeout=cache_timeout)
         if result_code == HTTP_OK:
             return partition, nodes, container_count
         return None, None, None
@@ -381,23 +391,23 @@ class Controller(object):
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
-                            node['device'], part, method, path,
-                            headers=headers, query_string=query)
+                                        node['device'], part, method, path,
+                                        headers=headers, query_string=query)
                     conn.node = node
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     if not is_informational(resp.status) and \
-                       not is_server_error(resp.status):
+                            not is_server_error(resp.status):
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node)
             except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
-                    _('Trying to %(method)s %(path)s') %
-                    {'method': method, 'path': path})
+                                        _('Trying to %(method)s %(path)s') %
+                                        {'method': method, 'path': path})
 
     def make_requests(self, req, ring, part, method, path, headers,
-                    query_string=''):
+                      query_string=''):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
@@ -418,7 +428,7 @@ class Controller(object):
             response.append((HTTP_SERVICE_UNAVAILABLE, '', ''))
         statuses, reasons, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
-                  '%s %s' % (self.server_type, req.method))
+                                  '%s %s' % (self.server_type, req.method))
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
                       etag=None):
@@ -495,7 +505,7 @@ class Controller(object):
                 success = False
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Object'),
-                   _('Trying to read during GET'))
+                                        _('Trying to read during GET'))
                 success = False
         finally:
             # Ensure the queue getter gets a terminator.
