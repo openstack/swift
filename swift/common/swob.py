@@ -639,15 +639,16 @@ class Request(object):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'wsgi.version': (1, 0),
             'wsgi.url_scheme': 'http',
-            'wsgi.input': StringIO(body or ''),
             'wsgi.errors': StringIO(''),
             'wsgi.multithread': False,
             'wsgi.multiprocess': False
         }
-        env.update(PATH_INFO=path_info)
         env.update(environ)
         if body is not None:
-            env.update(CONTENT_LENGTH=str(len(body)))
+            env['wsgi.input'] = StringIO(body)
+            env['CONTENT_LENGTH'] = str(len(body))
+        elif 'wsgi.input' not in env:
+            env['wsgi.input'] = StringIO('')
         req = Request(env)
         for key, val in headers.iteritems():
             req.headers[key] = val

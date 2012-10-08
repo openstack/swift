@@ -17,6 +17,7 @@
 
 import unittest
 import datetime
+from StringIO import StringIO
 
 import swift.common.swob
 
@@ -195,6 +196,16 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
 
+    def test_blank_body_precedence(self):
+        req = swift.common.swob.Request.blank(
+            '/', environ={'REQUEST_METHOD': 'POST',
+                          'wsgi.input': StringIO('')},
+            headers={'Content-Type': 'text/plain'}, body='hi')
+        self.assertEquals(req.path_info, '/')
+        self.assertEquals(req.body, 'hi')
+        self.assertEquals(req.headers['Content-Type'], 'text/plain')
+        self.assertEquals(req.method, 'POST')
+
     def test_params(self):
         req = swift.common.swob.Request.blank('/?a=b&c=d')
         self.assertEquals(req.params['a'], 'b')
@@ -218,8 +229,8 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.path_info_pop(), None)
 
     def test_copy_get(self):
-        req = swift.common.swob.Request.blank('/hi/there',
-            environ={'REQUEST_METHOD': 'POST'})
+        req = swift.common.swob.Request.blank(
+            '/hi/there', environ={'REQUEST_METHOD': 'POST'})
         self.assertEquals(req.method, 'POST')
         req2 = req.copy_get()
         self.assertEquals(req2.method, 'GET')
