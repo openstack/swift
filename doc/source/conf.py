@@ -33,7 +33,7 @@ import os
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-sys.path.append([os.path.abspath('../swift'), os.path.abspath('..'),
+sys.path.extend([os.path.abspath('../swift'), os.path.abspath('..'),
                  os.path.abspath('../bin')])
 
 # -- General configuration ----------------------------------------------------
