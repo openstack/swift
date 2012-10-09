@@ -186,6 +186,8 @@ class InternalClient(object):
         """
 
         resp = self.make_request('HEAD', path, {}, acceptable_statuses)
+        if resp.status_int // 100 != 2:
+            return {}
         metadata_prefix = metadata_prefix.lower()
         metadata = {}
         for k, v in resp.headers.iteritems():
