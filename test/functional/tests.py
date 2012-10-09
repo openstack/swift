@@ -1128,7 +1128,16 @@ class TestFile(Base):
 
             range_string = 'bytes=-%d' % (i)
             hdrs = {'Range': range_string}
-            self.assertEquals(file.read(hdrs=hdrs), data[-i:])
+            if i == 0:
+                # RFC 2616 14.35.1
+                # "If a syntactically valid byte-range-set includes ... at
+                # least one suffix-byte-range-spec with a NON-ZERO
+                # suffix-length, then the byte-range-set is satisfiable.
+                # Otherwise, the byte-range-set is unsatisfiable.
+                self.assertRaises(ResponseError, file.read, hdrs=hdrs)
+                self.assert_status(416)
+            else:
+                self.assertEquals(file.read(hdrs=hdrs), data[-i:])
 
             range_string = 'bytes=%d-' % (i)
             hdrs = {'Range': range_string}
@@ -1145,6 +1154,13 @@ class TestFile(Base):
         self.assert_(file.read(hdrs=hdrs) == data[-1000:], range_string)
 
         hdrs = {'Range': '0-4'}
+        self.assert_(file.read(hdrs=hdrs) == data, range_string)
+
+        # RFC 2616 14.35.1
+        # "If the entity is shorter than the specified suffix-length, the
+        # entire entity-body is used."
+        range_string = 'bytes=-%d' % (file_length + 10)
+        hdrs = {'Range': range_string}
         self.assert_(file.read(hdrs=hdrs) == data, range_string)
 
     def testRangedGetsWithLWSinHeader(self):
