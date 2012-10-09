@@ -16,6 +16,7 @@
 import json
 from StringIO import StringIO
 import unittest
+from urllib import quote
 import zlib
 
 from swift.common import internal_client
@@ -23,6 +24,31 @@ from swift.common import internal_client
 
 def not_sleep(seconds):
     pass
+
+
+def unicode_string(start, length):
+    return u''.join([unichr(x) for x in xrange(start, start + length)])
+
+
+def path_parts():
+    account = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
+    container = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
+    obj = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
+    return account, container, obj
+
+
+def make_path(account, container=None, obj=None):
+    path = '/v1/%s' % quote(account.encode('utf-8'))
+    if container:
+        path += '/%s' % quote(container.encode('utf-8'))
+    if obj:
+        path += '/%s' % quote(obj.encode('utf-8'))
+    return path
+
+
+class InternalClient(internal_client.InternalClient):
+    def __init__(self):
+        pass
 
 
 class GetMetadataInternalClient(internal_client.InternalClient):
@@ -43,8 +69,8 @@ class GetMetadataInternalClient(internal_client.InternalClient):
 
 
 class SetMetadataInternalClient(internal_client.InternalClient):
-    def __init__(self, test, path, metadata, metadata_prefix,
-            acceptable_statuses):
+    def __init__(
+            self, test, path, metadata, metadata_prefix, acceptable_statuses):
         self.test = test
         self.path = path
         self.metadata = metadata
@@ -53,7 +79,8 @@ class SetMetadataInternalClient(internal_client.InternalClient):
         self.set_metadata_called = 0
         self.metadata = 'some_metadata'
 
-    def _set_metadata(self, path, metadata, metadata_prefix='',
+    def _set_metadata(
+            self, path, metadata, metadata_prefix='',
             acceptable_statuses=None):
         self.set_metadata_called += 1
         self.test.assertEquals(self.path, path)
@@ -63,8 +90,8 @@ class SetMetadataInternalClient(internal_client.InternalClient):
 
 
 class IterInternalClient(internal_client.InternalClient):
-    def __init__(self, test, path, marker, end_marker, acceptable_statuses,
-            items):
+    def __init__(
+            self, test, path, marker, end_marker, acceptable_statuses, items):
         self.test = test
         self.path = path
         self.marker = marker
@@ -72,8 +99,8 @@ class IterInternalClient(internal_client.InternalClient):
         self.acceptable_statuses = acceptable_statuses
         self.items = items
 
-    def _iter_items(self, path, marker='', end_marker='',
-            acceptable_statuses=None):
+    def _iter_items(
+            self, path, marker='', end_marker='', acceptable_statuses=None):
         self.test.assertEquals(self.path, path)
         self.test.assertEquals(self.marker, marker)
         self.test.assertEquals(self.end_marker, end_marker)
@@ -94,8 +121,8 @@ class TestCompressingfileReader(unittest.TestCase):
                 return self
 
         try:
-            compressobj = CompressObj(self, 9, zlib.DEFLATED, -zlib.MAX_WBITS,
-                zlib.DEF_MEM_LEVEL, 0)
+            compressobj = CompressObj(
+                self, 9, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL, 0)
 
             old_compressobj = internal_client.compressobj
             internal_client.compressobj = compressobj.method
@@ -146,8 +173,8 @@ class TestInternalClient(unittest.TestCase):
         request_tries = 'some_request_tries'
 
         try:
-            client = internal_client.InternalClient(conf_path, user_agent,
-                request_tries)
+            client = internal_client.InternalClient(
+                conf_path, user_agent, request_tries)
         finally:
             internal_client.loadapp = old_loadapp
 
@@ -185,8 +212,8 @@ class TestInternalClient(unittest.TestCase):
             def fake_app(self, env, start_response):
                 self.tries += 1
                 if self.tries < self.request_tries:
-                    start_response('500 Internal Server Error',
-                        [('Content-Length', '0')])
+                    start_response(
+                        '500 Internal Server Error', [('Content-Length', '0')])
                 else:
                     start_response('200 Ok', [('Content-Length', '0')])
                 return []
@@ -318,8 +345,8 @@ class TestInternalClient(unittest.TestCase):
         try:
             old_sleep = internal_client.sleep
             internal_client.sleep = not_sleep
-            self.assertRaises(Exception,
-                client.make_request, 'GET', '/', {}, (2,))
+            self.assertRaises(
+                Exception, client.make_request, 'GET', '/', {}, (2,))
         finally:
             internal_client.sleep = old_sleep
 
@@ -335,8 +362,9 @@ class TestInternalClient(unittest.TestCase):
                 self.resp_headers = resp_headers
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('HEAD', method)
                 self.test.assertEquals(self.path, path)
@@ -364,6 +392,17 @@ class TestInternalClient(unittest.TestCase):
         self.assertEquals(exp_metadata, metadata)
         self.assertEquals(1, client.make_request_called)
 
+    def test_make_path(self):
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
+
+        c = InternalClient()
+        self.assertEquals(path, c.make_path(account, container, obj))
+
+    def test_make_path_exception(self):
+        c = InternalClient()
+        self.assertRaises(ValueError, c.make_path, 'account', None, 'obj')
+
     def test_iter_items(self):
         class Response(object):
             def __init__(self, status_int, body):
@@ -376,7 +415,8 @@ class TestInternalClient(unittest.TestCase):
                 self.responses = responses
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
                     body_file=None):
                 self.make_request_called += 1
                 return self.responses.pop(0)
@@ -392,7 +432,8 @@ class TestInternalClient(unittest.TestCase):
         exp_items = []
         responses = []
         for i in xrange(3):
-            data = [{'name': 'item%02d' % (2 * i)},
+            data = [
+                {'name': 'item%02d' % (2 * i)},
                 {'name': 'item%02d' % (2 * i + 1)}]
             responses.append(Response(200, json.dumps(data)))
             exp_items.extend(data)
@@ -416,7 +457,8 @@ class TestInternalClient(unittest.TestCase):
                 self.paths = paths
                 self.responses = responses
 
-            def make_request(self, method, path, headers, acceptable_statuses,
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
                     body_file=None):
                 exp_path = self.paths.pop(0)
                 self.test.assertEquals(exp_path, path)
@@ -449,8 +491,9 @@ class TestInternalClient(unittest.TestCase):
                 self.exp_headers = exp_headers
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('POST', method)
                 self.test.assertEquals(self.path, path)
@@ -476,16 +519,17 @@ class TestInternalClient(unittest.TestCase):
         self.assertEquals(1, client.make_request_called)
 
     def test_iter_containers(self):
-        account = 'some_account'
-        path = '/v1/%s' % (account)
+        account, container, obj = path_parts()
+        path = make_path(account)
         items = '0 1 2'.split()
         marker = 'some_marker'
         end_marker = 'some_end_marker'
         acceptable_statuses = 'some_status_list'
-        client = IterInternalClient(self, path, marker, end_marker,
-            acceptable_statuses, items)
+        client = IterInternalClient(
+            self, path, marker, end_marker, acceptable_statuses, items)
         ret_items = []
-        for container in client.iter_containers(account, marker, end_marker,
+        for container in client.iter_containers(
+                account, marker, end_marker,
                 acceptable_statuses=acceptable_statuses):
             ret_items.append(container)
         self.assertEquals(items, ret_items)
@@ -504,8 +548,9 @@ class TestInternalClient(unittest.TestCase):
                 self.path = path
                 self.resp = resp
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.test.assertEquals('HEAD', method)
                 self.test.assertEquals(self.path, path)
                 self.test.assertEquals({}, headers)
@@ -513,35 +558,35 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals(None, body_file)
                 return self.resp
 
-        account = 'some_account'
-        path = '/v1/%s' % (account)
+        account, container, obj = path_parts()
+        path = make_path(account)
         containers, objects = 10, 100
         client = InternalClient(self, path, Response(containers, objects))
         info = client.get_account_info(account)
         self.assertEquals((containers, objects), info)
 
     def test_get_account_metadata(self):
-        account = 'some_account'
-        path = '/v1/%s' % (account)
+        account, container, obj = path_parts()
+        path = make_path(account)
         acceptable_statuses = 'some_status_list'
         metadata_prefix = 'some_metadata_prefix'
-        client = GetMetadataInternalClient(self, path, metadata_prefix,
-            acceptable_statuses)
-        metadata = client.get_account_metadata(account, metadata_prefix,
-            acceptable_statuses)
+        client = GetMetadataInternalClient(
+            self, path, metadata_prefix, acceptable_statuses)
+        metadata = client.get_account_metadata(
+            account, metadata_prefix, acceptable_statuses)
         self.assertEquals(client.metadata, metadata)
         self.assertEquals(1, client.get_metadata_called)
 
     def test_set_account_metadata(self):
-        account = 'some_account'
-        path = '/v1/%s' % (account)
+        account, container, obj = path_parts()
+        path = make_path(account)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
         acceptable_statuses = 'some_status_list'
-        client = SetMetadataInternalClient(self, path, metadata,
-            metadata_prefix, acceptable_statuses)
-        client.set_account_metadata(account, metadata, metadata_prefix,
-            acceptable_statuses)
+        client = SetMetadataInternalClient(
+            self, path, metadata, metadata_prefix, acceptable_statuses)
+        client.set_account_metadata(
+            account, metadata, metadata_prefix, acceptable_statuses)
         self.assertEquals(1, client.set_metadata_called)
 
     def test_container_exists(self):
@@ -556,8 +601,9 @@ class TestInternalClient(unittest.TestCase):
                 self.make_request_called = 0
                 self.resp = resp
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('HEAD', method)
                 self.test.assertEquals(self.path, path)
@@ -566,9 +612,8 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals(None, body_file)
                 return self.resp
 
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
 
         client = InternalClient(self, path, Response(200))
         self.assertEquals(True, client.container_exists(account, container))
@@ -586,8 +631,9 @@ class TestInternalClient(unittest.TestCase):
                 self.headers = headers
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('PUT', method)
                 self.test.assertEquals(self.path, path)
@@ -595,9 +641,8 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals((2,), acceptable_statuses)
                 self.test.assertEquals(None, body_file)
 
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
         headers = 'some_headers'
         client = InternalClient(self, path, headers)
         client.create_container(account, container, headers)
@@ -610,8 +655,9 @@ class TestInternalClient(unittest.TestCase):
                 self.path = path
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('DELETE', method)
                 self.test.assertEquals(self.path, path)
@@ -619,53 +665,49 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals((2, 404), acceptable_statuses)
                 self.test.assertEquals(None, body_file)
 
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
         client = InternalClient(self, path)
         client.delete_container(account, container)
         self.assertEquals(1, client.make_request_called)
 
     def test_get_container_metadata(self):
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
         metadata_prefix = 'some_metadata_prefix'
         acceptable_statuses = 'some_status_list'
-        client = GetMetadataInternalClient(self, path, metadata_prefix,
-            acceptable_statuses)
-        metadata = client.get_container_metadata(account, container,
-            metadata_prefix, acceptable_statuses)
+        client = GetMetadataInternalClient(
+            self, path, metadata_prefix, acceptable_statuses)
+        metadata = client.get_container_metadata(
+            account, container, metadata_prefix, acceptable_statuses)
         self.assertEquals(client.metadata, metadata)
         self.assertEquals(1, client.get_metadata_called)
 
     def test_iter_objects(self):
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
         marker = 'some_maker'
         end_marker = 'some_end_marker'
         acceptable_statuses = 'some_status_list'
         items = '0 1 2'.split()
-        client = IterInternalClient(self, path, marker, end_marker,
-            acceptable_statuses, items)
+        client = IterInternalClient(
+            self, path, marker, end_marker, acceptable_statuses, items)
         ret_items = []
-        for obj in client.iter_objects(account, container, marker, end_marker,
-                acceptable_statuses):
+        for obj in client.iter_objects(
+                account, container, marker, end_marker, acceptable_statuses):
             ret_items.append(obj)
         self.assertEquals(items, ret_items)
 
     def test_set_container_metadata(self):
-        account = 'some_account'
-        container = 'some_container'
-        path = '/v1/%s/%s' % (account, container)
+        account, container, obj = path_parts()
+        path = make_path(account, container)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
         acceptable_statuses = 'some_status_list'
-        client = SetMetadataInternalClient(self, path, metadata,
-            metadata_prefix, acceptable_statuses)
-        client.set_container_metadata(account, container, metadata,
-            metadata_prefix, acceptable_statuses)
+        client = SetMetadataInternalClient(
+            self, path, metadata, metadata_prefix, acceptable_statuses)
+        client.set_container_metadata(
+            account, container, metadata, metadata_prefix, acceptable_statuses)
         self.assertEquals(1, client.set_metadata_called)
 
     def test_delete_object(self):
@@ -675,8 +717,9 @@ class TestInternalClient(unittest.TestCase):
                 self.path = path
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals('DELETE', method)
                 self.test.assertEquals(self.path, path)
@@ -684,26 +727,23 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals((2, 404), acceptable_statuses)
                 self.test.assertEquals(None, body_file)
 
-        account = 'some_account'
-        container = 'some_container'
-        object_name = 'some_object'
-        path = '/v1/%s/%s/%s' % (account, container, object_name)
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
 
         client = InternalClient(self, path)
-        client.delete_object(account, container, object_name)
+        client.delete_object(account, container, obj)
         self.assertEquals(1, client.make_request_called)
 
     def test_get_object_metadata(self):
-        account = 'some_account'
-        container = 'some_container'
-        object_name = 'some_object'
-        path = '/v1/%s/%s/%s' % (account, container, object_name)
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
         metadata_prefix = 'some_metadata_prefix'
         acceptable_statuses = 'some_status_list'
-        client = GetMetadataInternalClient(self, path, metadata_prefix,
+        client = GetMetadataInternalClient(
+            self, path, metadata_prefix, acceptable_statuses)
+        metadata = client.get_object_metadata(
+            account, container, obj, metadata_prefix,
             acceptable_statuses)
-        metadata = client.get_object_metadata(account, container, object_name,
-            metadata_prefix, acceptable_statuses)
         self.assertEquals(client.metadata, metadata)
         self.assertEquals(1, client.get_metadata_called)
 
@@ -742,23 +782,22 @@ class TestInternalClient(unittest.TestCase):
         lines = 'line1 line2 line3'.split()
         client = InternalClient(lines)
         ret_lines = []
-        for line in client.iter_object_lines('account', 'container',
-                'object.gz'):
+        for line in client.iter_object_lines(
+                'account', 'container', 'object.gz'):
             ret_lines.append(line)
         self.assertEquals(lines, ret_lines)
 
     def test_set_object_metadata(self):
-        account = 'some_account'
-        container = 'some_container'
-        object_name = 'some_object'
-        path = '/v1/%s/%s/%s' % (account, container, object_name)
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
         metadata = 'some_metadata'
         metadata_prefix = 'some_metadata_prefix'
         acceptable_statuses = 'some_status_list'
-        client = SetMetadataInternalClient(self, path, metadata,
-            metadata_prefix, acceptable_statuses)
-        client.set_object_metadata(account, container, object_name, metadata,
-            metadata_prefix, acceptable_statuses)
+        client = SetMetadataInternalClient(
+            self, path, metadata, metadata_prefix, acceptable_statuses)
+        client.set_object_metadata(
+            account, container, obj, metadata, metadata_prefix,
+            acceptable_statuses)
         self.assertEquals(1, client.set_metadata_called)
 
     def test_upload_object(self):
@@ -770,8 +809,9 @@ class TestInternalClient(unittest.TestCase):
                 self.fobj = fobj
                 self.make_request_called = 0
 
-            def make_request(self, method, path, headers, acceptable_statuses,
-                body_file=None):
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
                 self.make_request_called += 1
                 self.test.assertEquals(self.path, path)
                 exp_headers = dict(self.headers)
@@ -780,14 +820,12 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEquals(self.fobj, fobj)
 
         fobj = 'some_fobj'
-        account = 'some_account'
-        container = 'some_container'
-        object_name = 'some_object'
-        path = '/v1/%s/%s/%s' % (account, container, object_name)
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
         headers = {'key': 'value'}
 
         client = InternalClient(self, path, headers, fobj)
-        client.upload_object(fobj, account, container, object_name, headers)
+        client.upload_object(fobj, account, container, obj, headers)
         self.assertEquals(1, client.make_request_called)
 
 if __name__ == '__main__':
