@@ -319,7 +319,7 @@ class Auditor(object):
         if self.account_exceptions:
             print "        Exceptions: %d" % self.account_exceptions
         if self.account_container_mismatch:
-            print " Cntainer mismatch: %d" % self.account_container_mismatch
+            print " Container mismatch: %d" % self.account_container_mismatch
         if self.account_object_mismatch:
             print "   Object mismatch: %d" % self.account_object_mismatch
         print
