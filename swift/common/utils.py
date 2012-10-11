@@ -23,7 +23,7 @@ import sys
 import time
 import functools
 from hashlib import md5
-from random import shuffle
+from random import random, shuffle
 from urllib import quote
 from contextlib import contextmanager, closing
 import ctypes
@@ -233,7 +233,7 @@ def drop_buffer_cache(fd, offset, length):
         _posix_fadvise = load_libc_function('posix_fadvise64')
     # 4 means "POSIX_FADV_DONTNEED"
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
-                        ctypes.c_uint64(length), 4)
+                         ctypes.c_uint64(length), 4)
     if ret != 0:
         logging.warn("posix_fadvise64(%s, %s, %s, 4) -> %s"
                      % (fd, offset, length, ret))
@@ -311,16 +311,17 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
         minsegs += 1
         maxsegs += 1
         count = len(segs)
-        if segs[0] or count < minsegs or count > maxsegs or \
-           '' in segs[1:minsegs]:
+        if (segs[0] or count < minsegs or count > maxsegs or
+                '' in segs[1:minsegs]):
             raise ValueError('Invalid path: %s' % quote(path))
     else:
         minsegs += 1
         maxsegs += 1
         segs = path.split('/', maxsegs)
         count = len(segs)
-        if segs[0] or count < minsegs or count > maxsegs + 1 or \
-           '' in segs[1:minsegs] or (count == maxsegs + 1 and segs[maxsegs]):
+        if (segs[0] or count < minsegs or count > maxsegs + 1 or
+                '' in segs[1:minsegs] or
+                (count == maxsegs + 1 and segs[maxsegs])):
             raise ValueError('Invalid path: %s' % quote(path))
     segs = segs[1:maxsegs]
     segs.extend([None] * (maxsegs - 1 - len(segs)))
@@ -407,6 +408,7 @@ class StatsdClient(object):
         self.set_prefix(tail_prefix)
         self._default_sample_rate = default_sample_rate
         self._target = (self._host, self._port)
+        self.random = random
 
     def set_prefix(self, new_prefix):
         if new_prefix and self._base_prefix:
@@ -423,11 +425,17 @@ class StatsdClient(object):
             sample_rate = self._default_sample_rate
         parts = ['%s%s:%s' % (self._prefix, m_name, m_value), m_type]
         if sample_rate < 1:
-            parts.append('@%s' % (sample_rate,))
+            if self.random() < sample_rate:
+                parts.append('@%s' % (sample_rate,))
+            else:
+                return
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as sock:
+        with closing(self._open_socket()) as sock:
             return sock.sendto('|'.join(parts), self._target)
+
+    def _open_socket(self):
+        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def update_stats(self, m_name, m_value, sample_rate=None):
         return self._send(m_name, m_value, 'c', sample_rate)
@@ -587,10 +595,10 @@ class SwiftLogFormatter(logging.Formatter):
     def format(self, record):
         msg = logging.Formatter.format(self, record)
         if (record.txn_id and record.levelno != logging.INFO and
-            record.txn_id not in msg):
+                record.txn_id not in msg):
             msg = "%s (txn: %s)" % (msg, record.txn_id)
         if (record.client_ip and record.levelno != logging.INFO and
-            record.client_ip not in msg):
+                record.client_ip not in msg):
             msg = "%s (client_ip: %s)" % (msg, record.client_ip)
         return msg
 
@@ -1084,7 +1092,7 @@ def readconf(conffile, section_name=None, log_name=None, defaults=None,
             conf = dict(c.items(section_name))
         else:
             print _("Unable to find %s config section in %s") % \
-                 (section_name, conffile)
+                (section_name, conffile)
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:

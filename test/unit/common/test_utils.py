@@ -21,6 +21,7 @@ import errno
 import logging
 import mimetools
 import os
+import random
 import re
 import socket
 import sys
@@ -36,8 +37,8 @@ from tempfile import TemporaryFile, NamedTemporaryFile
 
 from eventlet import sleep
 
-from swift.common.exceptions import Timeout, MessageTimeout, \
-        ConnectionTimeout
+from swift.common.exceptions import (Timeout, MessageTimeout,
+                                     ConnectionTimeout)
 from swift.common import utils
 
 
@@ -80,6 +81,17 @@ class MockOs():
             return object.__getattr__(self, name)
         except AttributeError:
             return getattr(os, name)
+
+
+class MockUdpSocket():
+    def __init__(self):
+        self.sent = []
+
+    def sendto(self, data, target):
+        self.sent.append((data, target))
+
+    def close(self):
+        pass
 
 
 class MockSys():
@@ -197,21 +209,30 @@ class TestUtils(unittest.TestCase):
     def test_validate_device_partition(self):
         """ Test swift.common.utils.validate_device_partition """
         utils.validate_device_partition('foo', 'bar')
-        self.assertRaises(ValueError, utils.validate_device_partition, '', '')
-        self.assertRaises(ValueError, utils.validate_device_partition, '', 'foo')
-        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '')
-        self.assertRaises(ValueError, utils.validate_device_partition, 'foo/bar', 'foo')
-        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', 'foo/bar')
-        self.assertRaises(ValueError, utils.validate_device_partition, '.', 'foo')
-        self.assertRaises(ValueError, utils.validate_device_partition, '..', 'foo')
-        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '.')
-        self.assertRaises(ValueError, utils.validate_device_partition, 'foo', '..')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, '', '')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, '', 'foo')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, 'foo', '')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, 'foo/bar', 'foo')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, 'foo', 'foo/bar')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, '.', 'foo')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, '..', 'foo')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, 'foo', '.')
+        self.assertRaises(ValueError,
+                          utils.validate_device_partition, 'foo', '..')
         try:
-            utils.validate_device_partition,('o\nn e', 'foo')
+            utils.validate_device_partition('o\nn e', 'foo')
         except ValueError, err:
             self.assertEquals(str(err), 'Invalid device: o%0An%20e')
         try:
-            utils.validate_device_partition,('foo', 'o\nn e')
+            utils.validate_device_partition('foo', 'o\nn e')
         except ValueError, err:
             self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
 
@@ -243,21 +264,21 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
         print >> sys.stderr, 'test6'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-            'STDOUT: test6\n')
+                          'STDOUT: test6\n')
         sys.stderr = orig_stderr
         print 'test8'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-            'STDOUT: test6\n')
+                          'STDOUT: test6\n')
         lfo.writelines(['a', 'b', 'c'])
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-            'STDOUT: test6\nSTDOUT: a#012b#012c\n')
+                          'STDOUT: test6\nSTDOUT: a#012b#012c\n')
         lfo.close()
         lfo.write('d')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-            'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
+                          'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
         lfo.flush()
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-            'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
+                          'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
         got_exc = False
         try:
             for line in lfo:
@@ -503,7 +524,7 @@ class TestUtils(unittest.TestCase):
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
-                'objects/1/DEF/ABCDEF')
+                          'objects/1/DEF/ABCDEF')
 
     def test_whataremyips(self):
         myips = utils.whataremyips()
@@ -522,7 +543,8 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
                           '06fbf0b514e5199dfc4e00f42eb5ea83')
         self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=True),
-                  '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN\x00\xf4.\xb5\xea\x83')
+                          '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
+                          '\x00\xf4.\xb5\xea\x83')
         self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
 
     def test_load_libc_function(self):
@@ -870,9 +892,9 @@ log_name = %(yarr)s'''
                        'http://1.1.1.1/v1/a/c/o?query=param',
                        'http://1.1.1.1/v1/a/c/o?query=param#frag',
                        'http://1.1.1.2/v1/a/c/o'):
-            self.assertNotEquals(utils.validate_sync_to(badurl,
-                                                       ['1.1.1.1', '2.2.2.2']),
-                                 None)
+            self.assertNotEquals(
+                utils.validate_sync_to(badurl, ['1.1.1.1', '2.2.2.2']),
+                None)
 
     def test_TRUE_VALUES(self):
         for v in utils.TRUE_VALUES:
@@ -906,7 +928,8 @@ class TestStatsdLogging(unittest.TestCase):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
                                   'some-name', log_route='some-route')
         # white-box construction validation
-        self.assert_(isinstance(logger.logger.statsd_client, utils.StatsdClient))
+        self.assert_(isinstance(logger.logger.statsd_client,
+                                utils.StatsdClient))
         self.assertEqual(logger.logger.statsd_client._host, 'some.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 8125)
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')
@@ -934,7 +957,29 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(logger.logger.statsd_client._prefix, 'tomato.sauce.')
         self.assertEqual(logger.logger.statsd_client._host, 'another.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 9876)
-        self.assertEqual(logger.logger.statsd_client._default_sample_rate, 0.75)
+        self.assertEqual(logger.logger.statsd_client._default_sample_rate,
+                         0.75)
+
+    def test_sample_rates(self):
+        logger = utils.get_logger({'log_statsd_host': 'some.host.com'})
+
+        mock_socket = MockUdpSocket()
+        # encapsulation? what's that?
+        statsd_client = logger.logger.statsd_client
+        self.assertTrue(statsd_client.random is random.random)
+
+        statsd_client._open_socket = lambda *_: mock_socket
+        statsd_client.random = lambda: 0.50001
+
+        logger.increment('tribbles', sample_rate=0.5)
+        self.assertEqual(len(mock_socket.sent), 0)
+
+        statsd_client.random = lambda: 0.49999
+        logger.increment('tribbles', sample_rate=0.5)
+        self.assertEqual(len(mock_socket.sent), 1)
+
+        payload = mock_socket.sent[0][0]
+        self.assertTrue(payload.endswith("|@0.5"))
 
 
 class TestStatsdLoggingDelegation(unittest.TestCase):
@@ -1003,7 +1048,8 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         # Delegate methods are no-ops
         self.assertEqual(None, logger.update_stats('foo', 88))
         self.assertEqual(None, logger.update_stats('foo', 88, 0.57))
-        self.assertEqual(None, logger.update_stats('foo', 88, sample_rate=0.61))
+        self.assertEqual(None, logger.update_stats('foo', 88,
+                                                   sample_rate=0.61))
         self.assertEqual(None, logger.increment('foo'))
         self.assertEqual(None, logger.increment('foo', 0.57))
         self.assertEqual(None, logger.increment('foo', sample_rate=0.61))
@@ -1175,7 +1221,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             self.assertEquals(logger.thread_locals, ('5678', '5.6.7.8'))
         finally:
             logger.thread_locals = orig_thread_locals
-        
+
 
 if __name__ == '__main__':
     unittest.main()
