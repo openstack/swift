@@ -278,6 +278,25 @@ class Controller(object):
             return partition, nodes, container_count
         return None, None, None
 
+    def headers_to_container_info(self, headers):
+        headers = dict(headers)
+        return {
+            'read_acl': headers.get('x-container-read'),
+            'write_acl': headers.get('x-container-write'),
+            'sync_key': headers.get('x-container-sync-key'),
+            'count': headers.get('x-container-object-count'),
+            'bytes': headers.get('x-container-bytes-used'),
+            'versions': headers.get('x-versions-location'),
+            'cors': {
+                'allow_origin': headers.get(
+                    'x-container-meta-access-control-allow-origin'),
+                'allow_headers': headers.get(
+                    'x-container-meta-access-control-allow-headers'),
+                'max_age': headers.get(
+                    'x-container-meta-access-control-max-age')
+            }
+        }
+
     def container_info(self, account, container, account_autocreate=False):
         """
         Get container information and thusly verify container existance.
@@ -324,14 +343,9 @@ class Controller(object):
                     resp = conn.getresponse()
                     body = resp.read()
                 if is_success(resp.status):
-                    container_info.update({
-                        'status': HTTP_OK,
-                        'read_acl': resp.getheader('x-container-read'),
-                        'write_acl': resp.getheader('x-container-write'),
-                        'sync_key': resp.getheader('x-container-sync-key'),
-                        'count': resp.getheader('x-container-object-count'),
-                        'bytes': resp.getheader('x-container-bytes-used'),
-                        'versions': resp.getheader('x-versions-location')})
+                    container_info.update(
+                        self.headers_to_container_info(resp.getheaders()))
+                    container_info['status'] = HTTP_OK
                     break
                 elif resp.status == HTTP_NOT_FOUND:
                     container_info['status'] = HTTP_NOT_FOUND
@@ -661,3 +675,37 @@ class Controller(object):
             return res
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
+
+    def OPTIONS_base(self, req):
+        """
+        Base handler for OPTIONS requests
+
+        :param req: swob.Request object
+        :returns: swob.Response object
+        """
+        container_info = \
+            self.container_info(self.account_name, self.container_name)
+        cors = container_info.get('cors', {})
+        allowed_origins = set()
+        if cors.get('allow_origin'):
+            allowed_origins.update(cors['allow_origin'].split(' '))
+        if self.app.cors_allow_origin:
+            allowed_origins.update(self.app.cors_allow_origin)
+        if not allowed_origins:
+            return Response(status=401, request=req)
+        headers = {}
+        if req.headers.get('Origin') in allowed_origins \
+                or '*' in allowed_origins:
+            headers['access-control-allow-origin'] = ' '.join(allowed_origins)
+            headers['access-control-max-age'] = cors.get('max_age')
+            headers['access-control-allow-methods'] = \
+                'GET, POST, PUT, DELETE, HEAD'
+            headers['access-control-allow-headers'] = \
+                cors.get('allow_headers')
+            return Response(status=200, headers=headers, request=req)
+        else:
+            return Response(status=401, request=req)
+
+    @public
+    def OPTIONS(self, req):
+        return self.OPTIONS_base(req)

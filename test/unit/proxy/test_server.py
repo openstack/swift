@@ -3403,6 +3403,75 @@ class TestObjectController(unittest.TestCase):
         sock.close()
         self.assertEquals(before_request_instances, _request_instances)
 
+    def test_OPTIONS(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a',
+                                                       'c', 'o.jpg')
+
+            def my_empty_container_info(*args):
+                return {}
+            controller.container_info = my_empty_container_info
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.com'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+
+            def my_empty_origin_container_info(*args):
+                return {'cors': {'allow_origin': None}}
+            controller.container_info = my_empty_origin_container_info
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.com'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+
+            def my_container_info(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://foo.bar:8080 https://foo.bar',
+                        'allow_headers': 'x-foo',
+                        'max_age': 999,
+                    }
+                }
+            controller.container_info = my_container_info
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://foo.bar'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals(
+                set(['http://foo.bar:8080', 'https://foo.bar']),
+                set(resp.headers['access-control-allow-origin'].split()))
+            self.assertEquals(
+                'GET, POST, PUT, DELETE, HEAD',
+                resp.headers['access-control-allow-methods'])
+            self.assertEquals('999', resp.headers['access-control-max-age'])
+            self.assertEquals(
+                'x-foo',
+                resp.headers['access-control-allow-headers'])
+            req = Request.blank('/a/c/o.jpg', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.com'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.bar'})
+            controller.app.cors_allow_origin = ['http://foo.bar', ]
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -3891,6 +3960,74 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.HEAD(req)
         self.assert_(called[0])
+
+    def test_OPTIONS(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+            def my_empty_container_info(*args):
+                return {}
+            controller.container_info = my_empty_container_info
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.com'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+
+            def my_empty_origin_container_info(*args):
+                return {'cors': {'allow_origin': None}}
+            controller.container_info = my_empty_origin_container_info
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.com'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+
+            def my_container_info(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://foo.bar:8080 https://foo.bar',
+                        'allow_headers': 'x-foo',
+                        'max_age': 999,
+                    }
+                }
+            controller.container_info = my_container_info
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://foo.bar'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals(
+                set(['http://foo.bar:8080', 'https://foo.bar']),
+                set(resp.headers['access-control-allow-origin'].split()))
+            self.assertEquals(
+                'GET, POST, PUT, DELETE, HEAD',
+                resp.headers['access-control-allow-methods'])
+            self.assertEquals('999', resp.headers['access-control-max-age'])
+            self.assertEquals(
+                'x-foo',
+                resp.headers['access-control-allow-headers'])
+            req = Request.blank('/a/c', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.bar'})
+            resp = controller.OPTIONS(req)
+            self.assertEquals(401, resp.status_int)
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'http://foo.bar'})
+            controller.app.cors_allow_origin = ['http://foo.bar', ]
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
 
 
 class TestAccountController(unittest.TestCase):

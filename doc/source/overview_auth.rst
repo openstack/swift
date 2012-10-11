@@ -39,6 +39,8 @@ Additionally, if the auth system sets the request environ's swift_owner key to
 True, the proxy will return additional header information in some requests,
 such as the X-Container-Sync-Key for a container GET or HEAD.
 
+TempAuth will now allow OPTIONS requests to go through without a token.
+
 The user starts a session by sending a ReST request to the auth system to
 receive the auth token and a URL to the Swift system.
 

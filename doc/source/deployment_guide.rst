@@ -529,6 +529,13 @@ cert_file                                      Path to the ssl .crt. This
 key_file                                       Path to the ssl .key. This
                                                should be enabled for testing
                                                purposes only.
+cors_allow_origin                              This is a list of hosts that
+                                               are included with any CORS 
+                                               request by default and 
+                                               returned with the 
+                                               Access-Control-Allow-Origin
+                                               header in addition to what
+                                               the container has set.
 ============================  ===============  =============================
 
 [proxy-server]

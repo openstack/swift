@@ -79,9 +79,9 @@ class Application(object):
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
         self.container_ring = container_ring or Ring(swift_dir,
-                ring_name='container')
+                                                     ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
-                ring_name='account')
+                                                 ring_name='account')
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
@@ -94,10 +94,12 @@ class Application(object):
             int(conf.get('expiring_objects_container_divisor') or 86400)
         self.max_containers_per_account = \
             int(conf.get('max_containers_per_account') or 0)
-        self.max_containers_whitelist = [a.strip()
+        self.max_containers_whitelist = [
+            a.strip()
             for a in conf.get('max_containers_whitelist', '').split(',')
             if a.strip()]
-        self.deny_host_headers = [host.strip() for host in
+        self.deny_host_headers = [
+            host.strip() for host in
             conf.get('deny_host_headers', '').split(',') if host.strip()]
         self.rate_limit_after_segment = \
             int(conf.get('rate_limit_after_segment', 10))
@@ -105,6 +107,10 @@ class Application(object):
             int(conf.get('rate_limit_segments_per_sec', 1))
         self.log_handoffs = \
             conf.get('log_handoffs', 'true').lower() in TRUE_VALUES
+        self.cors_allow_origin = [
+            a.strip()
+            for a in conf.get('cors_allow_origin', '').split(',')
+            if a.strip()]
 
     def get_controller(self, path):
         """
@@ -117,9 +123,9 @@ class Application(object):
         """
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
-                account_name=account,
-                container_name=container,
-                object_name=obj)
+                 account_name=account,
+                 container_name=container,
+                 object_name=obj)
         if obj and container and account:
             return ObjectController, d
         elif container and account:
@@ -146,7 +152,7 @@ class Application(object):
             return err(env, start_response)
         except (Exception, Timeout):
             start_response('500 Server Error',
-                    [('Content-Type', 'text/plain')])
+                           [('Content-Type', 'text/plain')])
             return ['Internal server error.\n']
 
     def update_request(self, req):
