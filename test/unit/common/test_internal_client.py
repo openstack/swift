@@ -31,9 +31,9 @@ def unicode_string(start, length):
 
 
 def path_parts():
-    account = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
-    container = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
-    obj = unicode_string(1000, 4) + ' ' + unicode_string(1000, 4)
+    account = unicode_string(1000, 4) + ' ' + unicode_string(1100, 4)
+    container = unicode_string(2000, 4) + ' ' + unicode_string(2100, 4)
+    obj = unicode_string(3000, 4) + ' ' + unicode_string(3100, 4)
     return account, container, obj
 
 
@@ -354,6 +354,7 @@ class TestInternalClient(unittest.TestCase):
         class Response(object):
             def __init__(self, headers):
                 self.headers = headers
+                self.status_int = 200
 
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, resp_headers):
@@ -391,6 +392,23 @@ class TestInternalClient(unittest.TestCase):
         metadata = client._get_metadata(path, metadata_prefix)
         self.assertEquals(exp_metadata, metadata)
         self.assertEquals(1, client.make_request_called)
+
+    def test_get_metadata_invalid_status(self):
+        class Response(object):
+            def __init__(self):
+                self.status_int = 404
+                self.headers = {'some_key': 'some_value'}
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                pass
+
+            def make_request(self, *a, **kw):
+                return Response()
+
+        client = InternalClient()
+        metadata = client._get_metadata('path')
+        self.assertEquals({}, metadata)
 
     def test_make_path(self):
         account, container, obj = path_parts()
