@@ -300,6 +300,8 @@ def _resp_body_property():
     """
     def getter(self):
         if not self._body:
+            if not self._app_iter:
+                return ''
             self._body = ''.join(self._app_iter)
             self._app_iter = None
         return self._body
