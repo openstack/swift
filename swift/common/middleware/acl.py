@@ -108,7 +108,8 @@ def clean_acl(name, value):
                         second = second[1:].strip()
                     if not second or second == '.':
                         raise ValueError('No host/domain value after referrer '
-                            'designation in ACL: %s' % repr(raw_value))
+                                         'designation in ACL: %s' %
+                                         repr(raw_value))
                     values.append('.r:%s%s' % (negate and '-' or '', second))
                 else:
                     raise ValueError('Unknown designator %s in ACL: %s' %
@@ -156,8 +157,8 @@ def referrer_allowed(referrer, referrer_acl):
         for mhost in referrer_acl:
             if mhost[0] == '-':
                 mhost = mhost[1:]
-                if mhost == rhost or \
-                       (mhost[0] == '.' and rhost.endswith(mhost)):
+                if mhost == rhost or (mhost[0] == '.' and
+                                      rhost.endswith(mhost)):
                     allow = False
             elif mhost == '*' or mhost == rhost or \
                     (mhost[0] == '.' and rhost.endswith(mhost)):

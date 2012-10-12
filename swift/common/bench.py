@@ -58,7 +58,8 @@ def delete_containers(logger, conf):
         except client.ClientException, e:
             if e.http_status != HTTP_CONFLICT:
                 logger.warn("Unable to delete container '%s'. "
-                    "Got http status '%d'." % (container, e.http_status))
+                            "Got http status '%d'."
+                            % (container, e.http_status))
 
     _func_on_containers(logger, conf, 'del_concurrency', _deleter)
 
@@ -179,15 +180,17 @@ class Bench(object):
         self.devices = conf.devices.split()
         self.names = names
         self.conn_pool = ConnectionPool(self.url,
-            max(self.put_concurrency, self.get_concurrency,
-                self.del_concurrency))
+                                        max(self.put_concurrency,
+                                            self.get_concurrency,
+                                            self.del_concurrency))
 
     def _log_status(self, title):
         total = time.time() - self.beginbeat
         self.logger.info(_('%(complete)s %(title)s [%(fail)s failures], '
                            '%(rate).01f/s'),
-            {'title': title, 'complete': self.complete, 'fail': self.failures,
-             'rate': (float(self.complete) / total)})
+                         {'title': title, 'complete': self.complete,
+                          'fail': self.failures,
+                          'rate': (float(self.complete) / total)})
 
     @contextmanager
     def connection(self):
@@ -362,11 +365,12 @@ class BenchDELETE(Bench):
             try:
                 if self.use_proxy:
                     client.delete_object(self.url, self.token,
-                        container_name, name, http_conn=conn)
+                                         container_name, name, http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_delete_object(node, partition,
-                        self.account, container_name, name)
+                                                       self.account,
+                                                       container_name, name)
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
@@ -390,11 +394,12 @@ class BenchGET(Bench):
             try:
                 if self.use_proxy:
                     client.get_object(self.url, self.token,
-                        container_name, name, http_conn=conn)
+                                      container_name, name, http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_get_object(node, partition,
-                        self.account, container_name, name)
+                                                    self.account,
+                                                    container_name, name)
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1
@@ -419,7 +424,7 @@ class BenchPUT(Bench):
             source = random.choice(self.files)
         elif self.upper_object_size > self.lower_object_size:
             source = '0' * random.randint(self.lower_object_size,
-                        self.upper_object_size)
+                                          self.upper_object_size)
         else:
             source = '0' * self.object_size
         device = random.choice(self.devices)
@@ -429,13 +434,16 @@ class BenchPUT(Bench):
             try:
                 if self.use_proxy:
                     client.put_object(self.url, self.token,
-                        container_name, name, source,
-                        content_length=len(source), http_conn=conn)
+                                      container_name, name, source,
+                                      content_length=len(source),
+                                      http_conn=conn)
                 else:
                     node = {'ip': self.ip, 'port': self.port, 'device': device}
                     direct_client.direct_put_object(node, partition,
-                        self.account, container_name, name, source,
-                        content_length=len(source))
+                                                    self.account,
+                                                    container_name, name,
+                                                    source,
+                                                    content_length=len(source))
             except client.ClientException, e:
                 self.logger.debug(str(e))
                 self.failures += 1

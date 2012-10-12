@@ -82,15 +82,15 @@ class MemcacheRing(object):
     def _exception_occurred(self, server, e, action='talking'):
         if isinstance(e, socket.timeout):
             logging.error(_("Timeout %(action)s to memcached: %(server)s"),
-                {'action': action, 'server': server})
+                          {'action': action, 'server': server})
         else:
             logging.exception(_("Error %(action)s to memcached: %(server)s"),
-                {'action': action, 'server': server})
+                              {'action': action, 'server': server})
         now = time.time()
         self._errors[server].append(time.time())
         if len(self._errors[server]) > ERROR_LIMIT_COUNT:
             self._errors[server] = [err for err in self._errors[server]
-                                          if err > now - ERROR_LIMIT_TIME]
+                                    if err > now - ERROR_LIMIT_TIME]
             if len(self._errors[server]) > ERROR_LIMIT_COUNT:
                 self._error_limited[server] = now + ERROR_LIMIT_DURATION
                 logging.error(_('Error limiting server %s'), server)
@@ -156,8 +156,8 @@ class MemcacheRing(object):
             flags |= JSON_FLAG
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('set %s %d %d %s noreply\r\n%s\r\n' % \
-                              (key, flags, timeout, len(value), value))
+                sock.sendall('set %s %d %d %s noreply\r\n%s\r\n' %
+                             (key, flags, timeout, len(value), value))
                 self._return_conn(server, fp, sock)
                 return
             except Exception, e:
@@ -225,8 +225,8 @@ class MemcacheRing(object):
                     add_val = delta
                     if command == 'decr':
                         add_val = '0'
-                    sock.sendall('add %s %d %d %s\r\n%s\r\n' % \
-                                  (key, 0, timeout, len(add_val), add_val))
+                    sock.sendall('add %s %d %d %s\r\n%s\r\n' %
+                                 (key, 0, timeout, len(add_val), add_val))
                     line = fp.readline().strip().split()
                     if line[0].upper() == 'NOT_STORED':
                         sock.sendall('%s %s %s\r\n' % (command, key, delta))

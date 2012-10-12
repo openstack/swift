@@ -94,7 +94,7 @@ class BufferedHTTPConnection(HTTPConnection):
 
     def getexpect(self):
         response = BufferedHTTPResponse(self.sock, strict=self.strict,
-                                       method=self._method)
+                                        method=self._method)
         response.expect_response()
         return response
 
@@ -102,8 +102,9 @@ class BufferedHTTPConnection(HTTPConnection):
         response = HTTPConnection.getresponse(self)
         logging.debug(_("HTTP PERF: %(time).5f seconds to %(method)s "
                         "%(host)s:%(port)s %(path)s)"),
-           {'time': time.time() - self._connected_time, 'method': self._method,
-            'host': self.host, 'port': self.port, 'path': self._path})
+                      {'time': time.time() - self._connected_time,
+                       'method': self._method, 'host': self.host,
+                       'port': self.port, 'path': self._path})
         return response
 
 
