@@ -298,6 +298,17 @@ class TestRequest(unittest.TestCase):
         req.range = 'bad range'
         self.assertEquals(req.range, None)
 
+    def test_accept_header(self):
+        req = swift.common.swob.Request({'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/',
+                                         'HTTP_ACCEPT': 'application/json'})
+        self.assertEqual(
+            req.accept.best_match(['application/json', 'text/plain']),
+            'application/json')
+        self.assertEqual(
+            req.accept.best_match(['text/plain', 'application/json']),
+            'application/json')
+
 
 class TestStatusMap(unittest.TestCase):
     def test_status_map(self):

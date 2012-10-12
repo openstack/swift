@@ -611,7 +611,7 @@ class Request(object):
     """
     range = _req_fancy_property(Range, 'range')
     if_none_match = _req_fancy_property(Match, 'if-none-match')
-    accept = _req_fancy_property(Accept, 'http-accept', True)
+    accept = _req_fancy_property(Accept, 'accept', True)
     method = _req_environ_property('REQUEST_METHOD')
     referrer = referer = _req_environ_property('HTTP_REFERER')
     script_name = _req_environ_property('SCRIPT_NAME')
