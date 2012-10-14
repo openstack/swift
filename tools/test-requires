@@ -5,4 +5,4 @@ openstack.nose_plugin
 nosehtmloutput
 pep8==0.6.1
 sphinx>=1.1.2
-mock>=0.7.0
+mock>=0.8.0
