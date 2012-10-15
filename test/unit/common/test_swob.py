@@ -309,6 +309,14 @@ class TestRequest(unittest.TestCase):
             req.accept.best_match(['text/plain', 'application/json']),
             'application/json')
 
+    def test_path_qs(self):
+        req = swift.common.swob.Request.blank('/hi/there?hello=equal&acl')
+        self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')
+
+        req = swift.common.swob.Request({'PATH_INFO': '/hi/there',
+                                         'QUERY_STRING': 'hello=equal&acl'})
+        self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')
+
 
 class TestStatusMap(unittest.TestCase):
     def test_status_map(self):

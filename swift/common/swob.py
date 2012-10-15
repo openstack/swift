@@ -689,6 +689,14 @@ class Request(object):
     str_params = params
 
     @property
+    def path_qs(self):
+        """The path of the request, without host but with query string."""
+        path = self.path
+        if self.query_string:
+            path += '?' + self.query_string
+        return path
+
+    @property
     def path(self):
         "Provides the full path of the request, excluding the QUERY_STRING"
         return urllib2.quote(self.environ.get('SCRIPT_NAME', '') +
