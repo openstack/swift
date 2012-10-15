@@ -647,9 +647,10 @@ class ObjectReplicator(Daemon):
             override_partitions=override_partitions)
         total = (time.time() - start) / 60
         self.logger.info(
-            _("Object replication complete. (%.02f minutes)"), total)
-        dump_recon_cache({'object_replication_time': total},
-                         self.rcache, self.logger)
+            _("Object replication complete (once). (%.02f minutes)"), total)
+        if not (override_partitions or override_devices):
+            dump_recon_cache({'object_replication_time': total},
+                             self.rcache, self.logger)
 
     def run_forever(self, *args, **kwargs):
         self.logger.info(_("Starting object replicator in daemon mode."))
