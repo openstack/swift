@@ -93,8 +93,8 @@ class TestEmptyDevice(TestCase):
         for node in onodes[1:]:
             start_server(node['port'], self.port2server, self.pids)
             self.assertFalse(os.path.exists(obj_dir))
-            # We've indirectly verified the handoff node has the object, but let's
-        # directly verify it.
+            # We've indirectly verified the handoff node has the object, but
+            # let's directly verify it.
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj)[-1]
@@ -118,28 +118,28 @@ class TestEmptyDevice(TestCase):
         exc = None
         try:
             direct_client.direct_get_object(onode, opart, self.account,
-                container, obj)
+                                            container, obj)
         except direct_client.ClientException, err:
             exc = err
         self.assertEquals(exc.http_status, 404)
         self.assertFalse(os.path.exists(obj_dir))
 
         call(['swift-object-replicator',
-                  '/etc/swift/object-server/%d.conf' %
-                  ((onode['port'] - 6000) / 10), 'once'])
+              '/etc/swift/object-server/%d.conf' %
+              ((onode['port'] - 6000) / 10), 'once'])
         call(['swift-object-replicator',
               '/etc/swift/object-server/%d.conf' %
               ((another_onode['port'] - 6000) / 10), 'once'])
 
         odata = direct_client.direct_get_object(onode, opart, self.account,
-            container, obj)[-1]
+                                                container, obj)[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
         exc = None
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
-                container, obj)
+                                            container, obj)
         except direct_client.ClientException, err:
             exc = err
         self.assertEquals(exc.http_status, 404)

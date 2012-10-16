@@ -67,6 +67,7 @@ for k in default_constraints:
         # tests.
         config[k] = '%s constraint is not defined' % k
 
+
 def load_constraint(name):
     c = config[name]
     if not isinstance(c, int):

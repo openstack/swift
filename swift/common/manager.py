@@ -30,10 +30,10 @@ RUN_DIR = '/var/run/swift'
 
 # auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
-    'container-replicator', 'container-server', 'container-sync',
-    'container-updater', 'object-auditor', 'object-server', 'object-expirer',
-    'object-replicator', 'object-updater', 'proxy-server',
-    'account-replicator', 'account-reaper']
+               'container-replicator', 'container-server', 'container-sync',
+               'container-updater', 'object-auditor', 'object-server',
+               'object-expirer', 'object-replicator', 'object-updater',
+               'proxy-server', 'account-replicator', 'account-reaper']
 MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
                 'object-server']
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
@@ -55,9 +55,9 @@ def setup_env():
     """
     try:
         resource.setrlimit(resource.RLIMIT_NOFILE,
-                (MAX_DESCRIPTORS, MAX_DESCRIPTORS))
+                           (MAX_DESCRIPTORS, MAX_DESCRIPTORS))
         resource.setrlimit(resource.RLIMIT_DATA,
-                (MAX_MEMORY, MAX_MEMORY))
+                           (MAX_MEMORY, MAX_MEMORY))
     except ValueError:
         print _("WARNING: Unable to increase file descriptor limit.  "
                 "Running as non-root?")
@@ -219,7 +219,8 @@ class Manager():
         # keep track of the pids yeiled back as killed for all servers
         killed_pids = set()
         for server, killed_pid in watch_server_pids(server_pids,
-                                                interval=KILL_WAIT, **kwargs):
+                                                    interval=KILL_WAIT,
+                                                    **kwargs):
             print _("%s (%s) appears to have stopped") % (server, killed_pid)
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
@@ -360,8 +361,8 @@ class Server():
         """
         if self.server in STANDALONE_SERVERS:
             return pid_file.replace(
-                os.path.normpath(RUN_DIR), SWIFT_DIR, 1).rsplit(
-                        '.pid', 1)[0] + '.conf'
+                os.path.normpath(RUN_DIR), SWIFT_DIR, 1)\
+                .rsplit('.pid', 1)[0] + '.conf'
         else:
             return pid_file.replace(
                 os.path.normpath(RUN_DIR), SWIFT_DIR, 1).replace(
@@ -380,7 +381,7 @@ class Server():
                                            '.conf')
         else:
             found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
-                                          '.conf')
+                                           '.conf')
         number = kwargs.get('number')
         if number:
             try:
