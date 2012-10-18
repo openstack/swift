@@ -518,7 +518,7 @@ Metric Name                            Description
 `account-replicator.no_changes`        Count of accounts found to be in sync.
 `account-replicator.hashmatches`       Count of accounts found to be in sync via hash
                                        comparison (`broker.merge_syncs` was called).
-`account-replicator.rsyncs`            Count of completely missing accounts where were sent
+`account-replicator.rsyncs`            Count of completely missing accounts which were sent
                                        via rsync.
 `account-replicator.remote_merges`     Count of syncs handled by sending entire database
                                        via rsync.
@@ -628,7 +628,7 @@ Metric Name                      Description
                                  sychronization via deletion.
 `container-sync.puts`            Count of container database rows sync'ed by PUTing.
 `container-sync.puts.timing`     Timing data for each container database row
-                                 sychronization via PUTing.
+                                 synchronization via PUTing.
 ===============================  ====================================================
 
 Metrics for `container-updater`:
@@ -693,7 +693,7 @@ Metric Name                                          Description
 `object-replicator.partition.update.timing`          Timing data for partitions replicated which also
                                                      belong on this node.  This metric is not tracked
                                                      per-device.
-`object-replicator.suffix.hashes`                    Count of suffix directories whose has (of filenames)
+`object-replicator.suffix.hashes`                    Count of suffix directories whose hash (of filenames)
                                                      was recalculated.
 `object-replicator.suffix.syncs`                     Count of suffix directories replicated with rsync.
 ===================================================  ====================================================
@@ -756,7 +756,12 @@ Metric Name                   Description
 `object-updater.quarantines`  Count of async_pending container updates which were
                               corrupted and moved to quarantine.
 `object-updater.successes`    Count of successful container updates.
-`object-updater.failures`     Count of failed continer updates.
+`object-updater.failures`     Count of failed container updates.
+`object-updater.unlinks`      Count of async_pending files unlinked. An
+                              async_pending file is unlinked either when it is
+                              successfully processed or when the replicator sees
+                              that there is a newer async_pending file for the
+                              same object.
 ============================  ====================================================
 
 Metrics for `proxy-server` (in the table, `<type>` is the proxy-server
@@ -869,7 +874,7 @@ Object Auditor
 --------------
 
 On system failures, the XFS file system can sometimes truncate files it's
-trying to write and produce zero byte files. The object-auditor will catch
+trying to write and produce zero-byte files. The object-auditor will catch
 these problems but in the case of a system crash it would be advisable to run
 an extra, less rate limited sweep to check for these specific files. You can
 run this command as follows:
@@ -927,7 +932,7 @@ Swift Oldies are processes that have just been around for a long
 time. There's nothing necessarily wrong with this, but it might
 indicate a hung process if you regularly upgrade and reload/restart
 services. You might have so many servers that you don't notice when a
-reload/restart fails, `swift-oldies` can help with this.
+reload/restart fails; `swift-oldies` can help with this.
 
 For example, if you upgraded and reloaded/restarted everything 2 days
 ago, and you've already cleaned up any orphans with `swift-orphans`,
