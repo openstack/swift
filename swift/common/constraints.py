@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import urllib
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
     RawConfigParser
 
@@ -159,7 +160,7 @@ def check_mount(root, drive):
     :param drive: drive name to be checked
     :returns: True if it is a valid mounted device, False otherwise
     """
-    if not drive.isalnum():
+    if not (urllib.quote_plus(drive) == drive):
         return False
     path = os.path.join(root, drive)
     return os.path.exists(path) and os.path.ismount(path)
