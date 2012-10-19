@@ -589,8 +589,6 @@ class ObjectReplicator(Daemon):
                 except ValueError, OSError:
                     continue
         random.shuffle(jobs)
-        # Partititons that need to be deleted take priority
-        jobs.sort(key=lambda job: not job['delete'])
         self.job_count = len(jobs)
         return jobs
 
