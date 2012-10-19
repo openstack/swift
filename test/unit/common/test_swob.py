@@ -352,6 +352,11 @@ class TestResponse(unittest.TestCase):
         resp.content_type = None
         self.assert_('Content-Type' not in resp.headers)
 
+    def test_empty_body(self):
+        resp = self._get_response()
+        resp.body = ''
+        self.assertEquals(resp.body, '')
+
     def test_unicode_body(self):
         resp = self._get_response()
         resp.body = u'\N{SNOWMAN}'
