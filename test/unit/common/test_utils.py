@@ -984,9 +984,9 @@ class TestStatsdLogging(unittest.TestCase):
 
 class TestStatsdLoggingDelegation(unittest.TestCase):
     def setUp(self):
-        self.port = 9177
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('localhost', self.port))
+        self.sock.bind(('localhost', 0))
+        self.port = self.sock.getsockname()[1]
         self.queue = Queue()
         self.reader_thread = Thread(target=self.statsd_reader)
         self.reader_thread.setDaemon(1)
@@ -1004,7 +1004,6 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.reader_thread.join(timeout=4)
         self.sock.close()
         del self.logger
-        time.sleep(0.15)  # avoid occasional "Address already in use"?
 
     def statsd_reader(self):
         while True:
