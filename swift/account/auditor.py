@@ -21,7 +21,7 @@ import swift.common.db
 from swift.account import server as account_server
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, audit_location_generator, \
-    TRUE_VALUES, dump_recon_cache
+    config_true_value, dump_recon_cache
 from swift.common.daemon import Daemon
 
 from eventlet import Timeout
@@ -34,13 +34,12 @@ class AccountAuditor(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='account-auditor')
         self.devices = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = int(conf.get('interval', 1800))
         self.account_passes = 0
         self.account_failures = 0
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "account.recon")

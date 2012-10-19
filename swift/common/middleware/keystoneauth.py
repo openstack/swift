@@ -91,12 +91,12 @@ class KeystoneAuth(object):
         self.reseller_admin_role = conf.get('reseller_admin_role',
                                             'ResellerAdmin')
         config_is_admin = conf.get('is_admin', "false").lower()
-        self.is_admin = config_is_admin in swift_utils.TRUE_VALUES
+        self.is_admin = swift_utils.config_true_value(config_is_admin)
         cfg_synchosts = conf.get('allowed_sync_hosts', '127.0.0.1')
         self.allowed_sync_hosts = [h.strip() for h in cfg_synchosts.split(',')
                                    if h.strip()]
         config_overrides = conf.get('allow_overrides', 't').lower()
-        self.allow_overrides = config_overrides in swift_utils.TRUE_VALUES
+        self.allow_overrides = swift_utils.config_true_value(config_overrides)
 
     def __call__(self, environ, start_response):
         identity = self._keystone_identity(environ)

@@ -40,8 +40,8 @@ from eventlet import sleep, GreenPile, Timeout
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
-from swift.common.utils import ContextPool, normalize_timestamp, TRUE_VALUES, \
-    public
+from swift.common.utils import ContextPool, normalize_timestamp, \
+    config_true_value, public
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -107,7 +107,7 @@ class SegmentedIterable(object):
                 self.controller.account_name, self.container,
                 self.segment_dict['name'])
             path = '/%s/%s/%s' % (self.controller.account_name, self.container,
-                self.segment_dict['name'])
+                                  self.segment_dict['name'])
             req = Request.blank(path)
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
@@ -117,12 +117,14 @@ class SegmentedIterable(object):
             self.next_get_time = time.time() + \
                 1.0 / self.controller.app.rate_limit_segments_per_sec
             shuffle(nodes)
-            resp = self.controller.GETorHEAD_base(req, _('Object'), partition,
+            resp = self.controller.GETorHEAD_base(
+                req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
-                self.controller.app.object_ring), path,
-                len(nodes))
+                                           self.controller.app.object_ring),
+                path, len(nodes))
             if not is_success(resp.status_int):
-                raise Exception(_('Could not load object segment %(path)s:' \
+                raise Exception(_(
+                    'Could not load object segment %(path)s:'
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
@@ -131,8 +133,9 @@ class SegmentedIterable(object):
             raise
         except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_('ERROR: While '
-                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                self.controller.app.logger.exception(_(
+                    'ERROR: While processing manifest '
+                    '/%(acc)s/%(cont)s/%(obj)s'),
                     {'acc': self.controller.account_name,
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
@@ -162,8 +165,9 @@ class SegmentedIterable(object):
             raise
         except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_('ERROR: While '
-                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                self.controller.app.logger.exception(_(
+                    'ERROR: While processing manifest '
+                    '/%(acc)s/%(cont)s/%(obj)s'),
                     {'acc': self.controller.account_name,
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
@@ -220,8 +224,9 @@ class SegmentedIterable(object):
             raise
         except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_('ERROR: While '
-                    'processing manifest /%(acc)s/%(cont)s/%(obj)s'),
+                self.controller.app.logger.exception(_(
+                    'ERROR: While processing manifest '
+                    '/%(acc)s/%(cont)s/%(obj)s'),
                     {'acc': self.controller.account_name,
                      'cont': self.controller.container_name,
                      'obj': self.controller.object_name})
@@ -255,8 +260,8 @@ class ObjectController(Controller):
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
             shuffle(lnodes)
-            lresp = self.GETorHEAD_base(lreq, _('Container'),
-                lpartition, lnodes, lreq.path_info,
+            lresp = self.GETorHEAD_base(
+                lreq, _('Container'), lpartition, lnodes, lreq.path_info,
                 len(lnodes))
             if 'swift.authorize' in env:
                 lreq.acl = lresp.headers.get('x-container-read')
@@ -300,9 +305,10 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         shuffle(nodes)
-        resp = self.GETorHEAD_base(req, _('Object'), partition,
-                self.iter_nodes(partition, nodes, self.app.object_ring),
-                req.path_info, len(nodes))
+        resp = self.GETorHEAD_base(
+            req, _('Object'), partition,
+            self.iter_nodes(partition, nodes, self.app.object_ring),
+            req.path_info, len(nodes))
 
         if 'x-object-manifest' in resp.headers:
             lcontainer, lprefix = \
@@ -311,7 +317,7 @@ class ObjectController(Controller):
             lprefix = unquote(lprefix)
             try:
                 listing = list(self._listing_iter(lcontainer, lprefix,
-                                req.environ))
+                               req.environ))
             except ListingIterNotFound:
                 return HTTPNotFound(request=req)
             except ListingIterNotAuthorized, err:
@@ -337,7 +343,8 @@ class ObjectController(Controller):
                     head_response.status_int = resp.status_int
                     return head_response
                 else:
-                    resp.app_iter = SegmentedIterable(self, lcontainer,
+                    resp.app_iter = SegmentedIterable(
+                        self, lcontainer,
                         self._listing_iter(lcontainer, lprefix, req.environ),
                         resp)
 
@@ -348,7 +355,7 @@ class ObjectController(Controller):
                     content_length = sum(o['bytes'] for o in listing)
                     last_modified = max(o['last_modified'] for o in listing)
                     last_modified = datetime(*map(int, re.split('[^\d]',
-                        last_modified)[:-1]))
+                                             last_modified)[:-1]))
                     etag = md5(
                         ''.join(o['hash'] for o in listing)).hexdigest()
                 else:
@@ -396,11 +403,11 @@ class ObjectController(Controller):
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
         if self.app.object_post_as_copy:
             req.method = 'PUT'
-            req.path_info = '/%s/%s/%s' % (self.account_name,
-                self.container_name, self.object_name)
+            req.path_info = '/%s/%s/%s' % (
+                self.account_name, self.container_name, self.object_name)
             req.headers['Content-Length'] = 0
             req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
-                self.object_name))
+                                               self.object_name))
             req.headers['X-Fresh-Metadata'] = 'true'
             req.environ['swift_versioned_copy'] = True
             resp = self.PUT(req)
@@ -430,13 +437,15 @@ class ObjectController(Controller):
                 try:
                     x_delete_at = int(req.headers['x-delete-at'])
                     if x_delete_at < time.time():
-                        return HTTPBadRequest(body='X-Delete-At in past',
-                            request=req, content_type='text/plain')
+                        return HTTPBadRequest(
+                            body='X-Delete-At in past', request=req,
+                            content_type='text/plain')
                 except ValueError:
                     return HTTPBadRequest(request=req,
                                           content_type='text/plain',
                                           body='Non-integer X-Delete-At')
-                delete_at_container = str(x_delete_at /
+                delete_at_container = str(
+                    x_delete_at /
                     self.app.expiring_objects_container_divisor *
                     self.app.expiring_objects_container_divisor)
                 delete_at_part, delete_at_nodes = \
@@ -475,7 +484,7 @@ class ObjectController(Controller):
                 except (Exception, ChunkWriteTimeout):
                     conn.failed = True
                     self.exception_occurred(conn.node, _('Object'),
-                        _('Trying to write to %s') % path)
+                                            _('Trying to write to %s') % path)
             conn.queue.task_done()
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -485,8 +494,9 @@ class ObjectController(Controller):
         for node in nodes:
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(node['ip'], node['port'],
-                            node['device'], part, 'PUT', path, headers)
+                    conn = http_connect(
+                        node['ip'], node['port'], node['device'], part, 'PUT',
+                        path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getexpect()
                 if resp.status == HTTP_CONTINUE:
@@ -496,7 +506,7 @@ class ObjectController(Controller):
                     self.error_limit(node)
             except:
                 self.exception_occurred(node, _('Object'),
-                    _('Expect: 100-continue on %s') % path)
+                                        _('Expect: 100-continue on %s') % path)
 
     @public
     @delay_denial
@@ -528,12 +538,14 @@ class ObjectController(Controller):
             try:
                 x_delete_at = int(req.headers['x-delete-at'])
                 if x_delete_at < time.time():
-                    return HTTPBadRequest(body='X-Delete-At in past',
-                        request=req, content_type='text/plain')
+                    return HTTPBadRequest(
+                        body='X-Delete-At in past', request=req,
+                        content_type='text/plain')
             except ValueError:
                 return HTTPBadRequest(request=req, content_type='text/plain',
                                       body='Non-integer X-Delete-At')
-            delete_at_container = str(x_delete_at /
+            delete_at_container = str(
+                x_delete_at /
                 self.app.expiring_objects_container_divisor *
                 self.app.expiring_objects_container_divisor)
             delete_at_part, delete_at_nodes = \
@@ -544,12 +556,13 @@ class ObjectController(Controller):
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # do a HEAD request for container sync and checking object versions
-        if 'x-timestamp' in req.headers or (object_versions and not
-                                    req.environ.get('swift_versioned_copy')):
+        if 'x-timestamp' in req.headers or \
+                (object_versions and not
+                 req.environ.get('swift_versioned_copy')):
             hreq = Request.blank(req.path_info, headers={'X-Newest': 'True'},
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(hreq, _('Object'), partition, nodes,
-                hreq.path_info, len(nodes))
+                                        hreq.path_info, len(nodes))
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
@@ -560,7 +573,8 @@ class ObjectController(Controller):
                         float(req.headers['x-timestamp']):
                     return HTTPAccepted(request=req)
             except ValueError:
-                return HTTPBadRequest(request=req, content_type='text/plain',
+                return HTTPBadRequest(
+                    request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
         else:
@@ -570,7 +584,7 @@ class ObjectController(Controller):
         if not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             req.headers['Content-Type'] = guessed_type or \
-                                                'application/octet-stream'
+                'application/octet-stream'
             content_type_manually_set = False
         error_response = check_object_creation(req, self.object_name)
         if error_response:
@@ -597,9 +611,9 @@ class ObjectController(Controller):
                     'Destination': '%s/%s' % (lcontainer, vers_obj_name)}
                 copy_environ = {'REQUEST_METHOD': 'COPY',
                                 'swift_versioned_copy': True
-                               }
+                                }
                 copy_req = Request.blank(req.path_info, headers=copy_headers,
-                                environ=copy_environ)
+                                         environ=copy_environ)
                 copy_resp = self.COPY(copy_req)
                 if is_client_error(copy_resp.status_int):
                     # missing container or bad permissions
@@ -624,9 +638,10 @@ class ObjectController(Controller):
                 src_container_name, src_obj_name = \
                     source_header.split('/', 3)[2:]
             except ValueError:
-                return HTTPPreconditionFailed(request=req,
+                return HTTPPreconditionFailed(
+                    request=req,
                     body='X-Copy-From header must be of the form'
-                    '<container name>/<object name>')
+                         '<container name>/<object name>')
             source_req = req.copy_get()
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'
@@ -640,7 +655,7 @@ class ObjectController(Controller):
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
             new_req = Request.blank(req.path_info,
-                        environ=req.environ, headers=req.headers)
+                                    environ=req.environ, headers=req.headers)
             data_source = source_resp.app_iter
             new_req.content_length = source_resp.content_length
             if new_req.content_length is None:
@@ -655,8 +670,8 @@ class ObjectController(Controller):
             if not content_type_manually_set:
                 new_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
-            if new_req.headers.get('x-fresh-metadata', 'false').lower() \
-                    not in TRUE_VALUES:
+            if not config_true_value(
+                    new_req.headers.get('x-fresh-metadata', 'false')):
                 for k, v in source_resp.headers.items():
                     if k.lower().startswith('x-object-meta-'):
                         new_req.headers[k] = v
@@ -684,7 +699,7 @@ class ObjectController(Controller):
         if len(conns) <= len(nodes) / 2:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '
-                'required connections'),
+                  'required connections'),
                 {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
             return HTTPServiceUnavailable(request=req)
         chunked = req.headers.get('transfer-encoding')
@@ -708,12 +723,14 @@ class ObjectController(Controller):
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):
                         if not conn.failed:
-                            conn.queue.put('%x\r\n%s\r\n' % (len(chunk), chunk)
-                                            if chunked else chunk)
+                            conn.queue.put(
+                                '%x\r\n%s\r\n' % (len(chunk), chunk)
+                                if chunked else chunk)
                         else:
                             conns.remove(conn)
                     if len(conns) <= len(nodes) / 2:
-                        self.app.logger.error(_('Object PUT exceptions during'
+                        self.app.logger.error(_(
+                            'Object PUT exceptions during'
                             ' send, %(conns)s/%(nodes)s required connections'),
                             {'conns': len(conns), 'nodes': len(nodes) / 2 + 1})
                         return HTTPServiceUnavailable(request=req)
@@ -748,14 +765,17 @@ class ObjectController(Controller):
                     reasons.append(response.reason)
                     bodies.append(response.read())
                     if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                        self.error_occurred(conn.node,
-                            _('ERROR %(status)d %(body)s From Object Server ' \
-                            're: %(path)s') % {'status': response.status,
-                            'body': bodies[-1][:1024], 'path': req.path})
+                        self.error_occurred(
+                            conn.node,
+                            _('ERROR %(status)d %(body)s From Object Server '
+                              're: %(path)s') %
+                            {'status': response.status,
+                             'body': bodies[-1][:1024], 'path': req.path})
                     elif is_success(response.status):
                         etags.add(response.getheader('etag').strip('"'))
             except (Exception, Timeout):
-                self.exception_occurred(conn.node, _('Object'),
+                self.exception_occurred(
+                    conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
             self.app.logger.error(
@@ -767,10 +787,10 @@ class ObjectController(Controller):
             reasons.append('')
             bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies,
-                    _('Object PUT'), etag=etag)
+                                  _('Object PUT'), etag=etag)
         if source_header:
             resp.headers['X-Copied-From'] = quote(
-                                                source_header.split('/', 2)[2])
+                source_header.split('/', 2)[2])
             if 'last-modified' in source_resp.headers:
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
@@ -819,12 +839,12 @@ class ObjectController(Controller):
                             self.container_name + '/' + self.object_name
                 copy_headers = {'X-Newest': 'True',
                                 'Destination': orig_container + '/' + orig_obj
-                               }
+                                }
                 copy_environ = {'REQUEST_METHOD': 'COPY',
                                 'swift_versioned_copy': True
-                               }
+                                }
                 creq = Request.blank(copy_path, headers=copy_headers,
-                                 environ=copy_environ)
+                                     environ=copy_environ)
                 copy_resp = self.COPY(creq)
                 if is_client_error(copy_resp.status_int):
                     # some user error, maybe permissions
@@ -857,7 +877,8 @@ class ObjectController(Controller):
                 req.headers['X-Timestamp'] = \
                     normalize_timestamp(float(req.headers['x-timestamp']))
             except ValueError:
-                return HTTPBadRequest(request=req, content_type='text/plain',
+                return HTTPBadRequest(
+                    request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
         else:
@@ -871,7 +892,7 @@ class ObjectController(Controller):
             nheaders['X-Container-Device'] = container['device']
             headers.append(nheaders)
         resp = self.make_requests(req, self.app.object_ring,
-                partition, 'DELETE', req.path_info, headers)
+                                  partition, 'DELETE', req.path_info, headers)
         return resp
 
     @public
@@ -888,9 +909,10 @@ class ObjectController(Controller):
         try:
             _junk, dest_container, dest_object = dest.split('/', 2)
         except ValueError:
-            return HTTPPreconditionFailed(request=req,
-                    body='Destination header must be of the form '
-                         '<container name>/<object name>')
+            return HTTPPreconditionFailed(
+                request=req,
+                body='Destination header must be of the form '
+                     '<container name>/<object name>')
         source = '/' + self.container_name + '/' + self.object_name
         self.container_name = dest_container
         self.object_name = dest_object

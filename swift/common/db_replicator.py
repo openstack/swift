@@ -29,8 +29,8 @@ import simplejson
 
 import swift.common.db
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
-    renamer, mkdirs, lock_parent_directory, TRUE_VALUES, unlink_older_than, \
-    dump_recon_cache, rsync_ip
+    renamer, mkdirs, lock_parent_directory, config_true_value, \
+    unlink_older_than, dump_recon_cache, rsync_ip
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
@@ -53,9 +53,9 @@ def quarantine_db(object_file, server_type):
                         ('container' or 'account')
     """
     object_dir = os.path.dirname(object_file)
-    quarantine_dir = os.path.abspath(os.path.join(object_dir, '..',
-        '..', '..', '..', 'quarantined', server_type + 's',
-        os.path.basename(object_dir)))
+    quarantine_dir = os.path.abspath(
+        os.path.join(object_dir, '..', '..', '..', '..', 'quarantined',
+                     server_type + 's', os.path.basename(object_dir)))
     try:
         renamer(object_dir, quarantine_dir)
     except OSError, e:
@@ -88,7 +88,7 @@ class ReplConnection(BufferedHTTPConnection):
         try:
             body = simplejson.dumps(args)
             self.request('REPLICATE', self.path, body,
-                    {'Content-Type': 'application/json'})
+                         {'Content-Type': 'application/json'})
             response = self.getresponse()
             response.data = response.read()
             return response
@@ -107,8 +107,7 @@ class Replicator(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='replicator')
         self.root = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.port = int(conf.get('bind_port', self.default_port))
         concurrency = int(conf.get('concurrency', 8))
         self.cpool = GreenPool(size=concurrency)
@@ -118,13 +117,12 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.vm_test_mode = conf.get(
-            'vm_test_mode', 'no').lower() in ('yes', 'true', 'on', '1')
+        self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
         self._zero_stats()
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
@@ -149,17 +147,18 @@ class Replicator(Daemon):
             {'count': self.stats['attempted'],
              'time': time.time() - self.stats['start'],
              'rate': self.stats['attempted'] /
-                        (time.time() - self.stats['start'] + 0.0000001)})
+                (time.time() - self.stats['start'] + 0.0000001)})
         self.logger.info(_('Removed %(remove)d dbs') % self.stats)
         self.logger.info(_('%(success)s successes, %(failure)s failures')
-            % self.stats)
-        dump_recon_cache({'replication_stats': self.stats,
-                          'replication_time': time.time() - self.stats['start']
-                         }, self.rcache, self.logger)
+                         % self.stats)
+        dump_recon_cache(
+            {'replication_stats': self.stats,
+             'replication_time': time.time() - self.stats['start']},
+            self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
-             self.stats.items() if item[0] in
-             ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl', 'empty',
-              'diff_capped')]))
+                         self.stats.items() if item[0] in
+                         ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl',
+                          'empty', 'diff_capped')]))
 
     def _rsync_file(self, db_file, remote_file, whole_file=True):
         """
@@ -185,7 +184,7 @@ class Replicator(Daemon):
         return proc.returncode == 0
 
     def _rsync_db(self, broker, device, http, local_id,
-            replicate_method='complete_rsync', replicate_timeout=None):
+                  replicate_method='complete_rsync', replicate_timeout=None):
         """
         Sync a whole db using rsync.
 
@@ -198,18 +197,18 @@ class Replicator(Daemon):
         """
         device_ip = rsync_ip(device['ip'])
         if self.vm_test_mode:
-            remote_file = '%s::%s%s/%s/tmp/%s' % (device_ip,
-                    self.server_type, device['port'], device['device'],
-                    local_id)
+            remote_file = '%s::%s%s/%s/tmp/%s' % (
+                device_ip, self.server_type, device['port'], device['device'],
+                local_id)
         else:
-            remote_file = '%s::%s/%s/tmp/%s' % (device_ip,
-                    self.server_type, device['device'], local_id)
+            remote_file = '%s::%s/%s/tmp/%s' % (
+                device_ip, self.server_type, device['device'], local_id)
         mtime = os.path.getmtime(broker.db_file)
         if not self._rsync_file(broker.db_file, remote_file):
             return False
         # perform block-level sync if the db was modified during the first sync
         if os.path.exists(broker.db_file + '-journal') or \
-                    os.path.getmtime(broker.db_file) > mtime:
+                os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
                 if not self._rsync_file(broker.db_file, remote_file, False):
@@ -243,13 +242,15 @@ class Replicator(Daemon):
             if not response or response.status >= 300 or response.status < 200:
                 if response:
                     self.logger.error(_('ERROR Bad response %(status)s from '
-                        '%(host)s'),
-                        {'status': response.status, 'host': http.host})
+                                        '%(host)s'),
+                                      {'status': response.status,
+                                       'host': http.host})
                 return False
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
         if objects:
-            self.logger.debug(_('Synchronization for %s has fallen more than '
+            self.logger.debug(_(
+                'Synchronization for %s has fallen more than '
                 '%s rows behind; moving on and will try again next pass.') %
                 (broker.db_file, self.max_diffs * self.per_diff))
             self.stats['diff_capped'] += 1
@@ -259,7 +260,8 @@ class Replicator(Daemon):
                 response = http.replicate('merge_syncs', sync_table)
             if response and response.status >= 200 and response.status < 300:
                 broker.merge_syncs([{'remote_id': remote_id,
-                        'sync_point': point}], incoming=False)
+                                     'sync_point': point}],
+                                   incoming=False)
                 return True
         return False
 
@@ -283,7 +285,8 @@ class Replicator(Daemon):
             self.stats['hashmatch'] += 1
             self.logger.increment('hashmatches')
             broker.merge_syncs([{'remote_id': rinfo['id'],
-                'sync_point': rinfo['point']}], incoming=False)
+                                 'sync_point': rinfo['point']}],
+                               incoming=False)
             return True
 
     def _http_connect(self, node, partition, db_file):
@@ -297,7 +300,8 @@ class Replicator(Daemon):
         :returns: ReplConnection object
         """
         return ReplConnection(node, partition,
-                os.path.basename(db_file).split('.', 1)[0], self.logger)
+                              os.path.basename(db_file).split('.', 1)[0],
+                              self.logger)
 
     def _repl_to_node(self, node, broker, partition, info):
         """
@@ -319,8 +323,9 @@ class Replicator(Daemon):
                 _('ERROR Unable to connect to remote server: %s'), node)
             return False
         with Timeout(self.node_timeout):
-            response = http.replicate('sync', info['max_row'], info['hash'],
-                info['id'], info['created_at'], info['put_timestamp'],
+            response = http.replicate(
+                'sync', info['max_row'], info['hash'], info['id'],
+                info['created_at'], info['put_timestamp'],
                 info['delete_timestamp'], info['metadata'])
         if not response:
             return False
@@ -341,11 +346,11 @@ class Replicator(Daemon):
                 self.stats['remote_merge'] += 1
                 self.logger.increment('remote_merges')
                 return self._rsync_db(broker, node, http, info['id'],
-                        replicate_method='rsync_then_merge',
-                        replicate_timeout=(info['count'] / 2000))
+                                      replicate_method='rsync_then_merge',
+                                      replicate_timeout=(info['count'] / 2000))
             # else send diffs over to the remote server
             return self._usync_db(max(rinfo['point'], local_sync),
-                        broker, http, rinfo['id'], info['id'])
+                                  broker, http, rinfo['id'], info['id'])
 
     def _replicate_object(self, partition, object_file, node_id):
         """
@@ -412,7 +417,8 @@ class Replicator(Daemon):
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
-                        ' %(node)s'), {'file': object_file, 'node': node})
+                                        ' %(node)s'),
+                                      {'file': object_file, 'node': node})
             self.stats['success' if success else 'failure'] += 1
             self.logger.increment('successes' if success else 'failures')
             responses.append(success)
@@ -542,7 +548,8 @@ class ReplicatorRpc(object):
                 not os.path.ismount(os.path.join(self.root, drive)):
             return Response(status='507 %s is not mounted' % drive)
         db_file = os.path.join(self.root, drive,
-                storage_directory(self.datadir, partition, hsh), hsh + '.db')
+                               storage_directory(self.datadir, partition, hsh),
+                               hsh + '.db')
         if op == 'rsync_then_merge':
             return self.rsync_then_merge(drive, db_file, args)
         if op == 'complete_rsync':
@@ -577,23 +584,23 @@ class ReplicatorRpc(object):
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
                 self.logger.debug(_('replicator-rpc-sync time for '
-                    'update_metadata: %.02fs') % timespan)
+                                    'update_metadata: %.02fs') % timespan)
         if info['put_timestamp'] != put_timestamp or \
-                    info['created_at'] != created_at or \
-                    info['delete_timestamp'] != delete_timestamp:
+                info['created_at'] != created_at or \
+                info['delete_timestamp'] != delete_timestamp:
             timemark = time.time()
             broker.merge_timestamps(
                 created_at, put_timestamp, delete_timestamp)
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
                 self.logger.debug(_('replicator-rpc-sync time for '
-                    'merge_timestamps: %.02fs') % timespan)
+                                    'merge_timestamps: %.02fs') % timespan)
         timemark = time.time()
         info['point'] = broker.get_sync(id_)
         timespan = time.time() - timemark
         if timespan > DEBUG_TIMINGS_THRESHOLD:
             self.logger.debug(_('replicator-rpc-sync time for get_sync: '
-                '%.02fs') % timespan)
+                                '%.02fs') % timespan)
         if hash_ == info['hash'] and info['point'] < remote_sync:
             timemark = time.time()
             broker.merge_syncs([{'remote_id': id_,
@@ -602,7 +609,7 @@ class ReplicatorRpc(object):
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
                 self.logger.debug(_('replicator-rpc-sync time for '
-                    'merge_syncs: %.02fs') % timespan)
+                                    'merge_syncs: %.02fs') % timespan)
         return Response(simplejson.dumps(info))
 
     def merge_syncs(self, broker, args):

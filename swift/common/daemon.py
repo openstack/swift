@@ -75,8 +75,7 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
                           log_name=kwargs.get('log_name'))
 
     # once on command line (i.e. daemonize=false) will over-ride config
-    once = once or \
-        conf.get('daemonize', 'true').lower() not in utils.TRUE_VALUES
+    once = once or not utils.config_true_value(conf.get('daemonize', 'true'))
 
     # pre-configure logger
     if 'logger' in kwargs:
@@ -87,7 +86,7 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
                                   log_route=section_name)
 
     # disable fallocate if desired
-    if conf.get('disable_fallocate', 'no').lower() in utils.TRUE_VALUES:
+    if utils.config_true_value(conf.get('disable_fallocate', 'no')):
         utils.disable_fallocate()
 
     try:

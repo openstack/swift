@@ -29,7 +29,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.db import ContainerBroker
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, TRUE_VALUES, dump_recon_cache
+from swift.common.utils import get_logger, config_true_value, dump_recon_cache
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -41,8 +41,7 @@ class ContainerUpdater(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='container-updater')
         self.devices = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              ('true', 't', '1', 'on', 'yes', 'y')
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.interval = int(conf.get('interval', 300))
         self.account_ring = None
@@ -58,7 +57,7 @@ class ContainerUpdater(Daemon):
             float(conf.get('account_suppression_time', 60))
         self.new_account_suppressions = None
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "container.recon")
@@ -112,7 +111,8 @@ class ContainerUpdater(Daemon):
             begin = time.time()
             now = time.time()
             expired_suppressions = \
-               [a for a, u in self.account_suppressions.iteritems() if u < now]
+                [a for a, u in self.account_suppressions.iteritems()
+                 if u < now]
             for account in expired_suppressions:
                 del self.account_suppressions[account]
             pid2filename = {}
@@ -175,7 +175,8 @@ class ContainerUpdater(Daemon):
         for path in self.get_paths():
             self.container_sweep(path)
         elapsed = time.time() - begin
-        self.logger.info(_('Container update single threaded sweep completed: '
+        self.logger.info(_(
+            'Container update single threaded sweep completed: '
             '%(elapsed).02fs, %(success)s successes, %(fail)s failures, '
             '%(no_change)s with no changes'),
             {'elapsed': elapsed, 'success': self.successes,
@@ -277,7 +278,8 @@ class ContainerUpdater(Daemon):
                              'X-Bytes-Used': bytes,
                              'X-Account-Override-Deleted': 'yes'})
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR account update failed with '
+                self.logger.exception(_(
+                    'ERROR account update failed with '
                     '%(ip)s:%(port)s/%(device)s (will retry later): '), node)
                 return HTTP_INTERNAL_SERVER_ERROR
         with Timeout(self.node_timeout):

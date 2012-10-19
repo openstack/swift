@@ -33,7 +33,7 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
     compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
-    rsync_ip, mkdirs, TRUE_VALUES, list_from_csv
+    rsync_ip, mkdirs, config_true_value, list_from_csv
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -246,10 +246,8 @@ class ObjectReplicator(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            TRUE_VALUES
-        self.vm_test_mode = conf.get(
-            'vm_test_mode', 'no').lower() in TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
+        self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.port = int(conf.get('bind_port', 6000))
         self.concurrency = int(conf.get('concurrency', 1))

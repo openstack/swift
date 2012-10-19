@@ -30,7 +30,7 @@ from eventlet.pools import Pool
 from swift.common import direct_client
 from swiftclient import ClientException, Connection, get_auth
 from swift.common.ring import Ring
-from swift.common.utils import compute_eta, get_time_units, TRUE_VALUES
+from swift.common.utils import compute_eta, get_time_units, config_true_value
 
 
 unmounted = []
@@ -45,7 +45,8 @@ def get_error_log(prefix):
         global debug, unmounted, notfound
         if hasattr(msg_or_exc, 'http_status'):
             identifier = '%s:%s/%s' % (msg_or_exc.http_host,
-                msg_or_exc.http_port, msg_or_exc.http_device)
+                                       msg_or_exc.http_port,
+                                       msg_or_exc.http_device)
             if msg_or_exc.http_status == 507:
                 if identifier not in unmounted:
                     unmounted.append(identifier)
@@ -68,8 +69,8 @@ def get_error_log(prefix):
 def container_dispersion_report(coropool, connpool, account, container_ring,
                                 retries):
     with connpool.item() as conn:
-        containers = [c['name'] for c in conn.get_account(prefix='dispersion_',
-                                                         full_listing=True)[1]]
+        containers = [c['name'] for c in conn.get_account(
+            prefix='dispersion_', full_listing=True)[1]]
     containers_listed = len(containers)
     if not containers_listed:
         print >>stderr, 'No containers to query. Has ' \
@@ -88,9 +89,8 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
             try:
                 attempts, _junk = direct_client.retry(
-                                direct_client.direct_head_container, node,
-                                part, account, container, error_log=error_log,
-                                retries=retries)
+                    direct_client.direct_head_container, node, part, account,
+                    container, error_log=error_log, retries=retries)
                 retries_done[0] += attempts - 1
                 found_count += 1
             except ClientException, err:
@@ -134,11 +134,12 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             missing_copies = container_ring.replica_count - copies
             if container_copies_found[copies]:
                 print missing_string(container_copies_found[copies],
-                    missing_copies, container_ring.replica_count)
+                                     missing_copies,
+                                     container_ring.replica_count)
         print '%.02f%% of container copies found (%d of %d)' % (
-              value, copies_found, copies_expected)
+            value, copies_found, copies_expected)
         print 'Sample represents %.02f%% of the container partition space' % (
-              100.0 * distinct_partitions / container_ring.partition_count)
+            100.0 * distinct_partitions / container_ring.partition_count)
         stdout.flush()
         return None
     else:
@@ -159,8 +160,8 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     container = 'dispersion_objects'
     with connpool.item() as conn:
         try:
-            objects = [o['name'] for o in conn.get_container(container,
-                                   prefix='dispersion_', full_listing=True)[1]]
+            objects = [o['name'] for o in conn.get_container(
+                container, prefix='dispersion_', full_listing=True)[1]]
         except ClientException, err:
             if err.http_status != 404:
                 raise
@@ -186,9 +187,8 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             error_log = get_error_log('%(ip)s:%(port)s/%(device)s' % node)
             try:
                 attempts, _junk = direct_client.retry(
-                                direct_client.direct_head_object, node, part,
-                                account, container, obj, error_log=error_log,
-                                retries=retries)
+                    direct_client.direct_head_object, node, part, account,
+                    container, obj, error_log=error_log, retries=retries)
                 retries_done[0] += attempts - 1
                 found_count += 1
             except ClientException, err:
@@ -232,11 +232,11 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             missing_copies = object_ring.replica_count - copies
             if object_copies_found[copies]:
                 print missing_string(object_copies_found[copies],
-                    missing_copies, object_ring.replica_count)
+                                     missing_copies, object_ring.replica_count)
         print '%.02f%% of object copies found (%d of %d)' % \
-                    (value, copies_found, copies_expected)
+            (value, copies_found, copies_expected)
         print 'Sample represents %.02f%% of the object partition space' % (
-              100.0 * distinct_partitions / object_ring.partition_count)
+            100.0 * distinct_partitions / object_ring.partition_count)
         stdout.flush()
         return None
     else:
@@ -304,7 +304,7 @@ Usage: %prog [options] [conf_file]
     dispersion_coverage = int(conf.get('dispersion_coverage', 1))
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
-    if options.dump_json or conf.get('dump_json', 'no').lower() in TRUE_VALUES:
+    if options.dump_json or config_true_value(conf.get('dump_json', 'no')):
         json_output = True
     if options.debug:
         debug = True
@@ -316,10 +316,9 @@ Usage: %prog [options] [conf_file]
                           auth_version=conf.get('auth_version', '1.0'))
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
-    connpool.create = lambda: Connection(conf['auth_url'],
-                                conf['auth_user'], conf['auth_key'],
-                                retries=retries,
-                                preauthurl=url, preauthtoken=token)
+    connpool.create = lambda: Connection(
+        conf['auth_url'], conf['auth_user'], conf['auth_key'], retries=retries,
+        preauthurl=url, preauthtoken=token)
 
     container_ring = Ring(swift_dir, ring_name='container')
     object_ring = Ring(swift_dir, ring_name='object')

@@ -120,9 +120,9 @@ from urllib import unquote, quote as urllib_quote
 
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
-                               split_path, TRUE_VALUES
+    split_path, config_true_value
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request, \
-                              WSGIContext
+    WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
 
@@ -179,10 +179,11 @@ class _StaticWebContext(WSGIContext):
         save_response_status = self._response_status
         save_response_headers = self._response_headers
         save_response_exc_info = self._response_exc_info
-        resp = self._app_call(make_pre_authed_env(env, 'GET',
-                '/%s/%s/%s/%s%s' % (self.version, self.account, self.container,
-                                    self._get_status_int(), self._error),
-                self.agent))
+        resp = self._app_call(make_pre_authed_env(
+            env, 'GET', '/%s/%s/%s/%s%s' % (
+                self.version, self.account, self.container,
+                self._get_status_int(), self._error),
+            self.agent))
         if is_success(self._get_status_int()):
             start_response(save_response_status, self._response_headers,
                            self._response_exc_info)
@@ -210,9 +211,10 @@ class _StaticWebContext(WSGIContext):
                 (self._index, self._error, self._listings,
                  self._listings_css) = cached_data
                 return
-        resp = make_pre_authed_request(env, 'HEAD',
-                '/%s/%s/%s' % (self.version, self.account, self.container),
-                agent=self.agent).get_response(self.app)
+        resp = make_pre_authed_request(
+            env, 'HEAD', '/%s/%s/%s' % (
+                self.version, self.account, self.container),
+            agent=self.agent).get_response(self.app)
         if is_success(resp.status_int):
             self._index = \
                 resp.headers.get('x-container-meta-web-index', '').strip()
@@ -225,9 +227,9 @@ class _StaticWebContext(WSGIContext):
                                  '').strip()
             if memcache_client:
                 memcache_client.set(memcache_key,
-                    (self._index, self._error, self._listings,
-                     self._listings_css),
-                    timeout=self.cache_timeout)
+                                    (self._index, self._error, self._listings,
+                                     self._listings_css),
+                                    timeout=self.cache_timeout)
 
     def _listing(self, env, start_response, prefix=None):
         """
@@ -237,12 +239,13 @@ class _StaticWebContext(WSGIContext):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
-        if self._listings.lower() not in TRUE_VALUES:
+        if not config_true_value(self._listings):
             resp = HTTPNotFound()(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        tmp_env = make_pre_authed_env(env, 'GET',
-                    '/%s/%s/%s' % (self.version, self.account, self.container),
-                    self.agent)
+        tmp_env = make_pre_authed_env(
+            env, 'GET', '/%s/%s/%s' % (
+                self.version, self.account, self.container),
+            self.agent)
         tmp_env['QUERY_STRING'] = 'delimiter=/&format=json'
         if prefix:
             tmp_env['QUERY_STRING'] += '&prefix=%s' % quote(prefix)
@@ -260,14 +263,14 @@ class _StaticWebContext(WSGIContext):
             return self._error_response(resp, env, start_response)
         headers = {'Content-Type': 'text/html; charset=UTF-8'}
         body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
-                'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
+               'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                '<html>\n' \
                ' <head>\n' \
                '  <title>Listing of %s</title>\n' % \
                cgi.escape(env['PATH_INFO'])
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
-                        'href="%s" />\n' % (self._build_css_path(prefix))
+                    'href="%s" />\n' % (self._build_css_path(prefix))
         else:
             body += '  <style type="text/css">\n' \
                     '   h1 {font-size: 1em; font-weight: bold;}\n' \
@@ -347,7 +350,7 @@ class _StaticWebContext(WSGIContext):
         """
         self._get_container_info(env)
         if not self._listings and not self._index:
-            if env.get('HTTP_X_WEB_MODE', 'f').lower() in TRUE_VALUES:
+            if config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
                 return HTTPNotFound()(env, start_response)
             return self.app(env, start_response)
         if env['PATH_INFO'][-1] != '/':
@@ -366,7 +369,7 @@ class _StaticWebContext(WSGIContext):
         if status_int == HTTP_NOT_FOUND:
             return self._listing(env, start_response)
         elif not is_success(self._get_status_int()) or \
-             not is_redirection(self._get_status_int()):
+                not is_redirection(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
@@ -415,10 +418,10 @@ class _StaticWebContext(WSGIContext):
                 return resp
         if status_int == HTTP_NOT_FOUND:
             if env['PATH_INFO'][-1] != '/':
-                tmp_env = make_pre_authed_env(env, 'GET',
-                            '/%s/%s/%s' % (self.version, self.account,
-                                           self.container),
-                            self.agent)
+                tmp_env = make_pre_authed_env(
+                    env, 'GET', '/%s/%s/%s' % (
+                        self.version, self.account, self.container),
+                    self.agent)
                 tmp_env['QUERY_STRING'] = 'limit=1&format=json&delimiter' \
                     '=/&limit=1&prefix=%s' % quote(self.obj + '/')
                 resp = self._app_call(tmp_env)
@@ -427,8 +430,7 @@ class _StaticWebContext(WSGIContext):
                         not json.loads(body):
                     resp = HTTPNotFound()(env, self._start_response)
                     return self._error_response(resp, env, start_response)
-                resp = HTTPMovedPermanently(location=env['PATH_INFO'] +
-                    '/')
+                resp = HTTPMovedPermanently(location=env['PATH_INFO'] + '/')
                 self._log_response(env, resp.status_int)
                 return resp(env, start_response)
             return self._listing(env, start_response, self.obj)
@@ -522,7 +524,7 @@ class StaticWeb(object):
         self.access_logger = get_logger(access_log_conf,
                                         log_route='staticweb-access')
         #: Indicates whether full HTTP headers should be logged or not.
-        self.log_headers = conf.get('log_headers', 'no').lower() in TRUE_VALUES
+        self.log_headers = config_true_value(conf.get('log_headers', 'no'))
 
     def __call__(self, env, start_response):
         """
@@ -547,7 +549,7 @@ class StaticWeb(object):
         if env['REQUEST_METHOD'] not in ('HEAD', 'GET'):
             return self.app(env, start_response)
         if env.get('REMOTE_USER') and \
-                env.get('HTTP_X_WEB_MODE', 'f').lower() not in TRUE_VALUES:
+                not config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
             return self.app(env, start_response)
         if not container:
             return self.app(env, start_response)

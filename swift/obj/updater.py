@@ -26,7 +26,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache
+    dump_recon_cache, config_true_value
 from swift.common.daemon import Daemon
 from swift.obj.server import ASYNCDIR
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
@@ -40,8 +40,7 @@ class ObjectUpdater(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-updater')
         self.devices = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            ('true', 't', '1', 'on', 'yes', 'y')
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.interval = int(conf.get('interval', 300))
         self.container_ring = None

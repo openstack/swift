@@ -28,7 +28,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
-    split_path, TRUE_VALUES
+    split_path, config_true_value
 from swift.common.http import HTTP_CLIENT_CLOSED_REQUEST
 
 
@@ -70,7 +70,7 @@ class TempAuth(object):
         self.app = app
         self.conf = conf
         self.logger = get_logger(conf, log_route='tempauth')
-        self.log_headers = conf.get('log_headers', 'f').lower() in TRUE_VALUES
+        self.log_headers = config_true_value(conf.get('log_headers', 'f'))
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         if self.reseller_prefix and self.reseller_prefix[-1] != '_':
             self.reseller_prefix += '_'
@@ -88,8 +88,8 @@ class TempAuth(object):
             h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
-        self.allow_overrides = \
-            conf.get('allow_overrides', 't').lower() in TRUE_VALUES
+        self.allow_overrides = config_true_value(
+            conf.get('allow_overrides', 't'))
         self.users = {}
         for conf_key in conf:
             if conf_key.startswith('user_') or conf_key.startswith('user64_'):
