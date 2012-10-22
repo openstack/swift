@@ -280,7 +280,7 @@ class Connection(object):
 
     def put_data(self, data, chunked=False):
         if chunked:
-            self.connection.send('%s\r\n%s\r\n' % (hex(len(data)), data))
+            self.connection.send('%x\r\n%s\r\n' % (len(data), data))
         else:
             self.connection.send(data)
 
