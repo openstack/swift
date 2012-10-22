@@ -38,6 +38,7 @@ setup(
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 2.6',
         'Environment :: No Input/Output (Daemon)',
+        'Environment :: OpenStack',
     ],
     install_requires=[],  # removed for better compat
     scripts=[
