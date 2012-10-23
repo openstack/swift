@@ -868,7 +868,7 @@ class TestFile(Base):
 
         metadata = {}
         for i in range(1):
-            metadata[Utils.create_name()] = Utils.create_name()
+            metadata[Utils.create_ascii_name()] = Utils.create_name()
 
         data = file.write_random()
         file.sync_metadata(metadata)
@@ -954,7 +954,7 @@ class TestFile(Base):
 
         metadata = {}
         for i in range(1):
-            metadata[Utils.create_name()] = Utils.create_name()
+            metadata[Utils.create_ascii_name()] = Utils.create_name()
         file.metadata = metadata
 
         data = file.write_random()
@@ -1045,7 +1045,7 @@ class TestFile(Base):
         self.assert_(file.delete())
         self.assert_status(204)
 
-        file.metadata = {Utils.create_name(): Utils.create_name()}
+        file.metadata = {Utils.create_ascii_name(): Utils.create_name()}
 
         for method in (file.info, file.read, file.sync_metadata,
                        file.delete):
@@ -1070,7 +1070,7 @@ class TestFile(Base):
             size = 0
             metadata = {}
             while len(metadata.keys()) < i:
-                key = Utils.create_name()
+                key = Utils.create_ascii_name()
                 val = Utils.create_name()
 
                 if len(key) > j:
@@ -1323,7 +1323,7 @@ class TestFile(Base):
         for i in range(10):
             metadata = {}
             for i in range(10):
-                metadata[Utils.create_name()] = Utils.create_name()
+                metadata[Utils.create_ascii_name()] = Utils.create_name()
 
             file.metadata = metadata
             self.assert_(file.sync_metadata())
@@ -1377,7 +1377,7 @@ class TestFile(Base):
         for i in range(10):
             metadata = {}
             for j in range(10):
-                metadata[Utils.create_name()] = Utils.create_name()
+                metadata[Utils.create_ascii_name()] = Utils.create_name()
 
             file = self.env.container.file(Utils.create_name())
             file.metadata = metadata
