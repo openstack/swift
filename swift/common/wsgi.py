@@ -104,41 +104,23 @@ def get_socket(conf, default_port=8080):
 # TODO: pull pieces of this out to test
 def run_wsgi(conf_file, app_section, *args, **kwargs):
     """
-    Loads common settings from conf, then instantiates app and runs
-    the server using the specified number of workers.
+    Runs the server using the specified number of workers.
 
     :param conf_file: Path to paste.deploy style configuration file
     :param app_section: App name from conf file to load config from
     """
-
+    # Load configuration, Set logger and Load request processor
     try:
-        conf = appconfig('config:%s' % conf_file, name=app_section)
-    except Exception, e:
-        print "Error trying to load config %s: %s" % (conf_file, e)
+        (app, conf, logger, log_name) = \
+            init_request_processor(conf_file, app_section, *args, **kwargs)
+    except ConfigFileError, e:
+        print e
         return
-    validate_configuration()
-
-    # pre-configure logger
-    log_name = conf.get('log_name', app_section)
-    if 'logger' in kwargs:
-        logger = kwargs.pop('logger')
-    else:
-        logger = get_logger(conf, log_name,
-                            log_to_console=kwargs.pop('verbose', False),
-                            log_route='wsgi')
-
-    # disable fallocate if desired
-    if config_true_value(conf.get('disable_fallocate', 'no')):
-        disable_fallocate()
 
     # bind to address and port
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
-
-    # Ensure the application can be loaded before proceeding.
-    loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})
-
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
@@ -152,7 +134,6 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
         eventlet.hubs.use_hub('poll')
         eventlet.patcher.monkey_patch(all=False, socket=True)
-        monkey_patch_mimetools()
         app = loadapp('config:%s' % conf_file,
                       global_conf={'log_name': log_name})
         pool = GreenPool(size=1024)
@@ -212,6 +193,47 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     greenio.shutdown_safe(sock)
     sock.close()
     logger.notice('Exited')
+
+
+class ConfigFileError(Exception):
+    pass
+
+
+def init_request_processor(conf_file, app_section, *args, **kwargs):
+    """
+    Loads common settings from conf
+    Sets the logger
+    Loads the request processor
+
+    :param conf_file: Path to paste.deploy style configuration file
+    :param app_section: App name from conf file to load config from
+    :returns the loaded application entry point
+    :raises ConfigFileError: Exception is raised for config file error
+    """
+    try:
+        conf = appconfig('config:%s' % conf_file, name=app_section)
+    except Exception, e:
+        raise ConfigFileError("Error trying to load config %s: %s" %
+                              (conf_file, e))
+
+    validate_configuration()
+
+    # pre-configure logger
+    log_name = conf.get('log_name', app_section)
+    if 'logger' in kwargs:
+        logger = kwargs.pop('logger')
+    else:
+        logger = get_logger(conf, log_name,
+                            log_to_console=kwargs.pop('verbose', False),
+                            log_route='wsgi')
+
+    # disable fallocate if desired
+    if config_true_value(conf.get('disable_fallocate', 'no')):
+        disable_fallocate()
+
+    monkey_patch_mimetools()
+    app = loadapp('config:%s' % conf_file, global_conf={'log_name': log_name})
+    return (app, conf, logger, log_name)
 
 
 class WSGIContext(object):
