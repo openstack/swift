@@ -727,9 +727,9 @@ class TestContainerPathsEnv:
         for f in cls.files:
             file = cls.container.file(f)
             if f.endswith('/'):
-                file.write(hdrs={'content-type': 'application/directory'})
+                file.write(hdrs={'Content-Type': 'application/directory'})
             else:
-                file.write_random(cls.file_size, hdrs={'content-type':
+                file.write_random(cls.file_size, hdrs={'Content-Type':
                                   'application/directory'})
 
 
