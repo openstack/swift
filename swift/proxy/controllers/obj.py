@@ -107,7 +107,7 @@ class SegmentedIterable(object):
                 self.controller.account_name, self.container,
                 self.segment_dict['name'])
             path = '/%s/%s/%s' % (self.controller.account_name, self.container,
-                self.segment_dict['name'])
+                                  self.segment_dict['name'])
             req = Request.blank(path)
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
@@ -490,6 +490,11 @@ class ObjectController(Controller):
                 with Timeout(self.app.node_timeout):
                     resp = conn.getexpect()
                 if resp.status == HTTP_CONTINUE:
+                    conn.resp = None
+                    conn.node = node
+                    return conn
+                elif is_success(resp.status):
+                    conn.resp = resp
                     conn.node = node
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
@@ -666,13 +671,16 @@ class ObjectController(Controller):
             req = new_req
         node_iter = self.iter_nodes(partition, nodes, self.app.object_ring)
         pile = GreenPile(len(nodes))
+        chunked = req.headers.get('transfer-encoding')
         for container in containers:
             nheaders = dict(req.headers.iteritems())
             nheaders['Connection'] = 'close'
             nheaders['X-Container-Host'] = '%(ip)s:%(port)s' % container
             nheaders['X-Container-Partition'] = container_partition
             nheaders['X-Container-Device'] = container['device']
-            nheaders['Expect'] = '100-continue'
+            # RFC2616:8.2.3 disallows 100-continue without a body
+            if (req.content_length > 0) or chunked:
+                nheaders['Expect'] = '100-continue'
             if delete_at_nodes:
                 node = delete_at_nodes.pop(0)
                 nheaders['X-Delete-At-Host'] = '%(ip)s:%(port)s' % node
@@ -687,7 +695,6 @@ class ObjectController(Controller):
                 'required connections'),
                 {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
             return HTTPServiceUnavailable(request=req)
-        chunked = req.headers.get('transfer-encoding')
         bytes_transferred = 0
         try:
             with ContextPool(len(nodes)) as pool:
@@ -743,7 +750,10 @@ class ObjectController(Controller):
         for conn in conns:
             try:
                 with Timeout(self.app.node_timeout):
-                    response = conn.getresponse()
+                    if conn.resp:
+                        response = conn.resp
+                    else:
+                        response = conn.getresponse()
                     statuses.append(response.status)
                     reasons.append(response.reason)
                     bodies.append(response.read())

@@ -185,8 +185,13 @@ def fake_http_connect(*code_iter, **kwargs):
 
     class FakeConn(object):
 
-        def __init__(self, status, etag=None, body='', timestamp='1'):
+        def __init__(self, status, etag=None, body='', timestamp='1',
+                     expect_status=None):
             self.status = status
+            if expect_status is None:
+                self.expect_status = self.status
+            else:
+                self.expect_status = expect_status
             self.reason = 'Fake'
             self.host = '1.2.3.4'
             self.port = '1234'
@@ -204,10 +209,12 @@ def fake_http_connect(*code_iter, **kwargs):
             return self
 
         def getexpect(self):
-            if self.status == -2:
+            if self.expect_status == -2:
                 raise HTTPException()
-            if self.status == -3:
+            if self.expect_status == -3:
                 return FakeConn(507)
+            if self.expect_status == -4:
+                return FakeConn(201)
             return FakeConn(100)
 
         def getheaders(self):
@@ -269,12 +276,17 @@ def fake_http_connect(*code_iter, **kwargs):
         if 'give_connect' in kwargs:
             kwargs['give_connect'](*args, **ckwargs)
         status = code_iter.next()
+        if isinstance(status, tuple):
+            status, expect_status = status
+        else:
+            expect_status = status
         etag = etag_iter.next()
         timestamp = timestamps_iter.next()
+
         if status <= 0:
             raise HTTPException()
         return FakeConn(status, etag, body=kwargs.get('body', ''),
-                        timestamp=timestamp)
+                        timestamp=timestamp, expect_status=expect_status)
 
     return connect
 
@@ -781,6 +793,56 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(calls[0], 0)
         finally:
             signal.signal(signal.SIGPIPE, old_handler)
+
+    def test_PUT_expect_header_zero_content_length(self):
+        test_errors = []
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if path == '/a/c/o.jpg':
+                if 'expect' in headers or 'Expect' in headers:
+                    test_errors.append('Expect was in headers for object '
+                                       'server!')
+
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'account',
+                                                       'container', 'object')
+            # The (201, -4) tuples in there have the effect of letting the
+            # initial connect succeed, after which getexpect() gets called and
+            # then the -4 makes the response of that actually be 201 instead of
+            # 100.  Perfectly straightforward.
+            set_http_connect(200, 200, (201, -4), (201, -4), (201, -4),
+                             give_connect=test_connect)
+            req = Request.blank('/a/c/o.jpg', {})
+            req.content_length = 0
+            self.app.update_request(req)
+            self.app.memcache.store = {}
+            res = controller.PUT(req)
+            self.assertEqual(test_errors, [])
+            self.assertTrue(res.status.startswith('201 '), res.status)
+
+    def test_PUT_expect_header_nonzero_content_length(self):
+        test_errors = []
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if path == '/a/c/o.jpg':
+                if 'Expect' not in headers:
+                    test_errors.append('Expect was not in headers for '
+                                       'non-zero byte PUT!')
+
+        with save_globals():
+            controller = \
+                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+            set_http_connect(200, 200, 201, 201, 201,
+                             give_connect=test_connect)
+            req = Request.blank('/a/c/o.jpg', {})
+            req.content_length = 1
+            req.body = 'a'
+            self.app.update_request(req)
+            self.app.memcache.store = {}
+            res = controller.PUT(req)
+            self.assertTrue(res.status.startswith('201 '))
 
     def test_PUT_auto_content_type(self):
         with save_globals():
