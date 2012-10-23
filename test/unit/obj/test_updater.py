@@ -30,6 +30,7 @@ from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
+from test.unit import FakeLogger
 
 
 class TestObjectUpdater(unittest.TestCase):
@@ -37,14 +38,15 @@ class TestObjectUpdater(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         self.testdir = os.path.join(os.path.dirname(__file__),
-                        'object_updater')
+                                    'object_updater')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
-        pickle.dump(RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-            [{'id': 0, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-              'zone': 0},
-             {'id': 1, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-              'zone': 2}], 30),
+        pickle.dump(
+            RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                     [{'id': 0, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
+                       'zone': 0},
+                      {'id': 1, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
+                       'zone': 2}], 30),
             GzipFile(os.path.join(self.testdir, 'container.ring.gz'), 'wb'))
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
@@ -62,8 +64,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '2',
-            'node_timeout': '5',
-            })
+            'node_timeout': '5'})
         self.assert_(hasattr(cu, 'logger'))
         self.assert_(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
@@ -87,7 +88,7 @@ class TestObjectUpdater(unittest.TestCase):
             ohash = hash_path('account', 'container', o)
             for t in timestamps:
                 o_path = os.path.join(prefix_dir, ohash + '-' +
-                    normalize_timestamp(t))
+                                      normalize_timestamp(t))
                 if t == timestamps[0]:
                     expected.add(o_path)
                 write_pickle({}, o_path)
@@ -105,8 +106,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '1',
-            'node_timeout': '5',
-            })
+            'node_timeout': '5'})
         cu.object_sweep(self.sda1)
         self.assert_(not os.path.exists(prefix_dir))
         self.assertEqual(expected, seen)
@@ -118,8 +118,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '1',
-            'node_timeout': '15',
-            })
+            'node_timeout': '15'})
         cu.run_once()
         async_dir = os.path.join(self.sda1, object_server.ASYNCDIR)
         os.mkdir(async_dir)
@@ -135,13 +134,24 @@ class TestObjectUpdater(unittest.TestCase):
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
         mkdirs(odir)
-        op_path = os.path.join(odir,
+        older_op_path = os.path.join(
+            odir,
+            '%s-%s' % (ohash, normalize_timestamp(time() - 1)))
+        op_path = os.path.join(
+            odir,
             '%s-%s' % (ohash, normalize_timestamp(time())))
-        pickle.dump({'op': 'PUT', 'account': 'a', 'container': 'c', 'obj': 'o',
-            'headers': {'X-Container-Timestamp': normalize_timestamp(0)}},
-            open(op_path, 'wb'))
+        for path in (op_path, older_op_path):
+            with open(path, 'wb') as async_pending:
+                pickle.dump({'op': 'PUT', 'account': 'a', 'container': 'c',
+                             'obj': 'o', 'headers': {
+                            'X-Container-Timestamp': normalize_timestamp(0)}},
+                            async_pending)
+        cu.logger = FakeLogger()
         cu.run_once()
+        self.assert_(not os.path.exists(older_op_path))
         self.assert_(os.path.exists(op_path))
+        self.assertEqual(cu.logger.get_increment_counts(),
+                         {'failures': 1, 'unlinks': 1})
 
         bindsock = listen(('127.0.0.1', 0))
 
@@ -182,21 +192,31 @@ class TestObjectUpdater(unittest.TestCase):
             except BaseException, err:
                 return err
             return None
+
         event = spawn(accept, [201, 500])
         for dev in cu.get_container_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
+
+        cu.logger = FakeLogger()
         cu.run_once()
         err = event.wait()
         if err:
             raise err
         self.assert_(os.path.exists(op_path))
+        self.assertEqual(cu.logger.get_increment_counts(),
+                         {'failures': 1})
+
         event = spawn(accept, [201])
+        cu.logger = FakeLogger()
         cu.run_once()
         err = event.wait()
         if err:
             raise err
         self.assert_(not os.path.exists(op_path))
+        self.assertEqual(cu.logger.get_increment_counts(),
+                         {'unlinks': 1, 'successes': 1})
+
 
 if __name__ == '__main__':
     unittest.main()
