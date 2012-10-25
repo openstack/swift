@@ -566,6 +566,13 @@ class Controller(object):
         except Exception:
             pass
 
+    def is_good_source(self, src):
+        """
+        Indicates whether or not the request made to the backend found
+        what it was looking for.
+        """
+        return is_success(src.status) or is_redirection(src.status)
+
     def GETorHEAD_base(self, req, server_type, partition, nodes, path,
                        attempts):
         """
@@ -609,8 +616,7 @@ class Controller(object):
                     node, server_type, _('Trying to %(method)s %(path)s') %
                     {'method': req.method, 'path': req.path})
                 continue
-            if is_success(possible_source.status) or \
-                    is_redirection(possible_source.status):
+            if self.is_good_source(possible_source):
                 # 404 if we know we don't have a synced copy
                 if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                     statuses.append(HTTP_NOT_FOUND)

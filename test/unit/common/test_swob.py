@@ -419,14 +419,14 @@ class TestResponse(unittest.TestCase):
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '')
         self.assertEquals(resp.content_length, 0)
-        self.assertEquals(resp.status, '416 Request Range Not Satisfiable')
+        self.assertEquals(resp.status, '416 Requested Range Not Satisfiable')
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,
             conditional_response=True)
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '')
-        self.assertEquals(resp.status, '416 Request Range Not Satisfiable')
+        self.assertEquals(resp.status, '416 Requested Range Not Satisfiable')
 
         # Syntactically-invalid Range headers "MUST" be ignored
         req = swift.common.swob.Request.blank(

@@ -276,6 +276,17 @@ class ObjectController(Controller):
             for obj in sublisting:
                 yield obj
 
+    def is_good_source(self, src):
+        """
+        Indicates whether or not the request made to the backend found
+        what it was looking for.
+
+        In the case of an object, a 416 indicates that we found a
+        backend with the object.
+        """
+        return src.status == 416 or \
+            super(ObjectController, self).is_good_source(src)
+
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
         container_info = self.container_info(self.account_name,
@@ -285,28 +296,13 @@ class ObjectController(Controller):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
+
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         shuffle(nodes)
         resp = self.GETorHEAD_base(req, _('Object'), partition,
                 self.iter_nodes(partition, nodes, self.app.object_ring),
                 req.path_info, len(nodes))
-        # Whether we get a 416 Requested Range Not Satisfiable or not,
-        # we should request a manifest because size of manifest file
-        # can be not 0. After checking a manifest, redo the range request
-        # on the whole object.
-        if req.range:
-            req_range = req.range
-            req.range = None
-            resp2 = self.GETorHEAD_base(req, _('Object'), partition,
-                                        self.iter_nodes(partition,
-                                                        nodes,
-                                                        self.app.object_ring),
-                                        req.path_info, len(nodes))
-            if 'x-object-manifest' not in resp2.headers:
-                return resp
-            resp = resp2
-            req.range = str(req_range)
 
         if 'x-object-manifest' in resp.headers:
             lcontainer, lprefix = \
@@ -367,6 +363,10 @@ class ObjectController(Controller):
                 resp.last_modified = last_modified
                 resp.etag = etag
             resp.headers['accept-ranges'] = 'bytes'
+            # In case of a manifest file of nonzero length, the
+            # backend may have sent back a Content-Range header for
+            # the manifest. It's wrong for the client, though.
+            resp.content_range = None
 
         return resp
 
