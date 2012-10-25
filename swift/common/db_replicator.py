@@ -423,8 +423,16 @@ class Replicator(Daemon):
         self.logger.timing_since('timing', start_time)
 
     def delete_db(self, object_file):
+        hash_dir = os.path.dirname(object_file)
+        suf_dir = os.path.dirname(hash_dir)
         with lock_parent_directory(object_file):
-            shutil.rmtree(os.path.dirname(object_file), True)
+            shutil.rmtree(hash_dir, True)
+        try:
+            os.rmdir(suf_dir)
+        except OSError, err:
+            if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                self.logger.exception(
+                    _('ERROR while trying to clean up %s') % suf_dir)
         self.stats['remove'] += 1
         device_name = self.extract_device(object_file)
         self.logger.increment('removes.' + device_name)
