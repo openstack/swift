@@ -13,13 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
 import unittest
 from contextlib import contextmanager
-from time import time
 from base64 import b64encode
 
 from swift.common.middleware import tempauth as auth
@@ -181,7 +176,7 @@ class TestAuth(unittest.TestCase):
 
     def test_auth_deny_non_reseller_prefix(self):
         req = self._make_request('/v1/BLAH_account',
-            headers={'X-Auth-Token': 'BLAH_t'})
+                                 headers={'X-Auth-Token': 'BLAH_t'})
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
         self.assertEquals(req.environ['swift.authorize'],
@@ -190,9 +185,9 @@ class TestAuth(unittest.TestCase):
     def test_auth_deny_non_reseller_prefix_no_override(self):
         fake_authorize = lambda x: Response(status='500 Fake')
         req = self._make_request('/v1/BLAH_account',
-            headers={'X-Auth-Token': 'BLAH_t'},
-            environ={'swift.authorize': fake_authorize}
-            )
+                                 headers={'X-Auth-Token': 'BLAH_t'},
+                                 environ={'swift.authorize': fake_authorize}
+                                 )
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 500)
         self.assertEquals(req.environ['swift.authorize'], fake_authorize)
@@ -204,7 +199,7 @@ class TestAuth(unittest.TestCase):
         local_app = FakeApp()
         local_auth = auth.filter_factory({'reseller_prefix': ''})(local_app)
         req = self._make_request('/v1/account',
-            headers={'X-Auth-Token': 't'})
+                                 headers={'X-Auth-Token': 't'})
         resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 401)
         self.assertEquals(local_app.calls, 1)
@@ -226,13 +221,14 @@ class TestAuth(unittest.TestCase):
             auth.filter_factory({'reseller_prefix': ''})(FakeApp())
         local_authorize = lambda req: Response('test')
         req = self._make_request('/v1/account', environ={'swift.authorize':
-            local_authorize})
+                                 local_authorize})
         resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(req.environ['swift.authorize'], local_authorize)
 
     def test_auth_fail(self):
-        resp = self._make_request('/v1/AUTH_cfa',
+        resp = self._make_request(
+            '/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
@@ -331,26 +327,26 @@ class TestAuth(unittest.TestCase):
 
     def test_account_put_permissions(self):
         req = self._make_request('/v1/AUTH_new',
-                environ={'REQUEST_METHOD': 'PUT'})
+                                 environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
-                environ={'REQUEST_METHOD': 'PUT'})
+                                 environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_other'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         # Even PUTs to your own account as account admin should fail
         req = self._make_request('/v1/AUTH_old',
-                environ={'REQUEST_METHOD': 'PUT'})
+                                 environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_old'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
-                environ={'REQUEST_METHOD': 'PUT'})
+                                 environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp, None)
@@ -358,33 +354,33 @@ class TestAuth(unittest.TestCase):
         # .super_admin is not something the middleware should ever see or care
         # about
         req = self._make_request('/v1/AUTH_new',
-                environ={'REQUEST_METHOD': 'PUT'})
+                                 environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
     def test_account_delete_permissions(self):
         req = self._make_request('/v1/AUTH_new',
-                            environ={'REQUEST_METHOD': 'DELETE'})
+                                 environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
-                            environ={'REQUEST_METHOD': 'DELETE'})
+                                 environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,AUTH_other'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         # Even DELETEs to your own account as account admin should fail
         req = self._make_request('/v1/AUTH_old',
-                            environ={'REQUEST_METHOD': 'DELETE'})
+                                 environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,AUTH_old'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
-                            environ={'REQUEST_METHOD': 'DELETE'})
+                                 environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp, None)
@@ -392,7 +388,7 @@ class TestAuth(unittest.TestCase):
         # .super_admin is not something the middleware should ever see or care
         # about
         req = self._make_request('/v1/AUTH_new',
-                            environ={'REQUEST_METHOD': 'DELETE'})
+                                 environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
@@ -400,41 +396,48 @@ class TestAuth(unittest.TestCase):
     def test_get_token_fail(self):
         resp = self._make_request('/auth/v1.0').get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
-        resp = self._make_request('/auth/v1.0',
+        resp = self._make_request(
+            '/auth/v1.0',
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
     def test_get_token_fail_invalid_x_auth_user_format(self):
-        resp = self._make_request('/auth/v1/act/auth',
+        resp = self._make_request(
+            '/auth/v1/act/auth',
             headers={'X-Auth-User': 'usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
     def test_get_token_fail_non_matching_account_in_request(self):
-        resp = self._make_request('/auth/v1/act/auth',
+        resp = self._make_request(
+            '/auth/v1/act/auth',
             headers={'X-Auth-User': 'act2:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
     def test_get_token_fail_bad_path(self):
-        resp = self._make_request('/auth/v1/act/auth/invalid',
+        resp = self._make_request(
+            '/auth/v1/act/auth/invalid',
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 400)
 
     def test_get_token_fail_missing_key(self):
-        resp = self._make_request('/auth/v1/act/auth',
+        resp = self._make_request(
+            '/auth/v1/act/auth',
             headers={'X-Auth-User': 'act:usr'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
     def test_allowed_sync_hosts(self):
         a = auth.filter_factory({'super_admin_key': 'supertest'})(FakeApp())
         self.assertEquals(a.allowed_sync_hosts, ['127.0.0.1'])
-        a = auth.filter_factory({'super_admin_key': 'supertest',
-            'allowed_sync_hosts':
+        a = auth.filter_factory(
+            {'super_admin_key': 'supertest',
+             'allowed_sync_hosts':
                 '1.1.1.1,2.1.1.1, 3.1.1.1 , 4.1.1.1,, , 5.1.1.1'})(FakeApp())
-        self.assertEquals(a.allowed_sync_hosts,
+        self.assertEquals(
+            a.allowed_sync_hosts,
             ['1.1.1.1', '2.1.1.1', '3.1.1.1', '4.1.1.1', '5.1.1.1'])
 
     def test_reseller_admin_is_owner(self):
@@ -449,7 +452,7 @@ class TestAuth(unittest.TestCase):
         self.test_auth.authorize = mitm_authorize
 
         req = self._make_request('/v1/AUTH_cfa',
-                headers={'X-Auth-Token': 'AUTH_t'})
+                                 headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = '.reseller_admin'
         self.test_auth.authorize(req)
         self.assertEquals(owner_values, [True])
@@ -465,8 +468,9 @@ class TestAuth(unittest.TestCase):
 
         self.test_auth.authorize = mitm_authorize
 
-        req = self._make_request('/v1/AUTH_cfa',
-                headers={'X-Auth-Token': 'AUTH_t'})
+        req = self._make_request(
+            '/v1/AUTH_cfa',
+            headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = 'AUTH_cfa'
         self.test_auth.authorize(req)
         self.assertEquals(owner_values, [True])
@@ -482,8 +486,9 @@ class TestAuth(unittest.TestCase):
 
         self.test_auth.authorize = mitm_authorize
 
-        req = self._make_request('/v1/AUTH_cfa/c',
-                            headers={'X-Auth-Token': 'AUTH_t'})
+        req = self._make_request(
+            '/v1/AUTH_cfa/c',
+            headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = 'act:usr'
         self.test_auth.authorize(req)
         self.assertEquals(owner_values, [False])
@@ -491,7 +496,8 @@ class TestAuth(unittest.TestCase):
     def test_sync_request_success(self):
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456'})
@@ -502,7 +508,8 @@ class TestAuth(unittest.TestCase):
     def test_sync_request_fail_key(self):
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'wrongsecret',
                      'x-timestamp': '123.456'})
@@ -512,7 +519,8 @@ class TestAuth(unittest.TestCase):
 
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='othersecret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456'})
@@ -522,7 +530,8 @@ class TestAuth(unittest.TestCase):
 
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key=None)
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456'})
@@ -533,7 +542,8 @@ class TestAuth(unittest.TestCase):
     def test_sync_request_fail_no_timestamp(self):
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret'})
         req.remote_addr = '127.0.0.1'
@@ -543,7 +553,8 @@ class TestAuth(unittest.TestCase):
     def test_sync_request_fail_sync_host(self):
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456'})
@@ -554,7 +565,8 @@ class TestAuth(unittest.TestCase):
     def test_sync_request_success_lb_sync_host(self):
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456',
@@ -565,7 +577,8 @@ class TestAuth(unittest.TestCase):
 
         self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
                                      sync_key='secret')
-        req = self._make_request('/v1/AUTH_cfa/c/o',
+        req = self._make_request(
+            '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret',
                      'x-timestamp': '123.456',
@@ -573,6 +586,12 @@ class TestAuth(unittest.TestCase):
         req.remote_addr = '127.0.0.2'
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
+
+    def test_options_call(self):
+        req = self._make_request('/v1/AUTH_cfa/c/o',
+                                 environ={'REQUEST_METHOD': 'OPTIONS'})
+        resp = self.test_auth.authorize(req)
+        self.assertEquals(resp, None)
 
 
 class TestParseUserCreation(unittest.TestCase):
@@ -607,11 +626,11 @@ class TestParseUserCreation(unittest.TestCase):
             'user64_%s_%s' % (
                 b64encode('test').rstrip('='),
                 b64encode('tester3').rstrip('=')):
-                'testing .reseller_admin',
+            'testing .reseller_admin',
             'user64_%s_%s' % (
                 b64encode('user_foo').rstrip('='),
                 b64encode('ab').rstrip('=')):
-                'urlly .admin http://a.b/v1/DEF_has',
+            'urlly .admin http://a.b/v1/DEF_has',
         })(FakeApp())
         self.assertEquals(auth_filter.users, {
             'test:tester3': {

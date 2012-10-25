@@ -27,6 +27,8 @@
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1
 # log_statsd_metric_prefix =
+# Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
+# cors_allow_origin =
 
 [pipeline:main]
 pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-logging proxy-server

@@ -84,7 +84,8 @@ class TempAuth(object):
         if self.auth_prefix[-1] != '/':
             self.auth_prefix += '/'
         self.token_life = int(conf.get('token_life', 86400))
-        self.allowed_sync_hosts = [h.strip()
+        self.allowed_sync_hosts = [
+            h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
         self.allow_overrides = \
@@ -244,6 +245,7 @@ class TempAuth(object):
         Returns None if the request is authorized to continue or a standard
         WSGI response callable if not.
         """
+
         try:
             version, account, container, obj = split_path(req.path, 1, 4, True)
         except ValueError:
@@ -269,6 +271,9 @@ class TempAuth(object):
             'x-timestamp' in req.headers and
             (req.remote_addr in self.allowed_sync_hosts or
              get_remote_client(req) in self.allowed_sync_hosts)):
+            return None
+        if req.method == 'OPTIONS':
+            #allow OPTIONS requests to proceed as normal
             return None
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
@@ -341,8 +346,11 @@ class TempAuth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _junk = split_path(req.path_info,
-                minsegs=1, maxsegs=4, rest_with_last=True)
+            version, account, user, _junk = split_path(
+                req.path_info,
+                minsegs=1,
+                maxsegs=4,
+                rest_with_last=True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
@@ -464,8 +472,10 @@ class TempAuth(object):
             memcache_client.set(memcache_user_key, token,
                                 timeout=float(expires - time()))
         return Response(request=req,
-            headers={'x-auth-token': token, 'x-storage-token': token,
-                     'x-storage-url': self.users[account_user]['url']})
+                        headers={
+                            'x-auth-token': token,
+                            'x-storage-token': token,
+                            'x-storage-url': self.users[account_user]['url']})
 
     def posthooklogger(self, env, req):
         if not req.path.startswith(self.auth_prefix):
@@ -490,12 +500,13 @@ class TempAuth(object):
         if getattr(req, 'client_disconnect', False) or \
                 getattr(response, 'client_disconnect', False):
             status_int = HTTP_CLIENT_CLOSED_REQUEST
-        self.logger.info(' '.join(quote(str(x)) for x in (client or '-',
+        self.logger.info(
+            ' '.join(quote(str(x)) for x in (client or '-',
             req.remote_addr or '-', strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
             req.method, the_request, req.environ['SERVER_PROTOCOL'],
             status_int, req.referer or '-', req.user_agent or '-',
             req.headers.get('x-auth-token',
-                req.headers.get('x-auth-admin-user', '-')),
+                            req.headers.get('x-auth-admin-user', '-')),
             getattr(req, 'bytes_transferred', 0) or '-',
             getattr(response, 'bytes_transferred', 0) or '-',
             req.headers.get('etag', '-'),
