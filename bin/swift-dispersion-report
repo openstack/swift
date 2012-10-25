@@ -66,7 +66,7 @@ def get_error_log(prefix):
 
 
 def container_dispersion_report(coropool, connpool, account, container_ring,
-                                retries):
+                                retries, output_missing_partitions):
     with connpool.item() as conn:
         containers = [c['name'] for c in conn.get_account(prefix='dispersion_',
                                                          full_listing=True)[1]]
@@ -100,6 +100,13 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             except (Exception, Timeout), err:
                 error_log('Giving up on /%s/%s/%s: %s' % (part, account,
                           container, err))
+        if output_missing_partitions and \
+                found_count < container_ring.replica_count:
+            missing = container_ring.replica_count - found_count
+            print '\r\x1B[K',
+            stdout.flush()
+            print >>stderr, '# Container partition %s missing %s cop%s' % (
+                part, missing, 'y' if missing == 1 else 'ies')
         container_copies_found[found_count] += 1
         containers_queried[0] += 1
         if time() >= next_report[0]:
@@ -155,7 +162,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
 
 
 def object_dispersion_report(coropool, connpool, account, object_ring,
-                             retries):
+                             retries, output_missing_partitions):
     container = 'dispersion_objects'
     with connpool.item() as conn:
         try:
@@ -198,6 +205,13 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             except (Exception, Timeout), err:
                 error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
                           container, obj, err))
+        if output_missing_partitions and \
+                found_count < object_ring.replica_count:
+            missing = object_ring.replica_count - found_count
+            print '\r\x1B[K',
+            stdout.flush()
+            print >>stderr, '# Object partition %s missing %s cop%s' % (
+                part, missing, 'y' if missing == 1 else 'ies')
         object_copies_found[found_count] += 1
         objects_queried[0] += 1
         if time() >= next_report[0]:
@@ -289,6 +303,8 @@ Usage: %prog [options] [conf_file]
                       help='dump dispersion report in json format')
     parser.add_option('-d', '--debug', action='store_true', default=False,
                       help='print 404s to standard error')
+    parser.add_option('-p', '--partitions', action='store_true', default=False,
+                      help='print missing partitions to standard error')
 
     options, args = parser.parse_args()
 
@@ -324,11 +340,11 @@ Usage: %prog [options] [conf_file]
     container_ring = Ring(swift_dir, ring_name='container')
     object_ring = Ring(swift_dir, ring_name='object')
 
-    container_result = container_dispersion_report(coropool, connpool,
-                                                   account, container_ring,
-                                                   retries)
-    object_result = object_dispersion_report(coropool, connpool, account,
-                                             object_ring, retries)
+    container_result = container_dispersion_report(
+        coropool, connpool, account, container_ring, retries,
+        options.partitions)
+    object_result = object_dispersion_report(
+        coropool, connpool, account, object_ring, retries, options.partitions)
     if json_output:
         print json.dumps({"container": container_result,
                           "object": object_result})
