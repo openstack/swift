@@ -23,7 +23,7 @@ from optparse import OptionParser
 
 from swift.common.bench import (BenchController, DistributedBenchController,
                                 create_containers, delete_containers)
-from swift.common.utils import readconf, LogAdapter
+from swift.common.utils import readconf, LogAdapter, TRUE_VALUES
 
 # The defaults should be sufficient to run swift-bench on a SAIO
 CONF_DEFAULTS = {
@@ -137,6 +137,11 @@ if __name__ == '__main__':
         options.del_concurrency = options.concurrency
     options.containers = ['%s_%d' % (options.container_name, i)
                           for i in xrange(int(options.num_containers))]
+    # check boolean options vs config parameter values
+    if str(options.delete).lower() in TRUE_VALUES:
+        options.delete = 'yes'
+    else:
+        options.delete = 'no'
 
     def sigterm(signum, frame):
         sys.exit('Termination signal received.')
@@ -165,5 +170,5 @@ if __name__ == '__main__':
     controller = controller_class(logger, options)
     controller.run()
 
-    if options.delete:
+    if options.delete.lower() in TRUE_VALUES:
         delete_containers(logger, options)
