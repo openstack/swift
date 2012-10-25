@@ -18,6 +18,7 @@ from contextlib import contextmanager
 import os
 import logging
 import errno
+from shutil import rmtree
 from tempfile import mkdtemp, NamedTemporaryFile
 
 from swift.common import db_replicator
@@ -332,20 +333,52 @@ class TestDBReplicator(unittest.TestCase):
         replicator.logger = FakeLogger()
 
         temp_dir = mkdtemp()
-        temp_file = NamedTemporaryFile(dir=temp_dir, delete=False)
+        try:
+            temp_suf_dir = os.path.join(temp_dir, '16e')
+            os.mkdir(temp_suf_dir)
+            temp_hash_dir = os.path.join(temp_suf_dir,
+                                         '166e33924a08ede4204871468c11e16e')
+            os.mkdir(temp_hash_dir)
+            temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
+            temp_hash_dir2 = os.path.join(temp_suf_dir,
+                                         '266e33924a08ede4204871468c11e16e')
+            os.mkdir(temp_hash_dir2)
+            temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
 
-        # sanity-checks
-        self.assertTrue(os.path.exists(temp_dir))
-        self.assertTrue(os.path.exists(temp_file.name))
-        self.assertEqual(0, replicator.stats['remove'])
+            # sanity-checks
+            self.assertTrue(os.path.exists(temp_dir))
+            self.assertTrue(os.path.exists(temp_suf_dir))
+            self.assertTrue(os.path.exists(temp_hash_dir))
+            self.assertTrue(os.path.exists(temp_file.name))
+            self.assertTrue(os.path.exists(temp_hash_dir2))
+            self.assertTrue(os.path.exists(temp_file2.name))
+            self.assertEqual(0, replicator.stats['remove'])
 
-        replicator.delete_db(temp_file.name)
+            replicator.delete_db(temp_file.name)
 
-        self.assertFalse(os.path.exists(temp_dir))
-        self.assertFalse(os.path.exists(temp_file.name))
-        self.assertEqual([(('removes.some_device',), {})],
-                         replicator.logger.log_dict['increment'])
-        self.assertEqual(1, replicator.stats['remove'])
+            self.assertTrue(os.path.exists(temp_dir))
+            self.assertTrue(os.path.exists(temp_suf_dir))
+            self.assertFalse(os.path.exists(temp_hash_dir))
+            self.assertFalse(os.path.exists(temp_file.name))
+            self.assertTrue(os.path.exists(temp_hash_dir2))
+            self.assertTrue(os.path.exists(temp_file2.name))
+            self.assertEqual([(('removes.some_device',), {})],
+                             replicator.logger.log_dict['increment'])
+            self.assertEqual(1, replicator.stats['remove'])
+
+            replicator.delete_db(temp_file2.name)
+
+            self.assertTrue(os.path.exists(temp_dir))
+            self.assertFalse(os.path.exists(temp_suf_dir))
+            self.assertFalse(os.path.exists(temp_hash_dir))
+            self.assertFalse(os.path.exists(temp_file.name))
+            self.assertFalse(os.path.exists(temp_hash_dir2))
+            self.assertFalse(os.path.exists(temp_file2.name))
+            self.assertEqual([(('removes.some_device',), {})] * 2,
+                             replicator.logger.log_dict['increment'])
+            self.assertEqual(2, replicator.stats['remove'])
+        finally:
+            rmtree(temp_dir)
 
     def test_extract_device(self):
         replicator = TestReplicator({'devices': '/some/root'})
