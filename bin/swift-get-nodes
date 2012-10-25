@@ -25,11 +25,15 @@ from swift.common.utils import hash_path
 parser = optparse.OptionParser()
 parser.add_option('-a', '--all', action='store_true',
                   help='Show all handoff nodes')
+parser.add_option('-p', '--partition', metavar='PARTITION',
+                  help='Show nodes for a given partition')
 (options, args) = parser.parse_args()
 
-if len(args) < 2 or len(args) > 4:
+if (len(args) < 2 or len(args) > 4) and \
+   (options.partition is None or not args):
     print 'Usage: %s [-a] <ring.gz> <account> [<container>] [<object>]' \
       % sys.argv[0]
+    print '   Or: %s [-a] <ring.gz> -p partition' % sys.argv[0]
     print 'Shows the nodes responsible for the item specified.'
     print 'Example:'
     print '    $ %s /etc/swift/account.ring.gz MyAccount' % sys.argv[0]
@@ -70,6 +74,19 @@ elif len(args) == 2:
     part, nodes = ring.get_nodes(account)
     target = "%s" % (account)
     loc = 'accounts'
+elif len(args) == 1:
+    # Partition
+    ring_file = args[0]
+    ring = Ring(ring_file)
+    hash_str = None
+    part = int(options.partition)
+    nodes = ring.get_part_nodes(part)
+    target = ''
+    loc = ring_file.rsplit('/', 1)[-1].split('.', 1)[0]
+    if loc in ('account', 'container', 'object'):
+        loc += 's'
+    else:
+        loc = '<type>'
 
 more_nodes = []
 for more_node in ring.get_more_nodes(part):
@@ -100,8 +117,16 @@ for mnode in more_nodes:
         urllib.quote(target))
 print "\n"
 for node in nodes:
-    print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/"' \
-        % (node['ip'], node['device'], loc, part, hash_str[-3:], hash_str)
+    if hash_str:
+        print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/"' % (
+            node['ip'], node['device'], loc, part, hash_str[-3:], hash_str)
+    else:
+        print 'ssh %s "ls -lah /srv/node/%s/%s/%s/"' % (
+            node['ip'], node['device'], loc, part)
 for mnode in more_nodes:
-    print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/" # [Handoff]' \
-        % (mnode['ip'], mnode['device'], loc, part, hash_str[-3:], hash_str)
+    if hash_str:
+        print 'ssh %s "ls -lah /srv/node/%s/%s/%s/%s/%s/" # [Handoff]' % (
+            mnode['ip'], mnode['device'], loc, part, hash_str[-3:], hash_str)
+    else:
+        print 'ssh %s "ls -lah /srv/node/%s/%s/%s/" # [Handoff]' % (
+            mnode['ip'], mnode['device'], loc, part)
