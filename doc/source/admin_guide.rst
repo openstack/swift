@@ -939,3 +939,42 @@ ago, and you've already cleaned up any orphans with `swift-orphans`,
 you can run `swift-oldies -a 48` to find any Swift processes still
 around that were started more than 2 days ago and then investigate
 them accordingly.
+
+
+
+-------------------
+Custom Log Handlers
+-------------------
+
+Swift supports setting up custom log handlers for services by specifying a
+comma-separated list of functions to invoke when logging is setup. It does so
+via the `log_custom_handlers` configuration option. Logger hooks invoked are
+passed the same arguments as Swift's get_logger function (as well as the
+getLogger and LogAdapter object):
+
+==============  ===============================================
+Name            Description
+--------------  -----------------------------------------------
+conf            Configuration dict to read settings from
+name            Name of the logger received
+log_to_console  (optional) Write log messages to console on stderr
+log_route       Route for the logging received
+fmt             Override log format received
+logger          The logging.getLogger object
+adapted_logger  The LogAdapter object
+==============  ===============================================
+
+A basic example that sets up a custom logger might look like the
+following:
+
+
+.. code-block:: python
+
+    def my_logger(conf, name, log_to_console, log_route, fmt, logger,
+                  adapted_logger):
+        my_conf_opt = conf.get('some_custom_setting')
+        my_handler = third_party_logstore_handler(my_conf_opt)
+        logger.addHandler(my_handler)
+
+See :ref:`custom-logger-hooks-label` for sample use cases.
+

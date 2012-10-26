@@ -59,6 +59,13 @@ Alternative API
 * `Swift3 <https://github.com/fujita/swift3>`_ - Amazon S3 API emulation.
 
 
+.. _custom-logger-hooks-label:
+
+Custom Logger Hooks
+-------------------
+
+* `swift-sentry <https://github.com/pandemicsyn/swift-sentry>`_ - Sentry exception reporting for Swift
+
 Other
 -----
 
