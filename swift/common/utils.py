@@ -1306,6 +1306,8 @@ def urlparse(url):
 
 
 def validate_sync_to(value, allowed_sync_hosts):
+    if not value:
+        return None
     p = urlparse(value)
     if p.scheme not in ('http', 'https'):
         return _('Invalid scheme %r in X-Container-Sync-To, must be "http" '

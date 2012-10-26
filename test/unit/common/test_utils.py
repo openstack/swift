@@ -880,7 +880,8 @@ log_name = %(yarr)s'''
         for goodurl in ('http://1.1.1.1/v1/a/c/o',
                         'http://1.1.1.1:8080/a/c/o',
                         'http://2.2.2.2/a/c/o',
-                        'https://1.1.1.1/v1/a/c/o'):
+                        'https://1.1.1.1/v1/a/c/o',
+                        ''):
             self.assertEquals(utils.validate_sync_to(goodurl,
                                                      ['1.1.1.1', '2.2.2.2']),
                               None)
