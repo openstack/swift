@@ -220,20 +220,22 @@ The following configuration options are available:
 
 [DEFAULT]
 
-==================  ==========  =============================================
-Option              Default     Description
-------------------  ----------  ---------------------------------------------
-swift_dir           /etc/swift  Swift configuration directory
-devices             /srv/node   Parent directory of where devices are mounted
-mount_check         true        Whether or not check if the devices are
-                                mounted to prevent accidentally writing
-                                to the root device
-bind_ip             0.0.0.0     IP Address for server to bind to
-bind_port           6000        Port for server to bind to
-workers             1           Number of workers to fork
-disable_fallocate   false       Disable "fast fail" fallocate checks if the
-                                underlying filesystem does not support it.
-==================  ==========  =============================================
+===================  ==========  =============================================
+Option               Default     Description
+-------------------  ----------  ---------------------------------------------
+swift_dir            /etc/swift  Swift configuration directory
+devices              /srv/node   Parent directory of where devices are mounted
+mount_check          true        Whether or not check if the devices are
+                                 mounted to prevent accidentally writing
+                                 to the root device
+bind_ip              0.0.0.0     IP Address for server to bind to
+bind_port            6000        Port for server to bind to
+workers              1           Number of workers to fork
+disable_fallocate    false       Disable "fast fail" fallocate checks if the
+                                 underlying filesystem does not support it.
+log_custom_handlers  None        Comma-separated list of functions to call
+                                 to setup custom log handlers.
+===================  ==========  =============================================
 
 [object-server]
 
@@ -326,21 +328,23 @@ The following configuration options are available:
 
 [DEFAULT]
 
-==================  ==========  ============================================
-Option              Default     Description
-------------------  ----------  --------------------------------------------
-swift_dir           /etc/swift  Swift configuration directory
-devices             /srv/node   Parent directory of where devices are mounted
-mount_check         true        Whether or not check if the devices are
-                                mounted to prevent accidentally writing
-                                to the root device
-bind_ip             0.0.0.0     IP Address for server to bind to
-bind_port           6001        Port for server to bind to
-workers             1           Number of workers to fork
-user                swift       User to run as
-disable_fallocate   false       Disable "fast fail" fallocate checks if the
-                                underlying filesystem does not support it.
-==================  ==========  ============================================
+===================  ==========  ============================================
+Option               Default     Description
+-------------------  ----------  --------------------------------------------
+swift_dir            /etc/swift  Swift configuration directory
+devices              /srv/node   Parent directory of where devices are mounted
+mount_check          true        Whether or not check if the devices are
+                                 mounted to prevent accidentally writing
+                                 to the root device
+bind_ip              0.0.0.0     IP Address for server to bind to
+bind_port            6001        Port for server to bind to
+workers              1           Number of workers to fork
+user                 swift       User to run as
+disable_fallocate    false       Disable "fast fail" fallocate checks if the
+                                 underlying filesystem does not support it.
+log_custom_handlers  None        Comma-separated list of functions to call
+                                 to setup custom log handlers.
+===================  ==========  ============================================
 
 [container-server]
 
@@ -422,25 +426,27 @@ The following configuration options are available:
 
 [DEFAULT]
 
-==================  ==========  =============================================
-Option              Default     Description
-------------------  ----------  ---------------------------------------------
-swift_dir           /etc/swift  Swift configuration directory
-devices             /srv/node   Parent directory or where devices are mounted
-mount_check         true        Whether or not check if the devices are
-                                mounted to prevent accidentally writing
-                                to the root device
-bind_ip             0.0.0.0     IP Address for server to bind to
-bind_port           6002        Port for server to bind to
-workers             1           Number of workers to fork
-user                swift       User to run as
-db_preallocation    off         If you don't mind the extra disk space usage in
-                                overhead, you can turn this on to preallocate
-                                disk space with SQLite databases to decrease
-                                fragmentation.
-disable_fallocate   false       Disable "fast fail" fallocate checks if the
-                                underlying filesystem does not support it.
-==================  ==========  =============================================
+===================  ==========  =============================================
+Option               Default     Description
+-------------------  ----------  ---------------------------------------------
+swift_dir            /etc/swift  Swift configuration directory
+devices              /srv/node   Parent directory or where devices are mounted
+mount_check          true        Whether or not check if the devices are
+                                 mounted to prevent accidentally writing
+                                 to the root device
+bind_ip              0.0.0.0     IP Address for server to bind to
+bind_port            6002        Port for server to bind to
+workers              1           Number of workers to fork
+user                 swift       User to run as
+db_preallocation     off         If you don't mind the extra disk space usage in
+                                 overhead, you can turn this on to preallocate
+                                 disk space with SQLite databases to decrease
+                                 fragmentation.
+disable_fallocate    false       Disable "fast fail" fallocate checks if the
+                                 underlying filesystem does not support it.
+log_custom_handlers  None        Comma-separated list of functions to call
+                                 to setup custom log handlers.
+===================  ==========  =============================================
 
 [account-server]
 
@@ -536,6 +542,9 @@ cors_allow_origin                              This is a list of hosts that
                                                Access-Control-Allow-Origin
                                                header in addition to what
                                                the container has set.
+log_custom_handlers           None             Comma separated list of functions
+                                               to call to setup custom log
+                                               handlers.
 ============================  ===============  =============================
 
 [proxy-server]
@@ -808,3 +817,5 @@ Swift is set up to log directly to syslog. Every service can be configured
 with the `log_facility` option to set the syslog log facility destination.
 We recommended using syslog-ng to route the logs to specific log
 files locally on the server and also to remote log collecting servers.
+Additionally, custom log handlers can be used via the custom_log_handlers
+setting.
