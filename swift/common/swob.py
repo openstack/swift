@@ -70,7 +70,7 @@ RESPONSE_REASONS = {
           'server.'),
     415: ('Unsupported Media Type', 'The request media type is not '
           'supported by this server.'),
-    416: ('Request Range Not Satisfiable', 'The Range requested is not '
+    416: ('Requested Range Not Satisfiable', 'The Range requested is not '
           'available.'),
     417: ('Expectation Failed', 'Expectation failed.'),
     422: ('Unprocessable Entity', 'Unable to process the contained '
@@ -271,8 +271,6 @@ def _resp_status_property():
     When set to a str, it splits status_int and title apart.
     When set to an integer, retrieves the correct title for that
     response code from the RESPONSE_REASONS dict.
-
-    :param header: name of the header, e.g. "Content-Length"
     """
     def getter(self):
         return '%s %s' % (self.status_int, self.title)
@@ -383,8 +381,8 @@ def _resp_charset_property():
 def _resp_app_iter_property():
     """
     Set and retrieve Response.app_iter
-    Mostly a pass-through to Response._app_iter, it's a property so it can zero
-    out an exsisting content-length on assignment.
+    Mostly a pass-through to Response._app_iter; it's a property so it can zero
+    out an existing content-length on assignment.
     """
     def getter(self):
         return self._app_iter

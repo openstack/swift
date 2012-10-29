@@ -1495,7 +1495,6 @@ class TestObjectController(unittest.TestCase):
                                                        'container', 'object')
             self.assert_status_map(controller.HEAD, (200, 200, 503, 200, 200),
                                    200)
-            print controller.app.object_ring.devs
             self.assertEquals(controller.app.object_ring.devs[0]['errors'], 2)
             self.assert_('last_error' in controller.app.object_ring.devs[0])
             for _junk in xrange(self.app.error_suppression_limit):
