@@ -223,5 +223,20 @@ class TestWSGI(unittest.TestCase):
             {'QUERY_STRING': 'original'}, 'GET', 'path', 'the body')
         self.assertEquals(r.body, 'the body')
 
+    def test_pre_auth_creates_script_name(self):
+        e = wsgi.make_pre_authed_env({})
+        self.assertTrue('SCRIPT_NAME' in e)
+
+    def test_pre_auth_copies_script_name(self):
+        e = wsgi.make_pre_authed_env({'SCRIPT_NAME': '/script_name'})
+        self.assertEquals(e['SCRIPT_NAME'], '/script_name')
+
+    def test_pre_auth_copies_script_name_unless_path_overridden(self):
+        e = wsgi.make_pre_authed_env({'SCRIPT_NAME': '/script_name'},
+                                     path='/override')
+        self.assertEquals(e['SCRIPT_NAME'], '')
+        self.assertEquals(e['PATH_INFO'], '/override')
+
+
 if __name__ == '__main__':
     unittest.main()

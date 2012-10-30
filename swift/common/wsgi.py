@@ -329,14 +329,16 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
     newenv = {}
     for name in ('eventlet.posthooks', 'HTTP_USER_AGENT', 'HTTP_HOST',
                  'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
-                 'SERVER_NAME', 'SERVER_PORT', 'SERVER_PROTOCOL',
-                 'swift.cache', 'swift.source', 'swift.trans_id'):
+                 'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
+                 'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
+                 'swift.trans_id'):
         if name in env:
             newenv[name] = env[name]
     if method:
         newenv['REQUEST_METHOD'] = method
     if path:
         newenv['PATH_INFO'] = path
+        newenv['SCRIPT_NAME'] = ''
     if query_string is not None:
         newenv['QUERY_STRING'] = query_string
     if agent:
@@ -348,4 +350,6 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
     newenv['swift.authorize_override'] = True
     newenv['REMOTE_USER'] = '.wsgi.pre_authed'
     newenv['wsgi.input'] = StringIO('')
+    if 'SCRIPT_NAME' not in newenv:
+        newenv['SCRIPT_NAME'] = ''
     return newenv
