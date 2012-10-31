@@ -27,7 +27,7 @@ from swift.common.db import AccountBroker
 from swift.common.direct_client import ClientException, \
     direct_delete_container, direct_delete_object, direct_get_container
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, whataremyips, TRUE_VALUES
+from swift.common.utils import get_logger, whataremyips, config_true_value
 from swift.common.daemon import Daemon
 
 
@@ -56,8 +56,7 @@ class AccountReaper(Daemon):
         self.conf = conf
         self.logger = get_logger(conf, log_route='account-reaper')
         self.devices = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = int(conf.get('interval', 3600))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring = None
@@ -71,7 +70,7 @@ class AccountReaper(Daemon):
             sqrt(self.concurrency)
         self.container_pool = GreenPool(size=self.container_concurrency)
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
         self.delay_reaping = int(conf.get('delay_reaping') or 0)
 
     def get_account_ring(self):

@@ -85,6 +85,15 @@ if hash_conf.read('/etc/swift/swift.conf'):
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
 
+def config_true_value(value):
+    """
+    Returns True if the value is either True or a string in TRUE_VALUES.
+    Returns False otherwise.
+    """
+    return value is True or \
+        (isinstance(value, basestring) and value.lower() in TRUE_VALUES)
+
+
 def noop_libc_function(*args):
     return 0
 

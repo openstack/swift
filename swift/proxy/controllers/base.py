@@ -31,7 +31,7 @@ from eventlet import spawn_n, GreenPile, Timeout
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
 
-from swift.common.utils import normalize_timestamp, TRUE_VALUES, public
+from swift.common.utils import normalize_timestamp, config_true_value, public
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
@@ -604,7 +604,7 @@ class Controller(object):
         reasons = []
         bodies = []
         sources = []
-        newest = req.headers.get('x-newest', 'f').lower() in TRUE_VALUES
+        newest = config_true_value(req.headers.get('x-newest', 'f'))
         nodes = iter(nodes)
         while len(statuses) < attempts:
             try:

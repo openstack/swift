@@ -20,7 +20,7 @@ from eventlet import Timeout
 
 from swift.obj import server as object_server
 from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, TRUE_VALUES, dump_recon_cache
+    ratelimit_sleep, config_true_value, dump_recon_cache
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist
 from swift.common.daemon import Daemon
@@ -35,8 +35,7 @@ class AuditorWorker(object):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))

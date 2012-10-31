@@ -28,7 +28,7 @@ import eventlet
 import eventlet.pools
 from eventlet.green.httplib import CannotSendRequest
 
-from swift.common.utils import TRUE_VALUES, LogAdapter
+from swift.common.utils import config_true_value, LogAdapter
 import swiftclient as client
 from swift.common import direct_client
 from swift.common.http import HTTP_CONFLICT
@@ -144,7 +144,7 @@ class Bench(object):
         self.user = conf.user
         self.key = conf.key
         self.auth_url = conf.auth
-        self.use_proxy = conf.use_proxy.lower() in TRUE_VALUES
+        self.use_proxy = config_true_value(conf.use_proxy)
         self.auth_version = conf.auth_version
         self.logger.info("Auth version: %s" % self.auth_version)
         if self.use_proxy:
@@ -314,7 +314,7 @@ class BenchController(object):
         self.logger = logger
         self.conf = conf
         self.names = []
-        self.delete = conf.delete.lower() in TRUE_VALUES
+        self.delete = config_true_value(conf.delete)
         self.gets = int(conf.num_gets)
         self.aborted = False
 

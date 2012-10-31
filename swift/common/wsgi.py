@@ -31,7 +31,7 @@ from urllib import unquote
 
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
-    drop_privileges, get_logger, NullLogger, TRUE_VALUES, \
+    drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration
 
 
@@ -66,20 +66,20 @@ def get_socket(conf, default_port=8080):
     """
     bind_addr = (conf.get('bind_ip', '0.0.0.0'),
                  int(conf.get('bind_port', default_port)))
-    address_family = [addr[0] for addr in socket.getaddrinfo(bind_addr[0],
-            bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
-            if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
+    address_family = [addr[0] for addr in socket.getaddrinfo(
+        bind_addr[0], bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
     sock = None
     retry_until = time.time() + 30
     warn_ssl = False
     while not sock and time.time() < retry_until:
         try:
             sock = listen(bind_addr, backlog=int(conf.get('backlog', 4096)),
-                        family=address_family)
+                          family=address_family)
             if 'cert_file' in conf:
                 warn_ssl = True
                 sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
-                    keyfile=conf['key_file'])
+                                       keyfile=conf['key_file'])
         except socket.error, err:
             if err.args[0] != errno.EADDRINUSE:
                 raise
@@ -124,10 +124,11 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         logger = kwargs.pop('logger')
     else:
         logger = get_logger(conf, log_name,
-            log_to_console=kwargs.pop('verbose', False), log_route='wsgi')
+                            log_to_console=kwargs.pop('verbose', False),
+                            log_route='wsgi')
 
     # disable fallocate if desired
-    if conf.get('disable_fallocate', 'no').lower() in TRUE_VALUES:
+    if config_true_value(conf.get('disable_fallocate', 'no')):
         disable_fallocate()
 
     # bind to address and port

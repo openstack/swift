@@ -27,7 +27,7 @@ from swift.common.direct_client import direct_get_object
 from swift.common.ring import Ring
 from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
-    hash_path, TRUE_VALUES, validate_sync_to, whataremyips
+    hash_path, config_true_value, validate_sync_to, whataremyips
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 
@@ -144,8 +144,7 @@ class ContainerSync(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         #: Indicates whether mount points should be verified as actual mount
         #: points (normally true, false for tests and SAIO).
-        self.mount_check = \
-            conf.get('mount_check', 'true').lower() in TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         #: Minimum time between full scans. This is to keep the daemon from
         #: running wild on near empty systems.
         self.interval = int(conf.get('interval', 300))
@@ -154,7 +153,8 @@ class ContainerSync(Daemon):
         #: it'll just be resumed next scan.
         self.container_time = int(conf.get('container_time', 60))
         #: The list of hosts we're allowed to send syncs to.
-        self.allowed_sync_hosts = [h.strip()
+        self.allowed_sync_hosts = [
+            h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
         self.proxy = conf.get('sync_proxy')
@@ -174,13 +174,13 @@ class ContainerSync(Daemon):
         swift_dir = conf.get('swift_dir', '/etc/swift')
         #: swift.common.ring.Ring for locating containers.
         self.container_ring = container_ring or Ring(swift_dir,
-                ring_name='container')
+                                                     ring_name='container')
         #: swift.common.ring.Ring for locating objects.
         self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
         self._myips = whataremyips()
         self._myport = int(conf.get('bind_port', 6001))
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
 
     def run_forever(self):
         """
@@ -351,9 +351,9 @@ class ContainerSync(Daemon):
             if row['deleted']:
                 try:
                     delete_object(sync_to, name=row['name'],
-                        headers={'x-timestamp': row['created_at'],
-                                 'x-container-sync-key': sync_key},
-                        proxy=self.proxy)
+                                  headers={'x-timestamp': row['created_at'],
+                                           'x-container-sync-key': sync_key},
+                                  proxy=self.proxy)
                 except ClientException, err:
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
@@ -371,8 +371,8 @@ class ContainerSync(Daemon):
                 headers = body = None
                 for node in nodes:
                     try:
-                        these_headers, this_body = direct_get_object(node,
-                            part, info['account'], info['container'],
+                        these_headers, this_body = direct_get_object(
+                            node, part, info['account'], info['container'],
                             row['name'], resp_chunk_size=65536)
                         this_timestamp = float(these_headers['x-timestamp'])
                         if this_timestamp > timestamp:
@@ -389,8 +389,9 @@ class ContainerSync(Daemon):
                 if timestamp < looking_for_timestamp:
                     if exc:
                         raise exc
-                    raise Exception(_('Unknown exception trying to GET: '
-                        '%(node)r %(account)r %(container)r %(object)r'),
+                    raise Exception(
+                        _('Unknown exception trying to GET: %(node)r '
+                          '%(account)r %(container)r %(object)r'),
                         {'node': node, 'part': part,
                          'account': info['account'],
                          'container': info['container'],
@@ -403,20 +404,21 @@ class ContainerSync(Daemon):
                 headers['x-timestamp'] = row['created_at']
                 headers['x-container-sync-key'] = sync_key
                 put_object(sync_to, name=row['name'], headers=headers,
-                    contents=_Iter2FileLikeObject(body), proxy=self.proxy)
+                           contents=_Iter2FileLikeObject(body),
+                           proxy=self.proxy)
                 self.container_puts += 1
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
         except ClientException, err:
             if err.http_status == HTTP_UNAUTHORIZED:
-                self.logger.info(_('Unauth %(sync_from)r '
-                    '=> %(sync_to)r'),
+                self.logger.info(
+                    _('Unauth %(sync_from)r => %(sync_to)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to})
             elif err.http_status == HTTP_NOT_FOUND:
-                self.logger.info(_('Not found %(sync_from)r '
-                    '=> %(sync_to)r'),
+                self.logger.info(
+                    _('Not found %(sync_from)r => %(sync_to)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
                      'sync_to': sync_to})

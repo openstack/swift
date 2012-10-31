@@ -901,6 +901,18 @@ log_name = %(yarr)s'''
         for v in utils.TRUE_VALUES:
             self.assertEquals(v, v.lower())
 
+    def test_config_true_value(self):
+        orig_trues = utils.TRUE_VALUES
+        try:
+            utils.TRUE_VALUES = 'hello world'.split()
+            for val in 'hello world HELLO WORLD'.split():
+                self.assertTrue(utils.config_true_value(val) is True)
+            self.assertTrue(utils.config_true_value(True) is True)
+            self.assertTrue(utils.config_true_value('foo') is False)
+            self.assertTrue(utils.config_true_value(False) is False)
+        finally:
+            utils.TRUE_VALUES = orig_trues
+
     def test_streq_const_time(self):
         self.assertTrue(utils.streq_const_time('abc123', 'abc123'))
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))

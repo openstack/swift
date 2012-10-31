@@ -28,7 +28,7 @@ import swift.common.db
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, split_path, validate_sync_to, \
-    TRUE_VALUES, validate_device_partition, json
+    config_true_value, validate_device_partition, json
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.bufferedhttp import http_connect
@@ -53,21 +53,22 @@ class ContainerController(object):
     def __init__(self, conf):
         self.logger = get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-                              TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        self.allowed_sync_hosts = [h.strip()
+        self.allowed_sync_hosts = [
+            h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
-        self.replicator_rpc = ReplicatorRpc(self.root, DATADIR,
-            ContainerBroker, self.mount_check, logger=self.logger)
+        self.replicator_rpc = ReplicatorRpc(
+            self.root, DATADIR, ContainerBroker, self.mount_check,
+            logger=self.logger)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
-        if conf.get('allow_versions', 'f').lower() in TRUE_VALUES:
+        if config_true_value(conf.get('allow_versions', 'f')):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
 
     def _get_container_broker(self, drive, part, account, container):
         """
@@ -103,7 +104,8 @@ class ContainerController(object):
             account_ip, account_port = account_host.rsplit(':', 1)
             new_path = '/' + '/'.join([account, container])
             info = broker.get_info()
-            account_headers = {'x-put-timestamp': info['put_timestamp'],
+            account_headers = {
+                'x-put-timestamp': info['put_timestamp'],
                 'x-delete-timestamp': info['delete_timestamp'],
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
@@ -113,16 +115,17 @@ class ContainerController(object):
                 account_headers['x-account-override-deleted'] = 'yes'
             try:
                 with ConnectionTimeout(self.conn_timeout):
-                    conn = http_connect(account_ip, account_port,
-                        account_device, account_partition, 'PUT', new_path,
-                        account_headers)
+                    conn = http_connect(
+                        account_ip, account_port, account_device,
+                        account_partition, 'PUT', new_path, account_headers)
                 with Timeout(self.node_timeout):
                     account_response = conn.getresponse()
                     account_response.read()
                     if account_response.status == HTTP_NOT_FOUND:
                         return HTTPNotFound(request=req)
                     elif not is_success(account_response.status):
-                        self.logger.error(_('ERROR Account update failed '
+                        self.logger.error(_(
+                            'ERROR Account update failed '
                             'with %(ip)s:%(port)s/%(device)s (will retry '
                             'later): Response %(status)s %(reason)s'),
                             {'ip': account_ip, 'port': account_port,
@@ -130,7 +133,8 @@ class ContainerController(object):
                              'status': account_response.status,
                              'reason': account_response.reason})
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR account update failed with '
+                self.logger.exception(_(
+                    'ERROR account update failed with '
                     '%(ip)s:%(port)s/%(device)s (will retry later)'),
                     {'ip': account_ip, 'port': account_port,
                      'device': account_device})
@@ -147,12 +151,12 @@ class ContainerController(object):
         except ValueError, err:
             self.logger.increment('DELETE.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                request=req)
+                                  request=req)
         if 'x-timestamp' not in req.headers or \
-                    not check_float(req.headers['x-timestamp']):
+                not check_float(req.headers['x-timestamp']):
             self.logger.increment('DELETE.errors')
             return HTTPBadRequest(body='Missing timestamp', request=req,
-                        content_type='text/plain')
+                                  content_type='text/plain')
         if self.mount_check and not check_mount(self.root, drive):
             self.logger.increment('DELETE.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
@@ -174,7 +178,7 @@ class ContainerController(object):
                 self.logger.increment('DELETE.errors')
                 return HTTPConflict(request=req)
             existed = float(broker.get_info()['put_timestamp']) and \
-                      not broker.is_deleted()
+                not broker.is_deleted()
             broker.delete_db(req.headers['X-Timestamp'])
             if not broker.is_deleted():
                 self.logger.increment('DELETE.errors')
@@ -198,12 +202,12 @@ class ContainerController(object):
         except ValueError, err:
             self.logger.increment('PUT.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                request=req)
+                                  request=req)
         if 'x-timestamp' not in req.headers or \
-                    not check_float(req.headers['x-timestamp']):
+                not check_float(req.headers['x-timestamp']):
             self.logger.increment('PUT.errors')
             return HTTPBadRequest(body='Missing timestamp', request=req,
-                        content_type='text/plain')
+                                  content_type='text/plain')
         if 'x-container-sync-to' in req.headers:
             err = validate_sync_to(req.headers['x-container-sync-to'],
                                    self.allowed_sync_hosts)
@@ -223,7 +227,8 @@ class ContainerController(object):
                 self.logger.timing_since('PUT.timing', start_time)
                 return HTTPNotFound()
             broker.put_object(obj, timestamp, int(req.headers['x-size']),
-                req.headers['x-content-type'], req.headers['x-etag'])
+                              req.headers['x-content-type'],
+                              req.headers['x-etag'])
             self.logger.timing_since('PUT.timing', start_time)
             return HTTPCreated(request=req)
         else:   # put container
@@ -237,10 +242,11 @@ class ContainerController(object):
                     self.logger.increment('PUT.errors')
                     return HTTPConflict(request=req)
             metadata = {}
-            metadata.update((key, (value, timestamp))
+            metadata.update(
+                (key, (value, timestamp))
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
-                   key.lower().startswith('x-container-meta-'))
+                key.lower().startswith('x-container-meta-'))
             if metadata:
                 if 'X-Container-Sync-To' in metadata:
                     if 'X-Container-Sync-To' not in broker.metadata or \
@@ -268,7 +274,7 @@ class ContainerController(object):
         except ValueError, err:
             self.logger.increment('HEAD.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                request=req)
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             self.logger.increment('HEAD.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
@@ -285,7 +291,8 @@ class ContainerController(object):
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
-        headers.update((key, value)
+        headers.update(
+            (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
             if value != '' and (key.lower() in self.save_headers or
                                 key.lower().startswith('x-container-meta-')))
@@ -303,7 +310,7 @@ class ContainerController(object):
         except ValueError, err:
             self.logger.increment('GET.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                request=req)
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             self.logger.increment('GET.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
@@ -320,7 +327,8 @@ class ContainerController(object):
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
-        resp_headers.update((key, value)
+        resp_headers.update(
+            (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
             if value != '' and (key.lower() in self.save_headers or
                                 key.lower().startswith('x-container-meta-')))
@@ -338,7 +346,8 @@ class ContainerController(object):
             if given_limit and given_limit.isdigit():
                 limit = int(given_limit)
                 if limit > CONTAINER_LISTING_LIMIT:
-                    return HTTPPreconditionFailed(request=req,
+                    return HTTPPreconditionFailed(
+                        request=req,
                         body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
             query_format = get_param(req, 'format')
         except UnicodeDecodeError, err:
@@ -350,9 +359,9 @@ class ContainerController(object):
                                                  FORMAT2CONTENT_TYPE['plain'])
         try:
             out_content_type = req.accept.best_match(
-                                    ['text/plain', 'application/json',
-                                     'application/xml', 'text/xml'],
-                                    default_match='text/plain')
+                ['text/plain', 'application/json', 'application/xml',
+                 'text/xml'],
+                default_match='text/plain')
         except AssertionError, err:
             self.logger.increment('GET.errors')
             return HTTPBadRequest(body='bad accept header: %s' % req.accept,
@@ -389,10 +398,11 @@ class ContainerController(object):
                                       '</subdir>' % (name, name))
                 else:
                     content_type = saxutils.escape(content_type)
-                    xml_output.append('<object><name>%s</name><hash>%s</hash>'\
-                           '<bytes>%d</bytes><content_type>%s</content_type>'\
-                           '<last_modified>%s</last_modified></object>' % \
-                           (name, etag, size, content_type, created_at))
+                    xml_output.append(
+                        '<object><name>%s</name><hash>%s</hash>'
+                        '<bytes>%d</bytes><content_type>%s</content_type>'
+                        '<last_modified>%s</last_modified></object>' %
+                        (name, etag, size, content_type, created_at))
             container_list = ''.join([
                 '<?xml version="1.0" encoding="UTF-8"?>\n',
                 '<container name=%s>' % saxutils.quoteattr(container),
@@ -421,7 +431,7 @@ class ContainerController(object):
         except ValueError, err:
             self.logger.increment('REPLICATE.errors')
             return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                request=req)
+                                  request=req)
         if self.mount_check and not check_mount(self.root, drive):
             self.logger.increment('REPLICATE.errors')
             return HTTPInsufficientStorage(drive=drive, request=req)
@@ -450,7 +460,7 @@ class ContainerController(object):
                 not check_float(req.headers['x-timestamp']):
             self.logger.increment('POST.errors')
             return HTTPBadRequest(body='Missing or bad timestamp',
-                request=req, content_type='text/plain')
+                                  request=req, content_type='text/plain')
         if 'x-container-sync-to' in req.headers:
             err = validate_sync_to(req.headers['x-container-sync-to'],
                                    self.allowed_sync_hosts)
@@ -466,10 +476,10 @@ class ContainerController(object):
             return HTTPNotFound(request=req)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         metadata = {}
-        metadata.update((key, (value, timestamp))
-            for key, value in req.headers.iteritems()
+        metadata.update(
+            (key, (value, timestamp)) for key, value in req.headers.iteritems()
             if key.lower() in self.save_headers or
-               key.lower().startswith('x-container-meta-'))
+            key.lower().startswith('x-container-meta-'))
         if metadata:
             if 'X-Container-Sync-To' in metadata:
                 if 'X-Container-Sync-To' not in broker.metadata or \
@@ -497,8 +507,9 @@ class ContainerController(object):
                 else:
                     res = method(req)
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR __call__ error with %(method)s'
-                    ' %(path)s '), {'method': req.method, 'path': req.path})
+                self.logger.exception(_(
+                    'ERROR __call__ error with %(method)s %(path)s '),
+                    {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = '%.4f' % (time.time() - start_time)
         log_message = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s' % (

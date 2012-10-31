@@ -26,7 +26,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, public, \
-    normalize_timestamp, split_path, storage_directory, TRUE_VALUES, \
+    normalize_timestamp, split_path, storage_directory, config_true_value, \
     validate_device_partition, json
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
@@ -47,15 +47,14 @@ class AccountController(object):
     def __init__(self, conf):
         self.logger = get_logger(conf, log_route='account-server')
         self.root = conf.get('devices', '/srv/node')
-        self.mount_check = conf.get('mount_check', 'true').lower() in \
-            TRUE_VALUES
+        self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
                                             self.mount_check,
                                             logger=self.logger)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
         swift.common.db.DB_PREALLOCATION = \
-            conf.get('db_preallocation', 'f').lower() in TRUE_VALUES
+            config_true_value(conf.get('db_preallocation', 'f'))
 
     def _get_account_broker(self, drive, part, account):
         hsh = hash_path(account)

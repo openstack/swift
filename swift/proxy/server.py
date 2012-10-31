@@ -34,7 +34,7 @@ from eventlet import Timeout
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
-    get_remote_client, split_path, TRUE_VALUES
+    get_remote_client, split_path, config_true_value
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController, Controller
@@ -72,9 +72,9 @@ class Application(object):
         self.recheck_account_existence = \
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
-            conf.get('allow_account_management', 'no').lower() in TRUE_VALUES
+            config_true_value(conf.get('allow_account_management', 'no'))
         self.object_post_as_copy = \
-            conf.get('object_post_as_copy', 'true').lower() in TRUE_VALUES
+            config_true_value(conf.get('object_post_as_copy', 'true'))
         self.resellers_conf = ConfigParser()
         self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
@@ -86,7 +86,7 @@ class Application(object):
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
         self.account_autocreate = \
-            conf.get('account_autocreate', 'no').lower() in TRUE_VALUES
+            config_true_value(conf.get('account_autocreate', 'no'))
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
             'expiring_objects'
@@ -105,8 +105,7 @@ class Application(object):
             int(conf.get('rate_limit_after_segment', 10))
         self.rate_limit_segments_per_sec = \
             int(conf.get('rate_limit_segments_per_sec', 1))
-        self.log_handoffs = \
-            conf.get('log_handoffs', 'true').lower() in TRUE_VALUES
+        self.log_handoffs = config_true_value(conf.get('log_handoffs', 'true'))
         self.cors_allow_origin = [
             a.strip()
             for a in conf.get('cors_allow_origin', '').split(',')
