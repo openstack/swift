@@ -873,6 +873,9 @@ class ObjectController(Controller):
                 new_del_req.acl = container_info['write_acl']
                 new_del_req.path_info = copy_path
                 req = new_del_req
+                # remove 'X-If-Delete-At', since it is not for the older copy
+                if 'X-If-Delete-At' in req.headers:
+                    del req.headers['X-If-Delete-At']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
