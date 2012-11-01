@@ -32,7 +32,7 @@ from swift.common.utils import normalize_timestamp, public
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    get_container_memcache_key
+    get_container_memcache_key, headers_to_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -68,24 +68,18 @@ class ContainerController(Controller):
         if not self.account_info(self.account_name)[1]:
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
-                        self.account_name, self.container_name)
+            self.account_name, self.container_name)
         shuffle(nodes)
-        resp = self.GETorHEAD_base(req, _('Container'), part, nodes,
-                req.path_info, len(nodes))
-
+        resp = self.GETorHEAD_base(
+            req, _('Container'), part, nodes, req.path_info, len(nodes))
         if self.app.memcache:
             # set the memcache container size for ratelimiting
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
-            self.app.memcache.set(cache_key,
-              {'status': resp.status_int,
-               'read_acl': resp.headers.get('x-container-read'),
-               'write_acl': resp.headers.get('x-container-write'),
-               'sync_key': resp.headers.get('x-container-sync-key'),
-               'count': resp.headers.get('x-container-object-count'),
-               'bytes': resp.headers.get('x-container-bytes-used'),
-               'versions': resp.headers.get('x-versions-location')},
-                                  timeout=self.app.recheck_container_existence)
+            self.app.memcache.set(
+                cache_key,
+                headers_to_container_info(resp.headers, resp.status_int),
+                timeout=self.app.recheck_container_existence)
 
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
@@ -151,8 +145,9 @@ class ContainerController(Controller):
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
-        resp = self.make_requests(req, self.app.container_ring,
-                container_partition, 'PUT', req.path_info, headers)
+        resp = self.make_requests(
+            req, self.app.container_ring,
+            container_partition, 'PUT', req.path_info, headers)
         return resp
 
     @public
@@ -176,9 +171,9 @@ class ContainerController(Controller):
         if self.app.memcache:
             self.app.memcache.delete(get_container_memcache_key(
                 self.account_name, self.container_name))
-        resp = self.make_requests(req, self.app.container_ring,
-                container_partition, 'POST', req.path_info,
-                [headers] * len(containers))
+        resp = self.make_requests(
+            req, self.app.container_ring, container_partition, 'POST',
+            req.path_info, [headers] * len(containers))
         return resp
 
     @public
@@ -202,8 +197,9 @@ class ContainerController(Controller):
             cache_key = get_container_memcache_key(self.account_name,
                                                    self.container_name)
             self.app.memcache.delete(cache_key)
-        resp = self.make_requests(req, self.app.container_ring,
-                    container_partition, 'DELETE', req.path_info, headers)
+        resp = self.make_requests(
+            req, self.app.container_ring, container_partition, 'DELETE',
+            req.path_info, headers)
         # Indicates no server had the container
         if resp.status_int == HTTP_ACCEPTED:
             return HTTPNotFound(request=req)
