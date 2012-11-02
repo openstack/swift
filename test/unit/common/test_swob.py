@@ -17,6 +17,7 @@
 
 import unittest
 import datetime
+import re
 from StringIO import StringIO
 
 import swift.common.swob
@@ -108,7 +109,7 @@ class TestRange(unittest.TestCase):
 
     def test_upsidedown_range(self):
         range = swift.common.swob.Range('bytes=5-10')
-        self.assertEquals(range.range_for_length(2), None)
+        self.assertEquals(range.ranges_for_length(2), [])
 
     def test_str(self):
         for range_str in ('bytes=1-7', 'bytes=1-', 'bytes=-1',
@@ -116,31 +117,94 @@ class TestRange(unittest.TestCase):
             range = swift.common.swob.Range(range_str)
             self.assertEquals(str(range), range_str)
 
-    def test_range_for_length(self):
+    def test_ranges_for_length(self):
         range = swift.common.swob.Range('bytes=1-7')
-        self.assertEquals(range.range_for_length(10), (1, 8))
-        self.assertEquals(range.range_for_length(5), (1, 5))
-        self.assertEquals(range.range_for_length(None), None)
+        self.assertEquals(range.ranges_for_length(10), [(1, 8)])
+        self.assertEquals(range.ranges_for_length(5), [(1, 5)])
+        self.assertEquals(range.ranges_for_length(None), None)
 
-    def test_range_for_length_no_end(self):
+    def test_ranges_for_large_length(self):
+        range = swift.common.swob.Range('bytes=-1000000000000000000000000000')
+        self.assertEquals(range.ranges_for_length(100), [(0, 100)])
+
+    def test_ranges_for_length_no_end(self):
         range = swift.common.swob.Range('bytes=1-')
-        self.assertEquals(range.range_for_length(10), (1, 10))
-        self.assertEquals(range.range_for_length(5), (1, 5))
-        self.assertEquals(range.range_for_length(None), None)
+        self.assertEquals(range.ranges_for_length(10), [(1, 10)])
+        self.assertEquals(range.ranges_for_length(5), [(1, 5)])
+        self.assertEquals(range.ranges_for_length(None), None)
         # This used to freak out:
         range = swift.common.swob.Range('bytes=100-')
-        self.assertEquals(range.range_for_length(5), None)
-        self.assertEquals(range.range_for_length(None), None)
+        self.assertEquals(range.ranges_for_length(5), [])
+        self.assertEquals(range.ranges_for_length(None), None)
 
-    def test_range_for_length_no_start(self):
+        range = swift.common.swob.Range('bytes=4-6,100-')
+        self.assertEquals(range.ranges_for_length(5), [(4, 5)])
+
+    def test_ranges_for_length_no_start(self):
         range = swift.common.swob.Range('bytes=-7')
-        self.assertEquals(range.range_for_length(10), (3, 10))
-        self.assertEquals(range.range_for_length(5), (0, 5))
-        self.assertEquals(range.range_for_length(None), None)
+        self.assertEquals(range.ranges_for_length(10), [(3, 10)])
+        self.assertEquals(range.ranges_for_length(5), [(0, 5)])
+        self.assertEquals(range.ranges_for_length(None), None)
+
+        range = swift.common.swob.Range('bytes=4-6,-100')
+        self.assertEquals(range.ranges_for_length(5), [(4, 5), (0, 5)])
+
+    def test_ranges_for_length_multi(self):
+        range = swift.common.swob.Range('bytes=-20,4-,30-150,-10')
+        # the length of the ranges should be 4
+        self.assertEquals(len(range.ranges_for_length(200)), 4)
+
+        # the actual length less than any of the range
+        self.assertEquals(range.ranges_for_length(90),
+                          [(70, 90), (4, 90), (30, 90), (80, 90)])
+
+        # the actual length greater than any of the range
+        self.assertEquals(range.ranges_for_length(200),
+                          [(180, 200), (4, 200), (30, 151), (190, 200)])
+
+        self.assertEquals(range.ranges_for_length(None), None)
+
+    def test_ranges_for_length_edges(self):
+        range = swift.common.swob.Range('bytes=0-1, -7')
+        self.assertEquals(range.ranges_for_length(10),
+                          [(0, 2), (3, 10)])
+
+        range = swift.common.swob.Range('bytes=-7, 0-1')
+        self.assertEquals(range.ranges_for_length(10),
+                          [(3, 10), (0, 2)])
+
+        range = swift.common.swob.Range('bytes=-7, 0-1')
+        self.assertEquals(range.ranges_for_length(5),
+                          [(0, 5), (0, 2)])
 
     def test_range_invalid_syntax(self):
-        range = swift.common.swob.Range('bytes=10-2')
-        self.assertEquals(range.ranges, [])
+
+        def _check_invalid_range(range_value):
+            try:
+                swift.common.swob.Range(range_value)
+                return False
+            except ValueError:
+                return True
+
+        """
+        All the following cases should result ValueError exception
+        1. value not starts with bytes=
+        2. range value start is greater than the end, eg. bytes=5-3
+        3. range does not have start or end, eg. bytes=-
+        4. range does not have hyphen, eg. bytes=45
+        5. range value is non numeric
+        6. any combination of the above
+        """
+
+        self.assert_(_check_invalid_range('nonbytes=foobar,10-2'))
+        self.assert_(_check_invalid_range('bytes=5-3'))
+        self.assert_(_check_invalid_range('bytes=-'))
+        self.assert_(_check_invalid_range('bytes=45'))
+        self.assert_(_check_invalid_range('bytes=foo-bar,3-5'))
+        self.assert_(_check_invalid_range('bytes=4-10,45'))
+        self.assert_(_check_invalid_range('bytes=foobar,3-5'))
+        self.assert_(_check_invalid_range('bytes=nonumber-5'))
+        self.assert_(_check_invalid_range('bytes=nonumber'))
 
 
 class TestMatch(unittest.TestCase):
@@ -387,6 +451,106 @@ class TestResponse(unittest.TestCase):
         body = ''.join(resp({}, start_response))
         self.assertEquals(body, 'abc')
 
+    def test_multi_ranges_wo_iter_ranges(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [('Content-Length', '10')])
+            return ['1234567890']
+
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=0-9,10-19,20-29'})
+
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        resp.content_length = 10
+
+        content = ''.join(resp._response_iter(resp.app_iter, ''))
+
+        self.assertEquals(resp.status, '200 OK')
+        self.assertEqual(10, resp.content_length)
+
+    def test_single_range_wo_iter_range(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [('Content-Length', '10')])
+            return ['1234567890']
+
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=0-9'})
+
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        resp.content_length = 10
+
+        content = ''.join(resp._response_iter(resp.app_iter, ''))
+
+        self.assertEquals(resp.status, '200 OK')
+        self.assertEqual(10, resp.content_length)
+
+    def test_multi_range_body(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [('Content-Length', '4')])
+            return ['abcd']
+
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=0-9,10-19,20-29'})
+
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        resp.content_length = 100
+
+        resp.content_type = 'text/plain'
+        content = ''.join(resp._response_iter(None,
+                                              ('0123456789112345678'
+                                               '92123456789')))
+
+        self.assert_(re.match(('\r\n'
+                               '--[a-f0-9]{32}\r\n'
+                               'Content-Type: text/plain\r\n'
+                               'Content-Range: bytes '
+                               '0-9/100\r\n\r\n0123456789\r\n'
+                               '--[a-f0-9]{32}\r\n'
+                               'Content-Type: text/plain\r\n'
+                               'Content-Range: bytes '
+                               '10-19/100\r\n\r\n1123456789\r\n'
+                               '--[a-f0-9]{32}\r\n'
+                               'Content-Type: text/plain\r\n'
+                               'Content-Range: bytes '
+                               '20-29/100\r\n\r\n2123456789\r\n'
+                               '--[a-f0-9]{32}--\r\n'), content))
+
+    def test_multi_response_iter(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [('Content-Length', '10'),
+                                      ('Content-Type', 'application/xml')])
+            return ['0123456789']
+
+        app_iter_ranges_args = []
+
+        class App_iter(object):
+            def app_iter_ranges(self, ranges, content_type, boundary, size):
+                app_iter_ranges_args.append((ranges, content_type, boundary,
+                                             size))
+                for i in xrange(3):
+                    yield str(i) + 'fun'
+                yield boundary
+
+            def __iter__(self):
+                for i in xrange(3):
+                    yield str(i) + 'fun'
+
+        req = swift.common.swob.Request.blank(
+            '/', headers={'Range': 'bytes=1-5,8-11'})
+
+        resp = req.get_response(test_app)
+        resp.conditional_response = True
+        resp.content_length = 12
+
+        content = ''.join(resp._response_iter(App_iter(), ''))
+        boundary = content[-32:]
+        self.assertEqual(content[:-32], '0fun1fun2fun')
+        self.assertEqual(app_iter_ranges_args,
+                         [([(1, 6), (8, 12)], 'application/xml',
+                           boundary, 12)])
+
     def test_range_body(self):
 
         def test_app(environ, start_response):
@@ -398,20 +562,17 @@ class TestResponse(unittest.TestCase):
 
         req = swift.common.swob.Request.blank(
             '/', headers={'Range': 'bytes=1-3'})
-        resp = req.get_response(test_app)
-        resp.conditional_response = True
-        body = ''.join(resp([], start_response))
-        self.assertEquals(body, '234')
-        self.assertEquals(resp.status, '206 Partial Content')
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,
             conditional_response=True)
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '234')
+        self.assertEquals(resp.content_range, 'bytes 1-3/10')
         self.assertEquals(resp.status, '206 Partial Content')
 
-        # No body for 416
+        # syntactically valid, but does not make sense, so returning 416
+        # in next couple of cases.
         req = swift.common.swob.Request.blank(
             '/', headers={'Range': 'bytes=-0'})
         resp = req.get_response(test_app)
@@ -426,6 +587,7 @@ class TestResponse(unittest.TestCase):
             conditional_response=True)
         body = ''.join(resp([], start_response))
         self.assertEquals(body, '')
+        self.assertEquals(resp.content_length, 0)
         self.assertEquals(resp.status, '416 Requested Range Not Satisfiable')
 
         # Syntactically-invalid Range headers "MUST" be ignored
