@@ -853,7 +853,7 @@ class Response(object):
         self.body = body
         self.app_iter = app_iter
         self.status = status
-        self.boundary = "%x" % random.randint(0, 256 ** 16)
+        self.boundary = "%.32x" % random.randint(0, 256 ** 16)
         if request:
             self.environ = request.environ
             if request.range and self.status == 200:
