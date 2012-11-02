@@ -856,8 +856,6 @@ class Response(object):
         self.boundary = "%.32x" % random.randint(0, 256 ** 16)
         if request:
             self.environ = request.environ
-            if request.range and self.status == 200:
-                self.status = 206
         else:
             self.environ = {}
         self.headers.update(headers)
