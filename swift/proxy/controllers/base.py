@@ -26,6 +26,7 @@
 
 import time
 import functools
+import inspect
 
 from eventlet import spawn_n, GreenPile, Timeout
 from eventlet.queue import Queue, Empty, Full
@@ -38,7 +39,7 @@ from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE
+    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
 from swift.common.swob import Request, Response, status_map
 
 
@@ -132,6 +133,11 @@ class Controller(object):
         self.account_name = None
         self.app = app
         self.trans_id = '-'
+        self.allowed_methods = set()
+        all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
+        for name, m in all_methods:
+            if getattr(m, 'publicly_accessible', False):
+                self.allowed_methods.add(name)
 
     def transfer_headers(self, src_headers, dst_headers):
 
@@ -696,28 +702,41 @@ class Controller(object):
         :param req: swob.Request object
         :returns: swob.Response object
         """
-        container_info = \
-            self.container_info(self.account_name, self.container_name)
+        headers = {'Allow': ', '.join(self.allowed_methods)}
+        resp = Response(status=200, request=req,
+                        headers=headers)
+        req_origin_value = req.headers.get('Origin', None)
+        if not req_origin_value:
+            # NOT a CORS request
+            return resp
+
+        # CORS preflight request
+        try:
+            container_info = \
+                self.container_info(self.account_name, self.container_name)
+        except AttributeError:
+            container_info = {}
         cors = container_info.get('cors', {})
         allowed_origins = set()
         if cors.get('allow_origin'):
             allowed_origins.update(cors['allow_origin'].split(' '))
         if self.app.cors_allow_origin:
             allowed_origins.update(self.app.cors_allow_origin)
-        if not allowed_origins:
-            return Response(status=401, request=req)
-        headers = {}
-        if req.headers.get('Origin') in allowed_origins \
-                or '*' in allowed_origins:
-            headers['access-control-allow-origin'] = ' '.join(allowed_origins)
-            headers['access-control-max-age'] = cors.get('max_age')
-            headers['access-control-allow-methods'] = \
-                'GET, POST, PUT, DELETE, HEAD'
-            headers['access-control-allow-headers'] = \
-                cors.get('allow_headers')
-            return Response(status=200, headers=headers, request=req)
-        else:
-            return Response(status=401, request=req)
+        if (req_origin_value not in allowed_origins and
+                '*' not in allowed_origins) or (
+                req.headers.get('Access-Control-Request-Method') not in
+                self.allowed_methods):
+            resp.status = HTTP_UNAUTHORIZED
+            return resp  # CORS preflight request that isn't valid
+        headers['access-control-allow-origin'] = req_origin_value
+        if cors.get('max_age', None) is not None:
+            headers['access-control-max-age'] = '%d' % cors.get('max_age')
+        headers['access-control-allow-methods'] = ', '.join(
+            self.allowed_methods)
+        if cors.get('allow_headers'):
+            headers['access-control-allow-headers'] = cors.get('allow_headers')
+        resp.headers = headers
+        return resp
 
     @public
     def OPTIONS(self, req):
