@@ -810,19 +810,19 @@ class Request(object):
                         app_iter=app_iter, request=self)
 
 
-def content_range_header(start, stop, size, value_only=True):
-    if value_only:
-        range_str = 'bytes %s-%s/%s'
-    else:
-        range_str = 'Content-Range: bytes %s-%s/%s'
-    return range_str % (start, (stop - 1), size)
+def content_range_header_value(start, stop, size):
+    return 'bytes %s-%s/%s' % (start, (stop - 1), size)
+
+
+def content_range_header(start, stop, size):
+    return "Content-Range: " + content_range_header_value(start, stop, size)
 
 
 def multi_range_iterator(ranges, content_type, boundary, size, sub_iter_gen):
     for start, stop in ranges:
         yield ''.join(['\r\n--', boundary, '\r\n',
                        'Content-Type: ', content_type, '\r\n'])
-        yield content_range_header(start, stop, size, False) + '\r\n\r\n'
+        yield content_range_header(start, stop, size) + '\r\n\r\n'
         sub_iter = sub_iter_gen(start, stop)
         for chunk in sub_iter:
             yield chunk
@@ -914,18 +914,14 @@ class Response(object):
                         start, end = ranges[0]
                         if app_iter and hasattr(app_iter, 'app_iter_range'):
                             self.status = 206
-                            self.content_range = \
-                                content_range_header(start, end,
-                                                     self.content_length,
-                                                     True)
+                            self.content_range = content_range_header_value(
+                                start, end, self.content_length)
                             self.content_length = (end - start)
                             return app_iter.app_iter_range(start, end)
                         elif body:
                             self.status = 206
-                            self.content_range = \
-                                content_range_header(start, end,
-                                                     self.content_length,
-                                                     True)
+                            self.content_range = content_range_header_value(
+                                start, end, self.content_length)
                             self.content_length = (end - start)
                             return [body[start:end]]
                     elif range_size > 1:
