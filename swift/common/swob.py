@@ -30,6 +30,7 @@ from email.utils import parsedate
 import urlparse
 import urllib2
 import re
+import random
 
 from swift.common.utils import reiterate
 
@@ -440,6 +441,22 @@ class Range(object):
     invalid byte-range-spec values MUST ignore the header field that includes
     that byte-range-set."
 
+    According to the RFC 2616 specification, the following cases will be all
+    considered as syntactically invalid, thus, a ValueError is thrown so that
+    the range header will be ignored. If the range value contains at least
+    one of the following cases, the entire range is considered invalid,
+    ValueError will be thrown so that the header will be ignored.
+
+    1. value not starts with bytes=
+    2. range value start is greater than the end, eg. bytes=5-3
+    3. range does not have start or end, eg. bytes=-
+    4. range does not have hyphen, eg. bytes=45
+    5. range value is non numeric
+    6. any combination of the above
+
+    Every syntactically valid range will be added into the ranges list
+    even when some of the ranges may not be satisfied by underlying content.
+
     :param headerval: value of the header as a str
     """
     def __init__(self, headerval):
@@ -448,22 +465,26 @@ class Range(object):
             raise ValueError('Invalid Range header: %s' % headerval)
         self.ranges = []
         for rng in headerval[6:].split(','):
+            # Check if the range has required hyphen.
+            if rng.find('-') == -1:
+                raise ValueError('Invalid Range header: %s' % headerval)
             start, end = rng.split('-', 1)
             if start:
+                # when start contains non numeric value, this also causes
+                # ValueError
                 start = int(start)
             else:
                 start = None
             if end:
+                # when end contains non numeric value, this also causes
+                # ValueError
                 end = int(end)
-                if start is not None and not end >= start:
-                    # If the last-byte-pos value is present, it MUST be greater
-                    # than or equal to the first-byte-pos in that
-                    # byte-range-spec, or the byte- range-spec is syntactically
-                    # invalid.  [which "MUST" be ignored]
-                    self.ranges = []
-                    break
+                if start is not None and end < start:
+                    raise ValueError('Invalid Range header: %s' % headerval)
             else:
                 end = None
+                if start is None:
+                    raise ValueError('Invalid Range header: %s' % headerval)
             self.ranges.append((start, end))
 
     def __str__(self):
@@ -477,38 +498,68 @@ class Range(object):
             string += ','
         return string.rstrip(',')
 
-    def range_for_length(self, length):
+    def ranges_for_length(self, length):
         """
-        range_for_length is used to determine the correct range of bytes to
-        serve from a body, given body length argument and the Range's ranges.
+        This method is used to return multiple ranges for a given length
+        which should represent the length of the underlying content.
+        The constructor method __init__ made sure that any range in ranges
+        list is syntactically valid. So if length is None or size of the
+        ranges is zero, then the Range header should be ignored which will
+        eventually make the response to be 200.
 
-        A limitation of this method is that it can't handle multiple ranges,
-        for compatibility with webob.  This should be fairly easy to extend.
+        If an empty list is returned by this method, it indicates that there
+        are unsatisfiable ranges found in the Range header, 416 will be
+        returned.
 
-        :param length: length of the response body
+        if a returned list has at least one element, the list indicates that
+        there is at least one range valid and the server should serve the
+        request with a 206 status code.
+
+        The start value of each range represents the starting position in
+        the content, the end value represents the ending position. This
+        method purposely adds 1 to the end number because the spec defines
+        the Range to be inclusive.
+
+        The Range spec can be found at the following link:
+        http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35.1
+
+        :param length: length of the underlying content
         """
-        if length is None or not self.ranges or len(self.ranges) != 1:
+        # not syntactically valid ranges, must ignore
+        if length is None or not self.ranges or self.ranges == []:
             return None
-        begin, end = self.ranges[0]
-        if begin is None:
-            if end == 0:
-                return None
-            if end > length:
-                return (0, length)
-            return (length - end, length)
-        if end is None:
-            if begin < length:
-                # If a syntactically valid byte-range-set includes at least one
-                # byte-range-spec whose first-byte-pos is LESS THAN THE CURRENT
-                # LENGTH OF THE ENTITY-BODY..., then the byte-range-set is
-                # satisfiable.
-                return (begin, length)
-            else:
-                # Otherwise, the byte-range-set is unsatisfiable.
-                return None
-        if begin > length:
-            return None
-        return (begin, min(end + 1, length))
+        all_ranges = []
+        for single_range in self.ranges:
+            begin, end = single_range
+            # The possible values for begin and end are
+            # None, 0, or a positive numeric number
+            if begin is None:
+                if end == 0:
+                    # this is the bytes=-0 case
+                    continue
+                elif end > length:
+                    # This is the case where the end is greater than the
+                    # content length, as the RFC 2616 stated, the entire
+                    # content should be returned.
+                    all_ranges.append((0, length))
+                else:
+                    all_ranges.append((length - end, length))
+                continue
+            # begin can only be 0 and numeric value from this point on
+            if end is None:
+                if begin < length:
+                    all_ranges.append((begin, length))
+                else:
+                    # the begin position is greater than or equal to the
+                    # content length; skip and move on to the next range
+                    continue
+            # end can only be 0 or numeric value
+            elif begin < length:
+                # the begin position is valid, take the min of end + 1 or
+                # the total length of the content
+                all_ranges.append((begin, min(end + 1, length)))
+
+        return all_ranges
 
 
 class Match(object):
@@ -759,6 +810,25 @@ class Request(object):
                         app_iter=app_iter, request=self)
 
 
+def content_range_header(start, stop, size, value_only=True):
+    if value_only:
+        range_str = 'bytes %s-%s/%s'
+    else:
+        range_str = 'Content-Range: bytes %s-%s/%s'
+    return range_str % (start, (stop - 1), size)
+
+
+def multi_range_iterator(ranges, content_type, boundary, size, sub_iter_gen):
+    for start, stop in ranges:
+        yield ''.join(['\r\n--', boundary, '\r\n',
+                       'Content-Type: ', content_type, '\r\n'])
+        yield content_range_header(start, stop, size, False) + '\r\n\r\n'
+        sub_iter = sub_iter_gen(start, stop)
+        for chunk in sub_iter:
+            yield chunk
+    yield '\r\n--' + boundary + '--\r\n'
+
+
 class Response(object):
     """
     WSGI Response object.
@@ -783,6 +853,7 @@ class Response(object):
         self.body = body
         self.app_iter = app_iter
         self.status = status
+        self.boundary = "%x" % random.randint(0, 256 ** 16)
         if request:
             self.environ = request.environ
             if request.range and self.status == 200:
@@ -793,6 +864,35 @@ class Response(object):
         for key, value in kw.iteritems():
             setattr(self, key, value)
 
+    def _prepare_for_ranges(self, ranges):
+        """
+        Prepare the Response for multiple ranges.
+        """
+
+        content_size = self.content_length
+        content_type = self.content_type
+        self.content_type = ''.join(['multipart/byteranges;',
+                                     'boundary=', self.boundary])
+
+        # This section calculate the total size of the targeted response
+        # The value 12 is the length of total bytes of hyphen, new line
+        # form feed for each section header. The value 8 is the length of
+        # total bytes of hyphen, new line, form feed characters for the
+        # closing boundary which appears only once
+        section_header_fixed_len = 12 + (len(self.boundary) +
+                                         len('Content-Type: ') +
+                                         len(content_type) +
+                                         len('Content-Range: bytes '))
+        body_size = 0
+        for start, end in ranges:
+            body_size += section_header_fixed_len
+            body_size += len(str(start) + '-' + str(end - 1) + '/' +
+                             str(content_size)) + (end - start)
+        body_size += 8 + len(self.boundary)
+        self.content_length = body_size
+        self.content_range = None
+        return content_size, content_type
+
     def _response_iter(self, app_iter, body):
         if self.request and self.request.method == 'HEAD':
             # We explicitly do NOT want to set self.content_length to 0 here
@@ -800,23 +900,54 @@ class Response(object):
         if self.conditional_response and self.request and \
                 self.request.range and self.request.range.ranges and \
                 not self.content_range:
-            args = self.request.range.range_for_length(self.content_length)
-            if not args:
+            ranges = self.request.range.ranges_for_length(self.content_length)
+            if ranges == []:
                 self.status = 416
                 self.content_length = 0
                 return ['']
-            else:
-                start, end = args
-                self.status = 206
-                self.content_range = self.request.range
-                self.content_length = (end - start)
-                if app_iter and hasattr(app_iter, 'app_iter_range'):
-                    return app_iter.app_iter_range(start, end)
-                elif app_iter:
-                    # this could be improved, but we don't actually use it
-                    return [''.join(app_iter)[start:end]]
-                elif body:
-                    return [body[start:end]]
+            elif ranges:
+                range_size = len(ranges)
+                if range_size > 0:
+                    # There is at least one valid range in the request, so try
+                    # to satisfy the request
+                    if range_size == 1:
+                        start, end = ranges[0]
+                        if app_iter and hasattr(app_iter, 'app_iter_range'):
+                            self.status = 206
+                            self.content_range = \
+                                content_range_header(start, end,
+                                                     self.content_length,
+                                                     True)
+                            self.content_length = (end - start)
+                            return app_iter.app_iter_range(start, end)
+                        elif body:
+                            self.status = 206
+                            self.content_range = \
+                                content_range_header(start, end,
+                                                     self.content_length,
+                                                     True)
+                            self.content_length = (end - start)
+                            return [body[start:end]]
+                    elif range_size > 1:
+                        if app_iter and hasattr(app_iter, 'app_iter_ranges'):
+                            self.status = 206
+                            content_size, content_type = \
+                                self._prepare_for_ranges(ranges)
+                            return app_iter.app_iter_ranges(ranges,
+                                                            content_type,
+                                                            self.boundary,
+                                                            content_size)
+                        elif body:
+                            self.status = 206
+                            content_size, content_type, = \
+                                self._prepare_for_ranges(ranges)
+
+                            def _body_slicer(start, stop):
+                                yield body[start:stop]
+                            return multi_range_iterator(ranges, content_type,
+                                                        self.boundary,
+                                                        content_size,
+                                                        _body_slicer)
         if app_iter:
             return app_iter
         if body:

@@ -46,7 +46,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
-    HTTPInsufficientStorage
+    HTTPInsufficientStorage, multi_range_iterator
 
 
 DATADIR = 'objects'
@@ -128,6 +128,7 @@ class DiskFile(object):
         self.read_to_eof = False
         self.quarantined_dir = None
         self.keep_cache = False
+        self.suppress_file_closing = False
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
@@ -183,11 +184,12 @@ class DiskFile(object):
                                     read - dropped_cache)
                     break
         finally:
-            self.close()
+            if not self.suppress_file_closing:
+                self.close()
 
     def app_iter_range(self, start, stop):
         """Returns an iterator over the data file for range (start, stop)"""
-        if start:
+        if start or start == 0:
             self.fp.seek(start)
         if stop is not None:
             length = stop - start
@@ -201,6 +203,21 @@ class DiskFile(object):
                     yield chunk[:length]
                     break
             yield chunk
+
+    def app_iter_ranges(self, ranges, content_type, boundary, size):
+        """Returns an iterator over the data file for a set of ranges"""
+        if (not ranges or len(ranges) == 0):
+            yield ''
+        else:
+            try:
+                self.suppress_file_closing = True
+                for chunk in multi_range_iterator(
+                        ranges, content_type, boundary, size,
+                        self.app_iter_range):
+                    yield chunk
+            finally:
+                self.suppress_file_closing = False
+                self.close()
 
     def _handle_close_quarantine(self):
         """Check if file needs to be quarantined"""
