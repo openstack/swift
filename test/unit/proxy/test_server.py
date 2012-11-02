@@ -266,6 +266,8 @@ def fake_http_connect(*code_iter, **kwargs):
         x = [x] * len(code_iter)
     container_ts_iter = iter(x)
     code_iter = iter(code_iter)
+    static_body = kwargs.get('body', None)
+    body_iter = kwargs.get('body_iter', None)
 
     def connect(*args, **ckwargs):
         if 'give_content_type' in kwargs:
@@ -285,8 +287,12 @@ def fake_http_connect(*code_iter, **kwargs):
 
         if status <= 0:
             raise HTTPException()
-        return FakeConn(status, etag, body=kwargs.get('body', ''),
-                        timestamp=timestamp, expect_status=expect_status)
+        if body_iter is None:
+            body = static_body or ''
+        else:
+            body = body_iter.next()
+        return FakeConn(status, etag, body=body, timestamp=timestamp,
+                        expect_status=expect_status)
 
     return connect
 
@@ -843,6 +849,39 @@ class TestObjectController(unittest.TestCase):
             self.app.memcache.store = {}
             res = controller.PUT(req)
             self.assertTrue(res.status.startswith('201 '))
+
+    def test_expirer_DELETE_on_versioned_object(self):
+        test_errors = []
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if method == 'DELETE':
+                if 'x-if-delete-at' in headers or 'X-If-Delete-At' in headers:
+                    test_errors.append('X-If-Delete-At in headers')
+
+        body = simplejson.dumps(
+            [{"name": "001o/1",
+              "hash": "x",
+              "bytes": 0,
+              "content_type": "text/plain",
+              "last_modified": "1970-01-01T00:00:01.000000"}])
+        body_iter = ('', '', body, '', '', '', '', '', '', '', '', '', '', '')
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            #                HEAD HEAD GET  GET  HEAD GET  GET  GET  PUT  PUT
+            #                PUT  DEL  DEL  DEL
+            set_http_connect(200, 200, 200, 200, 200, 200, 200, 200, 201, 201,
+                             201, 200, 200, 200,
+                             give_connect=test_connect,
+                             body_iter=iter(body_iter),
+                             headers={'x-versions-location': 'foo'})
+            self.app.memcache.store = {}
+            req = Request.blank('/a/c/o',
+                                headers={'X-If-Delete-At': 1},
+                                environ={'REQUEST_METHOD': 'DELETE'})
+            self.app.update_request(req)
+            res = controller.DELETE(req)
+            self.assertEquals(test_errors, [])
 
     def test_PUT_auto_content_type(self):
         with save_globals():
