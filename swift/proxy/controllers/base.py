@@ -94,6 +94,33 @@ def get_container_memcache_key(account, container):
     return 'container/%s/%s' % (account, container)
 
 
+def headers_to_container_info(headers, status_int=HTTP_OK):
+    """
+    Construct a cacheable dict of container info based on response headers.
+    """
+    headers = dict(headers)
+    return {
+        'status': status_int,
+        'read_acl': headers.get('x-container-read'),
+        'write_acl': headers.get('x-container-write'),
+        'sync_key': headers.get('x-container-sync-key'),
+        'count': headers.get('x-container-object-count'),
+        'bytes': headers.get('x-container-bytes-used'),
+        'versions': headers.get('x-versions-location'),
+        'cors': {
+            'allow_origin': headers.get(
+                'x-container-meta-access-control-allow-origin'),
+            'allow_headers': headers.get(
+                'x-container-meta-access-control-allow-headers'),
+            'max_age': headers.get(
+                'x-container-meta-access-control-max-age')
+        },
+        'meta': dict((key.lower()[17:], value)
+                     for key, value in headers.iteritems()
+                     if key.lower().startswith('x-container-meta-'))
+    }
+
+
 class Controller(object):
     """Base WSGI controller class for the proxy"""
     server_type = 'Base'
@@ -278,25 +305,6 @@ class Controller(object):
             return partition, nodes, container_count
         return None, None, None
 
-    def headers_to_container_info(self, headers):
-        headers = dict(headers)
-        return {
-            'read_acl': headers.get('x-container-read'),
-            'write_acl': headers.get('x-container-write'),
-            'sync_key': headers.get('x-container-sync-key'),
-            'count': headers.get('x-container-object-count'),
-            'bytes': headers.get('x-container-bytes-used'),
-            'versions': headers.get('x-versions-location'),
-            'cors': {
-                'allow_origin': headers.get(
-                    'x-container-meta-access-control-allow-origin'),
-                'allow_headers': headers.get(
-                    'x-container-meta-access-control-allow-headers'),
-                'max_age': headers.get(
-                    'x-container-meta-access-control-max-age')
-            }
-        }
-
     def container_info(self, account, container, account_autocreate=False):
         """
         Get container information and thusly verify container existance.
@@ -344,8 +352,7 @@ class Controller(object):
                     body = resp.read()
                 if is_success(resp.status):
                     container_info.update(
-                        self.headers_to_container_info(resp.getheaders()))
-                    container_info['status'] = HTTP_OK
+                        headers_to_container_info(resp.getheaders()))
                     break
                 elif resp.status == HTTP_NOT_FOUND:
                     container_info['status'] = HTTP_NOT_FOUND
