@@ -739,9 +739,10 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'), {'account': 'a',
                 'container': 'c'}))
             self.assertEquals(cs.container_puts, 2)
-            self.assertEquals(len(exc), 1)
+            self.assertEquals(len(exc), 3)
             self.assertEquals(str(exc[-1]), 'test exception')
 
+            exc = []
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
                 exc.append(ClientException('test client exception'))
@@ -754,7 +755,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'), {'account': 'a',
                 'container': 'c'}))
             self.assertEquals(cs.container_puts, 2)
-            self.assertEquals(len(exc), 4)
+            self.assertEquals(len(exc), 3)
             self.assertEquals(str(exc[-1]), 'test client exception')
 
             def fake_direct_get_object(node, part, account, container, obj,

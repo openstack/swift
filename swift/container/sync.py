@@ -386,6 +386,8 @@ class ContainerSync(Daemon):
                         # the others errored for some other reason.
                         if not exc or exc.http_status == HTTP_NOT_FOUND:
                             exc = err
+                    except (Exception, Timeout), err:
+                        exc = err
                 if timestamp < looking_for_timestamp:
                     if exc:
                         raise exc
