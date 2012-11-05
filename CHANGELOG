@@ -1,3 +1,53 @@
+swift (1.7.5)
+
+    * Support OPTIONS verb, including CORS preflight requests
+
+    * Added support for custom log handlers
+
+    * Range support is extended to support GET requests with multiple ranges.
+      Multi-range GETs are not yet supported against large-object manifests.
+
+    * Cluster constraints are now settable by config
+
+    * Replicators can now run against specific devices or partitions
+
+    * swift-bench now supports running on multiple cores and multiple servers
+
+    * Added partition option to swift-get-nodes
+
+    * Allow underscores in account and user in tempauth via base64 encodings
+
+    * New option to the dispersion report to output the missing partitions
+
+    * Changed storage server StatsD metrics to report timings instead of
+      counts for errors. See the admin guide for the updated metric names.
+
+    * Removed a dependency on WebOb and replaced it with an internal module
+
+    * Fixed config parsing in swift-bench -x
+
+    * Fixed sample_rate in StatsD logging
+
+    * Track unlinks of async_pendings with StatsD
+
+    * Remove double GET on range requests
+
+    * Allow unsetting of X-Container-Sync-To and ACL headers
+
+    * DB reclamation now removes empty suffix directories
+
+    * Fix non-standard 100-continue behavior
+
+    * Allow object-expirer to delete the last copy of a versioned object
+
+    * Only set TCP_KEEPIDLE on systems where it is supported
+
+    * Fix stdin flush and fdatasync issues on BSD platforms
+
+    * Allow object-expirer to delete the last version of an object
+
+    * Various other minor bug fixes and improvements
+
 swift (1.7.4)
 
     * Fix issue where early client disconnects may have caused a memory leak
