@@ -477,35 +477,36 @@ Metric Name                                     Description
 Metrics for `account-server` ("Not Found" is not considered an error and requests
 which increment `errors` are not included in the timing data):
 
-=================================  ====================================================
-Metric Name                        Description
----------------------------------  ----------------------------------------------------
-`account-server.DELETE.errors`     Count of errors handling DELETE requests: bad
-                                   request, not mounted, missing timestamp.
-`account-server.DELETE.timing`     Timing data for each DELETE request not resulting in
-                                   an error.
-`account-server.PUT.errors`        Count of errors handling PUT requests: bad request,
-                                   not mounted, conflict.
-`account-server.PUT.timing`        Timing data for each PUT request not resulting in an
-                                   error.
-`account-server.HEAD.errors`       Count of errors handling HEAD requests: bad request,
-                                   not mounted.
-`account-server.HEAD.timing`       Timing data for each HEAD request not resulting in
-                                   an error.
-`account-server.GET.errors`        Count of errors handling GET requests: bad request,
-                                   not mounted, bad delimiter, account listing limit
-                                   too high, bad accept header.
-`account-server.GET.timing`        Timing data for each GET request not resulting in
-                                   an error.
-`account-server.REPLICATE.errors`  Count of errors handling REPLICATE requests: bad
-                                   request, not mounted.
-`account-server.REPLICATE.timing`  Timing data for each REPLICATE request not resulting
-                                   in an error.
-`account-server.POST.errors`       Count of errors handling POST requests: bad request,
-                                   bad or missing timestamp, not mounted.
-`account-server.POST.timing`       Timing data for each POST request not resulting in
-                                   an error.
-=================================  ====================================================
+========================================  =======================================================
+Metric Name                               Description
+----------------------------------------  -------------------------------------------------------
+`account-server.DELETE.errors.timing`     Timing data for each DELETE request resulting in an
+                                          error: bad request, not mounted, missing timestamp.
+`account-server.DELETE.timing`            Timing data for each DELETE request not resulting in
+                                          an error.
+`account-server.PUT.errors.timing`        Timing data for each PUT request resulting in an error:
+                                          bad request, not mounted, conflict, recently-deleted.
+`account-server.PUT.timing`               Timing data for each PUT request not resulting in an
+                                          error.
+`account-server.HEAD.errors.timing`       Timing data for each HEAD request resulting in an
+                                          error: bad request, not mounted.
+`account-server.HEAD.timing`              Timing data for each HEAD request not resulting in
+                                          an error.
+`account-server.GET.errors.timing`        Timing data for each GET request resulting in an
+                                          error: bad request, not mounted, bad delimiter,
+                                          account listing limit too high, bad accept header.
+`account-server.GET.timing`               Timing data for each GET request not resulting in
+                                          an error.
+`account-server.REPLICATE.errors.timing`  Timing data for each REPLICATE request resulting in an
+                                          error: bad request, not mounted.
+`account-server.REPLICATE.timing`         Timing data for each REPLICATE request not resulting
+                                          in an error.
+`account-server.POST.errors.timing`       Timing data for each POST request resulting in an
+                                          error: bad request, bad or missing timestamp, not
+                                          mounted.
+`account-server.POST.timing`              Timing data for each POST request not resulting in
+                                          an error.
+========================================  =======================================================
 
 Metrics for `account-replicator`:
 
@@ -584,34 +585,34 @@ Metric Name                              Description
 Metrics for `container-server` ("Not Found" is not considered an error and requests
 which increment `errors` are not included in the timing data):
 
-===================================  ====================================================
-Metric Name                          Description
------------------------------------  ----------------------------------------------------
-`container-server.DELETE.errors`     Count of errors handling DELETE requests: bad
-                                     request, not mounted, missing timestamp, conflict.
-`container-server.DELETE.timing`     Timing data for each DELETE request not resulting in
-                                     an error.
-`container-server.PUT.errors`        Count of errors handling PUT requests: bad request,
-                                     missing timestamp, not mounted, conflict.
-`container-server.PUT.timing`        Timing data for each PUT request not resulting in an
-                                     error.
-`container-server.HEAD.errors`       Count of errors handling HEAD requests: bad request,
-                                     not mounted.
-`container-server.HEAD.timing`       Timing data for each HEAD request not resulting in
-                                     an error.
-`container-server.GET.errors`        Count of errors handling GET requests: bad request,
-                                     not mounted, parameters not utf8, bad accept header.
-`container-server.GET.timing`        Timing data for each GET request not resulting in
-                                     an error.
-`container-server.REPLICATE.errors`  Count of errors handling REPLICATE requests: bad
-                                     request, not mounted.
-`container-server.REPLICATE.timing`  Timing data for each REPLICATE request not resulting
-                                     in an error.
-`container-server.POST.errors`       Count of errors handling POST requests: bad request,
-                                     bad x-container-sync-to, not mounted.
-`container-server.POST.timing`       Timing data for each POST request not resulting in
-                                     an error.
-===================================  ====================================================
+==========================================  ====================================================
+Metric Name                                 Description
+------------------------------------------  ----------------------------------------------------
+`container-server.DELETE.errors.timing`     Timing data for DELETE request errors: bad request,
+                                            not mounted, missing timestamp, conflict.
+`container-server.DELETE.timing`            Timing data for each DELETE request not resulting in
+                                            an error.
+`container-server.PUT.errors.timing`        Timing data for PUT request errors: bad request,
+                                            missing timestamp, not mounted, conflict.
+`container-server.PUT.timing`               Timing data for each PUT request not resulting in an
+                                            error.
+`container-server.HEAD.errors.timing`       Timing data for HEAD request errors: bad request,
+                                            not mounted.
+`container-server.HEAD.timing`              Timing data for each HEAD request not resulting in
+                                            an error.
+`container-server.GET.errors.timing`        Timing data for GET request errors: bad request,
+                                            not mounted, parameters not utf8, bad accept header.
+`container-server.GET.timing`               Timing data for each GET request not resulting in
+                                            an error.
+`container-server.REPLICATE.errors.timing`  Timing data for REPLICATE request errors: bad
+                                            request, not mounted.
+`container-server.REPLICATE.timing`         Timing data for each REPLICATE request not resulting
+                                            in an error.
+`container-server.POST.errors.timing`       Timing data for POST request errors: bad request,
+                                            bad x-container-sync-to, not mounted.
+`container-server.POST.timing`              Timing data for each POST request not resulting in
+                                            an error.
+==========================================  ====================================================
 
 Metrics for `container-sync`:
 
@@ -700,47 +701,49 @@ Metric Name                                          Description
 
 Metrics for `object-server`:
 
-================================  ====================================================
-Metric Name                       Description
---------------------------------  ----------------------------------------------------
-`object-server.quarantines`       Count of objects (files) found bad and moved to
-                                  quarantine.
-`object-server.async_pendings`    Count of container updates saved as async_pendings
-                                  (may result from PUT or DELETE requests).
-`object-server.POST.errors`       Count of errors handling POST requests: bad request,
-                                  missing timestamp, delete-at in past, not mounted.
-`object-server.POST.timing`       Timing data for each POST request not resulting in
-                                  an error.
-`object-server.PUT.errors`        Count of errors handling PUT requests: bad request,
-                                  not mounted, missing timestamp, object creation
-                                  constraint violation, delete-at in past.
-`object-server.PUT.timeouts`      Count of object PUTs which exceeded max_upload_time.
-`object-server.PUT.timing`        Timing data for each PUT request not resulting in an
-                                  error.
-`object-server.GET.errors`        Count of errors handling GET requests: bad request,
-                                  not mounted, header timestamps before the epoch.
-                                  File errors resulting in a quarantine are not
-                                  counted here.
-`object-server.GET.timing`        Timing data for each GET request not resulting in an
-                                  error.  Includes requests which couldn't find the
-                                  object (including disk errors resulting in file
-                                  quarantine).
-`object-server.HEAD.errors`       Count of errors handling HEAD requests: bad request,
-                                  not mounted.
-`object-server.HEAD.timing`       Timing data for each HEAD request not resulting in
-                                  an error.  Includes requests which couldn't find the
-                                  object (including disk errors resulting in file
-                                  quarantine).
-`object-server.DELETE.errors`     Count of errors handling DELETE requests: bad
-                                  request, missing timestamp, not mounted.  Includes
-                                  requests which couldn't find or match the object.
-`object-server.DELETE.timing`     Timing data for each DELETE request not resulting
-                                  in an error.
-`object-server.REPLICATE.errors`  Count of errors handling REPLICATE requests: bad
-                                  request, not mounted.
-`object-server.REPLICATE.timing`  Timing data for each REPLICATE request not resulting
-                                  in an error.
-================================  ====================================================
+=======================================  ====================================================
+Metric Name                              Description
+---------------------------------------  ----------------------------------------------------
+`object-server.quarantines`              Count of objects (files) found bad and moved to
+                                         quarantine.
+`object-server.async_pendings`           Count of container updates saved as async_pendings
+                                         (may result from PUT or DELETE requests).
+`object-server.POST.errors.timing`       Timing data for POST request errors: bad request,
+                                         missing timestamp, delete-at in past, not mounted.
+`object-server.POST.timing`              Timing data for each POST request not resulting in
+                                         an error.
+`object-server.PUT.errors.timing`        Timing data for PUT request errors: bad request,
+                                         not mounted, missing timestamp, object creation
+                                         constraint violation, delete-at in past.
+`object-server.PUT.timeouts`             Count of object PUTs which exceeded max_upload_time.
+`object-server.PUT.timing`               Timing data for each PUT request not resulting in an
+                                         error.
+`object-server.GET.errors.timing`        Timing data for GET request errors: bad request,
+                                         not mounted, header timestamps before the epoch,
+                                         precondition failed.
+                                         File errors resulting in a quarantine are not
+                                         counted here.
+`object-server.GET.timing`               Timing data for each GET request not resulting in an
+                                         error.  Includes requests which couldn't find the
+                                         object (including disk errors resulting in file
+                                         quarantine).
+`object-server.HEAD.errors.timing`       Timing data for HEAD request errors: bad request,
+                                         not mounted.
+`object-server.HEAD.timing`              Timing data for each HEAD request not resulting in
+                                         an error.  Includes requests which couldn't find the
+                                         object (including disk errors resulting in file
+                                         quarantine).
+`object-server.DELETE.errors.timing`     Timing data for DELETE request errors: bad request,
+                                         missing timestamp, not mounted, precondition
+                                         failed.  Includes requests which couldn't find or
+                                         match the object.
+`object-server.DELETE.timing`            Timing data for each DELETE request not resulting
+                                         in an error.
+`object-server.REPLICATE.errors.timing`  Timing data for REPLICATE request errors: bad
+                                         request, not mounted.
+`object-server.REPLICATE.timing`         Timing data for each REPLICATE request not resulting
+                                         in an error.
+=======================================  ====================================================
 
 Metrics for `object-updater`:
 

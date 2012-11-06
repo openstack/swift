@@ -52,6 +52,7 @@ utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 
 from swift.common.exceptions import LockTimeout, MessageTimeout
+from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -461,6 +462,27 @@ class StatsdClient(object):
     def timing_since(self, metric, orig_time, sample_rate=None):
         return self.timing(metric, (time.time() - orig_time) * 1000,
                            sample_rate)
+
+
+def timing_stats(func):
+    """
+    Decorator that logs timing events or errors for public methods in swift's
+    wsgi server controllers, based on response code.
+    """
+    method = func.func_name
+
+    @functools.wraps(func)
+    def _timing_stats(ctrl, *args, **kwargs):
+        start_time = time.time()
+        resp = func(ctrl, *args, **kwargs)
+        if is_success(resp.status_int) or is_redirection(resp.status_int) or \
+                resp.status_int == HTTP_NOT_FOUND:
+            ctrl.logger.timing_since(method + '.timing', start_time)
+        else:
+            ctrl.logger.timing_since(method + '.errors.timing', start_time)
+        return resp
+
+    return _timing_stats
 
 
 # double inheritance to support property with setter

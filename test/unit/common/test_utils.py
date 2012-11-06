@@ -40,6 +40,7 @@ from eventlet import sleep
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout)
 from swift.common import utils
+from swift.common.swob import Response
 
 
 class MockOs():
@@ -993,6 +994,43 @@ class TestStatsdLogging(unittest.TestCase):
 
         payload = mock_socket.sent[0][0]
         self.assertTrue(payload.endswith("|@0.5"))
+
+    def test_timing_stats(self):
+        class MockController(object):
+            def __init__(self, status):
+                self.status = status
+                self.logger = self
+                self.args = ()
+                self.called = 'UNKNOWN'
+
+            def timing_since(self, *args):
+                self.called = 'timing'
+                self.args = args
+
+        @utils.timing_stats
+        def METHOD(controller):
+            return Response(status=controller.status)
+
+        mock_controller = MockController(200)
+        METHOD(mock_controller)
+        self.assertEquals(mock_controller.called, 'timing')
+        self.assertEquals(len(mock_controller.args), 2)
+        self.assertEquals(mock_controller.args[0], 'METHOD.timing')
+        self.assert_(mock_controller.args[1] > 0)
+
+        mock_controller = MockController(404)
+        METHOD(mock_controller)
+        self.assertEquals(len(mock_controller.args), 2)
+        self.assertEquals(mock_controller.called, 'timing')
+        self.assertEquals(mock_controller.args[0], 'METHOD.timing')
+        self.assert_(mock_controller.args[1] > 0)
+
+        mock_controller = MockController(401)
+        METHOD(mock_controller)
+        self.assertEquals(len(mock_controller.args), 2)
+        self.assertEquals(mock_controller.called, 'timing')
+        self.assertEquals(mock_controller.args[0], 'METHOD.errors.timing')
+        self.assert_(mock_controller.args[1] > 0)
 
 
 class TestStatsdLoggingDelegation(unittest.TestCase):
