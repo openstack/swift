@@ -42,13 +42,17 @@ class AccountController(Controller):
     def __init__(self, app, account_name, **kwargs):
         Controller.__init__(self, app)
         self.account_name = unquote(account_name)
+        if not self.app.allow_account_management:
+            self.allowed_methods.remove('PUT')
+            self.allowed_methods.remove('DELETE')
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         shuffle(nodes)
-        resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
-                req.path_info.rstrip('/'), len(nodes))
+        resp = self.GETorHEAD_base(
+            req, _('Account'), partition, nodes, req.path_info.rstrip('/'),
+            len(nodes))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
                 resp = HTTPBadRequest(request=req)
@@ -66,15 +70,18 @@ class AccountController(Controller):
                 self.app.logger.warning('Could not autocreate account %r' %
                                         self.account_name)
                 return resp
-            resp = self.GETorHEAD_base(req, _('Account'), partition, nodes,
-                req.path_info.rstrip('/'), len(nodes))
+            resp = self.GETorHEAD_base(
+                req, _('Account'), partition, nodes, req.path_info.rstrip('/'),
+                len(nodes))
         return resp
 
     @public
     def PUT(self, req):
         """HTTP PUT request handler."""
         if not self.app.allow_account_management:
-            return HTTPMethodNotAllowed(request=req)
+            return HTTPMethodNotAllowed(
+                request=req,
+                headers={'Allow': ', '.join(self.allowed_methods)})
         error_response = check_metadata(req, 'account')
         if error_response:
             return error_response
@@ -91,8 +98,9 @@ class AccountController(Controller):
         self.transfer_headers(req.headers, headers)
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        resp = self.make_requests(req, self.app.account_ring,
-            account_partition, 'PUT', req.path_info, [headers] * len(accounts))
+        resp = self.make_requests(
+            req, self.app.account_ring, account_partition, 'PUT',
+            req.path_info, [headers] * len(accounts))
         return resp
 
     @public
@@ -109,9 +117,9 @@ class AccountController(Controller):
         self.transfer_headers(req.headers, headers)
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        resp = self.make_requests(req, self.app.account_ring,
-            account_partition, 'POST', req.path_info,
-            [headers] * len(accounts))
+        resp = self.make_requests(
+            req, self.app.account_ring, account_partition, 'POST',
+            req.path_info, [headers] * len(accounts))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
                 resp = HTTPBadRequest(request=req)
@@ -132,7 +140,9 @@ class AccountController(Controller):
     def DELETE(self, req):
         """HTTP DELETE request handler."""
         if not self.app.allow_account_management:
-            return HTTPMethodNotAllowed(request=req)
+            return HTTPMethodNotAllowed(
+                request=req,
+                headers={'Allow': ', '.join(self.allowed_methods)})
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = {'X-Timestamp': normalize_timestamp(time.time()),
@@ -140,7 +150,7 @@ class AccountController(Controller):
                    'Connection': 'close'}
         if self.app.memcache:
             self.app.memcache.delete('account%s' % req.path_info.rstrip('/'))
-        resp = self.make_requests(req, self.app.account_ring,
-            account_partition, 'DELETE', req.path_info,
-            [headers] * len(accounts))
+        resp = self.make_requests(
+            req, self.app.account_ring, account_partition, 'DELETE',
+            req.path_info, [headers] * len(accounts))
         return resp

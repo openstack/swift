@@ -3514,7 +3514,8 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.com'})
+                headers={'Origin': 'http://foo.com',
+                         'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
 
@@ -3524,7 +3525,8 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.com'})
+                headers={'Origin': 'http://foo.com',
+                         'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
 
@@ -3540,24 +3542,39 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'https://foo.bar'})
+                headers={'Origin': 'https://foo.bar',
+                         'Access-Control-Request-Method': 'GET'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
             self.assertEquals(
-                set(['http://foo.bar:8080', 'https://foo.bar']),
-                set(resp.headers['access-control-allow-origin'].split()))
+                'https://foo.bar',
+                resp.headers['access-control-allow-origin'])
+            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['access-control-allow-methods'])
             self.assertEquals(
-                'GET, POST, PUT, DELETE, HEAD',
-                resp.headers['access-control-allow-methods'])
+                len(resp.headers['access-control-allow-methods'].split(', ')),
+                7)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
                 'x-foo',
                 resp.headers['access-control-allow-headers'])
-            req = Request.blank('/a/c/o.jpg', {'REQUEST_METHOD': 'OPTIONS'})
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://foo.bar'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
+            req = Request.blank('/a/c/o.jpg', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['Allow'])
+            self.assertEquals(len(resp.headers['Allow'].split(', ')), 7)
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -3567,10 +3584,42 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.bar'})
+                headers={'Origin': 'http://foo.bar',
+                         'Access-Control-Request-Method': 'GET'})
             controller.app.cors_allow_origin = ['http://foo.bar', ]
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
+
+            def my_container_info_wildcard(*args):
+                return {
+                    'cors': {
+                        'allow_origin': '*',
+                        'allow_headers': 'x-foo',
+                        'max_age': 999,
+                    }
+                }
+            controller.container_info = my_container_info_wildcard
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://bar.baz',
+                         'Access-Control-Request-Method': 'GET'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals(
+                'https://bar.baz',
+                resp.headers['access-control-allow-origin'])
+            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['access-control-allow-methods'])
+            self.assertEquals(
+                len(resp.headers['access-control-allow-methods'].split(', ')),
+                7)
+            self.assertEquals('999', resp.headers['access-control-max-age'])
+            self.assertEquals(
+                'x-foo',
+                resp.headers['access-control-allow-headers'])
 
 
 class TestContainerController(unittest.TestCase):
@@ -4071,7 +4120,8 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.com'})
+                headers={'Origin': 'http://foo.com',
+                         'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
 
@@ -4081,7 +4131,8 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.com'})
+                headers={'Origin': 'http://foo.com',
+                         'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
 
@@ -4097,37 +4148,85 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'https://foo.bar'})
+                headers={'Origin': 'https://foo.bar',
+                         'Access-Control-Request-Method': 'GET'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
             self.assertEquals(
-                set(['http://foo.bar:8080', 'https://foo.bar']),
-                set(resp.headers['access-control-allow-origin'].split()))
+                'https://foo.bar',
+                resp.headers['access-control-allow-origin'])
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['access-control-allow-methods'])
             self.assertEquals(
-                'GET, POST, PUT, DELETE, HEAD',
-                resp.headers['access-control-allow-methods'])
+                len(resp.headers['access-control-allow-methods'].split(', ')),
+                6)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
                 'x-foo',
                 resp.headers['access-control-allow-headers'])
-            req = Request.blank('/a/c', {'REQUEST_METHOD': 'OPTIONS'})
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://foo.bar'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
+            req = Request.blank('/a/c', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['Allow'])
+            self.assertEquals(len(resp.headers['Allow'].split(', ')), 6)
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.bar'})
+                headers={'Origin': 'http://foo.bar',
+                         'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEquals(401, resp.status_int)
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
-                headers={'Origin': 'http://foo.bar'})
+                headers={'Origin': 'http://foo.bar',
+                         'Access-Control-Request-Method': 'GET'})
             controller.app.cors_allow_origin = ['http://foo.bar', ]
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
+
+            def my_container_info_wildcard(*args):
+                return {
+                    'cors': {
+                        'allow_origin': '*',
+                        'allow_headers': 'x-foo',
+                        'max_age': 999,
+                    }
+                }
+            controller.container_info = my_container_info_wildcard
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://bar.baz',
+                         'Access-Control-Request-Method': 'GET'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals(
+                'https://bar.baz',
+                resp.headers['access-control-allow-origin'])
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['access-control-allow-methods'])
+            self.assertEquals(
+                len(resp.headers['access-control-allow-methods'].split(', ')),
+                6)
+            self.assertEquals('999', resp.headers['access-control-max-age'])
+            self.assertEquals(
+                'x-foo',
+                resp.headers['access-control-allow-headers'])
 
 
 class TestAccountController(unittest.TestCase):
@@ -4150,6 +4249,30 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
+
+    def test_OPTIONS(self):
+        with save_globals():
+            self.app.allow_account_management = False
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/account', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            for verb in 'OPTIONS GET POST HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['Allow'])
+            self.assertEquals(len(resp.headers['Allow'].split(', ')), 4)
+            self.app.allow_account_management = True
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/account', {'REQUEST_METHOD': 'OPTIONS'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            print resp.headers['Allow']
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['Allow'])
+            self.assertEquals(len(resp.headers['Allow'].split(', ')), 6)
 
     def test_GET(self):
         with save_globals():

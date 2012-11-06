@@ -213,7 +213,9 @@ class Application(object):
                 handler = getattr(controller, req.method)
                 getattr(handler, 'publicly_accessible')
             except AttributeError:
-                return HTTPMethodNotAllowed(request=req)
+                allowed_methods = getattr(controller, 'allowed_methods', set())
+                return HTTPMethodNotAllowed(
+                    request=req, headers={'Allow': ', '.join(allowed_methods)})
             if path_parts['version']:
                 req.path_info_pop()
             if 'swift.authorize' in req.environ:
