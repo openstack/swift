@@ -585,6 +585,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(eval(resp.body), json_body)
         self.assertEquals(resp.charset, 'utf-8')
 
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/json')
+
         for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',
                  '*/*;q=0.9,application/json;q=1.0', 'application/*'):
             req = Request.blank('/sda1/p/a/jsonc',
@@ -593,6 +596,10 @@ class TestContainerController(unittest.TestCase):
             resp = self.controller.GET(req)
             self.assertEquals(eval(resp.body), json_body,
                 'Invalid body for Accept: %s' % accept)
+            self.assertEquals(resp.content_type, 'application/json',
+                'Invalid content_type for Accept: %s' % accept)
+
+            resp = self.controller.HEAD(req)
             self.assertEquals(resp.content_type, 'application/json',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -624,6 +631,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.body, plain_body)
         self.assertEquals(resp.charset, 'utf-8')
 
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'text/plain')
+
         for accept in ('', 'text/plain', 'application/xml;q=0.8,*/*;q=0.9',
                 '*/*;q=0.9,application/xml;q=0.8', '*/*',
                 'text/plain,application/xml'):
@@ -633,6 +643,10 @@ class TestContainerController(unittest.TestCase):
             resp = self.controller.GET(req)
             self.assertEquals(resp.body, plain_body,
                 'Invalid body for Accept: %s' % accept)
+            self.assertEquals(resp.content_type, 'text/plain',
+                'Invalid content_type for Accept: %s' % accept)
+
+            resp = self.controller.HEAD(req)
             self.assertEquals(resp.content_type, 'text/plain',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -725,6 +739,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.body, xml_body)
         self.assertEquals(resp.charset, 'utf-8')
 
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/xml')
+
         for xml_accept in ('application/xml', 'application/xml;q=1.0,*/*;q=0.9',
                  '*/*;q=0.9,application/xml;q=1.0', 'application/xml,text/xml'):
             req = Request.blank('/sda1/p/a/xmlc',
@@ -733,6 +750,10 @@ class TestContainerController(unittest.TestCase):
             resp = self.controller.GET(req)
             self.assertEquals(resp.body, xml_body,
                 'Invalid body for Accept: %s' % xml_accept)
+            self.assertEquals(resp.content_type, 'application/xml',
+                'Invalid content_type for Accept: %s' % xml_accept)
+
+            resp = self.controller.HEAD(req)
             self.assertEquals(resp.content_type, 'application/xml',
                 'Invalid content_type for Accept: %s' % xml_accept)
 
@@ -1024,6 +1045,40 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.DELETE(Request.blank('/sda1/p/a/.c/.o',
             environ={'REQUEST_METHOD': 'DELETE'}, headers=dict(headers)))
         self.assertEquals(resp.status_int, 404)
+
+    def test_content_type_on_HEAD(self):
+        self.controller.PUT(Request.blank('/sda1/p/a/o',
+                            headers={'X-Timestamp': normalize_timestamp(1)},
+                            environ={'REQUEST_METHOD': 'PUT'}))
+
+        env = {'REQUEST_METHOD': 'HEAD'}
+
+        req = Request.blank('/sda1/p/a/o?format=xml', environ=env)
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/xml')
+        self.assertEquals(resp.charset, 'utf-8')
+
+        req = Request.blank('/sda1/p/a/o?format=json', environ=env)
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(resp.charset, 'utf-8')
+
+        req = Request.blank('/sda1/p/a/o', environ=env)
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'text/plain')
+        self.assertEquals(resp.charset, 'utf-8')
+
+        req = Request.blank(
+            '/sda1/p/a/o', headers={'Accept': 'application/json'}, environ=env)
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(resp.charset, 'utf-8')
+
+        req = Request.blank(
+            '/sda1/p/a/o', headers={'Accept': 'application/xml'}, environ=env)
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.content_type, 'application/xml')
+        self.assertEquals(resp.charset, 'utf-8')
 
 
 if __name__ == '__main__':

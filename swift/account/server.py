@@ -194,8 +194,20 @@ class AccountController(object):
         headers.update((key, value)
                        for key, (value, timestamp) in
                        broker.metadata.iteritems() if value != '')
+        if get_param(req, 'format'):
+            req.accept = FORMAT2CONTENT_TYPE.get(
+                get_param(req, 'format').lower(), FORMAT2CONTENT_TYPE['plain'])
+        try:
+            headers['Content-Type'] = req.accept.best_match(
+                ['text/plain', 'application/json', 'application/xml',
+                 'text/xml'],
+                default_match='text/plain')
+        except AssertionError, err:
+            self.logger.increment('HEAD.errors')
+            return HTTPBadRequest(body='bad accept header: %s' % req.accept,
+                                  content_type='text/plain', request=req)
         self.logger.timing_since('HEAD.timing', start_time)
-        return HTTPNoContent(request=req, headers=headers)
+        return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
     def GET(self, req):
