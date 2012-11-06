@@ -330,4 +330,4 @@ use = egg:swift#proxy_logging
 # access_log_headers = False
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
-# log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY
+# log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS

@@ -146,6 +146,7 @@ class TestProxyLogging(unittest.TestCase):
             'HEAD': 'HEAD',
             'POST': 'POST',
             'DELETE': 'DELETE',
+            'OPTIONS': 'OPTIONS',
         }
         for method, exp_method in method_map.iteritems():
             app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})

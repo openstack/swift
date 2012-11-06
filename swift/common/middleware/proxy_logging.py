@@ -100,7 +100,7 @@ class ProxyLoggingMiddleware(object):
         self.valid_methods = conf.get(
             'access_log_statsd_valid_http_methods',
             conf.get('log_statsd_valid_http_methods',
-                     'GET,HEAD,POST,PUT,DELETE,COPY'))
+                     'GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS'))
         self.valid_methods = [m.strip().upper() for m in
                               self.valid_methods.split(',') if m.strip()]
         access_log_conf = {}

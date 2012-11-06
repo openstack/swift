@@ -794,9 +794,9 @@ Metrics for `proxy-logging` middleware (in the table, `<type>` is either the
 proxy-server controller responsible for the request: "account", "container",
 "object", or the string "SOS" if the request came from the `Swift Origin Server`_
 middleware.  The `<verb>` portion will be one of "GET", "HEAD", "POST", "PUT",
-"DELETE", "COPY", or "BAD_METHOD".  The list of valid HTTP methods is
-configurable via the `log_statsd_valid_http_methods` config variable and the
-default setting yields the above behavior.
+"DELETE", "COPY", "OPTIONS", or "BAD_METHOD".  The list of valid HTTP methods
+is configurable via the `log_statsd_valid_http_methods` config variable and
+the default setting yields the above behavior.
 
 .. _Swift Origin Server: https://github.com/dpgoetz/sos
 
