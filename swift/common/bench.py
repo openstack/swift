@@ -116,7 +116,7 @@ class BenchServer(object):
             level = logging.DEBUG if conf.log_level.lower() == 'debug' \
                 else logging.INFO
             logger.setLevel(level)
-            loghandler = logging.StreamHandler(stream=client_file)
+            loghandler = logging.StreamHandler(client_file)
             logformat = logging.Formatter(
                 '%(server)s %(asctime)s %(levelname)s %(message)s')
             loghandler.setFormatter(logformat)
