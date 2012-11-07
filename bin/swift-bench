@@ -127,6 +127,7 @@ if __name__ == '__main__':
             sys.exit("No such conf file: %s" % conf)
         conf = readconf(conf, 'bench', log_name='swift-bench',
                         defaults=CONF_DEFAULTS)
+        conf['bench_clients'] = []
     else:
         conf = CONF_DEFAULTS
     parser.set_defaults(**conf)
