@@ -631,7 +631,7 @@ class ObjectController(object):
                 'X-Timestamp': request.headers['x-timestamp'],
                 'Content-Type': request.headers['content-type'],
                 'ETag': etag,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(upload_size),
             }
             metadata.update(val for val in request.headers.iteritems()
                             if val[0].lower().startswith('x-object-meta-') and
