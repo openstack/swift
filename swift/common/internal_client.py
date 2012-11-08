@@ -214,7 +214,10 @@ class InternalClient(object):
         :raises Exception: Exception is raised when code fails in an
                            unexpected way.
         """
-
+        if isinstance(marker, unicode):
+            marker = marker.encode('utf8')
+        if isinstance(end_marker, unicode):
+            end_marker = end_marker.encode('utf8')
         while True:
             resp = self.make_request(
                 'GET', '%s?format=json&marker=%s&end_marker=%s' %
@@ -227,7 +230,7 @@ class InternalClient(object):
                 break
             for item in data:
                 yield item
-            marker = data[-1]['name']
+            marker = data[-1]['name'].encode('utf8')
 
     def make_path(self, account, container=None, obj=None):
         """

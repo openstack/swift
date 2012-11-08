@@ -285,6 +285,47 @@ class TestObjectExpirer(TestCase):
                '2 possible objects',), {}),
              (('Pass completed in 0s; 1 objects expired',), {})])
 
+    def test_delete_actual_object_does_not_get_unicode(self):
+        class InternalClient(object):
+            def __init__(self, containers, objects):
+                self.containers = containers
+                self.objects = objects
+
+            def get_account_info(*a, **kw):
+                return 1, 2
+
+            def iter_containers(self, *a, **kw):
+                return self.containers
+
+            def delete_container(*a, **kw):
+                pass
+
+            def delete_object(*a, **kw):
+                pass
+
+            def iter_objects(self, *a, **kw):
+                return self.objects
+
+        got_unicode = [False]
+
+        def delete_actual_object_test_for_unicode(actual_obj, timestamp):
+            if isinstance(actual_obj, unicode):
+                got_unicode[0] = True
+
+        x = expirer.ObjectExpirer({})
+        x.logger = FakeLogger()
+        x.delete_actual_object = delete_actual_object_test_for_unicode
+        self.assertEquals(x.report_objects, 0)
+        x.swift = InternalClient([{'name': str(int(time() - 86400))}],
+            [{'name': u'%d-actual-obj' % int(time() - 86400)}])
+        x.run_once()
+        self.assertEquals(x.report_objects, 1)
+        self.assertEquals(x.logger.log_dict['info'],
+            [(('Pass beginning; 1 possible containers; '
+               '2 possible objects',), {}),
+             (('Pass completed in 0s; 1 objects expired',), {})])
+        self.assertFalse(got_unicode[0])
+
     def test_failed_delete_continues_on(self):
         class InternalClient(object):
             def __init__(self, containers, objects):
@@ -415,6 +456,24 @@ class TestObjectExpirer(TestCase):
         ts = '1234'
         x.delete_actual_object('/path/to/object', ts)
         self.assertEquals(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
+
+    def test_delete_actual_object_nourlquoting(self):
+        # delete_actual_object should not do its own url quoting because
+        # internal client's make_request handles that.
+        got_env = [None]
+
+        def fake_app(env, start_response):
+            got_env[0] = env
+            start_response('204 No Content', [('Content-Length', '0')])
+            return []
+
+        internal_client.loadapp = lambda x: fake_app
+
+        x = expirer.ObjectExpirer({})
+        ts = '1234'
+        x.delete_actual_object('/path/to/object name', ts)
+        self.assertEquals(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
+        self.assertEquals(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
 
     def test_delete_actual_object_handles_404(self):
 

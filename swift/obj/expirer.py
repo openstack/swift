@@ -15,7 +15,6 @@
 
 from random import random
 from time import time
-from urllib import quote
 from os.path import join
 
 from eventlet import sleep, Timeout
@@ -25,11 +24,6 @@ from swift.common.internal_client import InternalClient
 from swift.common.utils import get_logger, dump_recon_cache
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
-
-try:
-    import simplejson as json
-except ImportError:
-    import json
 
 
 class ObjectExpirer(Daemon):
@@ -104,7 +98,7 @@ class ObjectExpirer(Daemon):
                     break
                 for o in self.swift.iter_objects(self.expiring_objects_account,
                                                  container):
-                    obj = o['name']
+                    obj = o['name'].encode('utf8')
                     timestamp, actual_obj = obj.split('-', 1)
                     timestamp = int(timestamp)
                     if timestamp > int(time()):
@@ -168,6 +162,6 @@ class ObjectExpirer(Daemon):
         :param timestamp: The timestamp the X-Delete-At value must match to
                           perform the actual delete.
         """
-        self.swift.make_request('DELETE', '/v1/%s' % (quote(actual_obj),),
+        self.swift.make_request('DELETE', '/v1/%s' % actual_obj.lstrip('/'),
                                 {'X-If-Delete-At': str(timestamp)},
                                 (2, HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED))

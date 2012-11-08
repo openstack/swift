@@ -484,12 +484,12 @@ class TestInternalClient(unittest.TestCase):
 
         paths = [
             '/?format=json&marker=start&end_marker=end',
-            '/?format=json&marker=one&end_marker=end',
+            '/?format=json&marker=one%C3%A9&end_marker=end',
             '/?format=json&marker=two&end_marker=end',
         ]
 
         responses = [
-            Response(200, json.dumps([{'name': 'one'}, ])),
+            Response(200, json.dumps([{'name': 'one\xc3\xa9'}, ])),
             Response(200, json.dumps([{'name': 'two'}, ])),
             Response(204, ''),
         ]
@@ -497,9 +497,9 @@ class TestInternalClient(unittest.TestCase):
         items = []
         client = InternalClient(self, paths, responses)
         for item in client._iter_items('/', marker='start', end_marker='end'):
-            items.append(item['name'])
+            items.append(item['name'].encode('utf8'))
 
-        self.assertEquals('one two'.split(), items)
+        self.assertEquals('one\xc3\xa9 two'.split(), items)
 
     def test_set_metadata(self):
         class InternalClient(internal_client.InternalClient):
