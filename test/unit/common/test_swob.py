@@ -397,7 +397,7 @@ class TestStatusMap(unittest.TestCase):
         self.assert_('The resource could not be found.' in body)
         self.assertEquals(response_args[0], '404 Not Found')
         headers = dict(response_args[1])
-        self.assertEquals(headers['content-type'], 'text/html')
+        self.assertEquals(headers['content-type'], 'text/html; charset=UTF-8')
         self.assert_(int(headers['content-length']) > 0)
 
 
