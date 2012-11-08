@@ -955,12 +955,29 @@ class Response(object):
                 return [body]
         return ['']
 
+    def absolute_location(self):
+        """
+        Attempt to construct an absolute location.
+        """
+        if not self.location.startswith('/'):
+            return self.location
+        if 'HTTP_HOST' in self.environ:
+            host = self.environ['HTTP_HOST']
+        else:
+            host = '%s:%s' % (self.environ['SERVER_NAME'],
+                              self.environ['SERVER_PORT'])
+        scheme = self.environ.get('wsgi.url_scheme', 'http')
+        if scheme == 'http' and host.endswith(':80'):
+            host, port = host.rsplit(':', 1)
+        elif scheme == 'https' and host.endswith(':443'):
+            host, port = host.rsplit(':', 1)
+        return '%s://%s%s' % (scheme, host, self.location)
+
     def __call__(self, env, start_response):
         self.environ = env
         app_iter = self._response_iter(self.app_iter, self._body)
-        if 'location' in self.headers and self.location.startswith('/'):
-            self.location = self.environ['wsgi.url_scheme'] + '://' \
-                + self.environ['SERVER_NAME'] + self.location
+        if 'location' in self.headers:
+            self.location = self.absolute_location()
         start_response(self.status, self.headers.items())
         return app_iter
 
