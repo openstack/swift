@@ -264,6 +264,15 @@ class DiskFile(object):
         """
         return not self.data_file or 'deleted' in self.metadata
 
+    def is_expired(self):
+        """
+        Check if the file is expired.
+
+        :returns: True if the file has an X-Delete-At in the past
+        """
+        return ('X-Delete-At' in self.metadata and
+                int(self.metadata['X-Delete-At']) <= time.time())
+
     @contextmanager
     def mkstemp(self):
         """Contextmanager to make a temporary file."""
@@ -534,13 +543,8 @@ class ObjectController(object):
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
 
-        if 'X-Delete-At' in file.metadata and \
-                int(file.metadata['X-Delete-At']) <= time.time():
+        if file.is_deleted() or file.is_expired():
             return HTTPNotFound(request=request)
-        if file.is_deleted():
-            response_class = HTTPNotFound
-        else:
-            response_class = HTTPAccepted
         try:
             file_size = file.get_data_file_size()
         except (DiskFileError, DiskFileNotExist):
@@ -563,7 +567,7 @@ class ObjectController(object):
                                       container, obj, request.headers, device)
         with file.mkstemp() as (fd, tmppath):
             file.put(fd, tmppath, metadata, extension='.meta')
-        return response_class(request=request)
+        return HTTPAccepted(request=request)
 
     @public
     @timing_stats
@@ -682,9 +686,7 @@ class ObjectController(object):
                         obj, self.logger, keep_data_fp=True,
                         disk_chunk_size=self.disk_chunk_size,
                         iter_hook=sleep)
-        if file.is_deleted() or \
-                ('X-Delete-At' in file.metadata and
-                 int(file.metadata['X-Delete-At']) <= time.time()):
+        if file.is_deleted() or file.is_expired():
             if request.headers.get('if-match') == '*':
                 return HTTPPreconditionFailed(request=request)
             else:
@@ -764,9 +766,7 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
-        if file.is_deleted() or \
-                ('X-Delete-At' in file.metadata and
-                 int(file.metadata['X-Delete-At']) <= time.time()):
+        if file.is_deleted() or file.is_expired():
             return HTTPNotFound(request=request)
         try:
             file_size = file.get_data_file_size()
@@ -816,7 +816,7 @@ class ObjectController(object):
                 request=request,
                 body='X-If-Delete-At and X-Delete-At do not match')
         orig_timestamp = file.metadata.get('X-Timestamp')
-        if file.is_deleted():
+        if file.is_deleted() or file.is_expired():
             response_class = HTTPNotFound
         metadata = {
             'X-Timestamp': request.headers['X-Timestamp'], 'deleted': True,

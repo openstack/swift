@@ -2061,6 +2061,29 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.time.time = orig_time
 
+    def test_DELETE_but_expired(self):
+        test_time = time() + 10000
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+                     'X-Delete-At': str(int(test_time + 100)),
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        orig_time = object_server.time.time
+        try:
+            t = test_time + 100
+            object_server.time.time = lambda: float(t)
+            req = Request.blank('/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': normalize_timestamp(time())})
+            resp = self.object_controller.DELETE(req)
+            self.assertEquals(resp.status_int, 404)
+        finally:
+            object_server.time.time = orig_time
+
     def test_DELETE_if_delete_at(self):
         test_time = time() + 10000
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
