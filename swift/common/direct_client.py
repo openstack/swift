@@ -296,7 +296,7 @@ def direct_put_object(node, part, account, container, name, contents,
     :param account: account name
     :param container: container name
     :param name: object name
-    :param contents: a string to read object data from
+    :param contents: an iterable or string to read object data from
     :param content_length: value to send as content-length header
     :param etag: etag of contents
     :param content_type: value to send as content-type header
@@ -320,11 +320,14 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Type'] = 'application/octet-stream'
     if not contents:
         headers['Content-Length'] = '0'
+    if isinstance(contents, basestring):
+        contents = [contents]
     headers['X-Timestamp'] = normalize_timestamp(time())
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                 'PUT', path, headers=headers)
-    conn.send(contents)
+    for chunk in contents:
+        conn.send(chunk)
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
