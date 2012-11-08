@@ -944,14 +944,14 @@ class Response(object):
                                                         _body_slicer)
         if app_iter:
             return app_iter
-        if body:
+        if body is not None:
             return [body]
         if self.status_int in RESPONSE_REASONS:
             title, exp = RESPONSE_REASONS[self.status_int]
+            self.content_type = 'text/html; charset=UTF-8'
             if exp:
                 body = '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
                 self.content_length = len(body)
-                self.content_type = 'text/html'
                 return [body]
         return ['']
 
