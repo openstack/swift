@@ -437,11 +437,64 @@ class TestResponse(unittest.TestCase):
     def test_location_rewrite(self):
         def start_response(env, headers):
             pass
-        req = swift.common.swob.Request.blank('/')
+        req = swift.common.swob.Request.blank(
+            '/', environ={'HTTP_HOST': 'somehost'})
         resp = self._get_response()
         resp.location = '/something'
         body = ''.join(resp(req.environ, start_response))
-        self.assertEquals(resp.location, 'http://localhost/something')
+        self.assertEquals(resp.location, 'http://somehost/something')
+
+        req = swift.common.swob.Request.blank(
+            '/', environ={'HTTP_HOST': 'somehost:80'})
+        resp = self._get_response()
+        resp.location = '/something'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'http://somehost/something')
+
+        req = swift.common.swob.Request.blank(
+            '/', environ={'HTTP_HOST': 'somehost:443',
+                          'wsgi.url_scheme': 'http'})
+        resp = self._get_response()
+        resp.location = '/something'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'http://somehost:443/something')
+
+        req = swift.common.swob.Request.blank(
+            '/', environ={'HTTP_HOST': 'somehost:443',
+                          'wsgi.url_scheme': 'https'})
+        resp = self._get_response()
+        resp.location = '/something'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'https://somehost/something')
+
+    def test_location_rewrite_no_host(self):
+        def start_response(env, headers):
+            pass
+        req = swift.common.swob.Request.blank(
+            '/', environ={'SERVER_NAME': 'local', 'SERVER_PORT': 80})
+        del req.environ['HTTP_HOST']
+        resp = self._get_response()
+        resp.location = '/something'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'http://local/something')
+
+        req = swift.common.swob.Request.blank(
+            '/', environ={'SERVER_NAME': 'local', 'SERVER_PORT': 81})
+        del req.environ['HTTP_HOST']
+        resp = self._get_response()
+        resp.location = '/something'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'http://local:81/something')
+
+    def test_location_no_rewrite(self):
+        def start_response(env, headers):
+            pass
+        req = swift.common.swob.Request.blank(
+            '/', environ={'HTTP_HOST': 'somehost'})
+        resp = self._get_response()
+        resp.location = 'http://www.google.com/'
+        body = ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, 'http://www.google.com/')
 
     def test_app_iter(self):
         def start_response(env, headers):
