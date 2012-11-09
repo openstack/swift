@@ -98,7 +98,7 @@ elif len(args) == 1:
 more_nodes = []
 for more_node in ring.get_more_nodes(part):
     more_nodes.append(more_node)
-    if not options.all and len(more_nodes) >= ring.replica_count:
+    if not options.all and len(more_nodes) >= len(nodes):
         break
 
 print '\nAccount \t%s' % account

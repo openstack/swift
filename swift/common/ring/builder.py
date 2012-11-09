@@ -166,6 +166,23 @@ class RingBuilder(object):
         """
         self.min_part_hours = min_part_hours
 
+    def set_replicas(self, new_replica_count):
+        """
+        Changes the number of replicas in this ring.
+
+        If the new replica count is sufficiently different that
+        self._replica2part2dev will change size, sets
+        self.devs_changed. This is so tools like
+        bin/swift-ring-builder can know to write out the new ring
+        rather than bailing out due to lack of balance change.
+        """
+        old_slots_used = int(self.parts * self.replicas)
+        new_slots_used = int(self.parts * new_replica_count)
+        if old_slots_used != new_slots_used:
+            self.devs_changed = True
+
+        self.replicas = new_replica_count
+
     def get_ring(self):
         """
         Get the ring, or more specifically, the swift.common.ring.RingData.
@@ -305,6 +322,10 @@ class RingBuilder(object):
         retval = 0
         self._update_last_part_moves()
         last_balance = 0
+        new_parts, removed_part_count = self._adjust_replica2part2dev_size()
+        retval += removed_part_count
+        self._reassign_parts(new_parts)
+        retval += len(new_parts)
         while True:
             reassign_parts = self._gather_reassign_parts()
             self._reassign_parts(reassign_parts)
@@ -340,12 +361,13 @@ class RingBuilder(object):
 
         # "len" showed up in profiling, so it's just computed once.
         dev_len = len(self.devs)
-        if sum(d['parts'] for d in self._iter_devs()) != \
-                self.parts * self.replicas:
+
+        parts_on_devs = sum(d['parts'] for d in self._iter_devs())
+        parts_in_map = sum(len(p2d) for p2d in self._replica2part2dev)
+        if parts_on_devs != parts_in_map:
             raise exceptions.RingValidationError(
                 'All partitions are not double accounted for: %d != %d' %
-                (sum(d['parts'] for d in self._iter_devs()),
-                 self.parts * self.replicas))
+                (parts_on_devs, parts_in_map))
         if stats:
             # dev_usage[dev_id] will equal the number of partitions assigned to
             # that device.
@@ -354,14 +376,13 @@ class RingBuilder(object):
                 for dev_id in part2dev:
                     dev_usage[dev_id] += 1
 
-        for part in xrange(self.parts):
-            for replica in xrange(self.replicas):
-                dev_id = self._replica2part2dev[replica][part]
-                if dev_id >= dev_len or not self.devs[dev_id]:
-                    raise exceptions.RingValidationError(
-                        "Partition %d, replica %d was not allocated "
-                        "to a device." %
-                        (part, replica))
+        for part, replica in self._each_part_replica():
+            dev_id = self._replica2part2dev[replica][part]
+            if dev_id >= dev_len or not self.devs[dev_id]:
+                raise exceptions.RingValidationError(
+                    "Partition %d, replica %d was not allocated "
+                    "to a device." %
+                    (part, replica))
 
         for dev in self._iter_devs():
             if not isinstance(dev['port'], int):
@@ -428,12 +449,17 @@ class RingBuilder(object):
 
     def get_part_devices(self, part):
         """
-        Get the devices that are responsible for the partition.
+        Get the devices that are responsible for the partition,
+        filtering out duplicates.
 
         :param part: partition to get devices for
         :returns: list of device dicts
         """
-        return [self.devs[r[part]] for r in self._replica2part2dev]
+        devices = []
+        for dev in self._devs_for_part(part):
+            if dev not in devices:
+                devices.append(dev)
+        return devices
 
     def _iter_devs(self):
         """
@@ -466,19 +492,83 @@ class RingBuilder(object):
                 dev['parts_wanted'] = \
                     int(weight_of_one_part * dev['weight']) - dev['parts']
 
+    def _adjust_replica2part2dev_size(self):
+        """
+        Make sure that the lengths of the arrays in _replica2part2dev
+        are correct for the current value of self.replicas.
+
+        Example:
+        self.part_power = 8
+        self.replicas = 2.25
+
+        self._replica2part2dev will contain 3 arrays: the first 2 of
+        length 256 (2**8), and the last of length 64 (0.25 * 2**8).
+
+        Returns a 2-tuple: the first element is a list of (partition,
+        replicas) tuples indicating which replicas need to be
+        (re)assigned to devices, and the second element is a count of
+        how many replicas were removed.
+        """
+        removed_replicas = 0
+
+        fractional_replicas, whole_replicas = math.modf(self.replicas)
+        whole_replicas = int(whole_replicas)
+
+        desired_lengths = [self.parts] * whole_replicas
+        if fractional_replicas:
+            desired_lengths.append(int(self.parts * fractional_replicas))
+
+        to_assign = defaultdict(list)
+
+        if self._replica2part2dev is not None:
+            # If we crossed an integer threshold (say, 4.1 --> 4),
+            # we'll have a partial extra replica clinging on here. Clean
+            # up any such extra stuff.
+            for part2dev in self._replica2part2dev[len(desired_lengths):]:
+                for dev_id in part2dev:
+                    dev_losing_part = self.devs[dev_id]
+                    dev_losing_part['parts'] -= 1
+                    removed_replicas += 1
+            self._replica2part2dev = \
+                self._replica2part2dev[:len(desired_lengths)]
+        else:
+            self._replica2part2dev = []
+
+        for replica, desired_length in enumerate(desired_lengths):
+            if replica < len(self._replica2part2dev):
+                part2dev = self._replica2part2dev[replica]
+                if len(part2dev) < desired_length:
+                    # Not long enough: needs to be extended and the
+                    # newly-added pieces assigned to devices.
+                    for part in xrange(len(part2dev), desired_length):
+                        to_assign[part].append(replica)
+                        part2dev.append(0)
+                elif len(part2dev) > desired_length:
+                    # Too long: truncate this mapping.
+                    for part in xrange(desired_length, len(part2dev)):
+                        dev_losing_part = self.devs[part2dev[part]]
+                        dev_losing_part['parts'] -= 1
+                        removed_replicas += 1
+                    self._replica2part2dev[replica] = part2dev[:desired_length]
+            else:
+                # Mapping not present at all: make one up and assign
+                # all of it.
+                for part in xrange(desired_length):
+                    to_assign[part].append(replica)
+                self._replica2part2dev.append(
+                    array('H', (0 for _junk in xrange(desired_length))))
+
+        return (list(to_assign.iteritems()), removed_replicas)
+
     def _initial_balance(self):
         """
         Initial partition assignment is the same as rebalancing an
         existing ring, but with some initial setup beforehand.
         """
-        self._replica2part2dev = \
-            [array('H', (0 for _junk in xrange(self.parts)))
-             for _junk in xrange(self.replicas)]
-
-        replicas = range(self.replicas)
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
-        self._reassign_parts((p, replicas) for p in xrange(self.parts))
+
+        self._reassign_parts(self._adjust_replica2part2dev_size()[0])
 
     def _update_last_part_moves(self):
         """
@@ -515,12 +605,11 @@ class RingBuilder(object):
         if self._remove_devs:
             dev_ids = [d['id'] for d in self._remove_devs if d['parts']]
             if dev_ids:
-                for replica in xrange(self.replicas):
-                    part2dev = self._replica2part2dev[replica]
-                    for part in xrange(self.parts):
-                        if part2dev[part] in dev_ids:
-                            self._last_part_moves[part] = 0
-                            removed_dev_parts[part].append(replica)
+                for part, replica in self._each_part_replica():
+                    dev_id = self._replica2part2dev[replica][part]
+                    if dev_id in dev_ids:
+                        self._last_part_moves[part] = 0
+                        removed_dev_parts[part].append(replica)
 
         # Now we gather partitions that are "at risk" because they aren't
         # currently sufficient spread out across the cluster.
@@ -536,8 +625,7 @@ class RingBuilder(object):
             # replicas_at_tier was a "lambda: 0" defaultdict, but profiling
             # revealed the lambda invocation as a significant cost.
             replicas_at_tier = {}
-            for replica in xrange(self.replicas):
-                dev = self.devs[self._replica2part2dev[replica][part]]
+            for dev in self._devs_for_part(part):
                 if dev['id'] not in tfd:
                     tfd[dev['id']] = tiers_for_dev(dev)
                 for tier in tfd[dev['id']]:
@@ -548,7 +636,7 @@ class RingBuilder(object):
 
             # Now, look for partitions not yet spread out enough and not
             # recently moved.
-            for replica in xrange(self.replicas):
+            for replica in self._replicas_for_part(part):
                 dev = self.devs[self._replica2part2dev[replica][part]]
                 removed_replica = False
                 if dev['id'] not in tfd:
@@ -584,10 +672,14 @@ class RingBuilder(object):
         start += random.randint(0, self.parts / 2)  # GRAH PEP8!!!
 
         self._last_part_gather_start = start
-        for replica in xrange(self.replicas):
-            part2dev = self._replica2part2dev[replica]
-            for part in itertools.chain(xrange(start, self.parts),
-                                        xrange(0, start)):
+        for replica, part2dev in enumerate(self._replica2part2dev):
+            # If we've got a partial replica, start may be out of
+            # range. Scale it down so that we get a similar movement
+            # pattern (but scaled down) on sequential runs.
+            this_start = int(float(start) * len(part2dev) / self.parts)
+
+            for part in itertools.chain(xrange(this_start, len(part2dev)),
+                                        xrange(0, this_start)):
                 if self._last_part_moves[part] < self.min_part_hours:
                     continue
                 if part in removed_dev_parts or part in spread_out_parts:
@@ -673,7 +765,7 @@ class RingBuilder(object):
             # replicas not-to-be-moved are in for this part.
             other_replicas = defaultdict(int)
             unique_tiers_by_tier_len = defaultdict(set)
-            for replica in xrange(self.replicas):
+            for replica in self._replicas_for_part(part):
                 if replica not in replace_replicas:
                     dev = self.devs[self._replica2part2dev[replica][part]]
                     for tier in tiers_for_dev(dev):
@@ -832,6 +924,35 @@ class RingBuilder(object):
                     mr.update(walk_tree(subtier, submax))
             return mr
         return walk_tree((), self.replicas)
+
+    def _devs_for_part(self, part):
+        """
+        Returns a list of devices for a specified partition.
+
+        Deliberately includes duplicates.
+        """
+        return [self.devs[part2dev[part]]
+                for part2dev in self._replica2part2dev
+                if part < len(part2dev)]
+
+    def _replicas_for_part(self, part):
+        """
+        Returns a list of replicas for a specified partition.
+
+        These can be used as indices into self._replica2part2dev
+        without worrying about IndexErrors.
+        """
+        return [replica for replica, part2dev
+                in enumerate(self._replica2part2dev)
+                if part < len(part2dev)]
+
+    def _each_part_replica(self):
+        """
+        Generator yielding every (partition, replica) pair in the ring.
+        """
+        for replica, part2dev in enumerate(self._replica2part2dev):
+            for part in xrange(len(part2dev)):
+                yield (part, replica)
 
     @classmethod
     def load(cls, builder_file, open=open):

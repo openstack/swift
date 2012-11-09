@@ -62,7 +62,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         if len(argv) < 6:
             print Commands.create.__doc__.strip()
             exit(EXIT_ERROR)
-        builder = RingBuilder(int(argv[3]), int(argv[4]), int(argv[5]))
+        builder = RingBuilder(int(argv[3]), float(argv[4]), int(argv[5]))
         backup_dir = pathjoin(dirname(argv[1]), 'backups')
         try:
             mkdir(backup_dir)
@@ -85,7 +85,7 @@ swift-ring-builder <builder_file>
         if builder.devs:
             zones = len(set(d['zone'] for d in builder.devs if d is not None))
             balance = builder.get_balance()
-        print '%d partitions, %d replicas, %d zones, %d devices, %.02f ' \
+        print '%d partitions, %.6f replicas, %d zones, %d devices, %.02f ' \
               'balance' % (builder.parts, builder.replicas, zones,
                            len([d for d in builder.devs if d]), balance)
         print 'The minimum number of hours before a partition can be ' \
@@ -586,6 +586,37 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 
+    def set_replicas():
+        """
+swift-ring-builder <builder_file> set_replicas <replicas>
+    Changes the replica count to the given <replicas>. <replicas> may
+    be a floating-point value, in which case some partitions will have
+    floor(<replicas>) replicas and some will have ceiling(<replicas>)
+    in the correct proportions.
+
+    A rebalance is needed to make the change take effect.
+    """
+        if len(argv) < 4:
+            print Commands.set_replicas.__doc__.strip()
+            exit(EXIT_ERROR)
+
+        new_replicas = argv[3]
+        try:
+            new_replicas = float(new_replicas)
+        except ValueError:
+            print Commands.set_replicas.__doc__.strip()
+            print "\"%s\" is not a valid number." % new_replicas
+            exit(EXIT_ERROR)
+
+        if new_replicas < 1:
+            print "Replica count must be at least 1."
+            exit(EXIT_ERROR)
+
+        builder.set_replicas(new_replicas)
+        print 'The replica count is now %.6f.' % builder.replicas
+        print 'The change will take effect after the next rebalance.'
+        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        exit(EXIT_SUCCESS)
 
 if __name__ == '__main__':
     if len(argv) < 2:

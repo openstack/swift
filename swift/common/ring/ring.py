@@ -163,7 +163,7 @@ class Ring(object):
 
     @property
     def replica_count(self):
-        """Number of replicas used in the ring."""
+        """Number of replicas (full or partial) used in the ring."""
         return len(self._replica2part2dev_id)
 
     @property
@@ -189,7 +189,8 @@ class Ring(object):
 
     def _get_part_nodes(self, part):
         seen_ids = set()
-        return [self._devs[r[part]] for r in self._replica2part2dev_id
+        return [self._devs[r[part]] for r in
+                (rpd for rpd in self._replica2part2dev_id if len(rpd) > part)
                 if not (r[part] in seen_ids or seen_ids.add(r[part]))]
 
     def get_part_nodes(self, part):
@@ -255,8 +256,9 @@ class Ring(object):
             self._reload()
         used_tiers = set()
         for part2dev_id in self._replica2part2dev_id:
-            for tier in tiers_for_dev(self._devs[part2dev_id[part]]):
-                used_tiers.add(tier)
+            if len(part2dev_id) > part:
+                for tier in tiers_for_dev(self._devs[part2dev_id[part]]):
+                    used_tiers.add(tier)
 
         for level in self.tiers_by_length:
             tiers = list(level)
