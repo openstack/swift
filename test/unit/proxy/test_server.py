@@ -3535,7 +3535,7 @@ class TestObjectController(unittest.TestCase):
                     'cors': {
                         'allow_origin': 'http://foo.bar:8080 https://foo.bar',
                         'allow_headers': 'x-foo',
-                        'max_age': 999,
+                        'max_age': '999',
                     }
                 }
             controller.container_info = my_container_info
@@ -3595,7 +3595,7 @@ class TestObjectController(unittest.TestCase):
                     'cors': {
                         'allow_origin': '*',
                         'allow_headers': 'x-foo',
-                        'max_age': 999,
+                        'max_age': '999',
                     }
                 }
             controller.container_info = my_container_info_wildcard
@@ -4141,7 +4141,7 @@ class TestContainerController(unittest.TestCase):
                     'cors': {
                         'allow_origin': 'http://foo.bar:8080 https://foo.bar',
                         'allow_headers': 'x-foo',
-                        'max_age': 999,
+                        'max_age': '999',
                     }
                 }
             controller.container_info = my_container_info
@@ -4202,7 +4202,7 @@ class TestContainerController(unittest.TestCase):
                     'cors': {
                         'allow_origin': '*',
                         'allow_headers': 'x-foo',
-                        'max_age': 999,
+                        'max_age': '999',
                     }
                 }
             controller.container_info = my_container_info_wildcard
