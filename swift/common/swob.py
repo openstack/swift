@@ -847,7 +847,8 @@ class Response(object):
 
     def __init__(self, body=None, status=200, headers={}, app_iter=None,
                  request=None, conditional_response=False, **kw):
-        self.headers = HeaderKeyDict()
+        self.headers = HeaderKeyDict(
+            [('Content-Type', 'text/html; charset=UTF-8')])
         self.conditional_response = conditional_response
         self.request = request
         self.body = body
@@ -948,7 +949,6 @@ class Response(object):
             return [body]
         if self.status_int in RESPONSE_REASONS:
             title, exp = RESPONSE_REASONS[self.status_int]
-            self.content_type = 'text/html; charset=UTF-8'
             if exp:
                 body = '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
                 self.content_length = len(body)

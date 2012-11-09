@@ -541,6 +541,28 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 204)
 
+    def test_delete_content_type(self):
+        if skip:
+            raise SkipTest
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/hi' % (parsed.path,
+                self.container), 'there', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE', '%s/%s/hi' % (parsed.path, self.container),
+                '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(delete)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEquals(resp.getheader('Content-Type'),
+                          'text/html; charset=UTF-8')
+
 
 if __name__ == '__main__':
     unittest.main()

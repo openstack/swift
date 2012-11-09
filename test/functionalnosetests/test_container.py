@@ -522,6 +522,21 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 201)
 
+    def test_long_name_content_type(self):
+        if skip:
+            raise SkipTest
+
+        def put(url, token, parsed, conn):
+            container_name = 'X' * 2048
+            conn.request('PUT', '%s/%s' % (parsed.path,
+                container_name), 'there', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEquals(resp.getheader('Content-Type'),
+                          'text/html; charset=UTF-8')
+
 
 if __name__ == '__main__':
     unittest.main()
