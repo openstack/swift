@@ -70,6 +70,40 @@ def create_containers(logger, conf):
     _func_on_containers(logger, conf, 'put_concurrency', client.put_container)
 
 
+class SourceFile(object):
+    """
+    Iterable, file-like object to lazily emit a bunch of zeros in
+    reasonable-size chunks.
+
+    swift.common.direct_client wants iterables, but swiftclient wants
+    file-like objects where hasattr(thing, 'read') is true. Therefore,
+    this class can do both.
+    """
+
+    def __init__(self, size, chunk_size=1024 * 64):
+        self.pos = 0
+        self.size = size
+        self.chunk_size = chunk_size
+
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return self.size
+
+    def next(self):
+        if self.pos >= self.size:
+            raise StopIteration
+        chunk_size = min(self.size - self.pos, self.chunk_size)
+        yield '0' * chunk_size
+        self.pos += chunk_size
+
+    def read(self, desired_size):
+        chunk_size = min(self.size - self.pos, desired_size)
+        self.pos += chunk_size
+        return '0' * chunk_size
+
+
 class ConnectionPool(eventlet.pools.Pool):
 
     def __init__(self, url, size):
@@ -423,10 +457,10 @@ class BenchPUT(Bench):
         if self.object_sources:
             source = random.choice(self.files)
         elif self.upper_object_size > self.lower_object_size:
-            source = '0' * random.randint(self.lower_object_size,
-                                          self.upper_object_size)
+            source = SourceFile(random.randint(self.lower_object_size,
+                                               self.upper_object_size))
         else:
-            source = '0' * self.object_size
+            source = SourceFile(self.object_size)
         device = random.choice(self.devices)
         partition = str(random.randint(1, 3000))
         container_name = random.choice(self.containers)
