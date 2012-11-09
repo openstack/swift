@@ -728,8 +728,8 @@ class Controller(object):
             resp.status = HTTP_UNAUTHORIZED
             return resp  # CORS preflight request that isn't valid
         headers['access-control-allow-origin'] = req_origin_value
-        if cors.get('max_age', None) is not None:
-            headers['access-control-max-age'] = '%d' % cors.get('max_age')
+        if cors.get('max_age') is not None:
+            headers['access-control-max-age'] = cors.get('max_age')
         headers['access-control-allow-methods'] = ', '.join(
             self.allowed_methods)
         if cors.get('allow_headers'):
