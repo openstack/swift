@@ -955,12 +955,11 @@ class Response(object):
                 return [body]
         return ['']
 
-    def absolute_location(self):
+    def host_url(self):
         """
-        Attempt to construct an absolute location.
+        Returns the best guess that can be made for an absolute location up to
+        the path, for example: https://host.com:1234
         """
-        if not self.location.startswith('/'):
-            return self.location
         if 'HTTP_HOST' in self.environ:
             host = self.environ['HTTP_HOST']
         else:
@@ -971,7 +970,15 @@ class Response(object):
             host, port = host.rsplit(':', 1)
         elif scheme == 'https' and host.endswith(':443'):
             host, port = host.rsplit(':', 1)
-        return '%s://%s%s' % (scheme, host, self.location)
+        return '%s://%s' % (scheme, host)
+
+    def absolute_location(self):
+        """
+        Attempt to construct an absolute location.
+        """
+        if not self.location.startswith('/'):
+            return self.location
+        return self.host_url() + self.location
 
     def __call__(self, env, start_response):
         self.environ = env

@@ -429,6 +429,49 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-User': 'act:usr'}).get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 
+    def test_storage_url_default(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        del req.environ['HTTP_HOST']
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['x-storage-url'],
+                          'http://bob:1234/v1/AUTH_test')
+
+    def test_storage_url_based_on_host(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        req.environ['HTTP_HOST'] = 'somehost:5678'
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['x-storage-url'],
+                          'http://somehost:5678/v1/AUTH_test')
+
+    def test_storage_url_overriden_scheme(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing',
+                                 'storage_url_scheme': 'fake'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        req.environ['HTTP_HOST'] = 'somehost:5678'
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['x-storage-url'],
+                          'fake://somehost:5678/v1/AUTH_test')
+
     def test_allowed_sync_hosts(self):
         a = auth.filter_factory({'super_admin_key': 'supertest'})(FakeApp())
         self.assertEquals(a.allowed_sync_hosts, ['127.0.0.1'])
@@ -598,18 +641,17 @@ class TestParseUserCreation(unittest.TestCase):
     def test_parse_user_creation(self):
         auth_filter = auth.filter_factory({
             'reseller_prefix': 'ABC',
-            'bind_ip': '1.2.3.4',
             'user_test_tester3': 'testing',
             'user_has_url': 'urlly .admin http://a.b/v1/DEF_has',
             'user_admin_admin': 'admin .admin .reseller_admin',
         })(FakeApp())
         self.assertEquals(auth_filter.users, {
             'admin:admin': {
-                'url': 'http://1.2.3.4:8080/v1/ABC_admin',
+                'url': '$HOST/v1/ABC_admin',
                 'groups': ['.admin', '.reseller_admin'],
                 'key': 'admin'
             }, 'test:tester3': {
-                'url': 'http://1.2.3.4:8080/v1/ABC_test',
+                'url': '$HOST/v1/ABC_test',
                 'groups': [],
                 'key': 'testing'
             }, 'has:url': {
@@ -622,7 +664,6 @@ class TestParseUserCreation(unittest.TestCase):
     def test_base64_encoding(self):
         auth_filter = auth.filter_factory({
             'reseller_prefix': 'ABC',
-            'bind_ip': '1.2.3.4',
             'user64_%s_%s' % (
                 b64encode('test').rstrip('='),
                 b64encode('tester3').rstrip('=')):
@@ -634,27 +675,13 @@ class TestParseUserCreation(unittest.TestCase):
         })(FakeApp())
         self.assertEquals(auth_filter.users, {
             'test:tester3': {
-                'url': 'http://1.2.3.4:8080/v1/ABC_test',
+                'url': '$HOST/v1/ABC_test',
                 'groups': ['.reseller_admin'],
                 'key': 'testing'
             }, 'user_foo:ab': {
                 'url': 'http://a.b/v1/DEF_has',
                 'groups': ['.admin'],
                 'key': 'urlly'
-            },
-        })
-
-    def test_bind_ip_all_zeroes(self):
-        auth_filter = auth.filter_factory({
-            'reseller_prefix': 'ABC',
-            'bind_ip': '0.0.0.0',
-            'user_admin_admin': 'admin .admin .reseller_admin',
-        })(FakeApp())
-        self.assertEquals(auth_filter.users, {
-            'admin:admin': {
-                'url': 'http://127.0.0.1:8080/v1/ABC_admin',
-                'groups': ['.admin', '.reseller_admin'],
-                'key': 'admin',
             },
         })
 

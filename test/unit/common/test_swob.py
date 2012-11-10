@@ -681,6 +681,69 @@ class TestResponse(unittest.TestCase):
         resp.etag = None
         self.assert_('etag' not in resp.headers)
 
+    def test_host_url_default(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'http'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '1234'
+        del env['HTTP_HOST']
+        self.assertEquals(resp.host_url(), 'http://bob:1234')
+
+    def test_host_url_default_port_squelched(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'http'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '80'
+        del env['HTTP_HOST']
+        self.assertEquals(resp.host_url(), 'http://bob')
+
+    def test_host_url_https(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'https'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '1234'
+        del env['HTTP_HOST']
+        self.assertEquals(resp.host_url(), 'https://bob:1234')
+
+    def test_host_url_https_port_squelched(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'https'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '443'
+        del env['HTTP_HOST']
+        self.assertEquals(resp.host_url(), 'https://bob')
+
+    def test_host_url_host_override(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'http'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '1234'
+        env['HTTP_HOST'] = 'someother'
+        self.assertEquals(resp.host_url(), 'http://someother')
+
+    def test_host_url_host_port_override(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'http'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '1234'
+        env['HTTP_HOST'] = 'someother:5678'
+        self.assertEquals(resp.host_url(), 'http://someother:5678')
+
+    def test_host_url_host_https(self):
+        resp = self._get_response()
+        env = resp.environ
+        env['wsgi.url_scheme'] = 'https'
+        env['SERVER_NAME'] = 'bob'
+        env['SERVER_PORT'] = '1234'
+        env['HTTP_HOST'] = 'someother:5678'
+        self.assertEquals(resp.host_url(), 'https://someother:5678')
+
 
 class TestUTC(unittest.TestCase):
     def test_tzname(self):

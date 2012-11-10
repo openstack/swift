@@ -110,6 +110,10 @@ use = egg:swift#tempauth
 # you're not going to use such middleware and you want a bit of extra security,
 # you can set this to false.
 # allow_overrides = true
+# This specifies what scheme to return with storage urls:
+# http, https, or default (chooses based on what the server is running as)
+# This can be useful with an SSL load balancer in front of a non-SSL server.
+# storage_url_scheme = default
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 # or if you want underscores in <account> or <user>, you can base64 encode them
@@ -122,11 +126,8 @@ use = egg:swift#tempauth
 # that have been explicitly allowed for them by a .admin or .reseller_admin.
 # The trailing optional storage_url allows you to specify an alternate url to
 # hand back to the user upon authentication. If not specified, this defaults to
-# http[s]://<ip>:<port>/v1/<reseller_prefix>_<account> where http or https
-# depends on whether cert_file is specified in the [DEFAULT] section, <ip> and
-# <port> are based on the [DEFAULT] section's bind_ip and bind_port (falling
-# back to 127.0.0.1 and 8080), <reseller_prefix> is from this section, and
-# <account> is from the user_<account>_<user> name.
+# $HOST/v1/<reseller_prefix>_<account> where $HOST will do its best to resolve
+# to what the requester would need to use to reach this host.
 # Here are example entries, required for running the tests:
 user_admin_admin = admin .admin .reseller_admin
 user_test_tester = testing .admin
