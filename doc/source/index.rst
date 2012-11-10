@@ -73,7 +73,6 @@ Administrator Documentation
     howto_installmultinode
     deployment_guide
     admin_guide
-    debian_package_guide
 
 Source Documentation
 ====================
