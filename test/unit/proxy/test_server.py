@@ -20,6 +20,7 @@ from logging.handlers import SysLogHandler
 import os
 import sys
 import unittest
+import urlparse
 import signal
 from ConfigParser import ConfigParser
 from contextlib import contextmanager
@@ -268,6 +269,8 @@ def fake_http_connect(*code_iter, **kwargs):
     code_iter = iter(code_iter)
     static_body = kwargs.get('body', None)
     body_iter = kwargs.get('body_iter', None)
+    if body_iter:
+        body_iter = iter(body_iter)
 
     def connect(*args, **ckwargs):
         if 'give_content_type' in kwargs:
@@ -873,7 +876,7 @@ class TestObjectController(unittest.TestCase):
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 200, 201, 201,
                              201, 200, 200, 200,
                              give_connect=test_connect,
-                             body_iter=iter(body_iter),
+                             body_iter=body_iter,
                              headers={'x-versions-location': 'foo'})
             self.app.memcache.store = {}
             req = Request.blank('/a/c/o',
@@ -882,6 +885,133 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.DELETE(req)
             self.assertEquals(test_errors, [])
+
+    def test_GET_manifest_no_segments(self):
+        response_bodies = (
+            '',                     # HEAD /a
+            '',                     # HEAD /a/c
+            '',                     # GET manifest
+            simplejson.dumps([]))   # GET empty listing
+
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET manifest
+                200,    # GET empty listing
+                headers={"X-Object-Manifest": "segments/seg"},
+                body_iter=response_bodies)
+
+            req = Request.blank('/a/c/manifest')
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, '')
+
+    def test_GET_manifest_limited_listing(self):
+        listing1 = [{"hash": "454dfc73af632012ce3e6217dc464241",
+                     "last_modified": "2012-11-08T04:05:37.866820",
+                     "bytes": 2,
+                     "name": "seg01",
+                     "content_type": "application/octet-stream"},
+                    {"hash": "474bab96c67528d42d5c0c52b35228eb",
+                     "last_modified": "2012-11-08T04:05:37.846710",
+                     "bytes": 2,
+                     "name": "seg02",
+                     "content_type": "application/octet-stream"}]
+
+        listing2 = [{"hash": "116baa5508693d1d1ca36abdd9f9478b",
+                     "last_modified": "2012-11-08T04:05:37.849510",
+                     "bytes": 2,
+                     "name": "seg03",
+                     "content_type": "application/octet-stream"},
+                    {"hash": "7bd6aaa1ef6013353f0420459574ac9d",
+                     "last_modified": "2012-11-08T04:05:37.855180",
+                     "bytes": 2,
+                     "name": "seg04",
+                     "content_type": "application/octet-stream"
+                     }]
+
+        listing3 = [{"hash": "6605f80e3cefaa24e9823544df4edbd6",
+                     "last_modified": "2012-11-08T04:05:37.853710",
+                     "bytes": 2,
+                     "name": "seg05",
+                     "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            '',                           # GET manifest
+            simplejson.dumps(listing1),   # GET listing1
+            'Aa',                         # GET seg01
+            'Bb',                         # GET seg02
+            simplejson.dumps(listing2),   # GET listing2
+            'Cc',                         # GET seg03
+            'Dd',                         # GET seg04
+            simplejson.dumps(listing3),   # GET listing3
+            'Ee',                         # GET seg05
+            simplejson.dumps([]))         # GET final empty listing
+        with save_globals():
+            try:
+                swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = 2
+                controller = proxy_server.ObjectController(
+                    self.app, 'a', 'c', 'manifest')
+
+                requested = []
+                def capture_requested_paths(ipaddr, port, device, partition,
+                                            method, path, headers=None,
+                                            query_string=None):
+                    qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                    requested.append([method, path, qs_dict])
+
+                set_http_connect(
+                    200,    # HEAD /a
+                    200,    # HEAD /a/c
+                    200,    # GET manifest
+                    200,    # GET listing1
+                    200,    # GET seg01
+                    200,    # GET seg02
+                    200,    # GET listing2
+                    200,    # GET seg03
+                    200,    # GET seg04
+                    200,    # GET listing3
+                    200,    # GET seg05
+                    200,    # GET final empty listing
+                    headers={"X-Object-Manifest": "segments/seg"},
+                    body_iter=response_bodies,
+                    give_connect=capture_requested_paths)
+
+                req = Request.blank('/a/c/manifest')
+                resp = controller.GET(req)
+                self.assertEqual(resp.status_int, 200)
+                self.assertEqual(resp.body, 'AaBbCcDdEe')
+
+                self.assertEqual(
+                    requested,
+                    [['HEAD', '/a', {}],
+                     ['HEAD', '/a/c', {}],
+                     ['GET', '/a/c/manifest', {}],
+                     ['GET', '/a/segments',
+                      {'format': 'json', 'prefix': 'seg'}],
+                     ['GET', '/a/segments/seg01', {}],
+                     ['GET', '/a/segments/seg02', {}],
+                     ['GET', '/a/segments',
+                      {'format': 'json', 'prefix': 'seg', 'marker': 'seg02'}],
+                     ['GET', '/a/segments/seg03', {}],
+                     ['GET', '/a/segments/seg04', {}],
+                     ['GET', '/a/segments',
+                      {'format': 'json', 'prefix': 'seg', 'marker': 'seg04'}],
+                     ['GET', '/a/segments/seg05', {}],
+                     ['GET', '/a/segments',
+                      {'format': 'json', 'prefix': 'seg', 'marker': 'seg05'}]])
+
+            finally:
+                # other tests in this file get very unhappy if this
+                # isn't set back, which leads to time-wasting
+                # debugging of other tests.
+                swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = \
+                    _orig_container_listing_limit
 
     def test_PUT_auto_content_type(self):
         with save_globals():
