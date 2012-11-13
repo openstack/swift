@@ -46,6 +46,7 @@ from swift.common.exceptions import ChunkReadTimeout
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
+from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers.obj import SegmentedIterable
@@ -76,6 +77,7 @@ def request_del(self):
 
 
 def setup():
+    utils.HASH_PATH_SUFFIX = 'endcap'
     global _testdir, _test_servers, _test_sockets, \
         _orig_container_listing_limit, _test_coros
     Request._orig_init = Request.__init__
