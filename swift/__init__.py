@@ -14,7 +14,7 @@ class Version(object):
             return '%s-dev' % (self.canonical_version,)
 
 
-_version = Version('1.7.5', False)
+_version = Version('1.7.5', True)
 __version__ = _version.pretty_version
 __canonical_version__ = _version.canonical_version
 
