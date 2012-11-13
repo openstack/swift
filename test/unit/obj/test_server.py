@@ -216,7 +216,7 @@ class TestDiskFile(unittest.TestCase):
             timestamp = ts
         else:
             timestamp = str(normalize_timestamp(time()))
-        with df.mkstemp() as (fd, tmppath):
+        with df.mkstemp() as fd:
             os.write(fd, data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -225,7 +225,7 @@ class TestDiskFile(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            df.put(fd, tmppath, metadata, extension=extension)
+            df.put(fd, metadata, extension=extension)
             if invalid_type == 'ETag':
                 etag = md5()
                 etag.update('1' + '0' * (fsize - 1))
@@ -316,7 +316,6 @@ class TestDiskFile(unittest.TestCase):
                                  extension='.data')
         df.close()
         self.assertTrue(df.quarantined_dir)
-
         df = self._get_data_file(invalid_type='Content-Length',
                                  extension='.ts')
         df.close()
@@ -324,6 +323,26 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_data_file(invalid_type='Content-Length',
                                  extension='.ts')
         self.assertRaises(DiskFileNotExist, df.get_data_file_size)
+
+    def test_put_metadata(self):
+        df = self._get_data_file()
+        ts = time()
+        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
+        df.put_metadata(metadata)
+        exp_name = '%s.meta' % str(normalize_timestamp(ts))
+        dl = os.listdir(df.datadir)
+        self.assertEquals(len(dl), 2)
+        self.assertTrue(exp_name in set(dl))
+
+    def test_put_metadata_ts(self):
+        df = self._get_data_file()
+        ts = time()
+        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
+        df.put_metadata(metadata, tombstone=True)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df.datadir)
+        self.assertEquals(len(dl), 2)
+        self.assertTrue(exp_name in set(dl))
 
     def test_unlinkold(self):
         df1 = self._get_data_file()
