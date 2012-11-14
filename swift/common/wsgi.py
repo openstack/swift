@@ -262,7 +262,11 @@ class WSGIContext(object):
         """
         Ensures start_response has been called before returning.
         """
-        resp = iter(self.app(env, self._start_response))
+        resp = self.app(env, self._start_response)
+        # if start_response has been called, just return the iter
+        if self._response_status is not None:
+            return resp
+        resp = iter(resp)
         try:
             first_chunk = resp.next()
         except StopIteration:
