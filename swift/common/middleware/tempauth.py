@@ -90,6 +90,7 @@ class TempAuth(object):
             if h.strip()]
         self.allow_overrides = config_true_value(
             conf.get('allow_overrides', 't'))
+        self.storage_url_scheme = conf.get('storage_url_scheme', 'default')
         self.users = {}
         for conf_key in conf:
             if conf_key.startswith('user_') or conf_key.startswith('user64_'):
@@ -105,16 +106,10 @@ class TempAuth(object):
                 if not values:
                     raise ValueError('%s has no key set' % conf_key)
                 key = values.pop(0)
-                if values and '://' in values[-1]:
+                if values and ('://' in values[-1] or '$HOST' in values[-1]):
                     url = values.pop()
                 else:
-                    url = 'https://' if 'cert_file' in conf else 'http://'
-                    ip = conf.get('bind_ip', '127.0.0.1')
-                    if ip == '0.0.0.0':
-                        ip = '127.0.0.1'
-                    url += ip
-                    url += ':' + conf.get('bind_port', '8080') + '/v1/' + \
-                        self.reseller_prefix + account
+                    url = '$HOST/v1/%s%s' % (self.reseller_prefix, account)
                 self.users[account + ':' + username] = {
                     'key': key, 'url': url, 'groups': values}
 
@@ -471,11 +466,13 @@ class TempAuth(object):
                 '%s/user/%s' % (self.reseller_prefix, account_user)
             memcache_client.set(memcache_user_key, token,
                                 timeout=float(expires - time()))
-        return Response(request=req,
-                        headers={
-                            'x-auth-token': token,
-                            'x-storage-token': token,
-                            'x-storage-url': self.users[account_user]['url']})
+        resp = Response(request=req, headers={
+            'x-auth-token': token, 'x-storage-token': token})
+        url = self.users[account_user]['url'].replace('$HOST', resp.host_url())
+        if self.storage_url_scheme != 'default':
+            url = self.storage_url_scheme + ':' + url.split(':', 1)[1]
+        resp.headers['x-storage-url'] = url
+        return resp
 
     def posthooklogger(self, env, req):
         if not req.path.startswith(self.auth_prefix):
