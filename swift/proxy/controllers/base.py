@@ -24,6 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
+import os
 import time
 import functools
 import inspect
@@ -42,7 +43,7 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, HeaderKeyDict
 
 
 def update_headers(response, headers):
@@ -178,8 +179,8 @@ def cors_validation(func):
                               'content-type', 'expires', 'last-modified',
                               'pragma', 'etag', 'x-timestamp', 'x-trans-id']
             for header in resp.headers:
-                if header.startswith('x-container-meta') or \
-                        header.startswith('x-object-meta'):
+                if header.startswith('X-Container-Meta') or \
+                        header.startswith('X-Object-Meta'):
                     expose_headers.append(header.lower())
             if cors_info.get('expose_headers'):
                 expose_headers.extend(
@@ -280,19 +281,38 @@ class Controller(object):
         return []
 
     def transfer_headers(self, src_headers, dst_headers):
-
         st = self.server_type.lower()
+
         x_remove = 'x-remove-%s-meta-' % st
-        x_meta = 'x-%s-meta-' % st
         dst_headers.update((k.lower().replace('-remove', '', 1), '')
                            for k in src_headers
                            if k.lower().startswith(x_remove) or
                            k.lower() in self._x_remove_headers())
 
+        x_meta = 'x-%s-meta-' % st
         dst_headers.update((k.lower(), v)
                            for k, v in src_headers.iteritems()
                            if k.lower() in self.pass_through_headers or
                            k.lower().startswith(x_meta))
+
+    def generate_request_headers(self, orig_req=None, additional=None,
+                                 transfer=False):
+        # Use the additional headers first so they don't overwrite the headers
+        # we require.
+        headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
+        if transfer:
+            self.transfer_headers(orig_req.headers, headers)
+        if 'x-timestamp' not in headers:
+            headers['x-timestamp'] = normalize_timestamp(time.time())
+        if orig_req:
+            referer = orig_req.as_referer()
+        else:
+            referer = ''
+        headers.update({'x-trans-id': self.trans_id,
+                        'connection': 'close',
+                        'user-agent': 'proxy-server %s' % os.getpid(),
+                        'referer': referer})
+        return headers
 
     def error_occurred(self, node, msg):
         """
@@ -359,11 +379,14 @@ class Controller(object):
                               {'msg': msg, 'ip': node['ip'],
                               'port': node['port'], 'device': node['device']})
 
-    def account_info(self, account, autocreate=False):
+    def account_info(self, account, req=None, autocreate=False):
         """
         Get account information, and also verify that the account exists.
 
         :param account: name of the account to get the info for
+        :param req: caller's HTTP request context object (optional)
+        :param autocreate: whether or not to automatically create the given
+                           account or not (optional, default: False)
         :returns: tuple of (account partition, account nodes, container_count)
                   or (None, None, None) if it does not exist
         """
@@ -392,7 +415,7 @@ class Controller(object):
                 return None, None, None
         result_code = 0
         path = '/%s' % account
-        headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
+        headers = self.generate_request_headers(req)
         for node in self.iter_nodes(self.app.account_ring, partition):
             try:
                 start_node_timing = time.time()
@@ -432,9 +455,7 @@ class Controller(object):
         if result_code == HTTP_NOT_FOUND and autocreate:
             if len(account) > MAX_ACCOUNT_NAME_LENGTH:
                 return None, None, None
-            headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                       'X-Trans-Id': self.trans_id,
-                       'Connection': 'close'}
+            headers = self.generate_request_headers(req)
             resp = self.make_requests(Request.blank('/v1' + path),
                                       self.app.account_ring, partition, 'PUT',
                                       path, [headers] * len(nodes))
@@ -460,7 +481,8 @@ class Controller(object):
             return partition, nodes, container_count
         return None, None, None
 
-    def container_info(self, account, container, account_autocreate=False):
+    def container_info(self, account, container, req=None,
+                       account_autocreate=False):
         """
         Get container information and thusly verify container existence.
         This will also make a call to account_info to verify that the
@@ -468,6 +490,9 @@ class Controller(object):
 
         :param account: account name for the container
         :param container: container name to look up
+        :param req: caller's HTTP request context object (optional)
+        :param account_autocreate: whether or not to automatically create the
+                           given account or not (optional, default: False)
         :returns: dict containing at least container partition ('partition'),
                   container nodes ('containers'), container read
                   acl ('read_acl'), container write acl ('write_acl'),
@@ -492,9 +517,10 @@ class Controller(object):
                     container_info['partition'] = part
                     container_info['nodes'] = nodes
                 return container_info
-        if not self.account_info(account, autocreate=account_autocreate)[1]:
+        if not self.account_info(account, req,
+                                 autocreate=account_autocreate)[1]:
             return container_info
-        headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
+        headers = self.generate_request_headers(req)
         for node in self.iter_nodes(self.app.container_ring, part):
             try:
                 start_node_timing = time.time()
@@ -784,8 +810,8 @@ class Controller(object):
             start_node_timing = time.time()
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
-                    headers = dict(req.headers)
-                    headers['Connection'] = 'close'
+                    headers = self.generate_request_headers(
+                        req, additional=req.headers)
                     conn = http_connect(
                         node['ip'], node['port'], node['device'], partition,
                         req.method, path, headers=headers,

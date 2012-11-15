@@ -271,6 +271,9 @@ class ObjectReplicator(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.headers = {
+            'Content-Length': '0',
+            'user-agent': 'obj-replicator %s' % os.getpid()}
 
     def _rsync(self, args):
         """
@@ -389,12 +392,12 @@ class ObjectReplicator(Daemon):
                     success = self.rsync(node, job, suffixes)
                     if success:
                         with Timeout(self.http_timeout):
-                            http_connect(
-                                node['ip'], node['port'],
-                                node['device'], job['partition'], 'REPLICATE',
-                                '/' + '-'.join(suffixes),
-                                headers={'Content-Length': '0'}).\
-                                getresponse().read()
+                            conn = http_connect(node['ip'], node['port'],
+                                                node['device'],
+                                                job['partition'], 'REPLICATE',
+                                                '/' + '-'.join(suffixes),
+                                                headers=self.headers)
+                            conn.getresponse().read()
                     responses.append(success)
             if not suffixes or (len(responses) ==
                                 len(job['nodes']) and all(responses)):
@@ -435,7 +438,7 @@ class ObjectReplicator(Daemon):
                         resp = http_connect(
                             node['ip'], node['port'],
                             node['device'], job['partition'], 'REPLICATE',
-                            '', headers={'Content-Length': '0'}).getresponse()
+                            '', headers=self.headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
                             self.logger.error(_('%(ip)s/%(device)s responded'
                                                 ' as unmounted'), node)
@@ -469,7 +472,7 @@ class ObjectReplicator(Daemon):
                             node['ip'], node['port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '/' + '-'.join(suffixes),
-                            headers={'Content-Length': '0'})
+                            headers=self.headers)
                         conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                     self.logger.update_stats('suffix.syncs', len(suffixes))

@@ -19,7 +19,7 @@ from hashlib import sha1
 from contextlib import contextmanager
 from time import time
 
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, HeaderKeyDict
 from swift.common.middleware import tempauth, tempurl
 
 
@@ -706,7 +706,7 @@ class TestTempURL(unittest.TestCase):
         orh = ''
         oah = ''
         hdrs = {'test-header': 'value'}
-        hdrs = dict(tempurl.TempURL(None,
+        hdrs = HeaderKeyDict(tempurl.TempURL(None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
             )._clean_outgoing_headers(hdrs.iteritems()))
         self.assertTrue('test-header' in hdrs)
@@ -714,7 +714,7 @@ class TestTempURL(unittest.TestCase):
         orh = 'test-header'
         oah = ''
         hdrs = {'test-header': 'value'}
-        hdrs = dict(tempurl.TempURL(None,
+        hdrs = HeaderKeyDict(tempurl.TempURL(None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
             )._clean_outgoing_headers(hdrs.iteritems()))
         self.assertTrue('test-header' not in hdrs)
@@ -723,7 +723,7 @@ class TestTempURL(unittest.TestCase):
         oah = ''
         hdrs = {'test-header-one': 'value',
                 'test-header-two': 'value'}
-        hdrs = dict(tempurl.TempURL(None,
+        hdrs = HeaderKeyDict(tempurl.TempURL(None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
             )._clean_outgoing_headers(hdrs.iteritems()))
         self.assertTrue('test-header-one' not in hdrs)
@@ -733,7 +733,7 @@ class TestTempURL(unittest.TestCase):
         oah = 'test-header-two'
         hdrs = {'test-header-one': 'value',
                 'test-header-two': 'value'}
-        hdrs = dict(tempurl.TempURL(None,
+        hdrs = HeaderKeyDict(tempurl.TempURL(None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
             )._clean_outgoing_headers(hdrs.iteritems()))
         self.assertTrue('test-header-one' not in hdrs)
@@ -746,7 +746,7 @@ class TestTempURL(unittest.TestCase):
                 'test-other-header': 'value',
                 'test-header-yes': 'value',
                 'test-header-yes-this': 'value'}
-        hdrs = dict(tempurl.TempURL(None,
+        hdrs = HeaderKeyDict(tempurl.TempURL(None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
             )._clean_outgoing_headers(hdrs.iteritems()))
         self.assertTrue('test-header-one' not in hdrs)

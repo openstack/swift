@@ -18,6 +18,7 @@ Internal client library for making calls directly to the servers rather than
 through the proxy.
 """
 
+import os
 import socket
 from httplib import HTTPException
 from time import time
@@ -30,12 +31,21 @@ from swiftclient import ClientException, json_loads
 from swift.common.utils import normalize_timestamp
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
+from swift.common.swob import HeaderKeyDict
 
 
 def quote(value, safe='/'):
     if isinstance(value, unicode):
         value = value.encode('utf8')
     return _quote(value, safe)
+
+
+def gen_headers(hdrs_in=None, add_ts=False):
+    hdrs_out = HeaderKeyDict(hdrs_in) if hdrs_in else HeaderKeyDict()
+    if add_ts:
+        hdrs_out['X-Timestamp'] = normalize_timestamp(time())
+    hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
+    return hdrs_out
 
 
 def direct_get_account(node, part, account, marker=None, limit=None,
@@ -68,7 +78,8 @@ def direct_get_account(node, part, account, marker=None, limit=None,
         qs += '&delimiter=%s' % quote(delimiter)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string=qs)
+                            'GET', path, query_string=qs,
+                            headers=gen_headers())
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
@@ -107,7 +118,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
     path = '/%s/%s' % (account, container)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'HEAD', path)
+                            'HEAD', path, headers=gen_headers())
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -157,7 +168,8 @@ def direct_get_container(node, part, account, container, marker=None,
         qs += '&delimiter=%s' % quote(delimiter)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string=qs)
+                            'GET', path, query_string=qs,
+                            headers=gen_headers())
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
@@ -185,10 +197,10 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
         headers = {}
 
     path = '/%s/%s' % (account, container)
-    headers['X-Timestamp'] = normalize_timestamp(time())
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path, headers)
+                            'DELETE', path,
+                            headers=gen_headers(headers, True))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -220,7 +232,7 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'HEAD', path)
+                            'HEAD', path, headers=gen_headers())
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -262,7 +274,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, headers=headers)
+                            'GET', path, headers=gen_headers(headers))
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
@@ -328,10 +340,9 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Length'] = '0'
     if isinstance(contents, basestring):
         contents = [contents]
-    headers['X-Timestamp'] = normalize_timestamp(time())
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'PUT', path, headers=headers)
+                            'PUT', path, headers=gen_headers(headers, True))
     for chunk in contents:
         conn.send(chunk)
     with Timeout(response_timeout):
@@ -365,10 +376,9 @@ def direct_post_object(node, part, account, container, name, headers,
     :raises ClientException: HTTP POST request failed
     """
     path = '/%s/%s/%s' % (account, container, name)
-    headers['X-Timestamp'] = normalize_timestamp(time())
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'POST', path, headers=headers)
+                            'POST', path, headers=gen_headers(headers, True))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -401,10 +411,9 @@ def direct_delete_object(node, part, account, container, obj,
         headers = {}
 
     path = '/%s/%s/%s' % (account, container, obj)
-    headers['X-Timestamp'] = normalize_timestamp(time())
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path, headers)
+                            'DELETE', path, headers=gen_headers(headers, True))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()

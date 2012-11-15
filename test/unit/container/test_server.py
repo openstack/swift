@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 from eventlet import spawn, Timeout, listen
 import simplejson
 
-from swift.common.swob import Request
+from swift.common.swob import Request, HeaderKeyDict
 import swift.container
 from swift.container import server as container_server
 from swift.common.utils import normalize_timestamp, mkdirs
@@ -1353,11 +1353,13 @@ class TestContainerController(unittest.TestCase):
              'partition': '30',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-bytes-used': 0,
+             'headers': HeaderKeyDict({'x-bytes-used': 0,
                          'x-delete-timestamp': '0',
                          'x-object-count': 0,
                          'x-put-timestamp': '0000012345.00000',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c',
+                         'user-agent': 'container-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
             {'ipaddr': '6.7.8.9',
@@ -1367,11 +1369,13 @@ class TestContainerController(unittest.TestCase):
              'partition': '30',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-bytes-used': 0,
+             'headers': HeaderKeyDict({'x-bytes-used': 0,
                          'x-delete-timestamp': '0',
                          'x-object-count': 0,
                          'x-put-timestamp': '0000012345.00000',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c',
+                         'user-agent': 'container-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
 
 
 if __name__ == '__main__':

@@ -24,10 +24,9 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-import time
 from urllib import unquote
 
-from swift.common.utils import normalize_timestamp, public
+from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
 from swift.common.http import is_success, HTTP_NOT_FOUND
 from swift.proxy.controllers.base import Controller, get_account_memcache_key
@@ -57,9 +56,7 @@ class AccountController(Controller):
                 resp.body = 'Account name length of %d longer than %d' % \
                             (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
                 return resp
-            headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                       'X-Trans-Id': self.trans_id,
-                       'Connection': 'close'}
+            headers = self.generate_request_headers(req)
             resp = self.make_requests(
                 Request.blank('/v1/' + self.account_name),
                 self.app.account_ring, partition, 'PUT',
@@ -90,10 +87,7 @@ class AccountController(Controller):
             return resp
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'x-trans-id': self.trans_id,
-                   'Connection': 'close'}
-        self.transfer_headers(req.headers, headers)
+        headers = self.generate_request_headers(req, transfer=True)
         if self.app.memcache:
             self.app.memcache.delete(
                 get_account_memcache_key(self.account_name))
@@ -110,10 +104,7 @@ class AccountController(Controller):
             return error_response
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-Trans-Id': self.trans_id,
-                   'Connection': 'close'}
-        self.transfer_headers(req.headers, headers)
+        headers = self.generate_request_headers(req, transfer=True)
         if self.app.memcache:
             self.app.memcache.delete(
                 get_account_memcache_key(self.account_name))
@@ -150,9 +141,7 @@ class AccountController(Controller):
                 headers={'Allow': ', '.join(self.allowed_methods)})
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
-                   'X-Trans-Id': self.trans_id,
-                   'Connection': 'close'}
+        headers = self.generate_request_headers(req)
         if self.app.memcache:
             self.app.memcache.delete(
                 get_account_memcache_key(self.account_name))

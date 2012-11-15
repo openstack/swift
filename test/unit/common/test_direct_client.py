@@ -16,14 +16,42 @@
 # TODO: Tests
 
 import unittest
+import os
 
 from swift.common import direct_client
 
 
 class TestDirectClient(unittest.TestCase):
 
-    def test_placeholder(self):
-        pass
+    def test_quote(self):
+        res = direct_client.quote('123')
+        assert res == '123'
+        res = direct_client.quote('1&2&/3')
+        assert res == '1%262%26/3'
+        res = direct_client.quote('1&2&3', safe='&')
+        assert res == '1&2&3'
+
+    def test_gen_headers(self):
+        hdrs = direct_client.gen_headers()
+        assert 'user-agent' in hdrs
+        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
+        assert len(hdrs.keys()) == 1
+
+        hdrs = direct_client.gen_headers(add_ts=True)
+        assert 'user-agent' in hdrs
+        assert 'x-timestamp' in hdrs
+        assert len(hdrs.keys()) == 2
+
+        hdrs = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
+        assert 'user-agent' in hdrs
+        assert 'foo-bar' in hdrs
+        assert hdrs['foo-bar'] == '47'
+        assert len(hdrs.keys()) == 2
+
+        hdrs = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
+        assert 'user-agent' in hdrs
+        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
+        assert len(hdrs.keys()) == 1
 
 
 if __name__ == '__main__':

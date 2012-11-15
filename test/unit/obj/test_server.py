@@ -37,7 +37,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
 from swift.common.exceptions import DiskFileNotExist
 from swift.common import constraints
 from eventlet import tpool
-from swift.common.swob import Request
+from swift.common.swob import Request, HeaderKeyDict
 
 
 class TestDiskFile(unittest.TestCase):
@@ -1705,7 +1705,8 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.http_connect = orig_http_connect
         self.assertEquals(given_args, ['127.0.0.1', '1234', 'sdc1', 1, 'PUT',
-            '/a/c/o', {'x-timestamp': '1', 'x-out': 'set'}])
+            '/a/c/o', {'x-timestamp': '1', 'x-out': 'set',
+                       'user-agent': 'obj-server %s' % os.getpid()}])
 
 
     def test_updating_multiple_delete_at_container_servers(self):
@@ -1771,11 +1772,13 @@ class TestObjectController(unittest.TestCase):
              'partition': '20',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-content-type': 'application/burrito',
+             'headers': HeaderKeyDict({'x-content-type': 'application/burrito',
                          'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                          'x-size': '0',
                          'x-timestamp': '12345',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c/o',
+                         'user-agent': 'obj-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
             {'ipaddr': '10.1.1.1',
@@ -1785,11 +1788,13 @@ class TestObjectController(unittest.TestCase):
              'partition': '6237',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-content-type': 'text/plain',
+             'headers': HeaderKeyDict({'x-content-type': 'text/plain',
                          'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                          'x-size': '0',
                          'x-timestamp': '12345',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c/o',
+                         'user-agent': 'obj-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[2],
             {'ipaddr': '10.2.2.2',
@@ -1799,11 +1804,13 @@ class TestObjectController(unittest.TestCase):
              'partition': '6237',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-content-type': 'text/plain',
+             'headers': HeaderKeyDict({'x-content-type': 'text/plain',
                          'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                          'x-size': '0',
                          'x-timestamp': '12345',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c/o',
+                         'user-agent': 'obj-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
 
     def test_updating_multiple_container_servers(self):
         http_connect_args = []
@@ -1858,11 +1865,13 @@ class TestObjectController(unittest.TestCase):
              'partition': '20',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-content-type': 'application/burrito',
+             'headers': HeaderKeyDict({'x-content-type': 'application/burrito',
                          'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                          'x-size': '0',
                          'x-timestamp': '12345',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c/o',
+                         'user-agent': 'obj-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
             {'ipaddr': '6.7.8.9',
@@ -1872,11 +1881,13 @@ class TestObjectController(unittest.TestCase):
              'partition': '20',
              'method': 'PUT',
              'ssl': False,
-             'headers': {'x-content-type': 'application/burrito',
+             'headers': HeaderKeyDict({'x-content-type': 'application/burrito',
                          'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                          'x-size': '0',
                          'x-timestamp': '12345',
-                         'x-trans-id': '-'}})
+                         'referer': 'PUT http://localhost/sda1/p/a/c/o',
+                         'user-agent': 'obj-server %d' % os.getpid(),
+                         'x-trans-id': '-'})})
 
     def test_async_update_saves_on_exception(self):
         _prefix = utils.HASH_PATH_PREFIX
@@ -1898,8 +1909,9 @@ class TestObjectController(unittest.TestCase):
             pickle.load(open(os.path.join(self.testdir, 'sda1',
                 'async_pending', 'a83',
                 '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
-            {'headers': {'x-timestamp': '1', 'x-out': 'set'}, 'account': 'a',
-             'container': 'c', 'obj': 'o', 'op': 'PUT'})
+            {'headers': {'x-timestamp': '1', 'x-out': 'set',
+                         'user-agent': 'obj-server %s' % os.getpid()},
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
         _prefix = utils.HASH_PATH_PREFIX
@@ -1931,7 +1943,8 @@ class TestObjectController(unittest.TestCase):
                     pickle.load(open(os.path.join(self.testdir, 'sda1',
                         'async_pending', 'a83',
                         '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
-                    {'headers': {'x-timestamp': '1', 'x-out': str(status)},
+                    {'headers': {'x-timestamp': '1', 'x-out': str(status),
+                                 'user-agent': 'obj-server %s' % os.getpid()},
                      'account': 'a', 'container': 'c', 'obj': 'o',
                      'op': 'PUT'})
         finally:
@@ -1969,6 +1982,46 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.http_connect = orig_http_connect
 
+    def test_container_update_no_async_update(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234'})
+        self.object_controller.container_update('PUT', 'a', 'c', 'o', req,
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, [])
+
+    def test_container_update(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '123',
+                     'X-Container-Host': 'chost',
+                     'X-Container-Partition': 'cpartition',
+                     'X-Container-Device': 'cdevice'})
+        self.object_controller.container_update('PUT', 'a', 'c', 'o', req,
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1'}, 'sda1')
+        self.assertEquals(given_args, ['PUT', 'a', 'c', 'o', 'chost',
+            'cpartition', 'cdevice',
+            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+             'x-content-type': 'text/plain', 'x-timestamp': '1',
+             'x-trans-id': '123', 'referer': 'PUT http://localhost/v1/a/c/o'},
+            'sda1'])
+
     def test_delete_at_update_put(self):
         given_args = []
 
@@ -1976,13 +2029,18 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '123'})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
-            {'x-timestamp': '1'}, 'sda1')
+            req, 'sda1')
         self.assertEquals(given_args, ['PUT', '.expiring_objects', '0',
             '2-a/c/o', None, None, None,
-            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            HeaderKeyDict({'x-size': '0',
+             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
              'x-content-type': 'text/plain', 'x-timestamp': '1',
-             'x-trans-id': '-'},
+             'x-trans-id': '123', 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1'])
 
     def test_delete_at_negative(self):
@@ -1993,13 +2051,18 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234'})
         self.object_controller.delete_at_update(
-            'PUT', -2, 'a', 'c', 'o', {'x-timestamp': '1'}, 'sda1')
+            'PUT', -2, 'a', 'c', 'o', req, 'sda1')
         self.assertEquals(given_args, [
             'PUT', '.expiring_objects', '0', '0-a/c/o', None, None, None,
-            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            HeaderKeyDict({'x-size': '0',
+             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
              'x-content-type': 'text/plain', 'x-timestamp': '1',
-             'x-trans-id': '-'},
+             'x-trans-id': '1234', 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1'])
 
     def test_delete_at_cap(self):
@@ -2010,14 +2073,19 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234'})
         self.object_controller.delete_at_update(
-            'PUT', 12345678901, 'a', 'c', 'o', {'x-timestamp': '1'}, 'sda1')
+            'PUT', 12345678901, 'a', 'c', 'o', req, 'sda1')
         self.assertEquals(given_args, [
             'PUT', '.expiring_objects', '9999936000', '9999999999-a/c/o', None,
             None, None,
-            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            HeaderKeyDict({'x-size': '0',
+             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
              'x-content-type': 'text/plain', 'x-timestamp': '1',
-             'x-trans-id': '-'},
+             'x-trans-id': '1234', 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1'])
 
     def test_delete_at_update_put_with_info(self):
@@ -2027,15 +2095,21 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234',
+                     'X-Delete-At-Host': '127.0.0.1:1234',
+                     'X-Delete-At-Partition': '3',
+                     'X-Delete-At-Device': 'sdc1'})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
-            {'x-timestamp': '1', 'X-Delete-At-Host': '127.0.0.1:1234',
-             'X-Delete-At-Partition': '3', 'X-Delete-At-Device': 'sdc1'},
-            'sda1')
+                                                req, 'sda1')
         self.assertEquals(given_args, ['PUT', '.expiring_objects', '0',
             '2-a/c/o', '127.0.0.1:1234', '3', 'sdc1',
-            {'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            HeaderKeyDict({'x-size': '0',
+             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
              'x-content-type': 'text/plain', 'x-timestamp': '1',
-             'x-trans-id': '-'},
+             'x-trans-id': '1234', 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1'])
 
     def test_delete_at_update_delete(self):
@@ -2045,11 +2119,16 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
+        req = Request.blank('/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '1234'})
         self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
-            {'x-timestamp': '1'}, 'sda1')
+                                                req, 'sda1')
         self.assertEquals(given_args, ['DELETE', '.expiring_objects', '0',
             '2-a/c/o', None, None, None,
-            {'x-timestamp': '1', 'x-trans-id': '-'}, 'sda1'])
+            HeaderKeyDict({'x-timestamp': '1', 'x-trans-id': '1234',
+             'referer': 'DELETE http://localhost/v1/a/c/o'}), 'sda1'])
 
     def test_POST_calls_delete_at(self):
         given_args = []
@@ -2089,11 +2168,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            {'X-Delete-At': delete_at_timestamp1,
-             'Content-Type': 'application/x-test',
-             'X-Timestamp': timestamp1,
-             'Host': 'localhost:80'},
-            'sda1'])
+            req, 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2110,18 +2185,9 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-            {'X-Delete-At': delete_at_timestamp2,
-             'Content-Type': 'application/x-test',
-             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
-            'sda1',
+            req, 'sda1',
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-            # This 2 timestamp is okay because it's ignored since it's just
-            # part of the current request headers. The above 1 timestamp is the
-            # important one.
-            {'X-Delete-At': delete_at_timestamp2,
-             'Content-Type': 'application/x-test',
-             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
-            'sda1'])
+            req, 'sda1'])
 
     def test_PUT_calls_delete_at(self):
         given_args = []
@@ -2153,12 +2219,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            {'X-Delete-At': delete_at_timestamp1,
-             'Content-Length': '4',
-             'Content-Type': 'application/octet-stream',
-             'X-Timestamp': timestamp1,
-             'Host': 'localhost:80'},
-            'sda1'])
+            req, 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2177,20 +2238,9 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-            {'X-Delete-At': delete_at_timestamp2,
-             'Content-Length': '4',
-             'Content-Type': 'application/octet-stream',
-             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
-            'sda1',
+            req, 'sda1',
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-            # This 2 timestamp is okay because it's ignored since it's just
-            # part of the current request headers. The above 1 timestamp is the
-            # important one.
-            {'X-Delete-At': delete_at_timestamp2,
-             'Content-Length': '4',
-             'Content-Type': 'application/octet-stream',
-             'X-Timestamp': timestamp2, 'Host': 'localhost:80'},
-            'sda1'])
+            req, 'sda1'])
 
     def test_GET_but_expired(self):
         test_time = time() + 10000
@@ -2434,12 +2484,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            {'X-Delete-At': delete_at_timestamp1,
-             'Content-Length': '4',
-             'Content-Type': 'application/octet-stream',
-             'X-Timestamp': timestamp1,
-             'Host': 'localhost:80'},
-            'sda1'])
+            req, 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2454,9 +2499,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(given_args, [
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-            {'Content-Type': 'application/octet-stream',
-             'Host': 'localhost:80', 'X-Timestamp': timestamp2},
-            'sda1'])
+            req, 'sda1'])
 
     def test_PUT_delete_at_in_past(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},

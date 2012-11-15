@@ -103,6 +103,7 @@ from urllib import urlencode
 from urlparse import parse_qs
 
 from swift.common.wsgi import make_pre_authed_env
+from swift.common.swob import HeaderKeyDict
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -211,7 +212,7 @@ class TempURL(object):
         headers = DEFAULT_OUTGOING_REMOVE_HEADERS
         if 'outgoing_remove_headers' in conf:
             headers = conf['outgoing_remove_headers']
-        headers = [h.lower() for h in headers.split()]
+        headers = [h.title() for h in headers.split()]
         #: Headers to remove from outgoing responses. Lowercase, like
         #: `x-account-meta-temp-url-key`.
         self.outgoing_remove_headers = [h for h in headers if h[-1] != '*']
@@ -223,7 +224,7 @@ class TempURL(object):
         headers = DEFAULT_OUTGOING_ALLOW_HEADERS
         if 'outgoing_allow_headers' in conf:
             headers = conf['outgoing_allow_headers']
-        headers = [h.lower() for h in headers.split()]
+        headers = [h.title() for h in headers.split()]
         #: Headers to allow in outgoing responses. Lowercase, like
         #: `x-matches-remove-prefix-but-okay`.
         self.outgoing_allow_headers = [h for h in headers if h[-1] != '*']
@@ -474,7 +475,7 @@ class TempURL(object):
                   removed as per the middlware configuration for
                   outgoing responses.
         """
-        headers = dict(headers)
+        headers = HeaderKeyDict(headers)
         for h in headers.keys():
             remove = h in self.outgoing_remove_headers
             if not remove:

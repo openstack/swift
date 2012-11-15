@@ -39,13 +39,13 @@ class CatchErrorsContext(WSGIContext):
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')
-            resp.headers['x-trans-id'] = trans_id
+            resp.headers['X-Trans-Id'] = trans_id
             return resp(env, start_response)
 
         # make sure the response has the trans_id
         if self._response_headers is None:
             self._response_headers = []
-        self._response_headers.append(('x-trans-id', trans_id))
+        self._response_headers.append(('X-Trans-Id', trans_id))
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
         return resp

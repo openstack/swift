@@ -377,8 +377,8 @@ class ObjectController(Controller):
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
-        container_info = self.container_info(self.account_name,
-                                             self.container_name)
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -568,7 +568,7 @@ class ObjectController(Controller):
             if error_response:
                 return error_response
             container_info = self.container_info(
-                self.account_name, self.container_name,
+                self.account_name, self.container_name, req,
                 account_autocreate=self.app.account_autocreate)
             container_partition = container_info['partition']
             containers = container_info['nodes']
@@ -614,7 +614,7 @@ class ObjectController(Controller):
     def _backend_requests(self, req, n_outgoing,
                           container_partition, containers,
                           delete_at_partition=None, delete_at_nodes=None):
-        headers = [dict(req.headers.iteritems())
+        headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
 
         for header in headers:
@@ -692,7 +692,7 @@ class ObjectController(Controller):
     def PUT(self, req):
         """HTTP PUT request handler."""
         container_info = self.container_info(
-            self.account_name, self.container_name,
+            self.account_name, self.container_name, req,
             account_autocreate=self.app.account_autocreate)
         container_partition = container_info['partition']
         containers = container_info['nodes']
@@ -991,8 +991,8 @@ class ObjectController(Controller):
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
-        container_info = self.container_info(self.account_name,
-                                             self.container_name)
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -1043,8 +1043,8 @@ class ObjectController(Controller):
                 self.container_name = lcontainer
                 self.object_name = last_item['name']
                 new_del_req = Request.blank(copy_path, environ=req.environ)
-                container_info = self.container_info(self.account_name,
-                                                     self.container_name)
+                container_info = self.container_info(
+                    self.account_name, self.container_name, req)
                 container_partition = container_info['partition']
                 containers = container_info['nodes']
                 new_del_req.acl = container_info['write_acl']

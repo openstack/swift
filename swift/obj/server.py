@@ -46,7 +46,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
-    HTTPInsufficientStorage, HTTPForbidden, multi_range_iterator
+    HTTPInsufficientStorage, HTTPForbidden, multi_range_iterator, \
+    HeaderKeyDict
 
 
 DATADIR = 'objects'
@@ -474,6 +475,7 @@ class ObjectController(object):
                             request
         :param objdevice: device name that the object is in
         """
+        headers_out['user-agent'] = 'obj-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
         if all([host, partition, contdevice]):
             try:
@@ -508,7 +510,7 @@ class ObjectController(object):
                          normalize_timestamp(headers_out['x-timestamp'])),
             os.path.join(self.devices, objdevice, 'tmp'))
 
-    def container_update(self, op, account, container, obj, headers_in,
+    def container_update(self, op, account, container, obj, request,
                          headers_out, objdevice):
         """
         Update the container when objects are updated.
@@ -517,11 +519,12 @@ class ObjectController(object):
         :param account: account name for the object
         :param container: container name for the object
         :param obj: object name
-        :param headers_in: dictionary of headers from the original request
+        :param request: the original request object driving the update
         :param headers_out: dictionary of headers to send in the container
                             request(s)
         :param objdevice: device name that the object is in
         """
+        headers_in = request.headers
         conthosts = [h.strip() for h in
                      headers_in.get('X-Container-Host', '').split(',')]
         contdevices = [d.strip() for d in
@@ -543,13 +546,15 @@ class ObjectController(object):
         else:
             updates = []
 
+        headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
+        headers_out['referer'] = request.as_referer()
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
                               objdevice)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         headers_in, objdevice):
+                         request, objdevice):
         """
         Update the expiring objects container when objects are updated.
 
@@ -557,7 +562,7 @@ class ObjectController(object):
         :param account: account name for the object
         :param container: container name for the object
         :param obj: object name
-        :param headers_in: dictionary of headers from the original request
+        :param request: the original request driving the update
         :param objdevice: device name that the object is in
         """
         # Quick cap that will work from now until Sat Nov 20 17:46:39 2286
@@ -568,8 +573,11 @@ class ObjectController(object):
 
         partition = None
         hosts = contdevices = [None]
-        headers_out = {'x-timestamp': headers_in['x-timestamp'],
-                       'x-trans-id': headers_in.get('x-trans-id', '-')}
+        headers_in = request.headers
+        headers_out = HeaderKeyDict({
+            'x-timestamp': headers_in['x-timestamp'],
+            'x-trans-id': headers_in.get('x-trans-id', '-'),
+            'referer': request.as_referer()})
         if op != 'DELETE':
             partition = headers_in.get('X-Delete-At-Partition', None)
             hosts = headers_in.get('X-Delete-At-Host', '')
@@ -626,7 +634,7 @@ class ObjectController(object):
             return HTTPNotFound(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
-                        if val[0].lower().startswith('x-object-meta-'))
+                        if val[0].startswith('X-Object-Meta-'))
         for header_key in self.allowed_headers:
             if header_key in request.headers:
                 header_caps = header_key.title()
@@ -635,10 +643,10 @@ class ObjectController(object):
         if old_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request.headers, device)
+                                      obj, request, device)
             if old_delete_at:
                 self.delete_at_update('DELETE', old_delete_at, account,
-                                      container, obj, request.headers, device)
+                                      container, obj, request, device)
         disk_file.put_metadata(metadata)
         return HTTPAccepted(request=request)
 
@@ -728,11 +736,11 @@ class ObjectController(object):
                     if new_delete_at:
                         self.delete_at_update(
                             'PUT', new_delete_at, account, container, obj,
-                            request.headers, device)
+                            request, device)
                     if old_delete_at:
                         self.delete_at_update(
                             'DELETE', old_delete_at, account, container, obj,
-                            request.headers, device)
+                            request, device)
                 disk_file.put(fd, upload_size, metadata)
         except DiskFileNoSpace:
             return HTTPInsufficientStorage(drive=device, request=request)
@@ -740,12 +748,12 @@ class ObjectController(object):
         if not orig_timestamp or \
                 orig_timestamp < request.headers['x-timestamp']:
             self.container_update(
-                'PUT', account, container, obj, request.headers,
-                {'x-size': disk_file.metadata['Content-Length'],
-                 'x-content-type': disk_file.metadata['Content-Type'],
-                 'x-timestamp': disk_file.metadata['X-Timestamp'],
-                 'x-etag': disk_file.metadata['ETag'],
-                 'x-trans-id': request.headers.get('x-trans-id', '-')},
+                'PUT', account, container, obj, request,
+                HeaderKeyDict({
+                    'x-size': disk_file.metadata['Content-Length'],
+                    'x-content-type': disk_file.metadata['Content-Type'],
+                    'x-timestamp': disk_file.metadata['X-Timestamp'],
+                    'x-etag': disk_file.metadata['ETag']}),
                 device)
         resp = HTTPCreated(request=request, etag=etag)
         return resp
@@ -907,15 +915,14 @@ class ObjectController(object):
         old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
         if old_delete_at:
             self.delete_at_update('DELETE', old_delete_at, account,
-                                  container, obj, request.headers, device)
+                                  container, obj, request, device)
         disk_file.put_metadata(metadata, tombstone=True)
         disk_file.unlinkold(metadata['X-Timestamp'])
         if not orig_timestamp or \
                 orig_timestamp < request.headers['x-timestamp']:
             self.container_update(
-                'DELETE', account, container, obj, request.headers,
-                {'x-timestamp': metadata['X-Timestamp'],
-                 'x-trans-id': request.headers.get('x-trans-id', '-')},
+                'DELETE', account, container, obj, request,
+                HeaderKeyDict({'x-timestamp': metadata['X-Timestamp']}),
                 device)
         resp = response_class(request=request)
         return resp

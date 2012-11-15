@@ -61,6 +61,7 @@ class ContainerUpdater(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "container.recon")
+        self.user_agent = 'container-updater %s' % os.getpid()
 
     def get_account_ring(self):
         """Get the account ring.  Load it if it hasn't been yet."""
@@ -269,14 +270,16 @@ class ContainerUpdater(Daemon):
         """
         with ConnectionTimeout(self.conn_timeout):
             try:
+                headers = {
+                    'X-Put-Timestamp': put_timestamp,
+                    'X-Delete-Timestamp': delete_timestamp,
+                    'X-Object-Count': count,
+                    'X-Bytes-Used': bytes,
+                    'X-Account-Override-Deleted': 'yes',
+                    'user-agent': self.user_agent}
                 conn = http_connect(
                     node['ip'], node['port'], node['device'], part,
-                    'PUT', container,
-                    headers={'X-Put-Timestamp': put_timestamp,
-                             'X-Delete-Timestamp': delete_timestamp,
-                             'X-Object-Count': count,
-                             'X-Bytes-Used': bytes,
-                             'X-Account-Override-Deleted': 'yes'})
+                    'PUT', container, headers=headers)
             except (Exception, Timeout):
                 self.logger.exception(_(
                     'ERROR account update failed with '

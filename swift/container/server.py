@@ -37,7 +37,7 @@ from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPNotAcceptable
+    HTTPInsufficientStorage, HTTPNotAcceptable, HeaderKeyDict
 
 DATADIR = 'containers'
 
@@ -126,12 +126,14 @@ class ContainerController(object):
             account_ip, account_port = account_host.rsplit(':', 1)
             new_path = '/' + '/'.join([account, container])
             info = broker.get_info()
-            account_headers = {
+            account_headers = HeaderKeyDict({
                 'x-put-timestamp': info['put_timestamp'],
                 'x-delete-timestamp': info['delete_timestamp'],
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
-                'x-trans-id': req.headers.get('x-trans-id', '-')}
+                'x-trans-id': req.headers.get('x-trans-id', '-'),
+                'user-agent': 'container-server %s' % os.getpid(),
+                'referer': req.as_referer()})
             if req.headers.get('x-account-override-deleted', 'no').lower() == \
                     'yes':
                 account_headers['x-account-override-deleted'] = 'yes'
