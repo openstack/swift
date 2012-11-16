@@ -436,7 +436,7 @@ class TestContainerSync(unittest.TestCase):
             fcb = FakeContainerBroker('path',
                 info={'account': 'a', 'container': 'c',
                       'x_container_sync_point1': 1,
-                      'x_container_sync_point2': -1},
+                      'x_container_sync_point2': 1},
                 metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
                           'x-container-sync-key': ('key', 1)},
                 items_since=[{'ROWID': 1, 'name': 'o'}])
@@ -445,7 +445,7 @@ class TestContainerSync(unittest.TestCase):
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
-            # Succeeds because the two sync points haven't deviated enough yet
+            # Succeeds because the two sync points haven't deviated yet
             self.assertEquals(cs.container_failures, 0)
             self.assertEquals(cs.container_skips, 0)
             self.assertEquals(fcb.sync_point1, -1)
