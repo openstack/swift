@@ -420,6 +420,161 @@ class TestDBReplicator(unittest.TestCase):
         rpc.merge_syncs(fake_broker, args)
         self.assertEquals(fake_broker.args, (args[0],))
 
+    def test_roundrobin_datadirs(self):
+        listdir_calls = []
+        isdir_calls = []
+        exists_calls = []
+        shuffle_calls = []
+
+        def _listdir(path):
+            listdir_calls.append(path)
+            if not path.startswith('/srv/node/sda/containers') and \
+                    not path.startswith('/srv/node/sdb/containers'):
+                return []
+            path = path[len('/srv/node/sdx/containers'):]
+            if path == '':
+                return ['123', '456', '789']  # 456 will pretend to be a file
+            elif path == '/123':
+                return ['abc', 'def.db']  # def.db will pretend to be a file
+            elif path == '/123/abc':
+                # 11111111111111111111111111111abc will pretend to be a file
+                return ['00000000000000000000000000000abc',
+                        '11111111111111111111111111111abc']
+            elif path == '/123/abc/00000000000000000000000000000abc':
+                return ['00000000000000000000000000000abc.db',
+                        # This other.db isn't in the right place, so should be
+                        # ignored later.
+                        '000000000000000000000000000other.db',
+                        'weird1']  # weird1 will pretend to be a dir, if asked
+            elif path == '/789':
+                return ['ghi', 'jkl']  # jkl will pretend to be a file
+            elif path == '/789/ghi':
+                # 33333333333333333333333333333ghi will pretend to be a file
+                return ['22222222222222222222222222222ghi',
+                        '33333333333333333333333333333ghi']
+            elif path == '/789/ghi/22222222222222222222222222222ghi':
+                return ['22222222222222222222222222222ghi.db',
+                        'weird2']  # weird2 will pretend to be a dir, if asked
+            return []
+
+        def _isdir(path):
+            isdir_calls.append(path)
+            if not path.startswith('/srv/node/sda/containers') and \
+                    not path.startswith('/srv/node/sdb/containers'):
+                return False
+            path = path[len('/srv/node/sdx/containers'):]
+            if path in ('/123', '/123/abc',
+                        '/123/abc/00000000000000000000000000000abc',
+                        '/123/abc/00000000000000000000000000000abc/weird1',
+                        '/789', '/789/ghi',
+                        '/789/ghi/22222222222222222222222222222ghi',
+                        '/789/ghi/22222222222222222222222222222ghi/weird2'):
+                return True
+            return False
+
+        def _exists(arg):
+            exists_calls.append(arg)
+            return True
+
+        def _shuffle(arg):
+            shuffle_calls.append(arg)
+
+        orig_listdir = db_replicator.os.listdir
+        orig_isdir = db_replicator.os.path.isdir
+        orig_exists = db_replicator.os.path.exists
+        orig_shuffle = db_replicator.random.shuffle
+        try:
+            db_replicator.os.listdir = _listdir
+            db_replicator.os.path.isdir = _isdir
+            db_replicator.os.path.exists = _exists
+            db_replicator.random.shuffle = _shuffle
+            datadirs = [('/srv/node/sda/containers', 1),
+                        ('/srv/node/sdb/containers', 2)]
+            results = list(db_replicator.roundrobin_datadirs(datadirs))
+            # The results show that the .db files are returned, the devices
+            # interleaved.
+            self.assertEquals(results, [
+                ('123', '/srv/node/sda/containers/123/abc/'
+                        '00000000000000000000000000000abc/'
+                        '00000000000000000000000000000abc.db', 1),
+                ('123', '/srv/node/sdb/containers/123/abc/'
+                        '00000000000000000000000000000abc/'
+                        '00000000000000000000000000000abc.db', 2),
+                ('789', '/srv/node/sda/containers/789/ghi/'
+                        '22222222222222222222222222222ghi/'
+                        '22222222222222222222222222222ghi.db', 1),
+                ('789', '/srv/node/sdb/containers/789/ghi/'
+                        '22222222222222222222222222222ghi/'
+                        '22222222222222222222222222222ghi.db', 2)])
+            # The listdir calls show that we only listdir the dirs
+            self.assertEquals(listdir_calls, [
+                '/srv/node/sda/containers',
+                '/srv/node/sda/containers/123',
+                '/srv/node/sda/containers/123/abc',
+                '/srv/node/sdb/containers',
+                '/srv/node/sdb/containers/123',
+                '/srv/node/sdb/containers/123/abc',
+                '/srv/node/sda/containers/789',
+                '/srv/node/sda/containers/789/ghi',
+                '/srv/node/sdb/containers/789',
+                '/srv/node/sdb/containers/789/ghi'])
+            # The isdir calls show that we did ask about the things pretending
+            # to be files at various levels.
+            self.assertEquals(isdir_calls, [
+                '/srv/node/sda/containers/123',
+                '/srv/node/sda/containers/123/abc',
+                ('/srv/node/sda/containers/123/abc/'
+                 '00000000000000000000000000000abc'),
+                '/srv/node/sdb/containers/123',
+                '/srv/node/sdb/containers/123/abc',
+                ('/srv/node/sdb/containers/123/abc/'
+                 '00000000000000000000000000000abc'),
+                ('/srv/node/sda/containers/123/abc/'
+                 '11111111111111111111111111111abc'),
+                '/srv/node/sda/containers/123/def.db',
+                '/srv/node/sda/containers/456',
+                '/srv/node/sda/containers/789',
+                '/srv/node/sda/containers/789/ghi',
+                ('/srv/node/sda/containers/789/ghi/'
+                 '22222222222222222222222222222ghi'),
+                ('/srv/node/sdb/containers/123/abc/'
+                 '11111111111111111111111111111abc'),
+                '/srv/node/sdb/containers/123/def.db',
+                '/srv/node/sdb/containers/456',
+                '/srv/node/sdb/containers/789',
+                '/srv/node/sdb/containers/789/ghi',
+                ('/srv/node/sdb/containers/789/ghi/'
+                 '22222222222222222222222222222ghi'),
+                ('/srv/node/sda/containers/789/ghi/'
+                 '33333333333333333333333333333ghi'),
+                '/srv/node/sda/containers/789/jkl',
+                ('/srv/node/sdb/containers/789/ghi/'
+                 '33333333333333333333333333333ghi'),
+                '/srv/node/sdb/containers/789/jkl'])
+            # The exists calls are the .db files we looked for as we walked the
+            # structure.
+            self.assertEquals(exists_calls, [
+                ('/srv/node/sda/containers/123/abc/'
+                 '00000000000000000000000000000abc/'
+                 '00000000000000000000000000000abc.db'),
+                ('/srv/node/sdb/containers/123/abc/'
+                 '00000000000000000000000000000abc/'
+                 '00000000000000000000000000000abc.db'),
+                ('/srv/node/sda/containers/789/ghi/'
+                 '22222222222222222222222222222ghi/'
+                 '22222222222222222222222222222ghi.db'),
+                ('/srv/node/sdb/containers/789/ghi/'
+                 '22222222222222222222222222222ghi/'
+                 '22222222222222222222222222222ghi.db')])
+            # Shows that we called shuffle twice, once for each device.
+            self.assertEquals(
+                shuffle_calls, [['123', '456', '789'], ['123', '456', '789']])
+        finally:
+            db_replicator.os.listdir = orig_listdir
+            db_replicator.os.path.isdir = orig_isdir
+            db_replicator.os.path.exists = orig_exists
+            db_replicator.random.shuffle = orig_shuffle
+
 
 if __name__ == '__main__':
     unittest.main()
