@@ -20,15 +20,19 @@ from swift.common.middleware import catch_errors
 from swift.common.utils import get_logger
 
 class FakeApp(object):
-    def __init__(self, error=False):
+    def __init__(self, error=False, body_iter=None):
         self.error = error
+        self.body_iter = body_iter
 
     def __call__(self, env, start_response):
         if 'swift.trans_id' not in env:
             raise Exception('Trans id should always be in env')
         if self.error:
             raise Exception('An error occurred')
-        return ["FAKE APP"]
+        if self.body_iter is None:
+            return ["FAKE APP"]
+        else:
+            return self.body_iter
 
 def start_response(*args):
     pass
@@ -43,17 +47,18 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(resp, ['FAKE APP'])
+        self.assertEquals(list(resp), ['FAKE APP'])
 
     def test_catcherrors(self):
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(resp, ['An error occurred'])
+        self.assertEquals(list(resp), ['An error occurred'])
 
     def test_trans_id_header_pass(self):
         self.assertEquals(self.logger.txn_id, None)
-        def start_response(status, headers):
+
+        def start_response(status, headers, exc_info=None):
             self.assert_('x-trans-id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o')
@@ -62,12 +67,20 @@ class TestCatchErrors(unittest.TestCase):
 
     def test_trans_id_header_fail(self):
         self.assertEquals(self.logger.txn_id, None)
-        def start_response(status, headers):
+
+        def start_response(status, headers, exc_info=None):
             self.assert_('x-trans-id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
         self.assertEquals(len(self.logger.txn_id), 34)
+
+    def test_error_in_iterator(self):
+        app = catch_errors.CatchErrorMiddleware(
+            FakeApp(body_iter=(int(x) for x in 'abcd')), {})
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        self.assertEquals(list(resp), ['An error occurred'])
 
 if __name__ == '__main__':
     unittest.main()

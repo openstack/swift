@@ -18,6 +18,37 @@ import uuid
 
 from swift.common.swob import Request, HTTPServerError
 from swift.common.utils import get_logger
+from swift.common.wsgi import WSGIContext
+
+
+class CatchErrorsContext(WSGIContext):
+
+    def __init__(self, app, logger):
+        super(CatchErrorsContext, self).__init__(app)
+        self.logger = logger
+
+    def handle_request(self, env, start_response):
+        trans_id = 'tx' + uuid.uuid4().hex
+        env['swift.trans_id'] = trans_id
+        self.logger.txn_id = trans_id
+        try:
+            # catch any errors in the pipeline
+            resp = self._app_call(env)
+        except (Exception, Timeout), err:
+            self.logger.exception(_('Error: %s'), err)
+            resp = HTTPServerError(request=Request(env),
+                                   body='An error occurred',
+                                   content_type='text/plain')
+            resp.headers['x-trans-id'] = trans_id
+            return resp(env, start_response)
+
+        # make sure the response has the trans_id
+        if self._response_headers is None:
+            self._response_headers = []
+        self._response_headers.append(('x-trans-id', trans_id))
+        start_response(self._response_status, self._response_headers,
+                       self._response_exc_info)
+        return resp
 
 
 class CatchErrorMiddleware(object):
@@ -34,23 +65,8 @@ class CatchErrorMiddleware(object):
         """
         If used, this should be the first middleware in pipeline.
         """
-        trans_id = 'tx' + uuid.uuid4().hex
-        env['swift.trans_id'] = trans_id
-        self.logger.txn_id = trans_id
-        try:
-
-            def my_start_response(status, response_headers, exc_info=None):
-                trans_header = ('x-trans-id', trans_id)
-                response_headers.append(trans_header)
-                return start_response(status, response_headers, exc_info)
-            return self.app(env, my_start_response)
-        except (Exception, Timeout), err:
-            self.logger.exception(_('Error: %s'), err)
-            resp = HTTPServerError(request=Request(env),
-                                   body='An error occurred',
-                                   content_type='text/plain')
-            resp.headers['x-trans-id'] = trans_id
-            return resp(env, start_response)
+        context = CatchErrorsContext(self.app, self.logger)
+        return context.handle_request(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):
