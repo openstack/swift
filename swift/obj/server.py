@@ -118,6 +118,7 @@ class DiskFile(object):
             path, device, storage_directory(DATADIR, partition, name_hash))
         self.device_path = os.path.join(path, device)
         self.tmpdir = os.path.join(path, device, 'tmp')
+        self.tmppath = None
         self.logger = logger
         self.metadata = {}
         self.meta_file = None
@@ -278,30 +279,31 @@ class DiskFile(object):
         """Contextmanager to make a temporary file."""
         if not os.path.exists(self.tmpdir):
             mkdirs(self.tmpdir)
-        fd, tmppath = mkstemp(dir=self.tmpdir)
+        fd, self.tmppath = mkstemp(dir=self.tmpdir)
         try:
-            yield fd, tmppath
+            yield fd
         finally:
             try:
                 os.close(fd)
             except OSError:
                 pass
+            tmppath, self.tmppath = self.tmppath, None
             try:
                 os.unlink(tmppath)
             except OSError:
                 pass
 
-    def put(self, fd, tmppath, metadata, extension='.data'):
+    def put(self, fd, metadata, extension='.data'):
         """
         Finalize writing the file on disk, and renames it from the temp file to
         the real location.  This should be called after the data has been
         written to the temp file.
 
-        :params fd: file descriptor of the temp file
-        :param tmppath: path to the temporary file being used
+        :param fd: file descriptor of the temp file
         :param metadata: dictionary of metadata to be written
         :param extension: extension to be used when making the file
         """
+        assert self.tmppath is not None
         metadata['name'] = self.name
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         write_metadata(fd, metadata)
@@ -309,8 +311,20 @@ class DiskFile(object):
             self.drop_cache(fd, 0, int(metadata['Content-Length']))
         tpool.execute(fsync, fd)
         invalidate_hash(os.path.dirname(self.datadir))
-        renamer(tmppath, os.path.join(self.datadir, timestamp + extension))
+        renamer(self.tmppath,
+                os.path.join(self.datadir, timestamp + extension))
         self.metadata = metadata
+
+    def put_metadata(self, metadata, tombstone=False):
+        """
+        Short hand for putting metadata to .meta and .ts files.
+
+        :param metadata: dictionary of metadata to be written
+        :param tombstone: whether or not we are writing a tombstone
+        """
+        extension = '.ts' if tombstone else '.meta'
+        with self.mkstemp() as fd:
+            self.put(fd, metadata, extension=extension)
 
     def unlinkold(self, timestamp):
         """
@@ -565,8 +579,7 @@ class ObjectController(object):
             if old_delete_at:
                 self.delete_at_update('DELETE', old_delete_at, account,
                                       container, obj, request.headers, device)
-        with file.mkstemp() as (fd, tmppath):
-            file.put(fd, tmppath, metadata, extension='.meta')
+        file.put_metadata(metadata)
         return HTTPAccepted(request=request)
 
     @public
@@ -600,7 +613,7 @@ class ObjectController(object):
         etag = md5()
         upload_size = 0
         last_sync = 0
-        with file.mkstemp() as (fd, tmppath):
+        with file.mkstemp() as fd:
             if 'content-length' in request.headers:
                 try:
                     fallocate(fd, int(request.headers['content-length']))
@@ -654,7 +667,7 @@ class ObjectController(object):
                     self.delete_at_update(
                         'DELETE', old_delete_at, account, container, obj,
                         request.headers, device)
-            file.put(fd, tmppath, metadata)
+            file.put(fd, metadata)
         file.unlinkold(metadata['X-Timestamp'])
         if not orig_timestamp or \
                 orig_timestamp < request.headers['x-timestamp']:
@@ -821,12 +834,11 @@ class ObjectController(object):
         metadata = {
             'X-Timestamp': request.headers['X-Timestamp'], 'deleted': True,
         }
-        with file.mkstemp() as (fd, tmppath):
-            old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
-            if old_delete_at:
-                self.delete_at_update('DELETE', old_delete_at, account,
-                                      container, obj, request.headers, device)
-            file.put(fd, tmppath, metadata, extension='.ts')
+        old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
+        if old_delete_at:
+            self.delete_at_update('DELETE', old_delete_at, account,
+                                  container, obj, request.headers, device)
+        file.put_metadata(metadata, tombstone=True)
         file.unlinkold(metadata['X-Timestamp'])
         if not orig_timestamp or \
                 orig_timestamp < request.headers['x-timestamp']:
