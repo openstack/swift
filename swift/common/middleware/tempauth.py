@@ -84,10 +84,6 @@ class TempAuth(object):
         if self.auth_prefix[-1] != '/':
             self.auth_prefix += '/'
         self.token_life = int(conf.get('token_life', 86400))
-        self.allowed_sync_hosts = [
-            h.strip()
-            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
-            if h.strip()]
         self.allow_overrides = config_true_value(
             conf.get('allow_overrides', 't'))
         self.storage_url_scheme = conf.get('storage_url_scheme', 'default')
@@ -263,9 +259,7 @@ class TempAuth(object):
         if (req.environ.get('swift_sync_key') and
             req.environ['swift_sync_key'] ==
                 req.headers.get('x-container-sync-key', None) and
-            'x-timestamp' in req.headers and
-            (req.remote_addr in self.allowed_sync_hosts or
-             get_remote_client(req) in self.allowed_sync_hosts)):
+            'x-timestamp' in req.headers):
             return None
         if req.method == 'OPTIONS':
             #allow OPTIONS requests to proceed as normal

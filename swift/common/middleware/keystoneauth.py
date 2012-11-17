@@ -92,9 +92,6 @@ class KeystoneAuth(object):
                                             'ResellerAdmin')
         config_is_admin = conf.get('is_admin', "false").lower()
         self.is_admin = swift_utils.config_true_value(config_is_admin)
-        cfg_synchosts = conf.get('allowed_sync_hosts', '127.0.0.1')
-        self.allowed_sync_hosts = [h.strip() for h in cfg_synchosts.split(',')
-                                   if h.strip()]
         config_overrides = conf.get('allow_overrides', 't').lower()
         self.allow_overrides = swift_utils.config_true_value(config_overrides)
 
@@ -250,10 +247,7 @@ class KeystoneAuth(object):
         if (req.environ.get('swift_sync_key')
             and req.environ['swift_sync_key'] ==
                 req.headers.get('x-container-sync-key', None)
-            and 'x-timestamp' in req.headers
-            and (req.remote_addr in self.allowed_sync_hosts
-                 or swift_utils.get_remote_client(req)
-                 in self.allowed_sync_hosts)):
+            and 'x-timestamp' in req.headers):
             log_msg = 'allowing proxy %s for container-sync' % req.remote_addr
             self.logger.debug(log_msg)
             return True

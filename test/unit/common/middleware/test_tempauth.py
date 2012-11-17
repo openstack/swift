@@ -472,17 +472,6 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.headers['x-storage-url'],
                           'fake://somehost:5678/v1/AUTH_test')
 
-    def test_allowed_sync_hosts(self):
-        a = auth.filter_factory({'super_admin_key': 'supertest'})(FakeApp())
-        self.assertEquals(a.allowed_sync_hosts, ['127.0.0.1'])
-        a = auth.filter_factory(
-            {'super_admin_key': 'supertest',
-             'allowed_sync_hosts':
-                '1.1.1.1,2.1.1.1, 3.1.1.1 , 4.1.1.1,, , 5.1.1.1'})(FakeApp())
-        self.assertEquals(
-            a.allowed_sync_hosts,
-            ['1.1.1.1', '2.1.1.1', '3.1.1.1', '4.1.1.1', '5.1.1.1'])
-
     def test_reseller_admin_is_owner(self):
         orig_authorize = self.test_auth.authorize
         owner_values = []
@@ -590,18 +579,6 @@ class TestAuth(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'x-container-sync-key': 'secret'})
         req.remote_addr = '127.0.0.1'
-        resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-
-    def test_sync_request_fail_sync_host(self):
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
-                                     sync_key='secret')
-        req = self._make_request(
-            '/v1/AUTH_cfa/c/o',
-            environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'x-container-sync-key': 'secret',
-                     'x-timestamp': '123.456'})
-        req.remote_addr = '127.0.0.2'
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 401)
 

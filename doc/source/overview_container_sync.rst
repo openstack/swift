@@ -60,18 +60,6 @@ Additionally, it should be noted there is no way for an end user to detect sync
 progress or problems other than HEADing both containers and comparing the
 overall information.
 
-The authentication system also needs to be configured to allow synchronization
-requests. Here is an example with TempAuth::
-
-    [filter:tempauth]
-    # This is a comma separated list of hosts allowed to send
-    # X-Container-Sync-Key requests.
-    # allowed_sync_hosts = 127.0.0.1
-    allowed_sync_hosts = host1,host2,etc.
-
-The default of 127.0.0.1 is just so no configuration is required for SAIO
-setups -- for testing.
-
 ----------------------------------------------------------
 Using the ``swift`` tool to set up synchronized containers
 ----------------------------------------------------------
