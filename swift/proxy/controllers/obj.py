@@ -24,10 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import itertools
 import mimetypes
 import re
 import time
@@ -41,7 +38,7 @@ from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
 from swift.common.utils import ContextPool, normalize_timestamp, \
-    config_true_value, public
+    config_true_value, public, json
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -247,6 +244,11 @@ class ObjectController(Controller):
         self.object_name = unquote(object_name)
 
     def _listing_iter(self, lcontainer, lprefix, env):
+        for page in self._listing_pages_iter(lcontainer, lprefix, env):
+            for item in page:
+                yield item
+
+    def _listing_pages_iter(self, lcontainer, lprefix, env):
         lpartition, lnodes = self.app.container_ring.get_nodes(
             self.account_name, lcontainer)
         marker = ''
@@ -278,8 +280,29 @@ class ObjectController(Controller):
             if not sublisting:
                 break
             marker = sublisting[-1]['name']
-            for obj in sublisting:
-                yield obj
+            yield sublisting
+
+    def _remaining_items(self, listing_iter):
+        """
+        Returns an item-by-item iterator for a page-by-page iterator
+        of item listings.
+
+        Swallows listing-related errors; this iterator is only used
+        after we've already started streaming a response to the
+        client, and so if we start getting errors from the container
+        servers now, it's too late to send an error to the client, so
+        we just quit looking for segments.
+        """
+        try:
+            for page in listing_iter:
+                for item in page:
+                    yield item
+        except ListingIterNotFound:
+            pass
+        except ListingIterError:
+            pass
+        except ListingIterNotAuthorized:
+            pass
 
     def is_good_source(self, src):
         """
@@ -316,16 +339,21 @@ class ObjectController(Controller):
             lcontainer = unquote(lcontainer)
             lprefix = unquote(lprefix)
             try:
-                listing = list(self._listing_iter(lcontainer, lprefix,
-                               req.environ))
+                pages_iter = iter(self._listing_pages_iter(lcontainer, lprefix,
+                                                           req.environ))
+                listing_page1 = pages_iter.next()
+                listing = itertools.chain(listing_page1,
+                                          self._remaining_items(pages_iter))
             except ListingIterNotFound:
                 return HTTPNotFound(request=req)
             except ListingIterNotAuthorized, err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
+            except StopIteration:
+                listing_page1 = listing = ()
 
-            if len(listing) > CONTAINER_LISTING_LIMIT:
+            if len(listing_page1) >= CONTAINER_LISTING_LIMIT:
                 resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
                 if req.method == 'HEAD':
@@ -344,14 +372,13 @@ class ObjectController(Controller):
                     return head_response
                 else:
                     resp.app_iter = SegmentedIterable(
-                        self, lcontainer,
-                        self._listing_iter(lcontainer, lprefix, req.environ),
-                        resp)
+                        self, lcontainer, listing, resp)
 
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
                 if listing:
+                    listing = list(listing)
                     content_length = sum(o['bytes'] for o in listing)
                     last_modified = max(o['last_modified'] for o in listing)
                     last_modified = datetime(*map(int, re.split('[^\d]',
