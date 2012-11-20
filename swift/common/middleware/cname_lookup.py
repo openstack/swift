@@ -125,15 +125,16 @@ class CNAMELookupMiddleware(object):
                     break
                 else:
                     # try one more deep in the chain
-                    self.logger.debug(_('Following CNAME chain for  ' \
-                            '%(given_domain)s to %(found_domain)s') %
-                            {'given_domain': given_domain,
-                             'found_domain': found_domain})
+                    self.logger.debug(
+                        _('Following CNAME chain for  '
+                          '%(given_domain)s to %(found_domain)s') %
+                        {'given_domain': given_domain,
+                         'found_domain': found_domain})
                     a_domain = found_domain
             if error:
                 if found_domain:
                     msg = 'CNAME lookup failed after %d tries' % \
-                            self.lookup_depth
+                        self.lookup_depth
                 else:
                     msg = 'CNAME lookup failed to resolve to a valid domain'
                 resp = HTTPBadRequest(request=Request(env), body=msg,

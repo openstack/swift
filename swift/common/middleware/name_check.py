@@ -54,7 +54,7 @@ class NameCheckMiddleware(object):
         self.app = app
         self.conf = conf
         self.forbidden_chars = self.conf.get('forbidden_chars',
-                                            FORBIDDEN_CHARS)
+                                             FORBIDDEN_CHARS)
         self.maximum_length = self.conf.get('maximum_length', MAX_LENGTH)
         self.forbidden_regexp = self.conf.get('forbidden_regexp',
                                               FORBIDDEN_REGEXP)
@@ -72,7 +72,7 @@ class NameCheckMiddleware(object):
         '''
         self.logger.debug("name_check: path %s" % req.path)
         self.logger.debug("name_check: self.forbidden_chars %s" %
-                           self.forbidden_chars)
+                          self.forbidden_chars)
 
         for c in unquote(req.path):
             if c in self.forbidden_chars:
@@ -104,7 +104,7 @@ class NameCheckMiddleware(object):
 
         self.logger.debug("name_check: path %s" % req.path)
         self.logger.debug("name_check: self.forbidden_regexp %s" %
-                           self.forbidden_regexp)
+                          self.forbidden_regexp)
 
         unquoted_path = unquote(req.path)
         match = self.forbidden_regexp_compiled.search(unquoted_path)
@@ -114,18 +114,21 @@ class NameCheckMiddleware(object):
         req = Request(env)
 
         if self.check_character(req):
-            return HTTPBadRequest(request=req,
-               body=("Object/Container name contains forbidden chars from %s"
-               % self.forbidden_chars))(env, start_response)
+            return HTTPBadRequest(
+                request=req,
+                body=("Object/Container name contains forbidden chars from %s"
+                      % self.forbidden_chars))(env, start_response)
         elif self.check_length(req):
-            return HTTPBadRequest(request=req,
-               body=("Object/Container name longer than the allowed maximum %s"
-               % self.maximum_length))(env, start_response)
+            return HTTPBadRequest(
+                request=req,
+                body=("Object/Container name longer than the allowed maximum "
+                      "%s" % self.maximum_length))(env, start_response)
         elif self.check_regexp(req):
-            return HTTPBadRequest(request=req,
-               body=("Object/Container name contains a forbidden substring "
-                     "from regular expression %s"
-               % self.forbidden_regexp))(env, start_response)
+            return HTTPBadRequest(
+                request=req,
+                body=("Object/Container name contains a forbidden substring "
+                      "from regular expression %s"
+                      % self.forbidden_regexp))(env, start_response)
         else:
             # Pass on to downstream WSGI component
             return self.app(env, start_response)
