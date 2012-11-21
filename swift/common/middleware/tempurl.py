@@ -261,8 +261,8 @@ class TempURL(object):
                         already = True
                         break
                 if not already:
-                    headers.append(('Content-Disposition',
-                        'attachment; filename=%s' %
+                    headers.append(
+                        ('Content-Disposition', 'attachment; filename=%s' %
                             (quote(basename(env['PATH_INFO'])))))
             return start_response(status, headers, exc_info)
 
@@ -365,8 +365,9 @@ class TempURL(object):
         """
         if not request_method:
             request_method = env['REQUEST_METHOD']
-        return hmac.new(key, '%s\n%s\n%s' % (request_method, expires,
-            env['PATH_INFO']), sha1).hexdigest()
+        return hmac.new(
+            key, '%s\n%s\n%s' % (request_method, expires,
+                                 env['PATH_INFO']), sha1).hexdigest()
 
     def _invalid(self, env, start_response):
         """
@@ -380,8 +381,8 @@ class TempURL(object):
         self._log_request(env, HTTP_UNAUTHORIZED)
         body = '401 Unauthorized: Temp URL invalid\n'
         start_response('401 Unauthorized',
-            [('Content-Type', 'text/plain'),
-             ('Content-Length', str(len(body)))])
+                       [('Content-Type', 'text/plain'),
+                        ('Content-Length', str(len(body)))])
         if env['REQUEST_METHOD'] == 'HEAD':
             return []
         return [body]

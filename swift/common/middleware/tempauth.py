@@ -256,10 +256,10 @@ class TempAuth(object):
             # account DELETE or PUT...
             req.environ['swift_owner'] = True
             return None
-        if (req.environ.get('swift_sync_key') and
-            req.environ['swift_sync_key'] ==
-                req.headers.get('x-container-sync-key', None) and
-            'x-timestamp' in req.headers):
+        if (req.environ.get('swift_sync_key')
+                and (req.environ['swift_sync_key'] ==
+                     req.headers.get('x-container-sync-key', None))
+                and 'x-timestamp' in req.headers):
             return None
         if req.method == 'OPTIONS':
             #allow OPTIONS requests to proceed as normal

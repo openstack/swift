@@ -245,9 +245,9 @@ class KeystoneAuth(object):
         """
         # Allow container sync.
         if (req.environ.get('swift_sync_key')
-            and req.environ['swift_sync_key'] ==
-                req.headers.get('x-container-sync-key', None)
-            and 'x-timestamp' in req.headers):
+                and (req.environ['swift_sync_key'] ==
+                     req.headers.get('x-container-sync-key', None))
+                and 'x-timestamp' in req.headers):
             log_msg = 'allowing proxy %s for container-sync' % req.remote_addr
             self.logger.debug(log_msg)
             return True

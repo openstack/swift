@@ -47,10 +47,12 @@ class RateLimitMiddleware(object):
             float(conf.get('log_sleep_time_seconds', 0))
         self.clock_accuracy = int(conf.get('clock_accuracy', 1000))
         self.rate_buffer_seconds = int(conf.get('rate_buffer_seconds', 5))
-        self.ratelimit_whitelist = [acc.strip() for acc in
-            conf.get('account_whitelist', '').split(',') if acc.strip()]
-        self.ratelimit_blacklist = [acc.strip() for acc in
-            conf.get('account_blacklist', '').split(',') if acc.strip()]
+        self.ratelimit_whitelist = \
+            [acc.strip() for acc in
+                conf.get('account_whitelist', '').split(',') if acc.strip()]
+        self.ratelimit_blacklist = \
+            [acc.strip() for acc in
+                conf.get('account_blacklist', '').split(',') if acc.strip()]
         self.memcache_client = None
         conf_limits = []
         for conf_key in conf.keys():
@@ -66,7 +68,7 @@ class RateLimitMiddleware(object):
             if conf_limits:
                 next_size, next_rate = conf_limits[0]
                 slope = (float(next_rate) - float(cur_rate)) \
-                      / (next_size - cur_size)
+                    / (next_size - cur_size)
 
                 def new_scope(cur_size, slope, cur_rate):
                     # making new scope for variables
@@ -139,8 +141,8 @@ class RateLimitMiddleware(object):
         try:
             now_m = int(round(time.time() * self.clock_accuracy))
             time_per_request_m = int(round(self.clock_accuracy / max_rate))
-            running_time_m = self.memcache_client.incr(key,
-                             delta=time_per_request_m)
+            running_time_m = self.memcache_client.incr(
+                key, delta=time_per_request_m)
             need_to_sleep_m = 0
             if (now_m - running_time_m >
                     self.rate_buffer_seconds * self.clock_accuracy):
@@ -155,7 +157,8 @@ class RateLimitMiddleware(object):
             if max_sleep_m - need_to_sleep_m <= self.clock_accuracy * 0.01:
                 # treat as no-op decrement time
                 self.memcache_client.decr(key, delta=time_per_request_m)
-                raise MaxSleepTimeHitError("Max Sleep Time Exceeded: %.2f" %
+                raise MaxSleepTimeHitError(
+                    "Max Sleep Time Exceeded: %.2f" %
                     (float(need_to_sleep_m) / self.clock_accuracy))
 
             return float(need_to_sleep_m) / self.clock_accuracy
@@ -176,7 +179,8 @@ class RateLimitMiddleware(object):
                               account_name)
             eventlet.sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
-                body='Your account has been blacklisted', request=req)
+                            body='Your account has been blacklisted',
+                            request=req)
         if account_name in self.ratelimit_whitelist:
             return None
         for key, max_rate in self.get_ratelimitable_key_tuples(
@@ -186,15 +190,17 @@ class RateLimitMiddleware(object):
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if self.log_sleep_time_seconds and \
                         need_to_sleep > self.log_sleep_time_seconds:
-                    self.logger.warning(_("Ratelimit sleep log: %(sleep)s for "
-                        "%(account)s/%(container)s/%(object)s"),
+                    self.logger.warning(
+                        _("Ratelimit sleep log: %(sleep)s for "
+                          "%(account)s/%(container)s/%(object)s"),
                         {'sleep': need_to_sleep, 'account': account_name,
                          'container': container_name, 'object': obj_name})
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
             except MaxSleepTimeHitError, e:
-                self.logger.error(_('Returning 498 for %(meth)s to '
-                    '%(acc)s/%(cont)s/%(obj)s . Ratelimit (Max Sleep) %(e)s'),
+                self.logger.error(
+                    _('Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s '
+                      '. Ratelimit (Max Sleep) %(e)s'),
                     {'meth': req.method, 'acc': account_name,
                      'cont': container_name, 'obj': obj_name, 'e': str(e)})
                 error_resp = Response(status='498 Rate Limited',
