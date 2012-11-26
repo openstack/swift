@@ -16,7 +16,7 @@
 from httplib import HTTPConnection
 from os import kill
 from signal import SIGTERM
-from subprocess import call, Popen
+from subprocess import Popen, PIPE, STDOUT
 from time import sleep, time
 
 from swiftclient import get_auth, head_account
@@ -122,7 +122,9 @@ def kill_nonprimary_server(primary_nodes, port2server, pids):
 
 
 def reset_environment():
-    call(['resetswift'])
+    p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
+    stdout, _stderr = p.communicate()
+    print stdout
     pids = {}
     try:
         port2server = {}
