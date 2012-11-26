@@ -230,6 +230,7 @@ mount_check          true        Whether or not check if the devices are
                                  to the root device
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6000        Port for server to bind to
+bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
@@ -338,6 +339,7 @@ mount_check          true        Whether or not check if the devices are
                                  to the root device
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6001        Port for server to bind to
+bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
 user                 swift       User to run as
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
@@ -436,6 +438,7 @@ mount_check          true        Whether or not check if the devices are
                                  to the root device
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6002        Port for server to bind to
+bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
 user                 swift       User to run as
 db_preallocation     off         If you don't mind the extra disk space usage in
@@ -526,6 +529,8 @@ Option                        Default          Description
 bind_ip                       0.0.0.0          IP Address for server to
                                                bind to
 bind_port                     80               Port for server to bind to
+bind_timeout                  30               Seconds to attempt bind before
+                                               giving up
 swift_dir                     /etc/swift       Swift configuration directory
 workers                       1                Number of workers to fork
 user                          swift            User to run as

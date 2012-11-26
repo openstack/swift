@@ -1,6 +1,7 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
 # bind_port = 6000
+# bind_timeout = 30
 # backlog = 4096
 # workers = 1
 # user = swift

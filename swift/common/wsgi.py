@@ -70,7 +70,8 @@ def get_socket(conf, default_port=8080):
         bind_addr[0], bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
         if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
     sock = None
-    retry_until = time.time() + 30
+    bind_timeout = int(conf.get('bind_timeout', 30))
+    retry_until = time.time() + bind_timeout
     warn_ssl = False
     while not sock and time.time() < retry_until:
         try:
@@ -85,8 +86,9 @@ def get_socket(conf, default_port=8080):
                 raise
             sleep(0.1)
     if not sock:
-        raise Exception('Could not bind to %s:%s after trying for 30 seconds' %
-                        bind_addr)
+        raise Exception(_('Could not bind to %s:%s '
+                          'after trying for %s seconds') % (
+                              bind_addr[0], bind_addr[1], bind_timeout))
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # in my experience, sockets can hang around forever without keepalive
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
