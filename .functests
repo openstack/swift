@@ -1,11 +1,13 @@
 #!/bin/bash
 
-cd test/functional
+SRC_DIR=$(dirname $0)
+
+cd ${SRC_DIR}/test/functional
 nosetests --exe $@
 func1=$?
 cd -
 
-cd test/functionalnosetests
+cd ${SRC_DIR}/test/functionalnosetests
 nosetests --exe $@
 func2=$?
 cd -

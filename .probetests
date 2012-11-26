@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd test/probe
+cd $(dirname $0)/test/probe
 nosetests --exe
 rvalue=$?
 cd -
