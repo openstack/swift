@@ -382,8 +382,8 @@ class TestContainer(unittest.TestCase):
         # Make the container accessible by the second account
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
-                {'X-Auth-Token': token, 'X-Container-Read': 'test2',
-                 'X-Container-Write': 'test2'})
+                {'X-Auth-Token': token, 'X-Container-Read': swift_test_user[1],
+                 'X-Container-Write': swift_test_user[1]})
             return check_response(conn)
         resp = retry(post)
         resp.read()
@@ -450,7 +450,7 @@ class TestContainer(unittest.TestCase):
         # Now make the container also writeable by the second account
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
-                {'X-Auth-Token': token, 'X-Container-Write': 'test2'})
+                {'X-Auth-Token': token, 'X-Container-Write': swift_test_user[1]})
             return check_response(conn)
         resp = retry(post)
         resp.read()
