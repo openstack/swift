@@ -101,9 +101,9 @@ if __name__ == '__main__':
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
     connpool.create = lambda: Connection(conf['auth_url'],
-                                conf['auth_user'], conf['auth_key'],
-                                retries=retries,
-                                preauthurl=url, preauthtoken=token)
+                                         conf['auth_user'], conf['auth_key'],
+                                         retries=retries,
+                                         preauthurl=url, preauthtoken=token)
 
     container_ring = Ring(swift_dir, ring_name='container')
     parts_left = dict((x, x) for x in xrange(container_ring.partition_count))

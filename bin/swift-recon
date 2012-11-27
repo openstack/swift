@@ -25,7 +25,7 @@ class Scout(object):
     """
 
     def __init__(self, recon_type, verbose=False, suppress_errors=False,
-                    timeout=5):
+                 timeout=5):
         self.recon_type = recon_type
         self.verbose = verbose
         self.suppress_errors = suppress_errors
@@ -132,8 +132,8 @@ class SwiftRecon(object):
         """
         ring_data = Ring(swift_dir, ring_name=ring_name)
         if zone_filter:
-            ips = set((n['ip'], n['port']) for n in ring_data.devs if n \
-                if n['zone'] == zone_filter)
+            ips = set((n['ip'], n['port']) for n in ring_data.devs
+                      if n and n['zone'] == zone_filter)
         else:
             ips = set((n['ip'], n['port']) for n in ring_data.devs if n)
         return ips
@@ -157,7 +157,7 @@ class SwiftRecon(object):
                 block = f.read(4096)
         ring_sum = md5sum.hexdigest()
         recon = Scout("ringmd5", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking ring md5sums" % self._ptime()
         if self.verbose:
             print "-> On disk %s md5sum: %s" % (ringfile, ring_sum)
@@ -173,8 +173,8 @@ class SwiftRecon(object):
                         print "-> %s matches." % url
             else:
                 errors = errors + 1
-        print "%s/%s hosts matched, %s error[s] while checking hosts." % \
-                (matches, len(hosts), errors)
+        print "%s/%s hosts matched, %s error[s] while checking hosts." \
+            % (matches, len(hosts), errors)
         print "=" * 79
 
     def async_check(self, hosts):
@@ -186,7 +186,7 @@ class SwiftRecon(object):
         """
         scan = {}
         recon = Scout("async", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking async pendings" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -207,7 +207,7 @@ class SwiftRecon(object):
         """
         stats = {}
         recon = Scout("unmounted", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Getting unmounted drives from %s hosts..." % \
             (self._ptime(), len(hosts))
         for url, response, status in self.pool.imap(recon.scout, hosts):
@@ -235,9 +235,9 @@ class SwiftRecon(object):
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
                 stats['object_expiration_pass'].append(
-                                response.get('object_expiration_pass'))
+                    response.get('object_expiration_pass'))
                 stats['expired_last_pass'].append(
-                                response.get('expired_last_pass'))
+                    response.get('expired_last_pass'))
         for k in stats:
             if stats[k]:
                 computed = self._gen_stats(stats[k], name=k)
@@ -293,7 +293,7 @@ class SwiftRecon(object):
         """
         stats = {}
         recon = Scout("replication", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking on replication" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -397,7 +397,7 @@ class SwiftRecon(object):
         errors = 'errors'
         quarantined = 'quarantined'
         recon = Scout("auditor/object", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking auditor stats " % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -459,7 +459,7 @@ class SwiftRecon(object):
         load5 = {}
         load15 = {}
         recon = Scout("load", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking load averages" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -487,7 +487,7 @@ class SwiftRecon(object):
         conq = {}
         acctq = {}
         recon = Scout("quarantined", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking quarantine" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -517,7 +517,7 @@ class SwiftRecon(object):
         timewait = {}
         orphan = {}
         recon = Scout("sockstat", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking socket usage" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -527,8 +527,8 @@ class SwiftRecon(object):
                 timewait[url] = response['time_wait']
                 orphan[url] = response['orphan']
         stats = {"tcp_in_use": inuse4, "tcp_mem_allocated_bytes": mem,
-                    "tcp6_in_use": inuse6, "time_wait": timewait,
-                    "orphan": orphan}
+                 "tcp6_in_use": inuse6, "time_wait": timewait,
+                 "orphan": orphan}
         for item in stats:
             if len(stats[item]) > 0:
                 computed = self._gen_stats(stats[item].values(), item)
@@ -551,7 +551,7 @@ class SwiftRecon(object):
         raw_total_avail = []
         percents = {}
         recon = Scout("diskusage", self.verbose, self.suppress_errors,
-                        self.timeout)
+                      self.timeout)
         print "[%s] Checking disk usage now" % self._ptime()
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
@@ -584,8 +584,8 @@ class SwiftRecon(object):
             print "Distribution Graph:"
             mul = 69.0 / max(percents.values())
             for percent in sorted(percents):
-                print '% 3d%%%5d %s' % (percent, percents[percent], \
-                    '*' * int(percents[percent] * mul))
+                print '% 3d%%%5d %s' % (percent, percents[percent],
+                                        '*' * int(percents[percent] * mul))
             raw_used = sum(raw_total_used)
             raw_avail = sum(raw_total_avail)
             raw_total = raw_used + raw_avail
@@ -614,39 +614,42 @@ class SwiftRecon(object):
         '''
         args = optparse.OptionParser(usage)
         args.add_option('--verbose', '-v', action="store_true",
-            help="Print verbose info")
+                        help="Print verbose info")
         args.add_option('--suppress', action="store_true",
-            help="Suppress most connection related errors")
+                        help="Suppress most connection related errors")
         args.add_option('--async', '-a', action="store_true",
-            help="Get async stats")
+                        help="Get async stats")
         args.add_option('--replication', '-r', action="store_true",
-            help="Get replication stats")
+                        help="Get replication stats")
         args.add_option('--auditor', action="store_true",
-            help="Get auditor stats")
+                        help="Get auditor stats")
         args.add_option('--updater', action="store_true",
-            help="Get updater stats")
+                        help="Get updater stats")
         args.add_option('--expirer', action="store_true",
-            help="Get expirer stats")
+                        help="Get expirer stats")
         args.add_option('--unmounted', '-u', action="store_true",
-            help="Check cluster for unmounted devices")
+                        help="Check cluster for unmounted devices")
         args.add_option('--diskusage', '-d', action="store_true",
-            help="Get disk usage stats")
+                        help="Get disk usage stats")
         args.add_option('--loadstats', '-l', action="store_true",
-            help="Get cluster load average stats")
+                        help="Get cluster load average stats")
         args.add_option('--quarantined', '-q', action="store_true",
-            help="Get cluster quarantine stats")
+                        help="Get cluster quarantine stats")
         args.add_option('--md5', action="store_true",
-            help="Get md5sum of servers ring and compare to local copy")
+                        help="Get md5sum of servers ring and compare to "
+                        "local copy")
         args.add_option('--sockstat', action="store_true",
-            help="Get cluster socket usage stats")
+                        help="Get cluster socket usage stats")
         args.add_option('--all', action="store_true",
-            help="Perform all checks. Equal to -arudlq --md5 --sockstat")
+                        help="Perform all checks. Equal to -arudlq --md5 "
+                        "--sockstat")
         args.add_option('--zone', '-z', type="int",
-            help="Only query servers in specified zone")
+                        help="Only query servers in specified zone")
         args.add_option('--timeout', '-t', type="int", metavar="SECONDS",
-            help="Time to wait for a response from a server", default=5)
+                        help="Time to wait for a response from a server",
+                        default=5)
         args.add_option('--swiftdir', default="/etc/swift",
-            help="Default = /etc/swift")
+                        help="Default = /etc/swift")
         options, arguments = args.parse_args()
 
         if len(sys.argv) <= 1 or len(arguments) > 1:

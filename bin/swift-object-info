@@ -52,7 +52,7 @@ if __name__ == '__main__':
             part, nodes = ring.get_nodes(account, container, obj)
             for node in nodes:
                 print ('  %s:%s - /srv/node/%s/objects/%s/%s/%s/%s.data' %
-                        (node['ip'], node['port'], node['device'], part,
+                       (node['ip'], node['port'], node['device'], part,
                         obj_hash[-3:], obj_hash, ts))
     else:
         print 'Path: Not found in metadata'
