@@ -65,6 +65,7 @@ if __name__ == '__main__':
         print '         Or: /v1/account/container/object_prefix'
         exit(1)
     sig = hmac.new(key, '%s\n%s\n%s\n%s\n%s' % (path, redirect, max_file_size,
-        max_file_count, expires), sha1).hexdigest()
+                                                max_file_count, expires),
+                   sha1).hexdigest()
     print '  Expires:', expires
     print 'Signature:', sig

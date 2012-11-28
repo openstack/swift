@@ -13,7 +13,8 @@ if __name__ == '__main__':
 Lists old Swift processes.
         '''.strip())
     parser.add_option('-a', '--age', dest='hours', type='int', default=720,
-        help='look for processes at least HOURS old; default: 720 (30 days)')
+                      help='look for processes at least HOURS old; '
+                      'default: 720 (30 days)')
     (options, args) = parser.parse_args()
 
     listing = []
@@ -27,8 +28,8 @@ Lists old Swift processes.
             etime, pid, args = line.split(None, 2)
         except ValueError:
             sys.exit('Could not process ps line %r' % line)
-        if (not args.startswith('/usr/bin/python /usr/bin/swift-') and
-            not args.startswith('/usr/bin/python /usr/local/bin/swift-')):
+        if not args.startswith('/usr/bin/python /usr/bin/swift-') and \
+                not args.startswith('/usr/bin/python /usr/local/bin/swift-'):
             continue
         args = args.split('-', 1)[1]
         etime = etime.split('-')

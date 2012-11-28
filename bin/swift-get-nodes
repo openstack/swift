@@ -32,7 +32,7 @@ parser.add_option('-p', '--partition', metavar='PARTITION',
 if (len(args) < 2 or len(args) > 4) and \
    (options.partition is None or not args):
     print 'Usage: %s [-a] <ring.gz> <account> [<container>] [<object>]' \
-      % sys.argv[0]
+        % sys.argv[0]
     print '   Or: %s [-a] <ring.gz> -p partition' % sys.argv[0]
     print 'Shows the nodes responsible for the item specified.'
     print 'Example:'
@@ -102,7 +102,7 @@ print 'Hash       \t%s\n' % hash_str
 
 for node in nodes:
     print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
-        node['device'])
+                                            node['device'])
 for mnode in more_nodes:
     print 'Server:Port Device\t%s:%s %s\t [Handoff]' \
         % (mnode['ip'], mnode['port'], mnode['device'])
@@ -110,11 +110,11 @@ print "\n"
 for node in nodes:
     print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
         % (node['ip'], node['port'], node['device'], part,
-        urllib.quote(target))
+           urllib.quote(target))
 for mnode in more_nodes:
     print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s" # [Handoff]' \
         % (mnode['ip'], mnode['port'], mnode['device'], part,
-        urllib.quote(target))
+           urllib.quote(target))
 print "\n"
 for node in nodes:
     if hash_str:
