@@ -300,6 +300,18 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('blahblah')
         self.assertEquals(req.path_info_pop(), None)
 
+    def test_path_info_pop_last(self):
+        req = swift.common.swob.Request.blank('/last')
+        self.assertEquals(req.path_info_pop(), 'last')
+        self.assertEquals(req.path_info, '')
+        self.assertEquals(req.script_name, '/last')
+
+    def test_path_info_pop_none(self):
+        req = swift.common.swob.Request.blank('/')
+        self.assertEquals(req.path_info_pop(), '')
+        self.assertEquals(req.path_info, '')
+        self.assertEquals(req.script_name, '/')
+
     def test_copy_get(self):
         req = swift.common.swob.Request.blank(
             '/hi/there', environ={'REQUEST_METHOD': 'POST'})
