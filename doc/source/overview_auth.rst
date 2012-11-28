@@ -88,7 +88,7 @@ and add auth_token and keystoneauth in your
 add the configuration for the authtoken middleware::
 
   [filter:authtoken]
-  paste.filter_factory = keystone.middleware.auth_token:filter_factory
+  paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
   auth_host = keystonehost
   auth_port = 35357
   auth_protocol = http
