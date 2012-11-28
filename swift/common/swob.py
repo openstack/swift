@@ -758,10 +758,12 @@ class Request(object):
         the path segment.
         """
         path_info = self.path_info
+        if not path_info or path_info[0] != '/':
+            return None
         try:
             slash_loc = path_info.index('/', 1)
         except ValueError:
-            return None
+            slash_loc = len(path_info)
         self.script_name += path_info[:slash_loc]
         self.path_info = path_info[slash_loc:]
         return path_info[1:slash_loc]
