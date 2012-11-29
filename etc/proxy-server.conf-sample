@@ -144,7 +144,7 @@ user_test_tester3 = testing3
 # there you can change it to: authtoken keystone
 #
 # [filter:authtoken]
-# paste.filter_factory = keystone.middleware.auth_token:filter_factory
+# paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
 # auth_host = keystonehost
 # auth_port = 35357
 # auth_protocol = http
