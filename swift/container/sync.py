@@ -291,7 +291,7 @@ class ContainerSync(Daemon):
                     if not rows:
                         break
                     row = rows[0]
-                    if row['ROWID'] >= sync_point1:
+                    if row['ROWID'] > sync_point1:
                         break
                     key = hash_path(info['account'], info['container'],
                                     row['name'], raw_digest=True)
