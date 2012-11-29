@@ -35,7 +35,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPConflict, Request, Response, \
-    HTTPInsufficientStorage
+    HTTPInsufficientStorage, HTTPNotAcceptable
 
 
 DATADIR = 'accounts'
@@ -182,14 +182,10 @@ class AccountController(object):
         if get_param(req, 'format'):
             req.accept = FORMAT2CONTENT_TYPE.get(
                 get_param(req, 'format').lower(), FORMAT2CONTENT_TYPE['plain'])
-        try:
-            headers['Content-Type'] = req.accept.best_match(
-                ['text/plain', 'application/json', 'application/xml',
-                 'text/xml'],
-                default_match='text/plain')
-        except AssertionError, err:
-            return HTTPBadRequest(body='bad accept header: %s' % req.accept,
-                                  content_type='text/plain', request=req)
+        headers['Content-Type'] = req.accept.best_match(
+            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+        if not headers['Content-Type']:
+            return HTTPNotAcceptable(request=req)
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
@@ -242,14 +238,10 @@ class AccountController(object):
         if query_format:
             req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
                                                  FORMAT2CONTENT_TYPE['plain'])
-        try:
-            out_content_type = req.accept.best_match(
-                ['text/plain', 'application/json', 'application/xml',
-                 'text/xml'],
-                default_match='text/plain')
-        except AssertionError, err:
-            return HTTPBadRequest(body='bad accept header: %s' % req.accept,
-                                  content_type='text/plain', request=req)
+        out_content_type = req.accept.best_match(
+            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+        if not out_content_type:
+            return HTTPNotAcceptable(request=req)
         account_list = broker.list_containers_iter(limit, marker, end_marker,
                                                    prefix, delimiter)
         if out_content_type == 'application/json':
