@@ -227,5 +227,23 @@ class TestAuthorize(unittest.TestCase):
         acl = '%s:%s' % (identity['tenant'][0], identity['user'])
         self._check_authenticate(identity=identity, acl=acl)
 
+    def test_authorize_succeeds_for_wildcard_tenant_user_in_roles(self):
+        identity = self._get_identity()
+        acl = '*:%s' % (identity['user'])
+        self._check_authenticate(identity=identity, acl=acl)
+
+    def test_cross_tenant_authorization_success(self):
+        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
+            'tenantID', 'tenantNAME', ['tenantID:userA']))
+        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
+            'tenantID', 'tenantNAME', ['tenantNAME:userA']))
+        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
+            'tenantID', 'tenantNAME', ['*:userA']))
+
+    def test_cross_tenant_authorization_failure(self):
+        self.assertFalse(self.test_auth._authorize_cross_tenant('userA',
+            'tenantID', 'tenantNAME', ['tenantXYZ:userA']))
+
+
 if __name__ == '__main__':
     unittest.main()

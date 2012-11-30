@@ -140,10 +140,34 @@ class KeystoneAuth(object):
         """Check reseller prefix."""
         return account == self._get_account_for_tenant(tenant_id)
 
+    def _authorize_cross_tenant(self, user, tenant_id, tenant_name, roles):
+        """ Check cross-tenant ACLs
+
+        Match tenant_id:user, tenant_name:user, and *:user.
+
+        :param user: The user name from the identity token.
+        :param tenant_id: The tenant ID from the identity token.
+        :param tenant_name: The tenant name from the identity token.
+        :param roles: The given container ACL.
+
+        :returns: True if tenant_id:user, tenant_name:user, or *:user matches
+                  the given ACL. False otherwise.
+
+        """
+        wildcard_tenant_match = '*:%s' % (user)
+        tenant_id_user_match = '%s:%s' % (tenant_id, user)
+        tenant_name_user_match = '%s:%s' % (tenant_name, user)
+
+        return (wildcard_tenant_match in roles
+                or tenant_id_user_match in roles
+                or tenant_name_user_match in roles)
+
     def authorize(self, req):
         env = req.environ
         env_identity = env.get('keystone.identity', {})
         tenant_id, tenant_name = env_identity.get('tenant')
+        user = env_identity.get('user', '')
+        referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
         try:
             part = swift_utils.split_path(req.path, 1, 4, True)
@@ -159,6 +183,13 @@ class KeystoneAuth(object):
             msg = 'User %s has reseller admin authorizing'
             self.logger.debug(msg % tenant_id)
             req.environ['swift_owner'] = True
+            return
+
+        # cross-tenant authorization
+        if self._authorize_cross_tenant(user, tenant_id, tenant_name, roles):
+            log_msg = 'user %s:%s, %s:%s, or *:%s allowed in ACL authorizing'
+            self.logger.debug(log_msg % (tenant_name, user,
+                                         tenant_id, user, user))
             return
 
         # Check if a user tries to access an account that does not match their
@@ -181,12 +212,9 @@ class KeystoneAuth(object):
                 return
 
         # If user is of the same name of the tenant then make owner of it.
-        user = env_identity.get('user', '')
         if self.is_admin and user == tenant_name:
             req.environ['swift_owner'] = True
             return
-
-        referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
         authorized = self._authorize_unconfirmed_identity(req, obj, referrers,
                                                           roles)
@@ -194,14 +222,6 @@ class KeystoneAuth(object):
             return
         elif authorized is not None:
             return self.denied_response(req)
-
-        # Allow ACL at individual user level (tenant:user format)
-        # For backward compatibility, check for ACL in tenant_id:user format
-        if ('%s:%s' % (tenant_name, user) in roles
-                or '%s:%s' % (tenant_id, user) in roles):
-            log_msg = 'user %s:%s or %s:%s allowed in ACL authorizing'
-            self.logger.debug(log_msg % (tenant_name, user, tenant_id, user))
-            return
 
         # Check if we have the role in the userroles and allow it
         for user_role in user_roles:
