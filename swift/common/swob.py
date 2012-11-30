@@ -703,7 +703,7 @@ class Request(object):
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
             'QUERY_STRING': query_string,
-            'PATH_INFO': path_info,
+            'PATH_INFO': urllib2.unquote(path_info),
             'SERVER_NAME': 'localhost',
             'SERVER_PORT': '80',
             'HTTP_HOST': 'localhost:80',
@@ -749,7 +749,7 @@ class Request(object):
     def path(self):
         "Provides the full path of the request, excluding the QUERY_STRING"
         return urllib2.quote(self.environ.get('SCRIPT_NAME', '') +
-                             self.environ['PATH_INFO'].split('?')[0])
+                             self.environ['PATH_INFO'])
 
     def path_info_pop(self):
         """

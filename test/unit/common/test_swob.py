@@ -290,6 +290,13 @@ class TestRequest(unittest.TestCase):
             '/', environ={'SCRIPT_NAME': '/hi', 'PATH_INFO': '/there'})
         self.assertEquals(req.path, '/hi/there')
 
+    def test_path_question_mark(self):
+        req = swift.common.swob.Request.blank('/test%3Ffile')
+        # This tests that .blank unquotes the path when setting PATH_INFO
+        self.assertEquals(req.environ['PATH_INFO'], '/test?file')
+        # This tests that .path requotes it
+        self.assertEquals(req.path, '/test%3Ffile')
+
     def test_path_info_pop(self):
         req = swift.common.swob.Request.blank('/hi/there')
         self.assertEquals(req.path_info_pop(), 'hi')
