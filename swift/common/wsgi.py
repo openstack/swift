@@ -207,7 +207,7 @@ def init_request_processor(conf_file, app_section, *args, **kwargs):
 
     :param conf_file: Path to paste.deploy style configuration file
     :param app_section: App name from conf file to load config from
-    :returns the loaded application entry point
+    :returns: the loaded application entry point
     :raises ConfigFileError: Exception is raised for config file error
     """
     try:

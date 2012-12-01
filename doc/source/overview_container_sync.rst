@@ -174,6 +174,13 @@ to the other container.
 
 .. note::
 
+    The swift-container-sync process runs on each container server in
+    the cluster and talks to the proxy servers in the remote cluster.
+    Therefore, the container servers must be permitted to initiate
+    outbound connections to the remote proxy servers.
+
+.. note::
+
     Container sync will sync object POSTs only if the proxy server is set to
     use "object_post_as_copy = true" which is the default. So-called fast
     object posts, "object_post_as_copy = false" do not update the container
@@ -184,39 +191,81 @@ The actual syncing is slightly more complicated to make use of the three
 do the exact same work but also without missing work if one node happens to
 be down.
 
-Two sync points are kept per container database. All rows between the two
-sync points trigger updates. Any rows newer than both sync points cause
-updates depending on the node's position for the container (primary nodes
-do one third, etc. depending on the replica count of course). After a sync
-run, the first sync point is set to the newest ROWID known and the second
-sync point is set to newest ROWID for which all updates have been sent.
+Two sync points are kept in each container database. When syncing a
+container, the container-sync process figures out which replica of the
+container it has. In a standard 3-replica scenario, the process will
+have either replica number 0, 1, or 2. This is used to figure out
+which rows are belong to this sync process and which ones don't.
 
-An example may help. Assume replica count is 3 and perfectly matching
-ROWIDs starting at 1.
+An example may help. Assume a replica count of 3 and database row IDs
+are 1..6. Also, assume that container-sync is running on this
+container for the first time, hence SP1 = SP2 = -1. ::
 
-    First sync run, database has 6 rows:
+   SP1
+   SP2
+    |
+    v
+   -1 0 1 2 3 4 5 6
 
-        * SyncPoint1 starts as -1.
-        * SyncPoint2 starts as -1.
-        * No rows between points, so no "all updates" rows.
-        * Six rows newer than SyncPoint1, so a third of the rows are sent
-          by node 1, another third by node 2, remaining third by node 3.
-        * SyncPoint1 is set as 6 (the newest ROWID known).
-        * SyncPoint2 is left as -1 since no "all updates" rows were synced.
+First, the container-sync process looks for rows with id between SP1
+and SP2. Since this is the first run, SP1 = SP2 = -1, and there aren't
+any such rows. ::
 
-    Next sync run, database has 12 rows:
+   SP1
+   SP2
+    |
+    v
+   -1 0 1 2 3 4 5 6
 
-        * SyncPoint1 starts as 6.
-        * SyncPoint2 starts as -1.
-        * The rows between -1 and 6 all trigger updates (most of which
-          should short-circuit on the remote end as having already been
-          done).
-        * Six more rows newer than SyncPoint1, so a third of the rows are
-          sent by node 1, another third by node 2, remaining third by node
-          3.
-        * SyncPoint1 is set as 12 (the newest ROWID known).
-        * SyncPoint2 is set as 6 (the newest "all updates" ROWID).
+Second, the container-sync process looks for rows with id greater than
+SP1, and syncs those rows which it owns. Ownership is based on the
+hash of the object name, so it's not always guaranteed to be exactly
+one out of every three rows, but it usually gets close. For the sake
+of example, let's say that this process ends up owning rows 2 and 5.
 
-In this way, under normal circumstances each node sends its share of
-updates each run and just sends a batch of older updates to ensure nothing
-was missed.
+Once it's finished syncing those rows, it updates SP1 to be the
+biggest row-id that it's seen, which is 6 in this example. ::
+
+   SP2           SP1
+    |             |
+    v             v
+   -1 0 1 2 3 4 5 6
+
+While all that was going on, clients uploaded new objects into the
+container, creating new rows in the database. ::
+
+   SP2           SP1
+    |             |
+    v             v
+   -1 0 1 2 3 4 5 6 7 8 9 10 11 12
+
+On the next run, the container-sync starts off looking at rows with
+ids between SP1 and SP2. This time, there are a bunch of them. The
+sync process takes the ones it *does not* own and syncs them. Again,
+this is based on the hashes, so this will be everything it didn't sync
+before. In this example, that's rows 0, 1, 3, 4, and 6.
+
+Under normal circumstances, the container-sync processes for the other
+replicas will have already taken care of synchronizing those rows, so
+this is a set of quick checks. However, if one of those other sync
+processes failed for some reason, then this is a vital fallback to
+make sure all the objects in the container get synchronized. Without
+this seemingly-redundant work, any container-sync failure results in
+unsynchronized objects.
+
+Once it's done with the fallback rows, SP2 is advanced to SP1. ::
+
+                 SP2
+                 SP1
+                  |
+                  v
+   -1 0 1 2 3 4 5 6 7 8 9 10 11 12
+
+Then, rows with row ID greater than SP1 are synchronized (provided
+this container-sync process is responsible for them), and SP1 is moved
+up to the greatest row ID seen. ::
+
+                 SP2            SP1
+                  |              |
+                  v              v
+   -1 0 1 2 3 4 5 6 7 8 9 10 11 12
