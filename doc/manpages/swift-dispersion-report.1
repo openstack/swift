@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [conf_file]
+.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [--container-only|--object-only] [conf_file]
 
 .SH DESCRIPTION 
 .PP
@@ -71,6 +71,18 @@ output dispersion report in json format
 .PD 1
 .IP "\fB-p, --partitions\fR"
 output the partition numbers that have any missing replicas
+
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB--container-only\fR"
+Only run the container report
+
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB--object-only\fR"
+Only run the object report
 
 .SH CONFIGURATION
 .PD 0 

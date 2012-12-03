@@ -11,4 +11,6 @@ auth_key = testing
 # dispersion_coverage = 1
 # retries = 5
 # concurrency = 25
+# container_report = yes
+# object_report = yes
 # dump_json = no
