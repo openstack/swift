@@ -232,11 +232,12 @@ class TestMatch(unittest.TestCase):
 class TestAccept(unittest.TestCase):
     def test_accept_json(self):
         for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',
-                       '*/*;q=0.9,application/json;q=1.0', 'application/*'):
+                       '*/*;q=0.9,application/json;q=1.0', 'application/*',
+                       'text/*,application/json', 'application/*,text/*',
+                       'application/json,text/xml'):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/json',
-                                    'application/xml', 'text/xml'],
-                                   default_match='text/plain')
+                                    'application/xml', 'text/xml'])
             self.assertEquals(match, 'application/json')
 
     def test_accept_plain(self):
@@ -245,8 +246,7 @@ class TestAccept(unittest.TestCase):
                        'text/plain,application/xml'):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/json',
-                                    'application/xml', 'text/xml'],
-                                   default_match='text/plain')
+                                    'application/xml', 'text/xml'])
             self.assertEquals(match, 'text/plain')
 
     def test_accept_xml(self):
@@ -254,8 +254,17 @@ class TestAccept(unittest.TestCase):
                        '*/*;q=0.9,application/xml;q=1.0'):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/xml',
-                                   'text/xml'], default_match='text/plain')
+                                   'text/xml'])
             self.assertEquals(match, 'application/xml')
+
+    def test_accept_invalid(self):
+        for accept in ('*', 'text/plain,,', 'some stuff',
+                       'application/xml;q=1.0;q=1.1', 'text/plain,*',
+                       'text /plain', 'text\x7f/plain'):
+            acc = swift.common.swob.Accept(accept)
+            match = acc.best_match(['text/plain', 'application/xml',
+                                   'text/xml'])
+            self.assertEquals(match, None)
 
 
 class TestRequest(unittest.TestCase):

@@ -771,8 +771,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/xml*'
         resp = self.controller.GET(req)
-        self.assertEquals(resp.status_int, 400)
-        self.assertEquals(resp.body, 'bad accept header: application/xml*')
+        self.assertEquals(resp.status_int, 406)
 
     def test_GET_prefix_delimeter_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
