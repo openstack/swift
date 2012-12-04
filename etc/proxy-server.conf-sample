@@ -162,12 +162,12 @@ user_test_tester3 = testing3
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
-# You can override the default log routing for this filter here:
-# set log_name = healthcheck
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_headers = False
-# set log_address = /dev/log
+# An optional filesystem path, which if present, will cause the healthcheck
+# URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE".
+# This facility may be used to temporarily remove a Swift node from a load
+# balancer pool during maintenance or upgrade (remove the file to allow the
+# node back into the load balancer pool).
+# disable_path =
 
 [filter:cache]
 use = egg:swift#memcache
@@ -315,7 +315,7 @@ use = egg:swift#name_check
 
 [filter:proxy-logging]
 use = egg:swift#proxy_logging
-# If not set, logging directives from [DEFAULT] without "access_" will be # used
+# If not set, logging directives from [DEFAULT] without "access_" will be used
 # access_log_name = swift
 # access_log_facility = LOG_LOCAL0
 # access_log_level = INFO

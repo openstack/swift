@@ -33,7 +33,7 @@
 # db_preallocation = off
 
 [pipeline:main]
-pipeline = recon container-server
+pipeline = healthcheck recon container-server
 
 [app:container-server]
 use = egg:swift#container
@@ -47,6 +47,12 @@ use = egg:swift#container
 # conn_timeout = 0.5
 # allow_versions = False
 # auto_create_account_prefix = .
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+# An optional filesystem path, which if present, will cause the healthcheck
+# URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE"
+# disable_path =
 
 [filter:recon]
 use = egg:swift#recon

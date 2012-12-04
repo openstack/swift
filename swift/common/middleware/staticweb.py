@@ -28,7 +28,8 @@ added. For example::
     ...
 
     [pipeline:main]
-    pipeline = healthcheck cache tempauth staticweb proxy-server
+    pipeline = catch_errors healthcheck cache ratelimit tempauth staticweb
+               proxy-logging proxy-server
 
     ...
 

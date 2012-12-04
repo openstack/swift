@@ -20,13 +20,14 @@ or that exceed a defined length.
 
 Place in proxy filter before proxy, e.g.
 
-[pipeline:main]
-pipeline = catch_errors healthcheck name_check cache tempauth sos proxy-server
+    [pipeline:main]
+    pipeline = catch_errors healthcheck name_check cache ratelimit tempauth sos
+               proxy-logging proxy-server
 
-[filter:name_check]
-use = egg:swift#name_check
-forbidden_chars = '"`<>
-maximum_length = 255
+    [filter:name_check]
+    use = egg:swift#name_check
+    forbidden_chars = '"`<>
+    maximum_length = 255
 
 There are default settings for forbidden_chars (FORBIDDEN_CHARS) and
 maximum_length (MAX_LENGTH)

@@ -13,32 +13,68 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import shutil
+import tempfile
 import unittest
 
-from swift.common.swob import Request
+from swift.common.swob import Request, Response
 from swift.common.middleware import healthcheck
+
 
 class FakeApp(object):
     def __call__(self, env, start_response):
-        return "FAKE APP"
+        req = Request(env)
+        return Response(request=req, body='FAKE APP')(
+            env, start_response)
 
-def start_response(*args):
-    pass
 
 class TestHealthCheck(unittest.TestCase):
 
     def setUp(self):
-        self.app = healthcheck.HealthCheckMiddleware(FakeApp())
+        self.tempdir = tempfile.mkdtemp()
+        self.disable_path = os.path.join(self.tempdir, 'dont-taze-me-bro')
+        self.got_statuses = []
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def get_app(self, app, global_conf, **local_conf):
+        factory = healthcheck.filter_factory(global_conf, **local_conf)
+        return factory(app)
+
+    def start_response(self, status, headers):
+        self.got_statuses.append(status)
 
     def test_healthcheck(self):
         req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
-        resp = self.app(req.environ, start_response)
+        app = self.get_app(FakeApp(), {})
+        resp = app(req.environ, self.start_response)
+        self.assertEquals(['200 OK'], self.got_statuses)
         self.assertEquals(resp, ['OK'])
 
     def test_healtcheck_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        app = self.get_app(FakeApp(), {})
+        resp = app(req.environ, self.start_response)
+        self.assertEquals(['200 OK'], self.got_statuses)
+        self.assertEquals(resp, ['FAKE APP'])
+
+    def test_healthcheck_pass_not_disabled(self):
+        req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
+        app = self.get_app(FakeApp(), {}, disable_path=self.disable_path)
+        resp = app(req.environ, self.start_response)
+        self.assertEquals(['200 OK'], self.got_statuses)
+        self.assertEquals(resp, ['OK'])
+
+    def test_healthcheck_pass_disabled(self):
+        open(self.disable_path, 'w')
+        req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
+        app = self.get_app(FakeApp(), {}, disable_path=self.disable_path)
+        resp = app(req.environ, self.start_response)
+        self.assertEquals(['503 Service Unavailable'], self.got_statuses)
+        self.assertEquals(resp, ['DISABLED BY FILE'])
+
 
 if __name__ == '__main__':
     unittest.main()

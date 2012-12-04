@@ -28,7 +28,7 @@
 # log_statsd_metric_prefix =
 
 [pipeline:main]
-pipeline = recon object-server
+pipeline = healthcheck recon object-server
 
 [app:object-server]
 use = egg:swift#object
@@ -56,6 +56,12 @@ use = egg:swift#object
 # Content-Type, etag, Content-Length, or deleted
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest
 # auto_create_account_prefix = .
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+# An optional filesystem path, which if present, will cause the healthcheck
+# URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE"
+# disable_path =
 
 [filter:recon]
 use = egg:swift#recon
