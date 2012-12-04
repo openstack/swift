@@ -632,6 +632,8 @@ log_name = %(yarr)s'''
         utils.drop_privileges(user)
         for func in required_func_calls:
             self.assert_(utils.os.called_funcs[func])
+        import pwd
+        self.assertEquals(pwd.getpwnam(user)[5], utils.os.environ['HOME'])
 
         # reset; test same args, OSError trying to get session leader
         utils.os = MockOs(called_funcs=required_func_calls,

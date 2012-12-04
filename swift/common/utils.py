@@ -756,6 +756,7 @@ def drop_privileges(user):
         os.setgroups([])
     os.setgid(user[3])
     os.setuid(user[2])
+    os.environ['HOME'] = user[5]
     try:
         os.setsid()
     except OSError:
