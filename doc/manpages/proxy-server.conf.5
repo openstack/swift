@@ -91,8 +91,8 @@ are acceptable within this section.
 
 .IP "\fBpipeline\fR"
 It is used when you need apply a number of filters. It is a list of filters
-ended by an application. The default should be \fB"catch_errors healthcheck
-cache ratelimit tempauth proxy-server"\fR
+ended by an application. The normal pipeline is "catch_errors healthcheck
+cache ratelimit tempauth proxy-logging proxy-server".
 .RE
 .PD
 
@@ -109,7 +109,10 @@ Below are the filters available and respective acceptable parameters.
 .RS 3
 .IP "\fBuse\fR"
 Entry point for paste.deploy for the healthcheck middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#healthcheck\fR.
+This is normally \fBegg:swift#healthcheck\fR.
+.IP "\fBdisable_path\fR"
+An optional filesystem path which, if present, will cause the healthcheck
+URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE".
 .RE
 
 
@@ -119,7 +122,7 @@ The default is \fBegg:swift#healthcheck\fR.
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the tempauth middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#tempauth\fR.
+This is normally \fBegg:swift#tempauth\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is tempauth.
 .IP "\fBset log_facility\fR"
@@ -171,27 +174,6 @@ Here are example entries, required for running the tests:
 .PD
 
 .RS 0
-.IP "\fB[filter:healthcheck]\fR"
-.RE
-.RS 3
-.IP \fBuse\fR
-Entry point for paste.deploy for the healthcheck middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#healthcheck\fR.
-.IP "\fBset log_name\fR"
-Label used when logging. The default is healthcheck.
-.IP "\fBset log_facility\fR"
-Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fBset log_level\fR "
-Logging level. The default is INFO.
-.IP "\fBset log_address\fR"
-Logging address. The default is /dev/log.
-.IP "\fBset log_headers\fR "
-Enables the ability to log request headers. The default is False.
-.RE
-
-
-
-.RS 0
 .IP "\fB[filter:cache]\fR"
 .RE
 
@@ -200,7 +182,7 @@ Caching middleware that manages caching in swift.
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the memcache middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#memcache\fR.
+This is normally \fBegg:swift#memcache\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is memcache.
 .IP "\fBset log_facility\fR"
@@ -241,7 +223,7 @@ Rate limits requests on both an Account and Container level.  Limits are configu
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the ratelimit middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#ratelimit\fR.
+This is normally \fBegg:swift#ratelimit\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is ratelimit.
 .IP "\fBset log_facility\fR"
@@ -289,7 +271,7 @@ Middleware that translates container and account parts of a domain to path param
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the domain_remap middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#domain_remap\fR.
+This is normally \fBegg:swift#domain_remap\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is domain_remap.
 .IP "\fBset log_address\fR"
@@ -318,7 +300,7 @@ by this middleware. Defaults to 'AUTH'.
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the catch_errors middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#catch_errors\fR.
+This is normally \fBegg:swift#catch_errors\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is catch_errors.
 .IP "\fBset log_facility\fR"
@@ -342,7 +324,7 @@ Note: this middleware requires python-dnspython
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the cname_lookup middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#cname_lookup\fR.
+This is normally \fBegg:swift#cname_lookup\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is cname_lookup.
 .IP "\fBset log_facility\fR"
@@ -371,7 +353,7 @@ Note: Put staticweb just after your auth filter(s) in the pipeline
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the staticweb middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#staticweb\fR.
+This is normally \fBegg:swift#staticweb\fR.
 .IP \fBcache_timeout\fR
 Seconds to cache container x-container-meta-web-* header values. The default is 300 seconds.
 .IP "\fBset log_name\fR"
@@ -423,7 +405,7 @@ Note: Put formpost just before your auth filter(s) in the pipeline
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the formpost middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#formpost\fR.
+This is normally \fBegg:swift#formpost\fR.
 .RE
 
 
@@ -437,13 +419,56 @@ Note: Just needs to be placed before the proxy-server in the pipeline.
 .RS 3
 .IP \fBuse\fR
 Entry point for paste.deploy for the name_check middleware. This is the reference to the installed python egg.
-The default is \fBegg:swift#name_check\fR.
+This is normally \fBegg:swift#name_check\fR.
 .IP \fBforbidden_chars\fR
 Characters that will not be allowed in a name.
 .IP \fBmaximum_length\fR
 Maximum number of characters that can be in the name.
 .IP \fBforbidden_regexp\fR
 Python regular expressions of substrings that will not be allowed in a name.
+.RE
+
+
+.RS 0
+.IP "\fB[filter:proxy_logging]\fR"
+.RE
+
+Logging for the proxy server now lives in this middleware.
+If the access_* variables are not set, logging directives from [DEFAULT]
+without "access_" will be used.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the proxy_logging middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#proxy_logging\fR.
+.IP "\fBaccess_log_name\fR"
+Label used when logging. The default is proxy-server.
+.IP "\fBaccess_log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBaccess_log_level\fR "
+Logging level. The default is INFO.
+.IP \fBaccess_log_address\fR
+Default is /dev/log.
+.IP \fBaccess_log_udp_host\fR
+If set, access_log_udp_host will override access_log_address.  Default is
+unset.
+.IP \fBaccess_log_udp_port\fR
+Default is 514.
+.IP \fBaccess_log_statsd_host\fR
+You can use log_statsd_* from [DEFAULT], or override them here.
+Default is localhost.
+.IP \fBaccess_log_statsd_port\fR
+Default is 8125.
+.IP \fBaccess_log_statsd_default_sample_rate\fR
+Default is 1.
+.IP \fBaccess_log_statsd_metric_prefix =
+Default is "" (empty-string)
+.IP \fBaccess_log_headers\fR
+Default is False.
+.IP \fBlog_statsd_valid_http_methods\fR
+What HTTP methods are allowed for StatsD logging (comma-sep); request methods
+not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
+Default is "GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS".
 .RE
 
 
@@ -459,23 +484,17 @@ This is indicated by section name [app:proxy-server]. Below are the parameters
 that are acceptable within this section.
 .IP \fBuse\fR
 Entry point for paste.deploy for the proxy server. This is the reference to the installed python egg.
-The default is \fBegg:swift#proxy\fR.
-.IP "\fBset log_name\fR
+This is normally \fBegg:swift#proxy\fR.
+.IP \fBset log_name\fR
 Label used when logging. The default is proxy-server.
-.IP "\fBset log_facility\fR
+.IP \fBset log_facility\fR
 Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fB set log_level\fR
+.IP \fB set log_level\fR
 Logging level. The default is INFO.
-.IP "\fB set log_address\fR
+.IP \fB set log_address\fR
 Logging address. The default is /dev/log.
-.IP "\fBset access_log_name\fR"
-Label used when logging. The default is proxy-server.
-.IP "\fBset access_log_facility\fR"
-Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fBset access_log_level\fR "
-Logging level. The default is INFO.
-.IP "\fB set log_requests\fR
-Enables request logging. The default is False.
+.IP \fBlog_handoffs\fR
+Log when handoff locations are used.  Default is True.
 .IP \fBrecheck_account_existence\fR
 Cache timeout in seconds to send memcached for account existence. The default is 60 seconds.
 .IP \fBrecheck_container_existence\fR
@@ -508,10 +527,11 @@ container sync won't be able to sync posts. The default is True.
 If set to 'true' authorized accounts that do not yet exist within the Swift cluster
 will be automatically created. The default is set to false.
 .IP \fBrate_limit_after_segment\fR
-Rate limit the download of large object segments after this segment is
-downloaded. The default is 10 segments.
+Start rate-limiting object segments after the Nth segment of a segmented
+object.  The default is 10 segments.
 .IP \fBrate_limit_segments_per_sec\fR
-Rate limit large object downlods at this rate.  The default is 1.
+Once segment rate-limiting kicks in for an object, limit segments served to N
+per second.  The default is 1.
 .RE
 .PD
 

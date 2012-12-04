@@ -30,7 +30,7 @@
 # db_preallocation = off
 
 [pipeline:main]
-pipeline = recon account-server
+pipeline = healthcheck recon account-server
 
 [app:account-server]
 use = egg:swift#account
@@ -41,6 +41,12 @@ use = egg:swift#account
 # set log_requests = True
 # set log_address = /dev/log
 # auto_create_account_prefix = .
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+# An optional filesystem path, which if present, will cause the healthcheck
+# URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE"
+# disable_path =
 
 [filter:recon]
 use = egg:swift#recon
