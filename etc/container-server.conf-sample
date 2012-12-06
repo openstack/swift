@@ -31,6 +31,7 @@
 # If you don't mind the extra disk space usage in overhead, you can turn this
 # on to preallocate disk space with SQLite databases to decrease fragmentation.
 # db_preallocation = off
+# eventlet_debug = false
 
 [pipeline:main]
 pipeline = healthcheck recon container-server

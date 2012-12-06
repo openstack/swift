@@ -235,6 +235,7 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
+eventlet_debug       false       If true, turn on debug logging for eventlet
 ===================  ==========  =============================================
 
 [object-server]
@@ -344,6 +345,7 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
+eventlet_debug       false       If true, turn on debug logging for eventlet
 ===================  ==========  ============================================
 
 [container-server]
@@ -446,6 +448,7 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
+eventlet_debug       false       If true, turn on debug logging for eventlet
 ===================  ==========  =============================================
 
 [account-server]
@@ -545,6 +548,8 @@ cors_allow_origin                              This is a list of hosts that
 log_custom_handlers           None             Comma separated list of functions
                                                to call to setup custom log
                                                handlers.
+eventlet_debug                false            If true, turn on debug logging
+                                               for eventlet
 ============================  ===============  =============================
 
 [proxy-server]
