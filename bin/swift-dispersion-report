@@ -295,10 +295,12 @@ if __name__ == '__main__':
     patcher.monkey_patch()
     hubs.get_hub().debug_exceptions = False
 
-    parser = OptionParser(usage='''
-Usage: %prog [options] [conf_file]
+    conffile = '/etc/swift/dispersion.conf'
 
-[conf_file] defaults to /etc/swift/stats.conf'''.strip())
+    parser = OptionParser(usage='''
+Usage: %%prog [options] [conf_file]
+
+[conf_file] defaults to %s'''.strip() % conffile)
     parser.add_option('-j', '--dump-json', action='store_true', default=False,
                       help='dump dispersion report in json format')
     parser.add_option('-d', '--debug', action='store_true', default=False,
@@ -311,7 +313,6 @@ Usage: %prog [options] [conf_file]
                       help='Only run object report')
     options, args = parser.parse_args()
 
-    conffile = '/etc/swift/dispersion.conf'
     if args:
         conffile = args.pop(0)
 
