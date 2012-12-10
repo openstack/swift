@@ -45,11 +45,17 @@ Authentication system account/user password
 .IP "\fBswift_dir\fR"
 Location of openstack-swift configuration and ring files
 .IP "\fBdispersion_coverage\fR"
-Percentage of partition coverage to use. The default is 1 
+Percentage of partition coverage to use. The default is 1.
 .IP "\fBretries\fR"
 Maximum number of attempts
 .IP "\fBconcurrency\fR"
-Maximum number of concurrencies to 
+Concurrency to use. The default is 25.
+.IP "\fBdump_json\fR"
+Whether to output in json format. The default is no.
+.IP "\fBcontainer_report\fR"
+Whether to run the container report. The default is yes.
+.IP "\fBobject_report\fR"
+Whether to run the object report. The default is yes.
 .RE
 .PD
 
@@ -65,6 +71,8 @@ Maximum number of concurrencies to
 .IP "# retries = 5"
 .IP "# concurrency = 25"
 .IP "# dump_json = no"
+.IP "# container_report = yes"
+.IP "# object_report = yes"
 .RE
 .PD 
 

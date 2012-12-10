@@ -305,7 +305,10 @@ Usage: %prog [options] [conf_file]
                       help='print 404s to standard error')
     parser.add_option('-p', '--partitions', action='store_true', default=False,
                       help='print missing partitions to standard error')
-
+    parser.add_option('--container-only', action='store_true', default=False,
+                      help='Only run container report')
+    parser.add_option('--object-only', action='store_true', default=False,
+                      help='Only run object report')
     options, args = parser.parse_args()
 
     conffile = '/etc/swift/dispersion.conf'
@@ -322,6 +325,12 @@ Usage: %prog [options] [conf_file]
     concurrency = int(conf.get('concurrency', 25))
     if options.dump_json or config_true_value(conf.get('dump_json', 'no')):
         json_output = True
+    container_report = config_true_value(conf.get('container_report', 'yes')) \
+        and not options.object_only
+    object_report = config_true_value(conf.get('object_report', 'yes')) \
+        and not options.container_only
+    if not (object_report or container_report):
+        exit("Neither container or object report is set to run")
     if options.debug:
         debug = True
 
@@ -339,11 +348,14 @@ Usage: %prog [options] [conf_file]
     container_ring = Ring(swift_dir, ring_name='container')
     object_ring = Ring(swift_dir, ring_name='object')
 
-    container_result = container_dispersion_report(
-        coropool, connpool, account, container_ring, retries,
-        options.partitions)
-    object_result = object_dispersion_report(
-        coropool, connpool, account, object_ring, retries, options.partitions)
+    output = {}
+    if container_report:
+        output['container'] = container_dispersion_report(
+            coropool, connpool, account, container_ring, retries,
+            options.partitions)
+    if object_report:
+        output['object'] = object_dispersion_report(
+            coropool, connpool, account, object_ring, retries,
+            options.partitions)
     if json_output:
-        print json.dumps({"container": container_result,
-                          "object": object_result})
+        print json.dumps(output)

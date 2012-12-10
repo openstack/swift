@@ -254,6 +254,18 @@ place and then rerun the dispersion report::
     100.00% of object copies found (7857 of 7857)
     Sample represents 1.00% of the object partition space
 
+You can also run the report for only containers or objects::
+
+    $ swift-dispersion-report --container-only
+    Queried 2621 containers for dispersion reporting, 17s, 0 retries
+    100.00% of container copies found (7863 of 7863)
+    Sample represents 1.00% of the container partition space
+
+    $ swift-dispersion-report --object-only
+    Queried 2619 objects for dispersion reporting, 7s, 0 retries
+    100.00% of object copies found (7857 of 7857)
+    Sample represents 1.00% of the object partition space
+
 Alternatively, the dispersion report can also be output in json format. This 
 allows it to be more easily consumed by third party utilities::
 
