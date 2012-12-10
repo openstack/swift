@@ -27,6 +27,7 @@
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1
 # log_statsd_metric_prefix =
+# eventlet_debug = false
 
 [pipeline:main]
 pipeline = healthcheck recon object-server

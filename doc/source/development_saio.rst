@@ -294,6 +294,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         bind_port = 8080
         user = <your-user-name>
         log_facility = LOG_LOCAL1
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = healthcheck cache tempauth proxy-logging proxy-server
@@ -337,6 +338,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon account-server
@@ -364,6 +366,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon account-server
@@ -391,6 +394,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon account-server
@@ -418,6 +422,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon account-server
@@ -445,6 +450,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon container-server
@@ -474,6 +480,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon container-server
@@ -503,6 +510,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon container-server
@@ -532,6 +540,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon container-server
@@ -562,6 +571,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon object-server
@@ -589,6 +599,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon object-server
@@ -616,6 +627,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon object-server
@@ -643,6 +655,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
+        eventlet_debug = true
 
         [pipeline:main]
         pipeline = recon object-server

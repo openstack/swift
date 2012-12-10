@@ -24,6 +24,7 @@ from itertools import chain
 from StringIO import StringIO
 
 import eventlet
+import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen
 from paste.deploy import loadapp, appconfig
 from eventlet.green import socket, ssl
@@ -136,6 +137,8 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
         eventlet.hubs.use_hub('poll')
         eventlet.patcher.monkey_patch(all=False, socket=True)
+        eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
+        eventlet.debug.hub_exceptions(eventlet_debug)
         app = loadapp('config:%s' % conf_file,
                       global_conf={'log_name': log_name})
         pool = GreenPool(size=1024)

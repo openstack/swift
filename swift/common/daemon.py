@@ -18,6 +18,8 @@ import sys
 import signal
 from re import sub
 
+import eventlet.debug
+
 from swift.common import utils
 
 
@@ -88,6 +90,10 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     # disable fallocate if desired
     if utils.config_true_value(conf.get('disable_fallocate', 'no')):
         utils.disable_fallocate()
+
+    # By default, disable eventlet printing stacktraces
+    eventlet_debug = utils.config_true_value(conf.get('eventlet_debug', 'no'))
+    eventlet.debug.hub_exceptions(eventlet_debug)
 
     try:
         klass(conf).run(once=once, **kwargs)
