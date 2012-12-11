@@ -238,6 +238,26 @@ class TestObjectReplicator(unittest.TestCase):
                 part, recalculate=['a83'])
         self.assertEquals(i[0], 2)
 
+    def test_get_hashes_unmodified_and_zero_bytes(self):
+        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        mkdirs(df.datadir)
+        part = os.path.join(self.objects, '0')
+        open(os.path.join(part, object_replicator.HASH_FILE), 'w')
+        # Now the hash file is zero bytes.
+        i = [0]
+        def getmtime(filename):
+            i[0] += 1
+            return 1
+        with mock({'os.path.getmtime': getmtime}):
+            hashed, hashes = object_replicator.get_hashes(
+                part, recalculate=[])
+        # getmtime will actually not get called.  Initially, the pickle.load
+        # will raise an exception first and later, force_rewrite will
+        # short-circuit the if clause to determine whether to write out a fresh
+        # hashes_file.
+        self.assertEquals(i[0], 0)
+        self.assertTrue('a83' in hashes)
+
     def test_get_hashes_modified(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)

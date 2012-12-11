@@ -176,6 +176,7 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
     hashed = 0
     hashes_file = join(partition_dir, HASH_FILE)
     modified = False
+    force_rewrite = False
     hashes = {}
     mtime = -1
     try:
@@ -184,6 +185,7 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
         mtime = os.path.getmtime(hashes_file)
     except Exception:
         do_listdir = True
+        force_rewrite = True
     if do_listdir:
         for suff in os.listdir(partition_dir):
             if len(suff) == 3:
@@ -203,7 +205,7 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
             modified = True
     if modified:
         with lock_path(partition_dir):
-            if not os.path.exists(hashes_file) or \
+            if force_rewrite or not os.path.exists(hashes_file) or \
                     os.path.getmtime(hashes_file) == mtime:
                 write_pickle(
                     hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
