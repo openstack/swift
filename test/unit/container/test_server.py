@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import operator
 import os
 import sys
 import unittest
@@ -1078,6 +1079,77 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.content_type, 'application/xml')
         self.assertEquals(resp.charset, 'utf-8')
+
+    def test_updating_multiple_container_servers(self):
+        http_connect_args = []
+        def fake_http_connect(ipaddr, port, device, partition, method, path,
+                              headers=None, query_string=None, ssl=False):
+            class SuccessfulFakeConn(object):
+                @property
+                def status(self):
+                    return 200
+
+                def getresponse(self):
+                    return self
+
+                def read(self):
+                    return ''
+
+            captured_args = {'ipaddr': ipaddr, 'port': port,
+                             'device': device, 'partition': partition,
+                             'method': method, 'path': path, 'ssl': ssl,
+                             'headers': headers, 'query_string': query_string}
+
+            http_connect_args.append(
+                dict((k,v) for k,v in captured_args.iteritems()
+                     if v is not None))
+
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '12345',
+                     'X-Account-Partition': '30',
+                     'X-Account-Host': '1.2.3.4:5, 6.7.8.9:10',
+                     'X-Account-Device': 'sdb1, sdf1'})
+
+        orig_http_connect = container_server.http_connect
+        try:
+            container_server.http_connect = fake_http_connect
+            self.controller.PUT(req)
+        finally:
+            container_server.http_connect = orig_http_connect
+
+        http_connect_args.sort(key=operator.itemgetter('ipaddr'))
+
+        self.assertEquals(len(http_connect_args), 2)
+        self.assertEquals(
+            http_connect_args[0],
+            {'ipaddr': '1.2.3.4',
+             'port': '5',
+             'path': '/a/c',
+             'device': 'sdb1',
+             'partition': '30',
+             'method': 'PUT',
+             'ssl': False,
+             'headers': {'x-bytes-used': 0,
+                         'x-delete-timestamp': '0',
+                         'x-object-count': 0,
+                         'x-put-timestamp': '0000012345.00000',
+                         'x-trans-id': '-'}})
+        self.assertEquals(
+            http_connect_args[1],
+            {'ipaddr': '6.7.8.9',
+             'port': '10',
+             'path': '/a/c',
+             'device': 'sdf1',
+             'partition': '30',
+             'method': 'PUT',
+             'ssl': False,
+             'headers': {'x-bytes-used': 0,
+                         'x-delete-timestamp': '0',
+                         'x-object-count': 0,
+                         'x-put-timestamp': '0000012345.00000',
+                         'x-trans-id': '-'}})
 
 
 if __name__ == '__main__':

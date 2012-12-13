@@ -304,27 +304,35 @@ def fake_http_connect(*code_iter, **kwargs):
 
 class FakeRing(object):
 
-    def __init__(self):
+    def __init__(self, replicas=3):
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
-        # this is set higher.
+        # this is set higher, or R^2 for R replicas
+        self.replicas = replicas
         self.max_more_nodes = 0
+        self.devs = {}
+
+    def set_replicas(self, replicas):
+        self.replicas = replicas
         self.devs = {}
 
     def get_nodes(self, account, container=None, obj=None):
         devs = []
-        for x in xrange(3):
+        for x in xrange(self.replicas):
             devs.append(self.devs.get(x))
             if devs[x] is None:
                 self.devs[x] = devs[x] = \
-                    {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
+                    {'ip': '10.0.0.%s' % x,
+                     'port': 1000 + x,
+                     'device': 'sd' + (chr(ord('a') + x))}
         return 1, devs
 
     def get_part_nodes(self, part):
         return self.get_nodes('blah')[1]
 
     def get_more_nodes(self, nodes):
-        # 9 is the true cap
-        for x in xrange(3, min(3 + self.max_more_nodes, 9)):
+        # replicas^2 is the true cap
+        for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
+                                           self.replicas * self.replicas)):
             yield {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
 
 
@@ -742,6 +750,11 @@ class TestObjectController(unittest.TestCase):
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing())
         monkey_patch_mimetools()
+
+    def tearDown(self):
+        self.app.account_ring.set_replicas(3)
+        self.app.container_ring.set_replicas(3)
+        self.app.object_ring.set_replicas(3)
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -3753,6 +3766,187 @@ class TestObjectController(unittest.TestCase):
                 'x-foo',
                 resp.headers['access-control-allow-headers'])
 
+    def _gather_x_container_headers(self, controller_call, req, *connect_args,
+                                    **kwargs):
+        header_list = kwargs.pop('header_list', ['X-Container-Partition',
+                                                 'X-Container-Host',
+                                                 'X-Container-Device'])
+        seen_headers = []
+        def capture_headers(ipaddr, port, device, partition, method,
+                            path, headers=None, query_string=None):
+            captured = {}
+            for header in header_list:
+                captured[header] = headers.get(header)
+            seen_headers.append(captured)
+
+        with save_globals():
+            self.app.allow_account_management = True
+
+            set_http_connect(*connect_args, give_connect=capture_headers,
+                             **kwargs)
+            resp = controller_call(req)
+            self.assertEqual(2, resp.status_int // 100) # sanity check
+
+            # don't care about the account/container HEADs, so chuck
+            # the first two requests
+            return sorted(seen_headers[2:],
+                          key=lambda d: d.get(header_list[0]) or 'Z')
+
+    def test_PUT_x_container_headers_with_equal_replicas(self):
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '5'}, body='12345')
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.PUT, req,
+            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+        self.assertEqual(seen_headers, [
+                {'X-Container-Host': '10.0.0.0:1000',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sda'},
+                {'X-Container-Host': '10.0.0.1:1001',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdb'},
+                {'X-Container-Host': '10.0.0.2:1002',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdc'}])
+
+    def test_PUT_x_container_headers_with_fewer_container_replicas(self):
+        self.app.container_ring.set_replicas(2)
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '5'}, body='12345')
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.PUT, req,
+            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+
+        self.assertEqual(seen_headers, [
+                {'X-Container-Host': '10.0.0.0:1000',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sda'},
+                {'X-Container-Host': '10.0.0.1:1001',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdb'},
+                {'X-Container-Host': None,
+                 'X-Container-Partition': None,
+                 'X-Container-Device': None}])
+
+    def test_PUT_x_container_headers_with_more_container_replicas(self):
+        self.app.container_ring.set_replicas(4)
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '5'}, body='12345')
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.PUT, req,
+            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+
+        self.assertEqual(seen_headers, [
+                {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sda,sdd'},
+                {'X-Container-Host': '10.0.0.1:1001',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdb'},
+                {'X-Container-Host': '10.0.0.2:1002',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdc'}])
+
+    def test_POST_x_container_headers_with_more_container_replicas(self):
+        self.app.container_ring.set_replicas(4)
+        self.app.object_post_as_copy = False
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Content-Type': 'application/stuff'})
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.POST, req,
+            200, 200, 200, 200, 200)   # HEAD HEAD POST POST POST
+
+        self.assertEqual(seen_headers, [
+                {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sda,sdd'},
+                {'X-Container-Host': '10.0.0.1:1001',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdb'},
+                {'X-Container-Host': '10.0.0.2:1002',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdc'}])
+
+    def test_DELETE_x_container_headers_with_more_container_replicas(self):
+        self.app.container_ring.set_replicas(4)
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Content-Type': 'application/stuff'})
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.DELETE, req,
+            200, 200, 200, 200, 200)   # HEAD HEAD DELETE DELETE DELETE
+
+        self.assertEqual(seen_headers, [
+                {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sda,sdd'},
+                {'X-Container-Host': '10.0.0.1:1001',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdb'},
+                {'X-Container-Host': '10.0.0.2:1002',
+                 'X-Container-Partition': 1,
+                 'X-Container-Device': 'sdc'}])
+
+    def test_PUT_x_delete_at_with_fewer_container_replicas(self):
+        self.app.container_ring.set_replicas(2)
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Type': 'application/stuff',
+                                     'Content-Length': '0',
+                                     'X-Delete-At': int(time()) + 100000})
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.PUT, req,
+            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
+                         'X-Delete-At-Partition'))
+
+        self.assertEqual(seen_headers, [
+                {'X-Delete-At-Host': '10.0.0.0:1000',
+                 'X-Delete-At-Partition': 1,
+                 'X-Delete-At-Device': 'sda'},
+                {'X-Delete-At-Host': '10.0.0.1:1001',
+                 'X-Delete-At-Partition': 1,
+                 'X-Delete-At-Device': 'sdb'},
+                {'X-Delete-At-Host': None,
+                 'X-Delete-At-Partition': None,
+                 'X-Delete-At-Device': None}])
+
+
+    def test_PUT_x_delete_at_with_more_container_replicas(self):
+        self.app.container_ring.set_replicas(4)
+        self.app.expiring_objects_account = 'expires'
+        self.app.expiring_objects_container_divisor = 60
+
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Type': 'application/stuff',
+                                     'Content-Length': 0,
+                                     'X-Delete-At': int(time()) + 100000})
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        seen_headers = self._gather_x_container_headers(
+            controller.PUT, req,
+            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
+                         'X-Delete-At-Partition'))
+        self.assertEqual(seen_headers, [
+                {'X-Delete-At-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Delete-At-Partition': 1,
+                 'X-Delete-At-Device': 'sda,sdd'},
+                {'X-Delete-At-Host': '10.0.0.1:1001',
+                 'X-Delete-At-Partition': 1,
+                 'X-Delete-At-Device': 'sdb'},
+                {'X-Delete-At-Host': '10.0.0.2:1002',
+                 'X-Delete-At-Partition': 1,
+                 'X-Delete-At-Device': 'sdc'}])
+
 
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -4359,6 +4553,108 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(
                 'x-foo',
                 resp.headers['access-control-allow-headers'])
+
+    def _gather_x_account_headers(self, controller_call, req, *connect_args,
+                                    **kwargs):
+        seen_headers = []
+        to_capture = ('X-Account-Partition', 'X-Account-Host',
+                      'X-Account-Device')
+
+        def capture_headers(ipaddr, port, device, partition, method,
+                            path, headers=None, query_string=None):
+            captured = {}
+            for header in to_capture:
+                captured[header] = headers.get(header)
+            seen_headers.append(captured)
+
+        with save_globals():
+            self.app.allow_account_management = True
+
+            set_http_connect(*connect_args, give_connect=capture_headers,
+                             **kwargs)
+            resp = controller_call(req)
+            self.assertEqual(2, resp.status_int // 100) # sanity check
+
+            # don't care about the account HEAD, so throw away the
+            # first element
+            return sorted(seen_headers[1:],
+                          key=lambda d: d['X-Account-Host'] or 'Z')
+
+    def test_PUT_x_account_headers_with_fewer_account_replicas(self):
+        self.app.account_ring.set_replicas(2)
+        req = Request.blank('/a/c', headers={'': ''})
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+        seen_headers = self._gather_x_account_headers(
+            controller.PUT, req,
+            200, 201, 201, 201)    # HEAD PUT PUT PUT
+        self.assertEqual(seen_headers, [
+                {'X-Account-Host': '10.0.0.0:1000',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sda'},
+                {'X-Account-Host': '10.0.0.1:1001',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdb'},
+                {'X-Account-Host': None,
+                 'X-Account-Partition': None,
+                 'X-Account-Device': None}])
+
+    def test_PUT_x_account_headers_with_more_account_replicas(self):
+        self.app.account_ring.set_replicas(4)
+        req = Request.blank('/a/c', headers={'': ''})
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+        seen_headers = self._gather_x_account_headers(
+            controller.PUT, req,
+            200, 201, 201, 201)    # HEAD PUT PUT PUT
+        self.assertEqual(seen_headers, [
+                {'X-Account-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sda,sdd'},
+                {'X-Account-Host': '10.0.0.1:1001',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdb'},
+                {'X-Account-Host': '10.0.0.2:1002',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdc'}])
+
+    def test_DELETE_x_account_headers_with_fewer_account_replicas(self):
+        self.app.account_ring.set_replicas(2)
+        req = Request.blank('/a/c', headers={'': ''})
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+        seen_headers = self._gather_x_account_headers(
+            controller.DELETE, req,
+            200, 204, 204, 204)    # HEAD DELETE DELETE DELETE
+        self.assertEqual(seen_headers, [
+                {'X-Account-Host': '10.0.0.0:1000',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sda'},
+                {'X-Account-Host': '10.0.0.1:1001',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdb'},
+                {'X-Account-Host': None,
+                 'X-Account-Partition': None,
+                 'X-Account-Device': None}])
+
+    def test_DELETE_x_account_headers_with_more_account_replicas(self):
+        self.app.account_ring.set_replicas(4)
+        req = Request.blank('/a/c', headers={'': ''})
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+        seen_headers = self._gather_x_account_headers(
+            controller.DELETE, req,
+            200, 204, 204, 204)    # HEAD DELETE DELETE DELETE
+        self.assertEqual(seen_headers, [
+                {'X-Account-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sda,sdd'},
+                {'X-Account-Host': '10.0.0.1:1001',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdb'},
+                {'X-Account-Host': '10.0.0.2:1002',
+                 'X-Account-Partition': 1,
+                 'X-Account-Device': 'sdc'}])
 
 
 class TestAccountController(unittest.TestCase):

@@ -15,6 +15,7 @@
 
 from __future__ import with_statement
 
+import itertools
 import os
 import time
 import traceback
@@ -88,19 +89,39 @@ class ContainerController(object):
 
     def account_update(self, req, account, container, broker):
         """
-        Update the account server with latest container info.
+        Update the account server(s) with latest container info.
 
         :param req: swob.Request object
         :param account: account name
         :param container: container name
         :param broker: container DB broker object
-        :returns: if the account request returns a 404 error code,
+        :returns: if all the account requests return a 404 error code,
                   HTTPNotFound response object, otherwise None.
         """
-        account_host = req.headers.get('X-Account-Host')
-        account_partition = req.headers.get('X-Account-Partition')
-        account_device = req.headers.get('X-Account-Device')
-        if all([account_host, account_partition, account_device]):
+        account_hosts = [h.strip() for h in
+                         req.headers.get('X-Account-Host', '').split(',')]
+        account_devices = [d.strip() for d in
+                           req.headers.get('X-Account-Device', '').split(',')]
+        account_partition = req.headers.get('X-Account-Partition', '')
+
+        if len(account_hosts) != len(account_devices):
+            # This shouldn't happen unless there's a bug in the proxy,
+            # but if there is, we want to know about it.
+            self.logger.error(_('ERROR Account update failed: different  '
+                                'numbers of hosts and devices in request: '
+                                '"%s" vs "%s"' %
+                                (req.headers.get('X-Account-Host', ''),
+                                 req.headers.get('X-Account-Device', ''))))
+            return
+
+        if account_partition:
+            updates = zip(account_hosts, account_devices)
+        else:
+            updates = []
+
+        account_404s = 0
+
+        for account_host, account_device in updates:
             account_ip, account_port = account_host.rsplit(':', 1)
             new_path = '/' + '/'.join([account, container])
             info = broker.get_info()
@@ -122,7 +143,7 @@ class ContainerController(object):
                     account_response = conn.getresponse()
                     account_response.read()
                     if account_response.status == HTTP_NOT_FOUND:
-                        return HTTPNotFound(request=req)
+                        account_404s += 1
                     elif not is_success(account_response.status):
                         self.logger.error(_(
                             'ERROR Account update failed '
@@ -138,7 +159,10 @@ class ContainerController(object):
                     '%(ip)s:%(port)s/%(device)s (will retry later)'),
                     {'ip': account_ip, 'port': account_port,
                      'device': account_device})
-        return None
+        if updates and account_404s == len(updates):
+            return HTTPNotFound(req=req)
+        else:
+            return None
 
     @public
     @timing_stats
