@@ -624,6 +624,11 @@ class SwiftLogFormatter(logging.Formatter):
     """
 
     def format(self, record):
+        if not hasattr(record, 'server'):
+            # Catch log messages that were not initiated by swift
+            # (for example, the keystone auth middleware)
+            record.server = record.name
+            return logging.Formatter.format(self, record)
         msg = logging.Formatter.format(self, record)
         if (record.txn_id and record.levelno != logging.INFO and
                 record.txn_id not in msg):
