@@ -43,7 +43,7 @@ START_ONCE_SERVERS = REST_SERVERS
 # don't use that type-server.conf file and instead use their own.
 STANDALONE_SERVERS = ['object-expirer']
 
-KILL_WAIT = 15  # seconds to wait for servers to die
+KILL_WAIT = 15  # seconds to wait for servers to die (by default)
 WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
 
 MAX_DESCRIPTORS = 32768
@@ -218,8 +218,9 @@ class Manager():
                          for p in pids]
         # keep track of the pids yeiled back as killed for all servers
         killed_pids = set()
+        kill_wait = kwargs.get('kill_wait', KILL_WAIT)
         for server, killed_pid in watch_server_pids(server_pids,
-                                                    interval=KILL_WAIT,
+                                                    interval=kill_wait,
                                                     **kwargs):
             print _("%s (%s) appears to have stopped") % (server, killed_pid)
             killed_pids.add(killed_pid)
@@ -232,7 +233,7 @@ class Manager():
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
                 print _('Waited %s seconds for %s to die; giving up') % (
-                    KILL_WAIT, server)
+                    kill_wait, server)
         return 1
 
     @command

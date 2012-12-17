@@ -17,7 +17,8 @@
 import sys
 from optparse import OptionParser
 
-from swift.common.manager import Server, Manager, UnknownCommandError
+from swift.common.manager import Server, Manager, UnknownCommandError, \
+    KILL_WAIT
 
 USAGE = """%prog <server> [<server> ...] <command> [options]
 
@@ -42,6 +43,9 @@ def main():
     parser.add_option('-c', '--config-num', metavar="N", type="int",
                       dest="number", default=0,
                       help="send command to the Nth server only")
+    parser.add_option('-k', '--kill-wait', metavar="N", type="int",
+                      dest="kill_wait", default=KILL_WAIT,
+                      help="wait N seconds for processes to die (default 15)")
     options, args = parser.parse_args()
 
     if len(args) < 2:
