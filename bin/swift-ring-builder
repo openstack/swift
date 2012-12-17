@@ -42,9 +42,11 @@ def format_device(dev):
     Format a device for display.
     """
     copy_dev = dev.copy()
-    if ':' in copy_dev['ip']:
-        copy_dev['ip'] = '[' + copy_dev['ip'] + ']'
-    return ('d%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)s/%(device)s_'
+    for key in ('ip', 'replication_ip'):
+        if ':' in copy_dev[key]:
+            copy_dev[key] = '[' + copy_dev[key] + ']'
+    return ('d%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)sR'
+            '%(replication_ip)s:%(replication_port)s/%(device)s_'
             '"%(meta)s"' % copy_dev)
 
 
@@ -102,8 +104,9 @@ swift-ring-builder <builder_file>
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
         if builder.devs:
-            print 'Devices:    id  region  zone      ip address  port' \
-                  '      name weight partitions balance meta'
+            print 'Devices:    id  region  zone      ip address  port  ' \
+                  'replication ip  replication port      name ' \
+                  'weight partitions balance meta'
             weighted_parts = builder.parts * builder.replicas / \
                 sum(d['weight'] for d in builder.devs if d is not None)
             for dev in builder.devs:
@@ -117,11 +120,12 @@ swift-ring-builder <builder_file>
                 else:
                     balance = 100.0 * dev['parts'] / \
                         (dev['weight'] * weighted_parts) - 100.0
-                print('         %5d %7d %5d %15s %5d %9s %6.02f %10s'
-                      '%7.02f %s' %
+                print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f '
+                      '%10s %7.02f %s' %
                       (dev['id'], dev['region'], dev['zone'], dev['ip'],
-                       dev['port'], dev['device'], dev['weight'], dev['parts'],
-                       balance, dev['meta']))
+                       dev['port'], dev['replication_ip'],
+                       dev['replication_port'], dev['device'], dev['weight'],
+                       dev['parts'], balance, dev['meta']))
         exit(EXIT_SUCCESS)
 
     def search():
@@ -138,8 +142,9 @@ swift-ring-builder <builder_file> search <search-value>
         if not devs:
             print 'No matching devices found'
             exit(EXIT_ERROR)
-        print 'Devices:    id  region  zone      ip address  port      name ' \
-              'weight partitions balance meta'
+        print 'Devices:    id  region  zone      ip address  port  ' \
+              'replication ip  replication port      name weight partitions ' \
+              'balance meta'
         weighted_parts = builder.parts * builder.replicas / \
             sum(d['weight'] for d in builder.devs if d is not None)
         for dev in devs:
@@ -151,10 +156,12 @@ swift-ring-builder <builder_file> search <search-value>
             else:
                 balance = 100.0 * dev['parts'] / \
                     (dev['weight'] * weighted_parts) - 100.0
-            print('         %5d %7d %5d %15s %5d %9s %6.02f %10s %7.02f %s' %
+            print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f %10s '
+                  '%7.02f %s' %
                   (dev['id'], dev['region'], dev['zone'], dev['ip'],
-                   dev['port'], dev['device'], dev['weight'], dev['parts'],
-                   balance, dev['meta']))
+                   dev['port'], dev['replication_ip'], dev['replication_port'],
+                   dev['device'], dev['weight'], dev['parts'], balance,
+                   dev['meta']))
         exit(EXIT_SUCCESS)
 
     def list_parts():
@@ -195,8 +202,12 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
     def add():
         """
 swift-ring-builder <builder_file> add
-    [r<region>]z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
-    [[r<region>]z<zone>-<ip>:<port>/<device_name>_<meta> <weight>] ...
+    [r<region>]z<zone>-<ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>
+     <weight>
+    [[r<region>]z<zone>-<ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>
+     <weight>] ...
+
+    Where <r_ip> and <r_port> are replication ip and port.
 
     Adds devices to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
@@ -258,6 +269,33 @@ swift-ring-builder <builder_file> add
             port = int(rest[1:i])
             rest = rest[i:]
 
+            replication_ip = ip
+            replication_port = port
+            if rest.startswith('R'):
+                i = 1
+                if rest[i] == '[':
+                    i += 1
+                    while i < len(rest) and rest[i] != ']':
+                        i += 1
+                    i += 1
+                    replication_ip = rest[1:i].lstrip('[').rstrip(']')
+                    rest = rest[i:]
+                else:
+                    while i < len(rest) and rest[i] in '0123456789.':
+                        i += 1
+                    replication_ip = rest[1:i]
+                    rest = rest[i:]
+
+                if not rest.startswith(':'):
+                    print 'Invalid add value: %s' % devstr
+                    print "The on-disk ring builder is unchanged.\n"
+                    exit(EXIT_ERROR)
+                i = 1
+                while i < len(rest) and rest[i].isdigit():
+                    i += 1
+                replication_port = int(rest[1:i])
+                rest = rest[i:]
+
             if not rest.startswith('/'):
                 print 'Invalid add value: %s' % devstr
                 print "The on-disk ring builder is unchanged.\n"
@@ -295,8 +333,10 @@ swift-ring-builder <builder_file> add
                     exit(EXIT_ERROR)
 
             builder.add_dev({'region': region, 'zone': zone, 'ip': ip,
-                             'port': port, 'device': device_name,
-                             'weight': weight, 'meta': meta})
+                             'port': port, 'replication_ip': replication_ip,
+                             'replication_port': replication_port,
+                             'device': device_name, 'weight': weight,
+                             'meta': meta})
             new_dev = builder.search_devs(
                 'r%dz%d-%s:%s/%s' %
                 (region, zone, ip, port, device_name))[0]
@@ -348,8 +388,10 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
     def set_info():
         """
 swift-ring-builder <builder_file> set_info
-    <search-value> <ip>:<port>/<device_name>_<meta>
-    [<search-value> <ip>:<port>/<device_name>_<meta>] ...
+    <search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>
+    [<search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>] ...
+
+    Where <r_ip> and <r_port> are replication ip and port.
 
     For each search-value, resets the matched device's information.
     This information isn't used to assign partitions, so you can use
@@ -391,6 +433,29 @@ swift-ring-builder <builder_file> set_info
                     i += 1
                 change.append(('port', int(change_value[1:i])))
                 change_value = change_value[i:]
+            if change_value.startswith('R'):
+                change_value = change_value[1:]
+                if len(change_value) and change_value[0].isdigit():
+                    i = 1
+                    while (i < len(change_value) and
+                           change_value[i] in '0123456789.'):
+                        i += 1
+                    change.append(('replication_ip', change_value[:i]))
+                    change_value = change_value[i:]
+                elif len(change_value) and change_value[0] == '[':
+                    i = 1
+                    while i < len(change_value) and change_value[i] != ']':
+                        i += 1
+                    i += 1
+                    change.append(('replication_ip',
+                                   change_value[:i].lstrip('[').rstrip(']')))
+                    change_value = change_value[i:]
+                if change_value.startswith(':'):
+                    i = 1
+                    while i < len(change_value) and change_value[i].isdigit():
+                        i += 1
+                    change.append(('replication_port', int(change_value[1:i])))
+                    change_value = change_value[i:]
             if change_value.startswith('/'):
                 i = 1
                 while i < len(change_value) and change_value[i] != '_':

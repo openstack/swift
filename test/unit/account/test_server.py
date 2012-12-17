@@ -15,6 +15,7 @@
 
 import errno
 import os
+import mock
 import unittest
 from shutil import rmtree
 from StringIO import StringIO
@@ -1197,6 +1198,120 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.content_type, 'application/xml')
         self.assertEquals(resp.charset, 'utf-8')
 
+    def test_serv_reserv(self):
+        """
+        Test replication_server flag
+        was set from configuration file.
+        """
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        self.assertEquals(AccountController(conf).replication_server, None)
+        for val in [True, '1', 'True', 'true']:
+            conf['replication_server'] = val
+            self.assertTrue(AccountController(conf).replication_server)
+        for val in [False, 0, '0', 'False', 'false', 'test_string']:
+            conf['replication_server'] = val
+            self.assertFalse(AccountController(conf).replication_server)
+
+    def test_list_allowed_methods(self):
+        """ Test list of allowed_methods """
+        methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE', 'POST']
+        self.assertEquals(self.controller.allowed_methods, methods)
+
+    def test_allowed_methods_from_configuration_file(self):
+        """
+        Test list of allowed_methods which
+        were set from configuration file.
+        """
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        self.assertEquals(AccountController(conf).allowed_methods,
+                          ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
+                           'POST'])
+        conf['replication_server'] = 'True'
+        self.assertEquals(AccountController(conf).allowed_methods,
+                          ['REPLICATE'])
+        conf['replication_server'] = 'False'
+        self.assertEquals(AccountController(conf).allowed_methods,
+                          ['DELETE', 'PUT', 'HEAD', 'GET', 'POST'])
+
+    def test_correct_allowed_method(self):
+        """
+        Test correct work for allowed method using
+        swift.account_server.AccountController.__call__
+        """
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+
+        def start_response(*args):
+            """ Sends args to outbuf """
+            outbuf.writelines(args)
+
+        method = self.controller.allowed_methods[0]
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
+                  'allowed for this resource.</p></html>']
+
+        with mock.patch.object(self.controller, method,
+                               return_value=mock.MagicMock()) as mock_method:
+            response = self.controller.__call__(env, start_response)
+            self.assertNotEqual(response, answer)
+            self.assertEqual(mock_method.call_count, 1)
+
+    def test_not_allowed_method(self):
+        """
+        Test correct work for NOT allowed method using
+        swift.account_server.AccountController.__call__
+        """
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+
+        def start_response(*args):
+            """ Sends args to outbuf """
+            outbuf.writelines(args)
+
+        method = self.controller.allowed_methods[0]
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
+                  'allowed for this resource.</p></html>']
+
+        with mock.patch.object(self.controller, method,
+                               return_value=mock.MagicMock()) as mock_method:
+            self.controller.allowed_methods.remove(method)
+            response = self.controller.__call__(env, start_response)
+            self.assertEqual(mock_method.call_count, 0)
+            self.assertEqual(response, answer)
+            self.controller.allowed_methods.append(method)
 
 if __name__ == '__main__':
     unittest.main()

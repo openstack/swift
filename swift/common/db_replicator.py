@@ -115,7 +115,8 @@ class ReplConnection(BufferedHTTPConnection):
         ""
         self.logger = logger
         self.node = node
-        BufferedHTTPConnection.__init__(self, '%(ip)s:%(port)s' % node)
+        host = "%s:%s" % (node['replication_ip'], node['replication_port'])
+        BufferedHTTPConnection.__init__(self, host)
         self.path = '/%s/%s/%s' % (node['device'], partition, hash_)
 
     def replicate(self, *args):
@@ -237,11 +238,11 @@ class Replicator(Daemon):
         :param replicate_method: remote operation to perform after rsync
         :param replicate_timeout: timeout to wait in seconds
         """
-        device_ip = rsync_ip(device['ip'])
+        device_ip = rsync_ip(device['replication_ip'])
         if self.vm_test_mode:
             remote_file = '%s::%s%s/%s/tmp/%s' % (
-                device_ip, self.server_type, device['port'], device['device'],
-                local_id)
+                device_ip, self.server_type, device['replication_port'],
+                device['device'], local_id)
         else:
             remote_file = '%s::%s/%s/tmp/%s' % (
                 device_ip, self.server_type, device['device'], local_id)
@@ -509,7 +510,8 @@ class Replicator(Daemon):
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
         for node in self.ring.devs:
-            if node and node['ip'] in ips and node['port'] == self.port:
+            if (node and node['replication_ip'] in ips and
+                    node['replication_port'] == self.port):
                 if self.mount_check and not os.path.ismount(
                         os.path.join(self.root, node['device'])):
                     self.logger.warn(

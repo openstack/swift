@@ -48,6 +48,13 @@ use = egg:swift#account
 # set log_address = /dev/log
 # auto_create_account_prefix = .
 # max_clients = 1024
+# Configure parameter for creating specific server
+# To handle all verbs, including replication verbs, do not specify
+# "replication_server" (this is the default). To only handle replication,
+# set to a True value (e.g. "True" or "1"). To handle only non-replication
+# verbs, set to "False". Unless you have a separate replication network, you
+# should not specify any value for "replication_server".
+# replication_server = False
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

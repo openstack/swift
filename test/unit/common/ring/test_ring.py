@@ -107,14 +107,22 @@ class TestRing(unittest.TestCase):
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [3, 4, 3, 4])]
         self.intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
-                               'ip': '10.1.1.1', 'port': 6000},
+                               'ip': '10.1.1.1', 'port': 6000,
+                               'replication_ip': '10.1.0.1',
+                               'replication_port': 6066},
                               {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
-                               'ip': '10.1.1.1', 'port': 6000},
+                               'ip': '10.1.1.1', 'port': 6000,
+                               'replication_ip': '10.1.0.2',
+                               'replication_port': 6066},
                               None,
                               {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
-                               'ip': '10.1.2.1', 'port': 6000},
+                               'ip': '10.1.2.1', 'port': 6000,
+                               'replication_ip': '10.2.0.1',
+                               'replication_port': 6066},
                               {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
-                               'ip': '10.1.2.2', 'port': 6000}]
+                               'ip': '10.1.2.2', 'port': 6000,
+                               'replication_ip': '10.2.0.1',
+                               'replication_port': 6066}]
         self.intended_part_shift = 30
         self.intended_reload_time = 15
         ring.RingData(self.intended_replica2part2dev_id,
@@ -200,6 +208,45 @@ class TestRing(unittest.TestCase):
         sleep(0.1)
         self.assertEquals(len(self.ring.devs), 9)
         self.assertNotEquals(self.ring._mtime, orig_mtime)
+
+    def test_reload_without_replication(self):
+        replication_less_devs = [{'id': 0, 'region': 0, 'zone': 0,
+                                  'weight': 1.0, 'ip': '10.1.1.1',
+                                  'port': 6000},
+                                 {'id': 1, 'region': 0, 'zone': 0,
+                                  'weight': 1.0, 'ip': '10.1.1.1',
+                                  'port': 6000},
+                                 None,
+                                 {'id': 3, 'region': 0, 'zone': 2,
+                                  'weight': 1.0, 'ip': '10.1.2.1',
+                                  'port': 6000},
+                                 {'id': 4, 'region': 0, 'zone': 2,
+                                  'weight': 1.0, 'ip': '10.1.2.2',
+                                  'port': 6000}]
+        intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'replication_ip': '10.1.1.1',
+                           'replication_port': 6000},
+                          {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'replication_ip': '10.1.1.1',
+                           'replication_port': 6000},
+                          None,
+                          {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.1', 'port': 6000,
+                           'replication_ip': '10.1.2.1',
+                           'replication_port': 6000},
+                          {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.2', 'port': 6000,
+                           'replication_ip': '10.1.2.2',
+                           'replication_port': 6000}]
+        testgz = os.path.join(self.testdir, 'without_replication.ring.gz')
+        ring.RingData(self.intended_replica2part2dev_id,
+            replication_less_devs, self.intended_part_shift).save(testgz)
+        self.ring = ring.Ring(self.testdir,
+            reload_time=self.intended_reload_time,
+            ring_name='without_replication')
+        self.assertEquals(self.ring.devs, intended_devs)
 
     def test_get_part(self):
         part1 = self.ring.get_part('a')

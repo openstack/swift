@@ -341,9 +341,9 @@ class ObjectReplicator(Daemon):
             '--timeout=%s' % self.rsync_io_timeout,
             '--contimeout=%s' % self.rsync_io_timeout,
         ]
-        node_ip = rsync_ip(node['ip'])
+        node_ip = rsync_ip(node['replication_ip'])
         if self.vm_test_mode:
-            rsync_module = '%s::object%s' % (node_ip, node['port'])
+            rsync_module = '%s::object%s' % (node_ip, node['replication_port'])
         else:
             rsync_module = '%s::object' % node_ip
         had_any = False
@@ -392,11 +392,11 @@ class ObjectReplicator(Daemon):
                     success = self.rsync(node, job, suffixes)
                     if success:
                         with Timeout(self.http_timeout):
-                            conn = http_connect(node['ip'], node['port'],
-                                                node['device'],
-                                                job['partition'], 'REPLICATE',
-                                                '/' + '-'.join(suffixes),
-                                                headers=self.headers)
+                            conn = http_connect(
+                                node['replication_ip'],
+                                node['replication_port'],
+                                node['device'], job['partition'], 'REPLICATE',
+                                '/' + '-'.join(suffixes), headers=self.headers)
                             conn.getresponse().read()
                     responses.append(success)
             if not suffixes or (len(responses) ==
@@ -436,7 +436,7 @@ class ObjectReplicator(Daemon):
                 try:
                     with Timeout(self.http_timeout):
                         resp = http_connect(
-                            node['ip'], node['port'],
+                            node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=self.headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
@@ -448,7 +448,7 @@ class ObjectReplicator(Daemon):
                             self.logger.error(_("Invalid response %(resp)s "
                                                 "from %(ip)s"),
                                               {'resp': resp.status,
-                                               'ip': node['ip']})
+                                               'ip': node['replication_ip']})
                             continue
                         remote_hash = pickle.loads(resp.read())
                         del resp
@@ -469,7 +469,7 @@ class ObjectReplicator(Daemon):
                     self.rsync(node, job, suffixes)
                     with Timeout(self.http_timeout):
                         conn = http_connect(
-                            node['ip'], node['port'],
+                            node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '/' + '-'.join(suffixes),
                             headers=self.headers)
@@ -561,8 +561,8 @@ class ObjectReplicator(Daemon):
         jobs = []
         ips = whataremyips()
         for local_dev in [dev for dev in self.object_ring.devs
-                          if dev and dev['ip'] in ips and
-                          dev['port'] == self.port]:
+                          if dev and dev['replication_ip'] in ips and
+                          dev['replication_port'] == self.port]:
             dev_path = join(self.devices_dir, local_dev['device'])
             obj_path = join(dev_path, 'objects')
             tmp_path = join(dev_path, 'tmp')

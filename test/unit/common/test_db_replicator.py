@@ -198,7 +198,8 @@ class TestDBReplicator(unittest.TestCase):
         self.delete_db_calls.append(object_file)
 
     def test_repl_connection(self):
-        node = {'ip': '127.0.0.1', 'port': 80, 'device': 'sdb1'}
+        node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
+                'device': 'sdb1'}
         conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
                     logging.getLogger())
 
@@ -253,11 +254,13 @@ class TestDBReplicator(unittest.TestCase):
     def test_rsync_db(self):
         replicator = TestReplicator({})
         replicator._rsync_file = lambda *args: True
-        fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+        fake_device = {'replication_ip': '127.0.0.1', 'device': 'sda1'}
         replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
 
     def test_rsync_db_rsync_file_call(self):
-        fake_device = {'ip': '127.0.0.1', 'port': '0', 'device': 'sda1'}
+        fake_device = {'ip': '127.0.0.1', 'port': '0',
+                       'replication_ip': '127.0.0.1', 'replication_port': '0',
+                       'device': 'sda1'}
 
         def mock_rsync_ip(ip):
             self.assertEquals(fake_device['ip'], ip)
@@ -305,7 +308,8 @@ class TestDBReplicator(unittest.TestCase):
 
         with patch('os.path.exists', lambda *args: True):
             replicator = MyTestReplicator()
-            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+            fake_device = {'ip': '127.0.0.1', 'replication_ip': '127.0.0.1',
+                           'device': 'sda1'}
             replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
             self.assertEqual(True, replicator._rsync_file_called)
 
@@ -332,7 +336,8 @@ class TestDBReplicator(unittest.TestCase):
         with patch('os.path.exists', lambda *args: True):
             broker = FakeBroker()
             replicator = MyTestReplicator(broker)
-            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+            fake_device = {'ip': '127.0.0.1', 'replication_ip': '127.0.0.1',
+                           'device': 'sda1'}
             replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
             self.assertEquals(2, replicator._rsync_file_call_count)
 
@@ -341,7 +346,8 @@ class TestDBReplicator(unittest.TestCase):
             with patch('os.path.getmtime', ChangingMtimesOs()):
                 broker = FakeBroker()
                 replicator = MyTestReplicator(broker)
-                fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+                fake_device = {'ip': '127.0.0.1', 'replication_ip': '127.0.0.1',
+                               'device': 'sda1'}
                 replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
                 self.assertEquals(2, replicator._rsync_file_call_count)
 

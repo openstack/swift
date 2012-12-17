@@ -34,7 +34,7 @@ class TestEmptyDevice(TestCase):
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
          self.object_ring, self.url, self.token,
-         self.account) = reset_environment()
+         self.account, self.configs) = reset_environment()
 
     def tearDown(self):
         kill_servers(self.port2server, self.pids)
@@ -42,8 +42,7 @@ class TestEmptyDevice(TestCase):
     def _get_objects_dir(self, onode):
         device = onode['device']
         node_id = (onode['port'] - 6000) / 10
-        obj_server_conf = readconf('/etc/swift/object-server/%s.conf' %
-                                   node_id)
+        obj_server_conf = readconf(self.configs['object'] % node_id)
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s' % (devices, device)
         return obj_dir
@@ -124,12 +123,20 @@ class TestEmptyDevice(TestCase):
         self.assertEquals(exc.http_status, 404)
         self.assertFalse(os.path.exists(obj_dir))
 
+        try:
+            port_num = onode['replication_port']
+        except KeyError:
+            port_num = onode['port']
+        try:
+            another_port_num = another_onode['replication_port']
+        except KeyError:
+            another_port_num = another_onode['port']
         call(['swift-object-replicator',
-              '/etc/swift/object-server/%d.conf' %
-              ((onode['port'] - 6000) / 10), 'once'])
+              self.configs['object-replicator'] %
+              ((port_num - 6000) / 10), 'once'])
         call(['swift-object-replicator',
-              '/etc/swift/object-server/%d.conf' %
-              ((another_onode['port'] - 6000) / 10), 'once'])
+              self.configs['object-replicator'] %
+              ((another_port_num - 6000) / 10), 'once'])
 
         odata = direct_client.direct_get_object(onode, opart, self.account,
                                                 container, obj)[-1]

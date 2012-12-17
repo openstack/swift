@@ -146,6 +146,17 @@ class Ring(object):
             ring_data = RingData.load(self.serialized_path)
             self._mtime = getmtime(self.serialized_path)
             self._devs = ring_data.devs
+            # NOTE(akscram): Replication parameters like replication_ip
+            #                and replication_port are required for
+            #                replication process. An old replication
+            #                ring doesn't contain this parameters into
+            #                device.
+            for dev in self._devs:
+                if dev:
+                    if 'ip' in dev:
+                        dev.setdefault('replication_ip', dev['ip'])
+                    if 'port' in dev:
+                        dev.setdefault('replication_port', dev['port'])
 
             self._replica2part2dev_id = ring_data._replica2part2dev_id
             self._part_shift = ring_data._part_shift
