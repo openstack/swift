@@ -21,6 +21,7 @@ environments and response values into objects that are more friendly to
 interact with.
 """
 
+from collections import defaultdict
 from cStringIO import StringIO
 import UserDict
 import time
@@ -87,7 +88,7 @@ RESPONSE_REASONS = {
     504: ('Gateway Timeout', 'A timeout has occurred speaking to a '
           'backend server.'),
     507: ('Insufficient Storage', 'There was not enough space to save the '
-          'resource.'),
+          'resource. Drive: %(drive)s'),
 }
 
 
@@ -964,6 +965,8 @@ class Response(object):
             title, exp = RESPONSE_REASONS[self.status_int]
             if exp:
                 body = '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
+                if '%(' in body:
+                    body = body % defaultdict(lambda: 'unknown', self.__dict__)
                 self.content_length = len(body)
                 return [body]
         return ['']
