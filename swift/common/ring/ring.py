@@ -182,6 +182,11 @@ class Ring(object):
         """
         return getmtime(self.serialized_path) != self._mtime
 
+    def _get_part_nodes(self, part):
+        seen_ids = set()
+        return [self._devs[r[part]] for r in self._replica2part2dev_id
+                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
+
     def get_part_nodes(self, part):
         """
         Get the nodes that are responsible for the partition. If one
@@ -196,9 +201,7 @@ class Ring(object):
 
         if time() > self._rtime:
             self._reload()
-        seen_ids = set()
-        return [self._devs[r[part]] for r in self._replica2part2dev_id
-                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
+        return self._get_part_nodes(part)
 
     def get_nodes(self, account, container=None, obj=None):
         """
@@ -232,9 +235,7 @@ class Ring(object):
         if time() > self._rtime:
             self._reload()
         part = struct.unpack_from('>I', key)[0] >> self._part_shift
-        seen_ids = set()
-        return part, [self._devs[r[part]] for r in self._replica2part2dev_id
-                      if not (r[part] in seen_ids or seen_ids.add(r[part]))]
+        return part, self._get_part_nodes(part)
 
     def get_more_nodes(self, part):
         """
