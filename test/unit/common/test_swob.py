@@ -772,6 +772,20 @@ class TestResponse(unittest.TestCase):
         env['HTTP_HOST'] = 'someother:5678'
         self.assertEquals(resp.host_url(), 'https://someother:5678')
 
+    def test_507(self):
+        resp = swift.common.swob.HTTPInsufficientStorage()
+        content = ''.join(resp._response_iter(resp.app_iter, resp._body))
+        self.assertEquals(
+            content,
+            '<html><h1>Insufficient Storage</h1><p>There was not enough space '
+            'to save the resource. Drive: unknown</p></html>')
+        resp = swift.common.swob.HTTPInsufficientStorage(drive='sda1')
+        content = ''.join(resp._response_iter(resp.app_iter, resp._body))
+        self.assertEquals(
+            content,
+            '<html><h1>Insufficient Storage</h1><p>There was not enough space '
+            'to save the resource. Drive: sda1</p></html>')
+
 
 class TestUTC(unittest.TestCase):
     def test_tzname(self):
