@@ -22,6 +22,10 @@ from swift import __canonical_version__ as version
 name = 'swift'
 
 
+with open('tools/pip-requires', 'r') as f:
+    requires = [x.strip() for x in f if x.strip()]
+
+
 setup(
     name=name,
     version=version,
@@ -40,7 +44,7 @@ setup(
         'Environment :: No Input/Output (Daemon)',
         'Environment :: OpenStack',
     ],
-    install_requires=[],  # removed for better compat
+    install_requires=requires,
     scripts=[
         'bin/swift-account-audit',
         'bin/swift-account-auditor',
