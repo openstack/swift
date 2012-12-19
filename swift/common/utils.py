@@ -628,12 +628,13 @@ class SwiftLogFormatter(logging.Formatter):
             # Catch log messages that were not initiated by swift
             # (for example, the keystone auth middleware)
             record.server = record.name
-            return logging.Formatter.format(self, record)
         msg = logging.Formatter.format(self, record)
-        if (record.txn_id and record.levelno != logging.INFO and
+        if (hasattr(record, 'txn_id') and record.txn_id and
+                record.levelno != logging.INFO and
                 record.txn_id not in msg):
             msg = "%s (txn: %s)" % (msg, record.txn_id)
-        if (record.client_ip and record.levelno != logging.INFO and
+        if (hasattr(record, 'client_ip') and record.client_ip and
+                record.levelno != logging.INFO and
                 record.client_ip not in msg):
             msg = "%s (client_ip: %s)" % (msg, record.client_ip)
         return msg
