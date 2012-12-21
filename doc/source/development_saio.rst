@@ -89,8 +89,8 @@ Using a loopback device for storage
 If you want to use a loopback device instead of another partition, follow these instructions.
 
   #. `mkdir /srv`
-  #. `dd if=/dev/zero of=/srv/swift-disk bs=1024 count=0 seek=1000000`
-       (modify seek to make a larger or smaller partition)
+  #. `truncate -s 1GB /srv/swift-disk`
+       (modify size to make a larger or smaller partition)
   #. `mkfs.xfs -i size=1024 /srv/swift-disk`
   #. Edit `/etc/fstab` and add
        `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
