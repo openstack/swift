@@ -238,5 +238,25 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(e['PATH_INFO'], '/override')
 
 
+class TestWSGIContext(unittest.TestCase):
+
+    def test_app_call(self):
+        statuses = ['200 Ok', '404 Not Found']
+
+        def app(env, start_response):
+            start_response(statuses.pop(0), [('Content-Length', '3')])
+            yield 'Ok\n'
+
+        wc = wsgi.WSGIContext(app)
+        r = Request.blank('/')
+        it = wc._app_call(r.environ)
+        self.assertEquals(wc._response_status, '200 Ok')
+        self.assertEquals(''.join(it), 'Ok\n')
+        r = Request.blank('/')
+        it = wc._app_call(r.environ)
+        self.assertEquals(wc._response_status, '404 Not Found')
+        self.assertEquals(''.join(it), 'Ok\n')
+
+
 if __name__ == '__main__':
     unittest.main()

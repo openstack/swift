@@ -249,10 +249,6 @@ class WSGIContext(object):
     """
     def __init__(self, wsgi_app):
         self.app = wsgi_app
-        # Results from the last call to self._start_response.
-        self._response_status = None
-        self._response_headers = None
-        self._response_exc_info = None
 
     def _start_response(self, status, headers, exc_info=None):
         """
@@ -267,6 +263,9 @@ class WSGIContext(object):
         """
         Ensures start_response has been called before returning.
         """
+        self._response_status = None
+        self._response_headers = None
+        self._response_exc_info = None
         resp = self.app(env, self._start_response)
         # if start_response has been called, just return the iter
         if self._response_status is not None:
