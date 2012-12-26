@@ -146,7 +146,7 @@ class Connection(object):
         for hdr in response.getheaders():
             if hdr[0].lower() == "x-storage-url":
                 storage_url = hdr[1]
-            elif hdr[0].lower() == "x-storage-token":
+            elif hdr[0].lower() == "x-auth-token":
                 storage_token = hdr[1]
 
         if not (storage_url and storage_token):
