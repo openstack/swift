@@ -33,13 +33,13 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, lock_path, \
     compute_eta, get_logger, write_pickle, renamer, dump_recon_cache, \
-    rsync_ip, mkdirs, config_true_value, list_from_csv
+    rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.common.exceptions import PathNotDir
 
-hubs.use_hub('poll')
+hubs.use_hub(get_hub())
 
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
