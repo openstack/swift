@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation.
 #
 # Swift documentation build configuration file, created by
 # sphinx-quickstart on Tue May 18 13:50:15 2010.
@@ -15,6 +15,7 @@
 
 import sys
 import os
+import datetime
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -52,7 +53,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Swift'
-copyright = u'2011-present, OpenStack, LLC'
+copyright = u'%d, OpenStack Foundation' % datetime.datetime.now().year
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the

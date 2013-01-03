@@ -1,6 +1,6 @@
 .\"
 .\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
-.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\" Copyright (c) 2010-2011 OpenStack Foundation.
 .\"
 .\" Licensed under the Apache License, Version 2.0 (the "License");
 .\" you may not use this file except in compliance with the License.
@@ -68,7 +68,8 @@ items to set in the form Name:Value. This option can be repeated.
 \fBExample\fR: post -m Color:Blue -m Size:Large
 .RE    
     
-\fBdownload\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR] [\fIobject\fR] [...]
+
+\fBdownload\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR] [\fIobject\fR] [...]
 .RS 4
 Downloads everything in the account (with --all), or everything in a
 container, or a list of objects depending on the args given. For a single
@@ -77,13 +78,16 @@ redirect the output to a specific file or if "-" then just redirect to stdout.
 .RE
 
 \fBdelete\fR [\fIcommand-options\fR] [\fIcontainer\fR] [\fIobject\fR] [\fIobject\fR] [...]
+
 .RS 4
 Deletes everything in the account (with --all), or everything in a container,
 or a list of objects depending on the args given. Segments of manifest objects
 will be deleted as well, unless you specify the --leave-segments option.
+
 .RE 
 
-.SH OPTIONS
+
+.SH OPTIONS
 .PD 0 
 .IP "--version              Show program's version number and exit"
 .IP "-h, --help             Show this help message and exit"
@@ -93,9 +97,11 @@ will be deleted as well, unless you specify the --leave-segments option.
 .IP "-A AUTH, --auth=AUTH   URL for obtaining an auth token "
 .IP "-U USER, --user=USER   User name for obtaining an auth token"
 .IP "-K KEY, --key=KEY      Key for obtaining an auth token"
+
 .PD 
 
-.SH EXAMPLE
+
+.SH EXAMPLE
 .PP 
 swift -A https://127.0.0.1:443/auth/v1.0 -U swiftops:swiftops -K swiftops stat
 
@@ -111,6 +117,7 @@ swift -A https://127.0.0.1:443/auth/v1.0 -U swiftops:swiftops -K swiftops stat
 .RE 
 
   
+
 .SH DOCUMENTATION
 .LP
 More in depth documentation about Openstack-Swift as a whole can be found at 

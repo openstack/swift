@@ -1,6 +1,6 @@
 .\"
 .\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
-.\" Copyright (c) 2010-2011 OpenStack, LLC.
+.\" Copyright (c) 2010-2011 OpenStack Foundation.
 .\"
 .\" Licensed under the Apache License, Version 2.0 (the "License");
 .\" you may not use this file except in compliance with the License.
@@ -100,10 +100,12 @@ Example \fI/etc/swift/dispersion.conf\fR:
 .IP "# dump_json = no"
 .RE
 .PD 
-.SH EXAMPLE
+
+.SH EXAMPLE
 .PP 
 .PD 0
 $ swift-dispersion-report 
+
 
 .RS 1
 .IP "Queried 2622 containers for dispersion reporting, 31s, 0 retries"
@@ -114,8 +116,10 @@ $ swift-dispersion-report
 .IP "100.00% of object copies found (7863 of 7863)"
 .IP "Sample represents 1.00% of the object partition space"
 .RE
+
 .PD
  
+
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-dispersion utilities and
