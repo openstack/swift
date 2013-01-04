@@ -33,7 +33,7 @@ from urllib import unquote
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
-    validate_configuration
+    validate_configuration, get_hub
 
 
 def monkey_patch_mimetools():
@@ -135,7 +135,8 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         wsgi.HttpProtocol.log_message = \
             lambda s, f, *a: logger.error('ERROR WSGI: ' + f % a)
         wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
-        eventlet.hubs.use_hub('poll')
+
+        eventlet.hubs.use_hub(get_hub())
         eventlet.patcher.monkey_patch(all=False, socket=True)
         eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
         eventlet.debug.hub_exceptions(eventlet_debug)
