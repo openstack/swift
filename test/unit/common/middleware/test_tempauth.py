@@ -125,6 +125,8 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(ath.auth_prefix, '/auth/')
         ath = auth.filter_factory({'auth_prefix': ''})(app)
         self.assertEquals(ath.auth_prefix, '/auth/')
+        ath = auth.filter_factory({'auth_prefix': '/'})(app)
+        self.assertEquals(ath.auth_prefix, '/auth/')
         ath = auth.filter_factory({'auth_prefix': '/test/'})(app)
         self.assertEquals(ath.auth_prefix, '/test/')
         ath = auth.filter_factory({'auth_prefix': '/test'})(app)
