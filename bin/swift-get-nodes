@@ -34,6 +34,8 @@ if (len(args) < 2 or len(args) > 4) and \
     print 'Usage: %s [-a] <ring.gz> <account> [<container>] [<object>]' \
         % sys.argv[0]
     print '   Or: %s [-a] <ring.gz> -p partition' % sys.argv[0]
+    print '   Note: account, container, object can also be a single arg ' \
+        'separated by /'
     print 'Shows the nodes responsible for the item specified.'
     print 'Example:'
     print '    $ %s /etc/swift/account.ring.gz MyAccount' % sys.argv[0]
@@ -44,6 +46,11 @@ if (len(args) < 2 or len(args) > 4) and \
     print '    10.1.5.5:8000 sdf1'
     print '    10.1.5.9:8000 sdt1 # [Handoff]'
     sys.exit(1)
+
+if len(args) == 2 and '/' in args[1]:
+    # Parse single path arg, as noted in above help text.
+    path = args[1].lstrip('/')
+    args = [args[0]] + [p for p in path.split('/', 2) if p]
 
 ringloc = None
 account = None
