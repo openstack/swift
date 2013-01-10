@@ -31,9 +31,9 @@ SLEEP_BETWEEN_AUDITS = 30
 class AuditorWorker(object):
     """Walk through file system to audit object"""
 
-    def __init__(self, conf, zero_byte_only_at_fps=0):
+    def __init__(self, conf, logger, zero_byte_only_at_fps=0):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-auditor')
+        self.logger = logger
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.max_files_per_second = float(conf.get('files_per_second', 20))
@@ -224,6 +224,6 @@ class ObjectAuditor(Daemon):
         """Run the object audit once."""
         mode = kwargs.get('mode', 'once')
         zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
-        worker = AuditorWorker(self.conf,
+        worker = AuditorWorker(self.conf, self.logger,
                                zero_byte_only_at_fps=zero_byte_only_at_fps)
         worker.audit_all_objects(mode=mode)
