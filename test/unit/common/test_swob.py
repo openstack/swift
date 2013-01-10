@@ -462,6 +462,24 @@ class TestResponse(unittest.TestCase):
         resp.body = u'\N{SNOWMAN}'
         self.assertEquals(resp.body, u'\N{SNOWMAN}'.encode('utf-8'))
 
+    def test_call_reifies_request_if_necessary(self):
+        """
+        The actual bug was a HEAD response coming out with a body because the
+        Request object wasn't passed into the Response object's constructor.
+        The Response object's __call__ method should be able to reify a
+        Request object from the env it gets passed.
+        """
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            return ['hi']
+        req = swift.common.swob.Request.blank('/')
+        req.method = 'HEAD'
+        status, headers, app_iter = req.call_application(test_app)
+        resp = swift.common.swob.Response(status=status, headers=dict(headers),
+                                          app_iter=app_iter)
+        output_iter = resp(req.environ, lambda *_: None)
+        self.assertEquals(list(output_iter), [''])
+
     def test_location_rewrite(self):
         def start_response(env, headers):
             pass
