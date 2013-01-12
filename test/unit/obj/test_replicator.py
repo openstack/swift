@@ -397,6 +397,28 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.next_check = orig_check - 30
         self.assertFalse(self.replicator.check_ring())
 
+    def test_collect_jobs_mkdirs_error(self):
+
+        def blowup_mkdirs(path):
+            raise OSError('Ow!')
+
+        mkdirs_orig = object_replicator.mkdirs
+        try:
+            rmtree(self.objects, ignore_errors=1)
+            object_replicator.mkdirs = blowup_mkdirs
+            jobs = self.replicator.collect_jobs()
+            self.assertTrue('exception' in self.replicator.logger.log_dict)
+            self.assertEquals(
+                len(self.replicator.logger.log_dict['exception']), 1)
+            exc_args, exc_kwargs, exc_str = \
+                self.replicator.logger.log_dict['exception'][0]
+            self.assertEquals(len(exc_args), 1)
+            self.assertTrue(exc_args[0].startswith('ERROR creating '))
+            self.assertEquals(exc_kwargs, {})
+            self.assertEquals(exc_str, 'Ow!')
+        finally:
+            object_replicator.mkdirs = mkdirs_orig
+
     def test_collect_jobs(self):
         jobs = self.replicator.collect_jobs()
         jobs_to_delete = [j for j in jobs if j['delete']]
