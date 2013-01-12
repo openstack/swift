@@ -647,7 +647,8 @@ class ObjectReplicator(Daemon):
         self.logger.info(
             _("Object replication complete (once). (%.02f minutes)"), total)
         if not (override_partitions or override_devices):
-            dump_recon_cache({'object_replication_time': total},
+            dump_recon_cache({'object_replication_time': total,
+                              'object_replication_last': time.time()},
                              self.rcache, self.logger)
 
     def run_forever(self, *args, **kwargs):
@@ -661,7 +662,8 @@ class ObjectReplicator(Daemon):
             total = (time.time() - start) / 60
             self.logger.info(
                 _("Object replication complete. (%.02f minutes)"), total)
-            dump_recon_cache({'object_replication_time': total},
+            dump_recon_cache({'object_replication_time': total,
+                              'object_replication_last': time.time()},
                              self.rcache, self.logger)
             self.logger.debug(_('Replication sleeping for %s seconds.'),
                               self.run_pause)

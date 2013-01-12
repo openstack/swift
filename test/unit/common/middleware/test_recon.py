@@ -388,11 +388,13 @@ class TestReconSuccess(TestCase):
                                     "remove": 0, "rsync": 0,
                                     "start": 1333044050.855202,
                                     "success": 2, "ts_repl": 0 },
-                               "replication_time": 0.2615511417388916}
+                               "replication_time": 0.2615511417388916,
+                               "replication_last": 1357969645.25}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('account')
         self.assertEquals(self.fakecache.fakeout_calls,
-                            [((['replication_time', 'replication_stats'],
+                            [((['replication_time', 'replication_stats',
+                                'replication_last'],
                                 '/var/cache/swift/account.recon'), {})])
         self.assertEquals(rv, {"replication_stats": {
                                     "attempted": 1, "diff": 0,
@@ -402,7 +404,8 @@ class TestReconSuccess(TestCase):
                                     "remove": 0, "rsync": 0,
                                     "start": 1333044050.855202,
                                     "success": 2, "ts_repl": 0 },
-                                "replication_time": 0.2615511417388916})
+                                "replication_time": 0.2615511417388916,
+                                "replication_last": 1357969645.25})
 
     def test_get_replication_info_container(self):
         from_cache_response = {"replication_time": 200.0,
@@ -413,12 +416,14 @@ class TestReconSuccess(TestCase):
                                     "no_change": 358, "remote_merge": 0,
                                     "remove": 0, "rsync": 0,
                                     "start": 5.5, "success": 358,
-                                    "ts_repl": 0}}
+                                    "ts_repl": 0},
+                               "replication_last": 1357969645.25}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('container')
         self.assertEquals(self.fakecache.fakeout_calls,
-                            [((['replication_time', 'replication_stats'],
+                            [((['replication_time', 'replication_stats',
+                                'replication_last'],
                                 '/var/cache/swift/container.recon'), {})])
         self.assertEquals(rv, {"replication_time": 200.0,
                                "replication_stats": {
@@ -428,17 +433,21 @@ class TestReconSuccess(TestCase):
                                     "no_change": 358, "remote_merge": 0,
                                     "remove": 0, "rsync": 0,
                                     "start": 5.5, "success": 358,
-                                    "ts_repl": 0}})
+                                    "ts_repl": 0},
+                               "replication_last": 1357969645.25})
 
     def test_get_replication_object(self):
-        from_cache_response = {"object_replication_time": 200.0}
+        from_cache_response = {"object_replication_time": 200.0,
+                               "object_replication_last": 1357962809.15}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('object')
         self.assertEquals(self.fakecache.fakeout_calls,
-                            [((['object_replication_time'],
+                            [((['object_replication_time',
+                                'object_replication_last'],
                                 '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {'object_replication_time': 200.0})
+        self.assertEquals(rv, {'object_replication_time': 200.0,
+                               'object_replication_last': 1357962809.15})
 
     def test_get_updater_info_container(self):
         from_cache_response = {"container_updater_sweep": 18.476239919662476}
