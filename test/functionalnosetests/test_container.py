@@ -552,6 +552,18 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.getheader('Content-Type'),
                           'text/html; charset=UTF-8')
 
+    def test_null_name(self):
+        if skip:
+            raise SkipTest
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/abc%%00def' % parsed.path, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(put)
+        self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
+        self.assertEquals(resp.status, 412)
+
 
 if __name__ == '__main__':
     unittest.main()

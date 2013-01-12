@@ -334,7 +334,7 @@ class AccountController(object):
         req = Request(env)
         self.logger.txn_id = req.headers.get('x-trans-id', None)
         if not check_utf8(req.path_info):
-            res = HTTPPreconditionFailed(body='Invalid UTF8')
+            res = HTTPPreconditionFailed(body='Invalid UTF8 or contains NULL')
         else:
             try:
                 # disallow methods which are not publicly accessible

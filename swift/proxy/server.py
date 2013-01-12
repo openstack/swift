@@ -147,7 +147,8 @@ class Application(object):
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
-            err = HTTPPreconditionFailed(request=req, body='Invalid UTF8')
+            err = HTTPPreconditionFailed(
+                request=req, body='Invalid UTF8 or contains NULL')
             return err(env, start_response)
         except (Exception, Timeout):
             start_response('500 Server Error',
@@ -177,11 +178,12 @@ class Application(object):
             try:
                 if not check_utf8(req.path_info):
                     self.logger.increment('errors')
-                    return HTTPPreconditionFailed(request=req,
-                                                  body='Invalid UTF8')
+                    return HTTPPreconditionFailed(
+                        request=req, body='Invalid UTF8 or contains NULL')
             except UnicodeError:
                 self.logger.increment('errors')
-                return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
+                return HTTPPreconditionFailed(
+                    request=req, body='Invalid UTF8 or contains NULL')
 
             try:
                 controller, path_parts = self.get_controller(req.path)

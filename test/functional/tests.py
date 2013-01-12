@@ -210,7 +210,7 @@ class TestAccount(Base):
         container = self.env.account.container(invalid_utf8)
         self.assert_(not container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
-        self.assert_body('Invalid UTF8')
+        self.assert_body('Invalid UTF8 or contains NULL')
 
     def testVersionOnlyPath(self):
         self.env.account.conn.make_request('PUT',

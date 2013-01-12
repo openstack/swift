@@ -182,10 +182,12 @@ def check_float(string):
 
 def check_utf8(string):
     """
-    Validate if a string is valid UTF-8 str or unicode
+    Validate if a string is valid UTF-8 str or unicode and that it
+    does not contain any null character.
 
     :param string: string to be validated
-    :returns: True if the string is valid utf-8 str or unicode, False otherwise
+    :returns: True if the string is valid utf-8 str or unicode and
+              contains no null characters, False otherwise
     """
     if not string:
         return False
@@ -194,7 +196,7 @@ def check_utf8(string):
             string.encode('utf-8')
         else:
             string.decode('UTF-8')
-        return True
+        return '\x00' not in string
     # If string is unicode, decode() will raise UnicodeEncodeError
     # So, we should catch both UnicodeDecodeError & UnicodeEncodeError
     except UnicodeError:

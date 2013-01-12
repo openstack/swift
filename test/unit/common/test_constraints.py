@@ -188,11 +188,14 @@ class TestConstraints(unittest.TestCase):
         unicode_sample = u'\uc77c\uc601'
         valid_utf8_str = unicode_sample.encode('utf-8')
         invalid_utf8_str = unicode_sample.encode('utf-8')[::-1]
+        unicode_with_null = u'abc\u0000def'
+        utf8_with_null = unicode_with_null.encode('utf-8')
 
         for false_argument in [None,
                                '',
                                invalid_utf8_str,
-                               ]:
+                               unicode_with_null,
+                               utf8_with_null]:
             self.assertFalse(constraints.check_utf8(false_argument))
 
         for true_argument in ['this is ascii and utf-8, too',
