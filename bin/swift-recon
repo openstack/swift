@@ -19,6 +19,21 @@ import sys
 import os
 
 
+def seconds2timeunit(seconds):
+    elapsed = seconds
+    unit = 'seconds'
+    if elapsed >= 60:
+        elapsed = elapsed / 60.0
+        unit = 'minutes'
+        if elapsed >= 60:
+            elapsed = elapsed / 60.0
+            unit = 'hours'
+            if elapsed >= 24:
+                elapsed = elapsed / 24.0
+                unit = 'days'
+    return elapsed, unit
+
+
 class Scout(object):
     """
     Obtain swift recon information
@@ -261,6 +276,10 @@ class SwiftRecon(object):
         recon = Scout("replication/%s" % self.server_type, self.verbose,
                       self.suppress_errors, self.timeout)
         print "[%s] Checking on replication" % self._ptime()
+        least_recent_time = 9999999999
+        least_recent_url = None
+        most_recent_time = 0
+        most_recent_url = None
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
                 stats['replication_time'].append(
@@ -269,6 +288,13 @@ class SwiftRecon(object):
                 if repl_stats:
                     for stat_key in ['attempted', 'failure', 'success']:
                         stats[stat_key].append(repl_stats.get(stat_key))
+                last = response.get('replication_last', 0)
+                if last < least_recent_time:
+                    least_recent_time = last
+                    least_recent_url = url
+                if last > most_recent_time:
+                    most_recent_time = last
+                    most_recent_url = url
         for k in stats:
             if stats[k]:
                 if k != 'replication_time':
@@ -282,6 +308,25 @@ class SwiftRecon(object):
                     print "[%s] - No hosts returned valid data." % k
             else:
                 print "[%s] - No hosts returned valid data." % k
+        if least_recent_url is not None:
+            host = urlparse(url).netloc
+            if not least_recent_time:
+                print 'Oldest completion was NEVER by %s.' % host
+            else:
+                elapsed = time.time() - least_recent_time
+                elapsed, elapsed_unit = seconds2timeunit(elapsed)
+                print 'Oldest completion was %s (%d %s ago) by %s.' % (
+                    time.strftime('%Y-%m-%d %H:%M:%S',
+                                  time.gmtime(least_recent_time)),
+                    elapsed, elapsed_unit, host)
+        if most_recent_url is not None:
+            host = urlparse(url).netloc
+            elapsed = time.time() - most_recent_time
+            elapsed, elapsed_unit = seconds2timeunit(elapsed)
+            print 'Most recent completion was %s (%d %s ago) by %s.' % (
+                time.strftime('%Y-%m-%d %H:%M:%S',
+                              time.gmtime(most_recent_time)),
+                elapsed, elapsed_unit, host)
         print "=" * 79
 
     def object_replication_check(self, hosts):
@@ -295,9 +340,20 @@ class SwiftRecon(object):
         recon = Scout("replication", self.verbose, self.suppress_errors,
                       self.timeout)
         print "[%s] Checking on replication" % self._ptime()
+        least_recent_time = 9999999999
+        least_recent_url = None
+        most_recent_time = 0
+        most_recent_url = None
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
                 stats[url] = response['object_replication_time']
+                last = response.get('object_replication_last', 0)
+                if last < least_recent_time:
+                    least_recent_time = last
+                    least_recent_url = url
+                if last > most_recent_time:
+                    most_recent_time = last
+                    most_recent_url = url
         times = [x for x in stats.values() if x is not None]
         if len(stats) > 0 and len(times) > 0:
             computed = self._gen_stats(times, 'replication_time')
@@ -307,6 +363,25 @@ class SwiftRecon(object):
                 print "[replication_time] - No hosts returned valid data."
         else:
             print "[replication_time] - No hosts returned valid data."
+        if least_recent_url is not None:
+            host = urlparse(url).netloc
+            if not least_recent_time:
+                print 'Oldest completion was NEVER by %s.' % host
+            else:
+                elapsed = time.time() - least_recent_time
+                elapsed, elapsed_unit = seconds2timeunit(elapsed)
+                print 'Oldest completion was %s (%d %s ago) by %s.' % (
+                    time.strftime('%Y-%m-%d %H:%M:%S',
+                                  time.gmtime(least_recent_time)),
+                    elapsed, elapsed_unit, host)
+        if most_recent_url is not None:
+            host = urlparse(url).netloc
+            elapsed = time.time() - most_recent_time
+            elapsed, elapsed_unit = seconds2timeunit(elapsed)
+            print 'Most recent completion was %s (%d %s ago) by %s.' % (
+                time.strftime('%Y-%m-%d %H:%M:%S',
+                              time.gmtime(most_recent_time)),
+                elapsed, elapsed_unit, host)
         print "=" * 79
 
     def updater_check(self, hosts):

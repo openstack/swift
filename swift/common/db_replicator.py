@@ -194,7 +194,8 @@ class Replicator(Daemon):
                          % self.stats)
         dump_recon_cache(
             {'replication_stats': self.stats,
-             'replication_time': time.time() - self.stats['start']},
+             'replication_time': time.time() - self.stats['start'],
+             'replication_last': time.time()},
             self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
                          self.stats.items() if item[0] in
