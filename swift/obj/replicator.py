@@ -564,7 +564,10 @@ class ObjectReplicator(Daemon):
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
             if not os.path.exists(obj_path):
-                mkdirs(obj_path)
+                try:
+                    mkdirs(obj_path)
+                except Exception, err:
+                    self.logger.exception('ERROR creating %s' % obj_path)
                 continue
             for partition in os.listdir(obj_path):
                 try:
