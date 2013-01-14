@@ -61,7 +61,7 @@ class TestAuditor(unittest.TestCase):
         unit.xattr_data = {}
 
     def test_object_audit_extra_data(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         data = '0' * 1024
         etag = md5()
         with self.disk_file.mkstemp() as fd:
@@ -89,7 +89,7 @@ class TestAuditor(unittest.TestCase):
             self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_diff_data(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         data = '0' * 1024
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
@@ -131,7 +131,7 @@ class TestAuditor(unittest.TestCase):
         fp.write('0' * 1024)
         fp.close()
         invalidate_hash(os.path.dirname(self.disk_file.datadir))
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         pre_quarantines = self.auditor.quarantines
         self.auditor.object_audit(
             os.path.join(self.disk_file.datadir, timestamp + '.data'),
@@ -139,7 +139,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_bad_args(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         pre_errors = self.auditor.errors
         self.auditor.object_audit(5, 'sda', '0')
         self.assertEquals(self.auditor.errors, pre_errors + 1)
@@ -148,7 +148,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.errors, pre_errors)  # just returns
 
     def test_object_run_once_pass(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         self.auditor.log_time = 0
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = self.auditor.quarantines
@@ -169,7 +169,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines)
 
     def test_object_run_once_no_sda(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = self.auditor.quarantines
         data = '0' * 1024
@@ -190,7 +190,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_run_once_multi_devices(self):
-        self.auditor = auditor.AuditorWorker(self.conf)
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = self.auditor.quarantines
         data = '0' * 10
