@@ -335,6 +335,8 @@ class RingBuilder(object):
         :raises RingValidationError: problem was found with the ring.
         """
 
+        # "len" showed up in profling, so it's just computed once.
+        dev_len = len(self.devs)
         if sum(d['parts'] for d in self._iter_devs()) != \
                 self.parts * self.replicas:
             raise exceptions.RingValidationError(
@@ -344,7 +346,7 @@ class RingBuilder(object):
         if stats:
             # dev_usage[dev_id] will equal the number of partitions assigned to
             # that device.
-            dev_usage = array('I', (0 for _junk in xrange(len(self.devs))))
+            dev_usage = array('I', (0 for _junk in xrange(dev_len)))
             for part2dev in self._replica2part2dev:
                 for dev_id in part2dev:
                     dev_usage[dev_id] += 1
@@ -352,7 +354,7 @@ class RingBuilder(object):
         for part in xrange(self.parts):
             for replica in xrange(self.replicas):
                 dev_id = self._replica2part2dev[replica][part]
-                if dev_id >= len(self.devs) or not self.devs[dev_id]:
+                if dev_id >= dev_len or not self.devs[dev_id]:
                     raise exceptions.RingValidationError(
                         "Partition %d, replica %d was not allocated "
                         "to a device." %
@@ -477,8 +479,13 @@ class RingBuilder(object):
         """
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
         for part in xrange(self.parts):
-            self._last_part_moves[part] = \
-                min(self._last_part_moves[part] + elapsed_hours, 0xff)
+            # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
+            # which was here showed up in profiling, so it got inlined.
+            last_plus_elapsed = self._last_part_moves[part] + elapsed_hours
+            if last_plus_elapsed < 0xff:
+                self._last_part_moves[part] = last_plus_elapsed
+            else:
+                self._last_part_moves[part] = 0xff
         self._last_part_moves_epoch = int(time())
 
     def _gather_reassign_parts(self):
@@ -487,6 +494,10 @@ class RingBuilder(object):
         gathering from removed devices, insufficiently-far-apart replicas, and
         overweight drives.
         """
+        # inline memoization of tiers_for_dev() results (profiling reveals it
+        # as a hot-spot).
+        tfd = {}
+
         # First we gather partitions from removed devices. Since removed
         # devices usually indicate device failures, we have no choice but to
         # reassign these partitions. However, we mark them as moved so later
@@ -513,19 +524,31 @@ class RingBuilder(object):
 
             # First, add up the count of replicas at each tier for each
             # partition.
-            replicas_at_tier = defaultdict(lambda: 0)
+            # replicas_at_tier was a "lambda: 0" defaultdict, but profiling
+            # revealed the lambda invocation as a significant cost.
+            replicas_at_tier = {}
             for replica in xrange(self.replicas):
                 dev = self.devs[self._replica2part2dev[replica][part]]
-                for tier in tiers_for_dev(dev):
-                    replicas_at_tier[tier] += 1
+                if dev['id'] not in tfd:
+                    tfd[dev['id']] = tiers_for_dev(dev)
+                for tier in tfd[dev['id']]:
+                    if tier not in replicas_at_tier:
+                        replicas_at_tier[tier] = 1
+                    else:
+                        replicas_at_tier[tier] += 1
 
             # Now, look for partitions not yet spread out enough and not
             # recently moved.
             for replica in xrange(self.replicas):
                 dev = self.devs[self._replica2part2dev[replica][part]]
                 removed_replica = False
-                for tier in tiers_for_dev(dev):
-                    if (replicas_at_tier[tier] > max_allowed_replicas[tier] and
+                if dev['id'] not in tfd:
+                    tfd[dev['id']] = tiers_for_dev(dev)
+                for tier in tfd[dev['id']]:
+                    rep_at_tier = 0
+                    if tier in replicas_at_tier:
+                        rep_at_tier = replicas_at_tier[tier]
+                    if (rep_at_tier > max_allowed_replicas[tier] and
                             self._last_part_moves[part] >=
                             self.min_part_hours):
                         self._last_part_moves[part] = 0
@@ -535,7 +558,9 @@ class RingBuilder(object):
                         removed_replica = True
                         break
                 if removed_replica:
-                    for tier in tiers_for_dev(dev):
+                    if dev['id'] not in tfd:
+                        tfd[dev['id']] = tiers_for_dev(dev)
+                    for tier in tfd[dev['id']]:
                         replicas_at_tier[tier] -= 1
 
         # Last, we gather partitions from devices that are "overweight" because
