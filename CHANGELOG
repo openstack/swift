@@ -1,3 +1,45 @@
+swift (1.7.6)
+
+    * Better tempauth storage URL guessing
+
+    * Added --top option to swift-recon -d
+
+    * Allow optional, temporary healthcheck failure
+
+    * keystoneauth middleware now supports cross-tenant ACLs
+
+    * Add dispersion report flags to limit reports
+
+    * Add config option to turn eventlet debug on/off
+
+    * Added override option for swift-init's KILL_WAIT
+
+    * Added oldest and most recent replication pass to swift-recon
+
+    * Fixed 500 error response when GETing a many-segment manifest
+
+    * Memcached keys now use a delta timeout when possible
+
+    * Refactor DiskFile to hide temp file names and exts
+
+    * Remove IP-based container-sync ACLs from auth middlewares
+
+    * Fixed bug in deleting memcached account info data
+
+    * Fixed lazy-listing of object manifest segments
+
+    * Fixed bug where a ? in the object name caused an error
+
+    * Swift now returns 406 if it can't satisfy Accept
+
+    * Fix infinite recursion bug in obejct replicator
+
+    * Swift will now reject names with NULL characters
+
+    * Fixed object-auditor logging to use a minimum of unix sockets
+
+    * Various other minor bug fixes and improvements
+
 swift (1.7.5)
 
     * Support OPTIONS verb, including CORS preflight requests
