@@ -113,6 +113,8 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
                 'x-container-meta-access-control-allow-origin'),
             'allow_headers': headers.get(
                 'x-container-meta-access-control-allow-headers'),
+            'expose_headers': headers.get(
+                'x-container-meta-access-control-expose-headers'),
             'max_age': headers.get(
                 'x-container-meta-access-control-max-age')
         },
@@ -120,6 +122,70 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
                      for key, value in headers.iteritems()
                      if key.lower().startswith('x-container-meta-'))
     }
+
+
+def cors_validation(func):
+    """
+    Decorator to check if the request is a CORS request and if so, if it's
+    valid.
+
+    :param func: function to check
+    """
+    @functools.wraps(func)
+    def wrapped(*a, **kw):
+        controller = a[0]
+        req = a[1]
+
+        # The logic here was interpreted from
+        #    http://www.w3.org/TR/cors/#resource-requests
+
+        # Is this a CORS request?
+        req_origin = req.headers.get('Origin', None)
+        if req_origin:
+            # Yes, this is a CORS request so test if the origin is allowed
+            container_info = \
+                controller.container_info(controller.account_name,
+                                          controller.container_name)
+            cors_info = container_info.get('cors', {})
+            if not controller.is_origin_allowed(cors_info, req_origin):
+                # invalid CORS request
+                return Response(status=HTTP_UNAUTHORIZED)
+
+            # Call through to the decorated method
+            resp = func(*a, **kw)
+
+            # Expose,
+            #  - simple response headers,
+            #    http://www.w3.org/TR/cors/#simple-response-header
+            #  - swift specific: etag, x-timestamp, x-trans-id
+            #  - user metadata headers
+            #  - headers provided by the user in
+            #    x-container-meta-access-control-expose-headers
+            expose_headers = ['cache-control', 'content-language',
+                              'content-type', 'expires', 'last-modified',
+                              'pragma', 'etag', 'x-timestamp', 'x-trans-id']
+            for header in resp.headers:
+                if header.startswith('x-container-meta') or \
+                        header.startswith('x-object-meta'):
+                    expose_headers.append(header.lower())
+            if cors_info.get('expose_headers'):
+                expose_headers.extend(
+                    [a.strip()
+                     for a in cors_info['expose_headers'].split(' ')
+                     if a.strip()])
+            resp.headers['Access-Control-Expose-Headers'] = \
+                ', '.join(expose_headers)
+
+            # The user agent won't process the response if the Allow-Origin
+            # header isn't included
+            resp.headers['Access-Control-Allow-Origin'] = req_origin
+
+            return resp
+        else:
+            # Not a CORS request so make the call as normal
+            return func(*a, **kw)
+
+    return wrapped
 
 
 class Controller(object):
@@ -694,49 +760,76 @@ class Controller(object):
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (server_type, req.method))
 
-    def OPTIONS_base(self, req):
+    def is_origin_allowed(self, cors_info, origin):
+        """
+        Is the given Origin allowed to make requests to this resource
+
+        :param cors_info: the resource's CORS related metadata headers
+        :param origin: the origin making the request
+        :return: True or False
+        """
+        allowed_origins = set()
+        if cors_info.get('allow_origin'):
+            allowed_origins.update(
+                [a.strip()
+                 for a in cors_info['allow_origin'].split(' ')
+                 if a.strip()])
+        if self.app.cors_allow_origin:
+            allowed_origins.update(self.app.cors_allow_origin)
+        return origin in allowed_origins or '*' in allowed_origins
+
+    @public
+    def OPTIONS(self, req):
         """
         Base handler for OPTIONS requests
 
         :param req: swob.Request object
         :returns: swob.Response object
         """
+        # Prepare the default response
         headers = {'Allow': ', '.join(self.allowed_methods)}
-        resp = Response(status=200, request=req,
-                        headers=headers)
+        resp = Response(status=200, request=req, headers=headers)
+
+        # If this isn't a CORS pre-flight request then return now
         req_origin_value = req.headers.get('Origin', None)
         if not req_origin_value:
-            # NOT a CORS request
             return resp
 
-        # CORS preflight request
+        # This is a CORS preflight request so check it's allowed
         try:
             container_info = \
                 self.container_info(self.account_name, self.container_name)
         except AttributeError:
-            container_info = {}
+            # This should only happen for requests to the Account. A future
+            # change could allow CORS requests to the Account level as well.
+            return resp
+
         cors = container_info.get('cors', {})
-        allowed_origins = set()
-        if cors.get('allow_origin'):
-            allowed_origins.update(cors['allow_origin'].split(' '))
-        if self.app.cors_allow_origin:
-            allowed_origins.update(self.app.cors_allow_origin)
-        if (req_origin_value not in allowed_origins and
-                '*' not in allowed_origins) or (
+
+        # If the CORS origin isn't allowed return a 401
+        if not self.is_origin_allowed(cors, req_origin_value) or (
                 req.headers.get('Access-Control-Request-Method') not in
                 self.allowed_methods):
             resp.status = HTTP_UNAUTHORIZED
-            return resp  # CORS preflight request that isn't valid
+            return resp
+
+        # Always allow the x-auth-token header. This ensures
+        # clients can always make a request to the resource.
+        allow_headers = set()
+        if cors.get('allow_headers'):
+            allow_headers.update(
+                [a.strip()
+                 for a in cors['allow_headers'].split(' ')
+                 if a.strip()])
+        allow_headers.add('x-auth-token')
+
+        # Populate the response with the CORS preflight headers
         headers['access-control-allow-origin'] = req_origin_value
         if cors.get('max_age') is not None:
             headers['access-control-max-age'] = cors.get('max_age')
-        headers['access-control-allow-methods'] = ', '.join(
-            self.allowed_methods)
-        if cors.get('allow_headers'):
-            headers['access-control-allow-headers'] = cors.get('allow_headers')
+        headers['access-control-allow-methods'] = \
+            ', '.join(self.allowed_methods)
+        headers['access-control-allow-headers'] = ', '.join(allow_headers)
         resp.headers = headers
-        return resp
 
-    @public
-    def OPTIONS(self, req):
-        return self.OPTIONS_base(req)
+        return resp

@@ -32,7 +32,7 @@ from swift.common.utils import normalize_timestamp, public
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    get_container_memcache_key, headers_to_container_info
+    get_container_memcache_key, headers_to_container_info, cors_validation
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -95,17 +95,20 @@ class ContainerController(Controller):
 
     @public
     @delay_denial
+    @cors_validation
     def GET(self, req):
         """Handler for HTTP GET requests."""
         return self.GETorHEAD(req)
 
     @public
     @delay_denial
+    @cors_validation
     def HEAD(self, req):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
     @public
+    @cors_validation
     def PUT(self, req):
         """HTTP PUT request handler."""
         error_response = \
@@ -151,6 +154,7 @@ class ContainerController(Controller):
         return resp
 
     @public
+    @cors_validation
     def POST(self, req):
         """HTTP POST request handler."""
         error_response = \
@@ -177,6 +181,7 @@ class ContainerController(Controller):
         return resp
 
     @public
+    @cors_validation
     def DELETE(self, req):
         """HTTP DELETE request handler."""
         account_partition, accounts, container_count = \
