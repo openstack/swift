@@ -462,7 +462,7 @@ class TempAuth(object):
                                 timeout=float(expires - time()))
         resp = Response(request=req, headers={
             'x-auth-token': token, 'x-storage-token': token})
-        url = self.users[account_user]['url'].replace('$HOST', resp.host_url())
+        url = self.users[account_user]['url'].replace('$HOST', resp.host_url)
         if self.storage_url_scheme != 'default':
             url = self.storage_url_scheme + ':' + url.split(':', 1)[1]
         resp.headers['x-storage-url'] = url

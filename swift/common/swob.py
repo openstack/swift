@@ -668,6 +668,27 @@ def _req_body_property():
     return property(getter, setter, doc="Get and set the request body str")
 
 
+def _host_url_property():
+    """
+    Retrieves the best guess that can be made for an absolute location up to
+    the path, for example: https://host.com:1234
+    """
+    def getter(self):
+        if 'HTTP_HOST' in self.environ:
+            host = self.environ['HTTP_HOST']
+        else:
+            host = '%s:%s' % (self.environ['SERVER_NAME'],
+                              self.environ['SERVER_PORT'])
+        scheme = self.environ.get('wsgi.url_scheme', 'http')
+        if scheme == 'http' and host.endswith(':80'):
+            host, port = host.rsplit(':', 1)
+        elif scheme == 'https' and host.endswith(':443'):
+            host, port = host.rsplit(':', 1)
+        return '%s://%s' % (scheme, host)
+
+    return property(getter, doc="Get url for request/response up to path")
+
+
 class Request(object):
     """
     WSGI Request object.
@@ -680,6 +701,7 @@ class Request(object):
     script_name = _req_environ_property('SCRIPT_NAME')
     path_info = _req_environ_property('PATH_INFO')
     host = _req_environ_property('HTTP_HOST')
+    host_url = _host_url_property()
     remote_addr = _req_environ_property('REMOTE_ADDR')
     remote_user = _req_environ_property('REMOTE_USER')
     user_agent = _req_environ_property('HTTP_USER_AGENT')
@@ -762,6 +784,11 @@ class Request(object):
         "Provides the full path of the request, excluding the QUERY_STRING"
         return urllib2.quote(self.environ.get('SCRIPT_NAME', '') +
                              self.environ['PATH_INFO'])
+
+    @property
+    def url(self):
+        "Provides the full url of the request"
+        return self.host_url + self.path_qs
 
     def path_info_pop(self):
         """
@@ -853,6 +880,7 @@ class Response(object):
     etag = _resp_etag_property()
     status = _resp_status_property()
     body = _resp_body_property()
+    host_url = _host_url_property()
     last_modified = _datetime_property('last-modified')
     location = _header_property('location')
     accept_ranges = _header_property('accept-ranges')
@@ -971,30 +999,13 @@ class Response(object):
                 return [body]
         return ['']
 
-    def host_url(self):
-        """
-        Returns the best guess that can be made for an absolute location up to
-        the path, for example: https://host.com:1234
-        """
-        if 'HTTP_HOST' in self.environ:
-            host = self.environ['HTTP_HOST']
-        else:
-            host = '%s:%s' % (self.environ['SERVER_NAME'],
-                              self.environ['SERVER_PORT'])
-        scheme = self.environ.get('wsgi.url_scheme', 'http')
-        if scheme == 'http' and host.endswith(':80'):
-            host, port = host.rsplit(':', 1)
-        elif scheme == 'https' and host.endswith(':443'):
-            host, port = host.rsplit(':', 1)
-        return '%s://%s' % (scheme, host)
-
     def absolute_location(self):
         """
         Attempt to construct an absolute location.
         """
         if not self.location.startswith('/'):
             return self.location
-        return self.host_url() + self.location
+        return self.host_url + self.location
 
     def __call__(self, env, start_response):
         self.environ = env
@@ -1015,10 +1026,12 @@ class StatusMap(object):
 status_map = StatusMap()
 
 
-HTTPAccepted = status_map[202]
+HTTPOk = status_map[200]
 HTTPCreated = status_map[201]
+HTTPAccepted = status_map[202]
 HTTPNoContent = status_map[204]
 HTTPMovedPermanently = status_map[301]
+HTTPFound = status_map[302]
 HTTPNotModified = status_map[304]
 HTTPBadRequest = status_map[400]
 HTTPUnauthorized = status_map[401]
@@ -1031,6 +1044,7 @@ HTTPConflict = status_map[409]
 HTTPLengthRequired = status_map[411]
 HTTPPreconditionFailed = status_map[412]
 HTTPRequestEntityTooLarge = status_map[413]
+HTTPRequestedRangeNotSatisfiable = status_map[416]
 HTTPUnprocessableEntity = status_map[422]
 HTTPClientDisconnect = status_map[499]
 HTTPServerError = status_map[500]
