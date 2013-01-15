@@ -641,65 +641,97 @@ class RingBuilder(object):
             sorted((d for d in self._iter_devs() if d['weight']),
                    key=lambda x: x['sort_key'])
 
-        tier2children = build_tier_tree(available_devs)
-
         tier2devs = defaultdict(list)
         tier2sort_key = defaultdict(list)
-        tiers_by_depth = defaultdict(set)
+        max_tier_depth = 0
         for dev in available_devs:
             for tier in tiers_for_dev(dev):
                 tier2devs[tier].append(dev)  # <-- starts out sorted!
                 tier2sort_key[tier].append(dev['sort_key'])
-                tiers_by_depth[len(tier)].add(tier)
+                if len(tier) > max_tier_depth:
+                    max_tier_depth = len(tier)
+
+        tier2children_sets = build_tier_tree(available_devs)
+        tier2children = defaultdict(list)
+        tier2children_sort_key = {}
+        tiers_list = [()]
+        depth = 1
+        while depth <= max_tier_depth:
+            new_tiers_list = []
+            for tier in tiers_list:
+                child_tiers = list(tier2children_sets[tier])
+                child_tiers.sort(key=lambda t: tier2sort_key[t][-1])
+                tier2children[tier] = child_tiers
+                tier2children_sort_key[tier] = map(
+                    lambda t: tier2sort_key[t][-1], child_tiers)
+                new_tiers_list.extend(child_tiers)
+            tiers_list = new_tiers_list
+            depth += 1
 
         for part, replace_replicas in reassign_parts:
             # Gather up what other tiers (zones, ip_ports, and devices) the
             # replicas not-to-be-moved are in for this part.
-            other_replicas = defaultdict(lambda: 0)
+            other_replicas = defaultdict(int)
+            unique_tiers_by_tier_len = defaultdict(set)
             for replica in xrange(self.replicas):
                 if replica not in replace_replicas:
                     dev = self.devs[self._replica2part2dev[replica][part]]
                     for tier in tiers_for_dev(dev):
                         other_replicas[tier] += 1
-
-            def find_home_for_replica(tier=(), depth=1):
-                # Order the tiers by how many replicas of this
-                # partition they already have. Then, of the ones
-                # with the smallest number of replicas, pick the
-                # tier with the hungriest drive and then continue
-                # searching in that subtree.
-                #
-                # There are other strategies we could use here,
-                # such as hungriest-tier (i.e. biggest
-                # sum-of-parts-wanted) or picking one at random.
-                # However, hungriest-drive is what was used here
-                # before, and it worked pretty well in practice.
-                #
-                # Note that this allocator will balance things as
-                # evenly as possible at each level of the device
-                # layout. If your layout is extremely unbalanced,
-                # this may produce poor results.
-                candidate_tiers = tier2children[tier]
-                min_count = min(other_replicas[t] for t in candidate_tiers)
-                candidate_tiers = [t for t in candidate_tiers
-                                   if other_replicas[t] == min_count]
-                candidate_tiers.sort(
-                    key=lambda t: tier2sort_key[t][-1])
-
-                if depth == max(tiers_by_depth.keys()):
-                    return tier2devs[candidate_tiers[-1]][-1]
-
-                return find_home_for_replica(tier=candidate_tiers[-1],
-                                             depth=depth + 1)
+                        unique_tiers_by_tier_len[len(tier)].add(tier)
 
             for replica in replace_replicas:
-                dev = find_home_for_replica()
+                tier = ()
+                depth = 1
+                while depth <= max_tier_depth:
+                    # Order the tiers by how many replicas of this
+                    # partition they already have. Then, of the ones
+                    # with the smallest number of replicas, pick the
+                    # tier with the hungriest drive and then continue
+                    # searching in that subtree.
+                    #
+                    # There are other strategies we could use here,
+                    # such as hungriest-tier (i.e. biggest
+                    # sum-of-parts-wanted) or picking one at random.
+                    # However, hungriest-drive is what was used here
+                    # before, and it worked pretty well in practice.
+                    #
+                    # Note that this allocator will balance things as
+                    # evenly as possible at each level of the device
+                    # layout. If your layout is extremely unbalanced,
+                    # this may produce poor results.
+                    #
+                    # This used to be a cute, recursive function, but it's been
+                    # unrolled for performance.
+                    candidate_tiers = tier2children[tier]
+                    candidates_with_replicas = \
+                        unique_tiers_by_tier_len[len(tier) + 1]
+                    if len(candidate_tiers) > len(candidates_with_replicas):
+                        # There exists at least one tier with 0 other replicas,
+                        # so work backward among the candidates, accepting the
+                        # first which isn't in other_replicas.
+                        #
+                        # This optimization is to avoid calling the min()
+                        # below, which is expensive if you've got thousands of
+                        # drives.
+                        for t in reversed(candidate_tiers):
+                            if other_replicas[t] == 0:
+                                tier = t
+                                break
+                    else:
+                        min_count = min(other_replicas[t]
+                                        for t in candidate_tiers)
+                        tier = (t for t in reversed(candidate_tiers)
+                                if other_replicas[t] == min_count).next()
+                    depth += 1
+                dev = tier2devs[tier][-1]
                 dev['parts_wanted'] -= 1
                 dev['parts'] += 1
                 old_sort_key = dev['sort_key']
                 new_sort_key = dev['sort_key'] = self._sort_key_for(dev)
                 for tier in tiers_for_dev(dev):
                     other_replicas[tier] += 1
+                    unique_tiers_by_tier_len[len(tier)].add(tier)
 
                     index = bisect.bisect_left(tier2sort_key[tier],
                                                old_sort_key)
@@ -710,6 +742,22 @@ class RingBuilder(object):
                                                    new_sort_key)
                     tier2devs[tier].insert(new_index, dev)
                     tier2sort_key[tier].insert(new_index, new_sort_key)
+
+                    # Now jiggle tier2children values to keep them sorted
+                    new_last_sort_key = tier2sort_key[tier][-1]
+                    parent_tier = tier[0:-1]
+                    index = bisect.bisect_left(
+                        tier2children_sort_key[parent_tier],
+                        old_sort_key)
+                    popped = tier2children[parent_tier].pop(index)
+                    tier2children_sort_key[parent_tier].pop(index)
+
+                    new_index = bisect.bisect_left(
+                        tier2children_sort_key[parent_tier],
+                        new_last_sort_key)
+                    tier2children[parent_tier].insert(new_index, popped)
+                    tier2children_sort_key[parent_tier].insert(
+                        new_index, new_last_sort_key)
 
                 self._replica2part2dev[replica][part] = dev['id']
 
