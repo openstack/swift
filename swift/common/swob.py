@@ -1008,6 +1008,8 @@ class Response(object):
         return self.host_url + self.location
 
     def __call__(self, env, start_response):
+        if not self.request:
+            self.request = Request(env)
         self.environ = env
         app_iter = self._response_iter(self.app_iter, self._body)
         if 'location' in self.headers:
