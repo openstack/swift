@@ -728,22 +728,28 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
-        if '?' in path:
-            path_info, query_string = path.split('?')
-        else:
-            path_info = path
-            query_string = ''
+        parsed_path = urlparse.urlparse(path)
+        server_name = 'localhost'
+        if parsed_path.netloc:
+            server_name = parsed_path.netloc.split(':', 1)[0]
+
+        server_port = parsed_path.port
+        if server_port is None:
+            server_port = {'http': 80,
+                           'https': 443}.get(parsed_path.scheme, 80)
+        if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
+            raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
-            'QUERY_STRING': query_string,
-            'PATH_INFO': urllib2.unquote(path_info),
-            'SERVER_NAME': 'localhost',
-            'SERVER_PORT': '80',
-            'HTTP_HOST': 'localhost:80',
+            'QUERY_STRING': parsed_path.query,
+            'PATH_INFO': urllib2.unquote(parsed_path.path),
+            'SERVER_NAME': server_name,
+            'SERVER_PORT': str(server_port),
+            'HTTP_HOST': '%s:%d' % (server_name, server_port),
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'wsgi.version': (1, 0),
-            'wsgi.url_scheme': 'http',
+            'wsgi.url_scheme': parsed_path.scheme or 'http',
             'wsgi.errors': StringIO(''),
             'wsgi.multithread': False,
             'wsgi.multiprocess': False

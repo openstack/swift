@@ -287,6 +287,24 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
 
+    def test_blank_parsing(self):
+        req = swift.common.swob.Request.blank('http://test.com/')
+        self.assertEquals(req.environ['wsgi.url_scheme'], 'http')
+        self.assertEquals(req.environ['SERVER_PORT'], '80')
+        self.assertEquals(req.environ['SERVER_NAME'], 'test.com')
+
+        req = swift.common.swob.Request.blank('https://test.com:456/')
+        self.assertEquals(req.environ['wsgi.url_scheme'], 'https')
+        self.assertEquals(req.environ['SERVER_PORT'], '456')
+
+        req = swift.common.swob.Request.blank('test.com/')
+        self.assertEquals(req.environ['wsgi.url_scheme'], 'http')
+        self.assertEquals(req.environ['SERVER_PORT'], '80')
+        self.assertEquals(req.environ['PATH_INFO'], 'test.com/')
+
+        self.assertRaises(TypeError, swift.common.swob.Request.blank,
+                          'ftp://test.com/')
+
     def test_params(self):
         req = swift.common.swob.Request.blank('/?a=b&c=d')
         self.assertEquals(req.params['a'], 'b')
