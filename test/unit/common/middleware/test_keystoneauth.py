@@ -49,7 +49,7 @@ class SwiftAuth(unittest.TestCase):
         return Request.blank(path, headers=headers, **kwargs)
 
     def _get_identity_headers(self, status='Confirmed', tenant_id='1',
-                          tenant_name='acct', user='usr', role=''):
+                              tenant_name='acct', user='usr', role=''):
         return dict(X_IDENTITY_STATUS=status,
                     X_TENANT_ID=tenant_id,
                     X_TENANT_NAME=tenant_name,
@@ -112,6 +112,21 @@ class SwiftAuth(unittest.TestCase):
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 404)
+
+    def test_anonymous_options_allowed(self):
+        req = self._make_request('/v1/AUTH_account',
+                                 environ={'REQUEST_METHOD': 'OPTIONS'})
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertEqual(resp.status_int, 200)
+
+    def test_identified_options_allowed(self):
+        headers = self._get_identity_headers()
+        headers['REQUEST_METHOD'] = 'OPTIONS'
+        req = self._make_request('/v1/AUTH_account',
+                                 headers=self._get_identity_headers(),
+                                 environ={'REQUEST_METHOD': 'OPTIONS'})
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertEqual(resp.status_int, 200)
 
 
 class TestAuthorize(unittest.TestCase):
