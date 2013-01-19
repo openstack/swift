@@ -462,13 +462,14 @@ servers when sending statistics to a central StatsD server.  If you run a local
 StatsD server per node, you could configure a per-node metrics prefix there and
 leave `log_statsd_metric_prefix` blank.
 
-Note that metrics reported to StatsD are counters or timing data (which
-StatsD usually expands out to min, max, avg, count, and 90th percentile
-per timing metric).  Some important "gauge" metrics will still need to
-be collected using another method.  For example, the
-`object-server.async_pendings` StatsD metric counts the generation of
-async_pendings in real-time, but will not tell you the current number
-of async_pending container updates on disk at any point in time.
+Note that metrics reported to StatsD are counters or timing data (which are
+sent in units of milliseconds).  StatsD usually expands timing data out to min,
+max, avg, count, and 90th percentile per timing metric, but the details of
+this behavior will depend on the configuration of your StatsD server.  Some
+important "gauge" metrics may still need to be collected using another method.
+For example, the `object-server.async_pendings` StatsD metric counts the generation
+of async_pendings in real-time, but will not tell you the current number of
+async_pending container updates on disk at any point in time.
 
 Note also that the set of metrics collected, their names, and their semantics
 are not locked down and will change over time.  StatsD logging is currently in
@@ -494,7 +495,7 @@ Metric Name                                     Description
 `account-reaper.errors`                         Count of devices failing the mount check.
 `account-reaper.timing`                         Timing data for each reap_account() call.
 `account-reaper.return_codes.X`                 Count of HTTP return codes from various operations
-                                                (eg. object listing, container deletion, etc.). The
+                                                (e.g. object listing, container deletion, etc.). The
                                                 value for X is the first digit of the return code
                                                 (2 for 201, 4 for 404, etc.).
 `account-reaper.containers_failures`            Count of failures to delete a container.
@@ -840,17 +841,23 @@ the default setting yields the above behavior.
 
 .. _Swift Origin Server: https://github.com/dpgoetz/sos
 
-============================================  ====================================================
-Metric Name                                   Description
---------------------------------------------  ----------------------------------------------------
-`proxy-server.<type>.<verb>.<status>.timing`  Timing data for requests.  The <status> portion is
-                                              the numeric HTTP status code for the request (eg.
-                                              "200" or "404")
-`proxy-server.<type>.<verb>.<status>.xfer`    The count of the sum of bytes transferred in (from
-                                              clients) and out (to clients) for requests.  The
-                                              <type>, <verb>, and <status> portions of the metric
-                                              are just like the timing metric.
-============================================  ====================================================
+====================================================  ============================================
+Metric Name                                           Description
+----------------------------------------------------  --------------------------------------------
+`proxy-server.<type>.<verb>.<status>.timing`          Timing data for requests, start to finish.
+                                                      The <status> portion is the numeric HTTP
+                                                      status code for the request (e.g.  "200" or
+                                                      "404").
+`proxy-server.<type>.GET.<status>.first-byte.timing`  Timing data up to completion of sending the
+                                                      response headers (only for GET requests).
+                                                      <status> and <type> are as for the main
+                                                      timing metric.
+`proxy-server.<type>.<verb>.<status>.xfer`            This counter metric is the sum of bytes
+                                                      transferred in (from clients) and out (to
+                                                      clients) for requests.  The <type>, <verb>,
+                                                      and <status> portions of the metric are just
+                                                      like the main timing metric.
+====================================================  ============================================
 
 Metrics for `tempauth` middleware (in the table, `<reseller_prefix>` represents
 the actual configured reseller_prefix or "`NONE`" if the reseller_prefix is the
