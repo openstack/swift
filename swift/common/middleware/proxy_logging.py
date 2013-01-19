@@ -68,6 +68,7 @@ class ProxyLoggingMiddleware(object):
         for key in ('log_facility', 'log_name', 'log_level', 'log_udp_host',
                     'log_udp_port', 'log_statsd_host', 'log_statsd_port',
                     'log_statsd_default_sample_rate',
+                    'log_statsd_sample_rate_factor',
                     'log_statsd_metric_prefix'):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
