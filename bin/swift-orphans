@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 
+from swift.common.manager import RUN_DIR
 
 if __name__ == '__main__':
     parser = optparse.OptionParser(usage='''%prog [options]
@@ -28,10 +29,15 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
     parser.add_option('-w', '--wide', dest='wide', default=False,
                       action='store_true',
                       help="don't clip the listing at 80 characters")
+    parser.add_option('-r', '--run-dir', type="str",
+                      dest="run_dir", default=RUN_DIR,
+                      help="alternative directory to store running pid files "
+                      "default: %s" % RUN_DIR)
     (options, args) = parser.parse_args()
 
     pids = []
-    for root, directories, files in os.walk('/var/run/swift'):
+
+    for root, directories, files in os.walk(options.run_dir):
         for name in files:
             if name.endswith('.pid'):
                 pids.append(open(os.path.join(root, name)).read().strip())

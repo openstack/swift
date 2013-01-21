@@ -17,8 +17,8 @@
 import sys
 from optparse import OptionParser
 
-from swift.common.manager import Server, Manager, UnknownCommandError, \
-    KILL_WAIT
+from swift.common.manager import Manager, UnknownCommandError, \
+    KILL_WAIT, RUN_DIR
 
 USAGE = """%prog <server> [<server> ...] <command> [options]
 
@@ -46,6 +46,11 @@ def main():
     parser.add_option('-k', '--kill-wait', metavar="N", type="int",
                       dest="kill_wait", default=KILL_WAIT,
                       help="wait N seconds for processes to die (default 15)")
+    parser.add_option('-r', '--run-dir', type="str",
+                      dest="run_dir", default=RUN_DIR,
+                      help="alternative directory to store running pid files "
+                      "default: %s" % RUN_DIR)
+
     options, args = parser.parse_args()
 
     if len(args) < 2:
@@ -62,7 +67,7 @@ def main():
         servers.append(command)
         command = servers.pop(0)
 
-    manager = Manager(servers)
+    manager = Manager(servers, run_dir=options.run_dir)
     try:
         status = manager.run_command(command, **options.__dict__)
     except UnknownCommandError:
