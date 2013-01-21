@@ -293,9 +293,13 @@ class DistributedBenchController(object):
             'INFO (\d+) (.*) \*\*FINAL\*\* \[(\d+) failures\], (\d+\.\d+)/s')
         self.clients = conf.bench_clients
         del conf.bench_clients
-        for k in ['put_concurrency', 'get_concurrency', 'del_concurrency',
-                  'num_objects', 'num_gets']:
-            setattr(conf, k, max(1, int(getattr(conf, k)) / len(self.clients)))
+        for key, minval in [('put_concurrency', 1),
+                            ('get_concurrency', 1),
+                            ('del_concurrency', 1),
+                            ('num_objects', 0),
+                            ('num_gets', 0)]:
+            setattr(conf, key,
+                    max(minval, int(getattr(conf, key)) / len(self.clients)))
         self.conf = conf
 
     def run(self):
