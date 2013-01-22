@@ -77,7 +77,10 @@ class TempAuth(object):
         self.logger.set_statsd_prefix('tempauth.%s' % (
             self.reseller_prefix if self.reseller_prefix else 'NONE',))
         self.auth_prefix = conf.get('auth_prefix', '/auth/')
-        if not self.auth_prefix:
+        if not self.auth_prefix or not self.auth_prefix.strip('/'):
+            self.logger.warning('Rewriting invalid auth prefix "%s" to '
+                                '"/auth/" (Non-empty auth prefix path '
+                                'is required)' % self.auth_prefix)
             self.auth_prefix = '/auth/'
         if self.auth_prefix[0] != '/':
             self.auth_prefix = '/' + self.auth_prefix
