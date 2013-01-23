@@ -335,7 +335,7 @@ class RingBuilder(object):
         :raises RingValidationError: problem was found with the ring.
         """
 
-        # "len" showed up in profling, so it's just computed once.
+        # "len" showed up in profiling, so it's just computed once.
         dev_len = len(self.devs)
         if sum(d['parts'] for d in self._iter_devs()) != \
                 self.parts * self.replicas:
@@ -359,6 +359,12 @@ class RingBuilder(object):
                         "Partition %d, replica %d was not allocated "
                         "to a device." %
                         (part, replica))
+
+        for dev in self._iter_devs():
+            if not isinstance(dev['port'], int):
+                raise exceptions.RingValidationError(
+                    "Device %d has port %r, which is not an integer." %
+                    (dev['id'], dev['port']))
 
         if stats:
             weight_of_one_part = self.weight_of_one_part()

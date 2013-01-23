@@ -615,6 +615,11 @@ class TestRingBuilder(unittest.TestCase):
         self.assertRaises(exceptions.RingValidationError, rb.validate)
         rb.devs[1]['parts'] += 1
 
+        # Test non-numeric port
+        rb.devs[1]['port'] = '10001'
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
+        rb.devs[1]['port'] = 10001
+
         # Test partition on nonexistent device
         rb.pretend_min_part_hours_passed()
         orig_dev_id = rb._replica2part2dev[0][0]
