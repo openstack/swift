@@ -52,7 +52,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers.obj import SegmentedIterable
 from swift.proxy.controllers.base import get_container_memcache_key, \
-    get_account_memcache_key
+    get_account_memcache_key, cors_validation
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPNotFound, \
     HTTPUnauthorized
@@ -182,6 +182,17 @@ def teardown():
     Request.__init__ = Request._orig_init
     if Request._orig_del:
         Request.__del__ = Request._orig_del
+
+
+def sortHeaderNames(headerNames):
+    """
+    Return the given string of header names sorted.
+
+    headerName: a comma-delimited list of header names
+    """
+    headers = [a.strip() for a in headerNames.split(',') if a.strip()]
+    headers.sort()
+    return ', '.join(headers)
 
 
 def fake_http_connect(*code_iter, **kwargs):
@@ -3690,8 +3701,8 @@ class TestObjectController(unittest.TestCase):
                 7)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
-                'x-foo',
-                resp.headers['access-control-allow-headers'])
+                'x-auth-token, x-foo',
+                sortHeaderNames(resp.headers['access-control-allow-headers']))
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -3750,8 +3761,73 @@ class TestObjectController(unittest.TestCase):
                 7)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
-                'x-foo',
-                resp.headers['access-control-allow-headers'])
+                'x-auth-token, x-foo',
+                sortHeaderNames(resp.headers['access-control-allow-headers']))
+
+    def test_CORS_invalid_origin(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+
+            def stubContainerInfo(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://baz'
+                    }
+                }
+            controller.container_info = stubContainerInfo
+
+            def objectGET(controller, req):
+                return Response()
+
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEquals(401, resp.status_int)
+
+    def test_CORS_valid(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+
+            def stubContainerInfo(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://foo.bar'
+                    }
+                }
+            controller.container_info = stubContainerInfo
+
+            def objectGET(controller, req):
+                return Response(headers={
+                    'X-Object-Meta-Color': 'red',
+                    'X-Super-Secret': 'hush',
+                })
+
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals('http://foo.bar',
+                              resp.headers['access-control-allow-origin'])
+            self.assertEquals('red', resp.headers['x-object-meta-color'])
+            # X-Super-Secret is in the response, but not "exposed"
+            self.assertEquals('hush', resp.headers['x-super-secret'])
+            self.assertTrue('access-control-expose-headers' in resp.headers)
+            exposed = set(
+                h.strip() for h in
+                resp.headers['access-control-expose-headers'].split(','))
+            expected_exposed = set(['cache-control', 'content-language',
+                                    'content-type', 'expires', 'last-modified',
+                                    'pragma', 'etag', 'x-timestamp',
+                                    'x-trans-id', 'x-object-meta-color'])
+            self.assertEquals(expected_exposed, exposed)
 
 
 class TestContainerController(unittest.TestCase):
@@ -4296,8 +4372,8 @@ class TestContainerController(unittest.TestCase):
                 6)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
-                'x-foo',
-                resp.headers['access-control-allow-headers'])
+                'x-auth-token, x-foo',
+                sortHeaderNames(resp.headers['access-control-allow-headers']))
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -4357,8 +4433,73 @@ class TestContainerController(unittest.TestCase):
                 6)
             self.assertEquals('999', resp.headers['access-control-max-age'])
             self.assertEquals(
-                'x-foo',
-                resp.headers['access-control-allow-headers'])
+                'x-auth-token, x-foo',
+                sortHeaderNames(resp.headers['access-control-allow-headers']))
+
+    def test_CORS_invalid_origin(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+            def stubContainerInfo(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://baz'
+                    }
+                }
+            controller.container_info = stubContainerInfo
+
+            def containerGET(controller, req):
+                return Response()
+
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(containerGET)(controller, req)
+
+            self.assertEquals(401, resp.status_int)
+
+    def test_CORS_valid(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+            def stubContainerInfo(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://foo.bar'
+                    }
+                }
+            controller.container_info = stubContainerInfo
+
+            def containerGET(controller, req):
+                return Response(headers={
+                    'X-Container-Meta-Color': 'red',
+                    'X-Super-Secret': 'hush',
+                })
+
+            req = Request.blank(
+                '/a/c',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(containerGET)(controller, req)
+
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals('http://foo.bar',
+                              resp.headers['access-control-allow-origin'])
+            self.assertEquals('red', resp.headers['x-container-meta-color'])
+            # X-Super-Secret is in the response, but not "exposed"
+            self.assertEquals('hush', resp.headers['x-super-secret'])
+            self.assertTrue('access-control-expose-headers' in resp.headers)
+            exposed = set(
+                h.strip() for h in
+                resp.headers['access-control-expose-headers'].split(','))
+            expected_exposed = set(['cache-control', 'content-language',
+                                    'content-type', 'expires', 'last-modified',
+                                    'pragma', 'etag', 'x-timestamp',
+                                    'x-trans-id', 'x-container-meta-color'])
+            self.assertEquals(expected_exposed, exposed)
 
 
 class TestAccountController(unittest.TestCase):
@@ -4394,6 +4535,22 @@ class TestAccountController(unittest.TestCase):
                 self.assertTrue(
                     verb in resp.headers['Allow'])
             self.assertEquals(len(resp.headers['Allow'].split(', ')), 4)
+
+            # Test a CORS OPTIONS request (i.e. including Origin and
+            # Access-Control-Request-Method headers)
+            self.app.allow_account_management = False
+            controller = proxy_server.AccountController(self.app, 'account')
+            req = Request.blank('/account', {'REQUEST_METHOD': 'OPTIONS'},
+                headers = {'Origin': 'http://foo.com',
+                                     'Access-Control-Request-Method': 'GET'})
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
+            for verb in 'OPTIONS GET POST HEAD'.split():
+                self.assertTrue(
+                    verb in resp.headers['Allow'])
+            self.assertEquals(len(resp.headers['Allow'].split(', ')), 4)
+
             self.app.allow_account_management = True
             controller = proxy_server.AccountController(self.app, 'account')
             req = Request.blank('/account', {'REQUEST_METHOD': 'OPTIONS'})

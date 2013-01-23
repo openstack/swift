@@ -49,7 +49,8 @@ from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
     HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE
-from swift.proxy.controllers.base import Controller, delay_denial
+from swift.proxy.controllers.base import Controller, delay_denial, \
+    cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
@@ -405,18 +406,21 @@ class ObjectController(Controller):
         return resp
 
     @public
+    @cors_validation
     @delay_denial
     def GET(self, req):
         """Handler for HTTP GET requests."""
         return self.GETorHEAD(req)
 
     @public
+    @cors_validation
     @delay_denial
     def HEAD(self, req):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
     @public
+    @cors_validation
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
@@ -541,6 +545,7 @@ class ObjectController(Controller):
                                         _('Expect: 100-continue on %s') % path)
 
     @public
+    @cors_validation
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
@@ -838,6 +843,7 @@ class ObjectController(Controller):
         return resp
 
     @public
+    @cors_validation
     @delay_denial
     def DELETE(self, req):
         """HTTP DELETE request handler."""
@@ -936,6 +942,7 @@ class ObjectController(Controller):
         return resp
 
     @public
+    @cors_validation
     @delay_denial
     def COPY(self, req):
         """HTTP COPY request handler."""
