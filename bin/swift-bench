@@ -94,7 +94,15 @@ if __name__ == '__main__':
     parser.add_option('-u', '--url', dest='url',
                       help='Storage URL')
     parser.add_option('-c', '--concurrency', dest='concurrency',
-                      help='Number of concurrent connections to use')
+                      help=('Number of concurrent connections to use. For '
+                            'finer-grained control, see --get-concurrency, '
+                            '--put-concurrency, and --delete-concurrency.'))
+    parser.add_option('--get-concurrency', dest='get_concurrency',
+                      help='Number of concurrent GET requests')
+    parser.add_option('--put-concurrency', dest='put_concurrency',
+                      help='Number of concurrent PUT requests')
+    parser.add_option('--delete-concurrency', dest='delete_concurrency',
+                      help='Number of concurrent DELETE requests')
     parser.add_option('-s', '--object-size', dest='object_size',
                       help='Size of objects to PUT (in bytes)')
     parser.add_option('-l', '--lower-object-size', dest='lower_object_size',
@@ -104,6 +112,8 @@ if __name__ == '__main__':
                       help='Number of objects to PUT')
     parser.add_option('-g', '--num-gets', dest='num_gets',
                       help='Number of GET operations to perform')
+    parser.add_option('-C', '--num-containers', dest='num_containers',
+                      help='Number of containers to distribute objects among')
     parser.add_option('-x', '--no-delete', dest='delete', action='store_false',
                       help='If set, will not delete the objects created')
     parser.add_option('-V', '--auth_version', dest='auth_version',
