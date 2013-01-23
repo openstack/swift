@@ -58,6 +58,11 @@ class TestCNAMELookup(unittest.TestCase):
                             headers={'Host': 'foo.example.com:8080'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'SERVER_NAME': 'foo.example.com'},
+                            headers={'Host': None})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, 'FAKE APP')
 
     def test_good_lookup(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -71,6 +76,11 @@ class TestCNAMELookup(unittest.TestCase):
         self.assertEquals(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com:8080'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, 'FAKE APP')
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'SERVER_NAME': 'mysite.com'},
+                            headers={'Host': None})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
 
