@@ -26,7 +26,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, public, \
-    normalize_timestamp, split_path, storage_directory, config_true_value, \
+    normalize_timestamp, storage_directory, config_true_value, \
     validate_device_partition, json, timing_stats
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
@@ -67,7 +67,7 @@ class AccountController(object):
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         try:
-            drive, part, account = split_path(unquote(req.path), 3)
+            drive, part, account = req.split_path(3)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
@@ -89,8 +89,7 @@ class AccountController(object):
     def PUT(self, req):
         """Handle HTTP PUT request."""
         try:
-            drive, part, account, container = split_path(unquote(req.path),
-                                                         3, 4)
+            drive, part, account, container = req.split_path(3, 4)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
@@ -151,8 +150,7 @@ class AccountController(object):
         # refactor out the container existence check here and retest
         # everything.
         try:
-            drive, part, account, container = split_path(unquote(req.path),
-                                                         3, 4)
+            drive, part, account, container = req.split_path(3, 4)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
@@ -193,7 +191,7 @@ class AccountController(object):
     def GET(self, req):
         """Handle HTTP GET request."""
         try:
-            drive, part, account = split_path(unquote(req.path), 3)
+            drive, part, account = req.split_path(3)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
@@ -284,7 +282,7 @@ class AccountController(object):
         Handler for RPC calls for account replication.
         """
         try:
-            post_args = split_path(unquote(req.path), 3)
+            post_args = req.split_path(3)
             drive, partition, hash = post_args
             validate_device_partition(drive, partition)
         except ValueError, err:
@@ -305,7 +303,7 @@ class AccountController(object):
     def POST(self, req):
         """Handle HTTP POST request."""
         try:
-            drive, part, account = split_path(unquote(req.path), 3)
+            drive, part, account = req.split_path(3)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',

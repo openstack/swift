@@ -241,7 +241,7 @@ class TempAuth(object):
         """
 
         try:
-            version, account, container, obj = split_path(req.path, 1, 4, True)
+            version, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
@@ -338,11 +338,7 @@ class TempAuth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _junk = split_path(
-                req.path_info,
-                minsegs=1,
-                maxsegs=4,
-                rest_with_last=True)
+            version, account, user, _junk = req.split_path(1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
@@ -382,8 +378,7 @@ class TempAuth(object):
         """
         # Validate the request info
         try:
-            pathsegs = split_path(req.path_info, minsegs=1, maxsegs=3,
-                                  rest_with_last=True)
+            pathsegs = split_path(req.path_info, 1, 3, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)

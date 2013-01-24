@@ -170,7 +170,7 @@ class KeystoneAuth(object):
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
         try:
-            part = swift_utils.split_path(req.path, 1, 4, True)
+            part = req.split_path(1, 4, True)
             version, account, container, obj = part
         except ValueError:
             return HTTPNotFound(request=req)
@@ -239,7 +239,7 @@ class KeystoneAuth(object):
         :returns: None if authorization is granted, an error page otherwise.
         """
         try:
-            part = swift_utils.split_path(req.path, 1, 4, True)
+            part = req.split_path(1, 4, True)
             version, account, container, obj = part
         except ValueError:
             return HTTPNotFound(request=req)
