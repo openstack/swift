@@ -1531,6 +1531,18 @@ def list_from_csv(comma_separated_str):
     return []
 
 
+def csv_append(csv_string, item):
+    """
+    Appends an item to a comma-separated string.
+
+    If the comma-separated string is empty/None, just returns item.
+    """
+    if csv_string:
+        return ",".join((csv_string, item))
+    else:
+        return item
+
+
 def reiterate(iterable):
     """
     Consume the first item from an iterator, then re-chain it to the rest of
