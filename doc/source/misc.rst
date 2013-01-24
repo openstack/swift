@@ -172,3 +172,10 @@ Proxy Logging
     :members:
     :show-inheritance:
 
+Bulk Operations (Delete and Archive Auto Extraction)
+====================================================
+
+.. automodule:: swift.common.middleware.bulk
+    :members:
+    :show-inheritance:
+

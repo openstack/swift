@@ -99,8 +99,9 @@ setup(
             'tempurl=swift.common.middleware.tempurl:filter_factory',
             'formpost=swift.common.middleware.formpost:filter_factory',
             'name_check=swift.common.middleware.name_check:filter_factory',
-            'proxy_logging=swift.common.middleware.proxy_logging:'
-            'filter_factory',
+            'proxy_logging='
+            'swift.common.middleware.proxy_logging:filter_factory',
+            'bulk=swift.common.middleware.bulk:filter_factory',
         ],
     },
 )

@@ -168,12 +168,15 @@ class RateLimitMiddleware(object):
     def handle_ratelimit(self, req, account_name, container_name, obj_name):
         '''
         Performs rate limiting and account white/black listing.  Sleeps
-        if necessary.
+        if necessary. If self.memcache_client is not set, immediately returns
+        None.
 
         :param account_name: account name from path
         :param container_name: container name from path
         :param obj_name: object name from path
         '''
+        if not self.memcache_client:
+            return None
         if account_name in self.ratelimit_blacklist:
             self.logger.error(_('Returning 497 because of blacklisting: %s'),
                               account_name)

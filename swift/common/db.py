@@ -1061,7 +1061,7 @@ class ContainerBroker(DatabaseBroker):
         :param marker: marker query
         :param end_marker: end marker query
         :param prefix: prefix query
-        :param delimeter: delimeter for query
+        :param delimiter: delimiter for query
         :param path: if defined, will set the prefix and delimter based on
                      the path
 

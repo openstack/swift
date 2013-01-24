@@ -1024,13 +1024,34 @@ class Response(object):
         return app_iter
 
 
+class HTTPException(Response, Exception):
+
+    def __init__(self, *args, **kwargs):
+        Response.__init__(self, *args, **kwargs)
+        Exception.__init__(self, self.status)
+
+
+def catch_http_exception(func):
+    """
+    A decorator function to wrap a __call__ function.  If an HTTPException
+    is raised it will be appropriately returned as the response.
+    """
+
+    def catch_exception_func(self, env, start_response):
+        try:
+            return func(self, env, start_response)
+        except HTTPException, err_resp:
+            return err_resp(env, start_response)
+    return catch_exception_func
+
+
 class StatusMap(object):
     """
-    A dict-like object that returns Response subclasses/factory functions
+    A dict-like object that returns HTTPException subclasses/factory functions
     where the given key is the status code.
     """
     def __getitem__(self, key):
-        return partial(Response, status=key)
+        return partial(HTTPException, status=key)
 status_map = StatusMap()
 
 
@@ -1057,5 +1078,6 @@ HTTPUnprocessableEntity = status_map[422]
 HTTPClientDisconnect = status_map[499]
 HTTPServerError = status_map[500]
 HTTPInternalServerError = status_map[500]
+HTTPBadGateway = status_map[502]
 HTTPServiceUnavailable = status_map[503]
 HTTPInsufficientStorage = status_map[507]
