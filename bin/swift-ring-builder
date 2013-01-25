@@ -19,14 +19,14 @@ from array import array
 from errno import EEXIST
 from itertools import islice, izip
 from os import mkdir
-from os.path import basename, dirname, exists, join as pathjoin
+from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv, exit
 from textwrap import wrap
 from time import time
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder
-
+from swift.common.utils import lock_parent_directory
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -625,4 +625,12 @@ if __name__ == '__main__':
         command = "default"
     else:
         command = argv[2]
-    Commands.__dict__.get(command, Commands.unknown)()
+    if argv[0].endswith('-safe'):
+        try:
+            with lock_parent_directory(abspath(argv[1]), 15):
+                Commands.__dict__.get(command, Commands.unknown)()
+        except exceptions.LockTimeout:
+            print "Ring/builder dir currently locked."
+            exit(2)
+    else:
+        Commands.__dict__.get(command, Commands.unknown)()

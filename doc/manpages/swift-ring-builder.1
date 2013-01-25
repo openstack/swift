@@ -48,6 +48,14 @@ partitions will end up assigned to different devices, and therefore nearly all
 data stored will have to be replicated to new locations. So, recovery from a
 builder file loss is possible, but data will definitely be unreachable for an
 extended time.
+.PP
+If invoked as 'swift-ring-builder-safe' the directory containing the builder
+file provided will be locked (via a .lock file in the files parent directory).
+This provides a basic safe guard against multiple instances of the swift-ring-builder
+(or other utilities that observe this lock) from attempting to write to or read
+the builder/ring files while operations are in progress. This can be useful in
+environments where ring management has been automated but the operator still
+needs to interact with the rings manually.
 
 
 .SH SEARCH

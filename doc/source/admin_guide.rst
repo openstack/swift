@@ -53,6 +53,14 @@ Once you are done with all changes to the ring, the changes need to be
 Once the new rings are built, they should be pushed out to all the servers
 in the cluster.
 
+Optionally, if invoked as 'swift-ring-builder-safe' the directory containing
+the specified builder file will be locked (via a .lock file in the parent
+directory). This provides a basic safe guard against multiple instances
+of the swift-ring-builder (or other utilities that observe this lock) from
+attempting to write to or read the builder/ring files while operations are in
+progress. This can be useful in environments where ring management has been
+automated but the operator still needs to interact with the rings manually.
+
 -----------------------
 Scripting Ring Creation
 -----------------------
