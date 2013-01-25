@@ -33,6 +33,9 @@
 # on to preallocate disk space with SQLite databases to decrease fragmentation.
 # db_preallocation = off
 # eventlet_debug = false
+# You can set fallocate_reserve to the number of bytes you'd like fallocate to
+# reserve, whether there is space for the given file size or not.
+# fallocate_reserve = 0
 
 [pipeline:main]
 pipeline = healthcheck recon container-server

@@ -70,6 +70,10 @@ _sys_fsync = None
 _sys_fallocate = None
 _posix_fadvise = None
 
+# If set to non-zero, fallocate routines will fail based on free space
+# available being at or below this amount, in bytes.
+FALLOCATE_RESERVE = 0
+
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
@@ -156,10 +160,17 @@ class FallocateWrapper(object):
             logging.warn(_("Unable to locate fallocate, posix_fallocate in "
                          "libc.  Leaving as a no-op."))
 
-    def __call__(self, fd, mode, offset, len):
+    def __call__(self, fd, mode, offset, length):
+        """ The length parameter must be a ctypes.c_uint64 """
+        if FALLOCATE_RESERVE > 0:
+            st = os.fstatvfs(fd)
+            free = st.f_frsize * st.f_bavail - length.value
+            if free <= FALLOCATE_RESERVE:
+                raise OSError('FALLOCATE_RESERVE fail %s <= %s' % (
+                    free, FALLOCATE_RESERVE))
         args = {
-            'fallocate': (fd, mode, offset, len),
-            'posix_fallocate': (fd, offset, len)
+            'fallocate': (fd, mode, offset, length),
+            'posix_fallocate': (fd, offset, length)
         }
         return self.fallocate(*args[self.func_name])
 
@@ -179,13 +190,14 @@ def fallocate(fd, size):
     global _sys_fallocate
     if _sys_fallocate is None:
         _sys_fallocate = FallocateWrapper()
-    if size > 0:
-        # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
-        ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
-        err = ctypes.get_errno()
-        if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP,
-                               errno.EINVAL):
-            raise OSError(err, 'Unable to fallocate(%s)' % size)
+    if size < 0:
+        size = 0
+    # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
+    ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
+    err = ctypes.get_errno()
+    if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP,
+                           errno.EINVAL):
+        raise OSError(err, 'Unable to fallocate(%s)' % size)
 
 
 class FsyncWrapper(object):

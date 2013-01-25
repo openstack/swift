@@ -237,6 +237,13 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
+fallocate_reserve    0           You can set fallocate_reserve to the number of
+                                 bytes you'd like fallocate to reserve, whether
+                                 there is space for the given file size or not.
+                                 This is useful for systems that behave badly
+                                 when they completely run out of space; you can
+                                 make the services pretend they're out of space
+                                 early.
 ===================  ==========  =============================================
 
 [object-server]
@@ -348,6 +355,13 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
+fallocate_reserve    0           You can set fallocate_reserve to the number of
+                                 bytes you'd like fallocate to reserve, whether
+                                 there is space for the given file size or not.
+                                 This is useful for systems that behave badly
+                                 when they completely run out of space; you can
+                                 make the services pretend they're out of space
+                                 early.
 ===================  ==========  ============================================
 
 [container-server]
@@ -452,6 +466,13 @@ disable_fallocate    false       Disable "fast fail" fallocate checks if the
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
+fallocate_reserve    0           You can set fallocate_reserve to the number of
+                                 bytes you'd like fallocate to reserve, whether
+                                 there is space for the given file size or not.
+                                 This is useful for systems that behave badly
+                                 when they completely run out of space; you can
+                                 make the services pretend they're out of space
+                                 early.
 ===================  ==========  =============================================
 
 [account-server]

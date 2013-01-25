@@ -28,6 +28,9 @@
 # log_statsd_default_sample_rate = 1
 # log_statsd_metric_prefix =
 # eventlet_debug = false
+# You can set fallocate_reserve to the number of bytes you'd like fallocate to
+# reserve, whether there is space for the given file size or not.
+# fallocate_reserve = 0
 
 [pipeline:main]
 pipeline = healthcheck recon object-server

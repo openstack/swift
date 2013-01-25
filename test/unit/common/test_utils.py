@@ -17,6 +17,7 @@
 
 from __future__ import with_statement
 from test.unit import temptree
+import ctypes
 import errno
 import logging
 import mimetools
@@ -932,6 +933,146 @@ log_name = %(yarr)s'''
     def test_rsync_ip_ipv6_ipv4_compatible(self):
         self.assertEqual(
             utils.rsync_ip('::ffff:192.0.2.128'), '[::ffff:192.0.2.128]')
+
+    def test_fallocate_reserve(self):
+
+        class StatVFS(object):
+            f_frsize = 1024
+            f_bavail = 1
+
+        def fstatvfs(fd):
+            return StatVFS()
+
+        orig_FALLOCATE_RESERVE = utils.FALLOCATE_RESERVE
+        orig_fstatvfs = utils.os.fstatvfs
+        try:
+            fallocate = utils.FallocateWrapper(noop=True)
+            utils.os.fstatvfs = fstatvfs
+            # Want 1023 reserved, have 1024 * 1 free, so succeeds
+            utils.FALLOCATE_RESERVE = 1023
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            self.assertEquals(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
+            # Want 1023 reserved, have 512 * 2 free, so succeeds
+            utils.FALLOCATE_RESERVE = 1023
+            StatVFS.f_frsize = 512
+            StatVFS.f_bavail = 2
+            self.assertEquals(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
+            # Want 1024 reserved, have 1024 * 1 free, so fails
+            utils.FALLOCATE_RESERVE = 1024
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(0))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            # Want 1024 reserved, have 512 * 2 free, so fails
+            utils.FALLOCATE_RESERVE = 1024
+            StatVFS.f_frsize = 512
+            StatVFS.f_bavail = 2
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(0))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            # Want 2048 reserved, have 1024 * 1 free, so fails
+            utils.FALLOCATE_RESERVE = 2048
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(0))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            # Want 2048 reserved, have 512 * 2 free, so fails
+            utils.FALLOCATE_RESERVE = 2048
+            StatVFS.f_frsize = 512
+            StatVFS.f_bavail = 2
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(0))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
+            # fails
+            utils.FALLOCATE_RESERVE = 1023
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(1))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1023 <= 1023')
+            # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
+            # succeeds
+            utils.FALLOCATE_RESERVE = 1022
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            self.assertEquals(fallocate(0, 1, 0, ctypes.c_uint64(1)), 0)
+            # Want 1023 reserved, have 1024 * 1 free, and file size is 0, so
+            # succeeds
+            utils.FALLOCATE_RESERVE = 1023
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            self.assertEquals(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
+            # Want 1024 reserved, have 1024 * 1 free, and even though
+            # file size is 0, since we're under the reserve, fails
+            utils.FALLOCATE_RESERVE = 1024
+            StatVFS.f_frsize = 1024
+            StatVFS.f_bavail = 1
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(0))
+            except OSError, err:
+                exc = err
+            self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+        finally:
+            utils.FALLOCATE_RESERVE = orig_FALLOCATE_RESERVE
+            utils.os.fstatvfs = orig_fstatvfs
+
+    def test_fallocate_func(self):
+
+        class FallocateWrapper(object):
+
+            def __init__(self):
+                self.last_call = None
+
+            def __call__(self, *args):
+                self.last_call = list(args)
+                self.last_call[-1] = self.last_call[-1].value
+                return 0
+
+        orig__sys_fallocate = utils._sys_fallocate
+        try:
+            utils._sys_fallocate = FallocateWrapper()
+            # Ensure fallocate calls _sys_fallocate even with 0 bytes
+            utils._sys_fallocate.last_call = None
+            utils.fallocate(1234, 0)
+            self.assertEquals(utils._sys_fallocate.last_call,
+                              [1234, 1, 0, 0])
+            # Ensure fallocate calls _sys_fallocate even with negative bytes
+            utils._sys_fallocate.last_call = None
+            utils.fallocate(1234, -5678)
+            self.assertEquals(utils._sys_fallocate.last_call,
+                              [1234, 1, 0, 0])
+            # Ensure fallocate calls _sys_fallocate properly with positive
+            # bytes
+            utils._sys_fallocate.last_call = None
+            utils.fallocate(1234, 1)
+            self.assertEquals(utils._sys_fallocate.last_call,
+                              [1234, 1, 0, 1])
+            utils._sys_fallocate.last_call = None
+            utils.fallocate(1234, 10 * 1024 * 1024 * 1024)
+            self.assertEquals(utils._sys_fallocate.last_call,
+                              [1234, 1, 0, 10 * 1024 * 1024 * 1024])
+        finally:
+            utils._sys_fallocate = orig__sys_fallocate
 
 
 class TestStatsdLogging(unittest.TestCase):
