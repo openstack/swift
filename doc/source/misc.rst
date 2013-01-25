@@ -44,6 +44,14 @@ TempAuth
 
 .. _acls:
 
+KeystoneAuth
+============
+
+.. automodule:: swift.common.middleware.keystoneauth
+    :members:
+    :show-inheritance:
+
+
 ACLs
 ====
 
@@ -180,7 +188,7 @@ Bulk Operations (Delete and Archive Auto Extraction)
     :show-inheritance:
 
 Container Quotas
-=============
+================
 
 .. automodule:: swift.common.middleware.container_quotas
     :members:
