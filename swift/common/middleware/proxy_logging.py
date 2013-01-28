@@ -53,7 +53,9 @@ class ProxyLoggingMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.log_hdrs = config_true_value(conf.get('log_headers', 'no'))
+        self.log_hdrs = config_true_value(conf.get(
+            'access_log_headers',
+            conf.get('log_headers', 'no')))
 
         # The leading access_* check is in case someone assumes that
         # log_statsd_valid_http_methods behaves like the other log_statsd_*
