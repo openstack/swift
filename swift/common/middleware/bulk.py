@@ -19,8 +19,8 @@ from xml.sax import saxutils
 from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
-    catch_http_exception
-from swift.common.utils import split_path, json, TRUE_VALUES
+    wsgify
+from swift.common.utils import json, TRUE_VALUES
 from swift.common.constraints import check_utf8, MAX_FILE_SIZE
 from swift.common.http import HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, \
     HTTP_NOT_FOUND
@@ -199,7 +199,7 @@ class Bulk(object):
         :returns: a swob Response
         """
         try:
-            vrs, account, _junk = split_path(unquote(req.path), 2, 3, True)
+            vrs, account, _junk = req.split_path(2, 3, True)
         except ValueError:
             return HTTPNotFound(request=req)
 
@@ -274,8 +274,7 @@ class Bulk(object):
                 req.headers.get('transfer-encoding', '').lower() != 'chunked':
             return HTTPBadRequest('Invalid request: no content sent.')
         try:
-            vrs, account, extract_base = split_path(
-                unquote(req.path), 2, 3, True)
+            vrs, account, extract_base = req.split_path(2, 3, True)
         except ValueError:
             return HTTPNotFound(request=req)
         extract_base = extract_base or ''
@@ -363,24 +362,22 @@ class Bulk(object):
         except tarfile.TarError, tar_error:
             return HTTPBadRequest('Invalid Tar File: %s' % tar_error)
 
-    @catch_http_exception
-    def __call__(self, env, start_response):
-        req = Request(env)
+    @wsgify
+    def __call__(self, req):
         extract_type = \
             req.headers.get('X-Extract-Archive', '').lower().strip('.')
         if extract_type and req.method == 'PUT':
             archive_type = {'tar': '', 'tar.gz': 'gz',
                             'tar.bz2': 'bz2'}.get(extract_type)
             if archive_type is not None:
-                resp = self.handle_extract(req, archive_type)
+                return self.handle_extract(req, archive_type)
             else:
-                resp = HTTPBadRequest("Unsupported archive format")
-            return resp(env, start_response)
+                return HTTPBadRequest("Unsupported archive format")
         if (req.headers.get('X-Bulk-Delete', '').lower() in TRUE_VALUES and
                 req.method == 'DELETE'):
-            return self.handle_delete(req)(env, start_response)
+            return self.handle_delete(req)
 
-        return self.app(env, start_response)
+        return self.app
 
 
 def filter_factory(global_conf, **local_conf):

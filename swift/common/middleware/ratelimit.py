@@ -14,7 +14,7 @@
 import time
 import eventlet
 
-from swift.common.utils import split_path, cache_from_env, get_logger
+from swift.common.utils import cache_from_env, get_logger
 from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
@@ -227,7 +227,7 @@ class RateLimitMiddleware(object):
                 _('Warning: Cannot ratelimit without a memcached client'))
             return self.app(env, start_response)
         try:
-            version, account, container, obj = split_path(req.path, 1, 4, True)
+            version, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
             return self.app(env, start_response)
         ratelimit_resp = self.handle_ratelimit(req, account, container, obj)

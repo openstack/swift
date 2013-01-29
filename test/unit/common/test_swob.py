@@ -427,6 +427,72 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': 'hello=equal&acl'})
         self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')
 
+    def test_wsgify(self):
+        used_req = []
+
+        @swift.common.swob.wsgify
+        def _wsgi_func(req):
+            used_req.append(req)
+            return swift.common.swob.Response('200 OK')
+
+        req = swift.common.swob.Request.blank('/hi/there')
+        resp = req.get_response(_wsgi_func)
+        self.assertEqual(used_req[0].path, '/hi/there')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_wsgify_raise(self):
+        used_req = []
+
+        @swift.common.swob.wsgify
+        def _wsgi_func(req):
+            used_req.append(req)
+            raise swift.common.swob.HTTPServerError()
+
+        req = swift.common.swob.Request.blank('/hi/there')
+        resp = req.get_response(_wsgi_func)
+        self.assertEqual(used_req[0].path, '/hi/there')
+        self.assertEqual(resp.status_int, 500)
+
+    def test_split_path(self):
+        """
+        Copied from swift.common.utils.split_path
+        """
+        def _test_split_path(path, minsegs=1, maxsegs=None, rwl=False):
+            req = swift.common.swob.Request.blank(path)
+            return req.split_path(minsegs, maxsegs, rwl)
+        self.assertRaises(ValueError, _test_split_path, '')
+        self.assertRaises(ValueError, _test_split_path, '/')
+        self.assertRaises(ValueError, _test_split_path, '//')
+        self.assertEquals(_test_split_path('/a'), ['a'])
+        self.assertRaises(ValueError, _test_split_path, '//a')
+        self.assertEquals(_test_split_path('/a/'), ['a'])
+        self.assertRaises(ValueError, _test_split_path, '/a/c')
+        self.assertRaises(ValueError, _test_split_path, '//c')
+        self.assertRaises(ValueError, _test_split_path, '/a/c/')
+        self.assertRaises(ValueError, _test_split_path, '/a//')
+        self.assertRaises(ValueError, _test_split_path, '/a', 2)
+        self.assertRaises(ValueError, _test_split_path, '/a', 2, 3)
+        self.assertRaises(ValueError, _test_split_path, '/a', 2, 3, True)
+        self.assertEquals(_test_split_path('/a/c', 2), ['a', 'c'])
+        self.assertEquals(_test_split_path('/a/c/o', 3), ['a', 'c', 'o'])
+        self.assertRaises(ValueError, _test_split_path, '/a/c/o/r', 3, 3)
+        self.assertEquals(_test_split_path('/a/c/o/r', 3, 3, True),
+                          ['a', 'c', 'o/r'])
+        self.assertEquals(_test_split_path('/a/c', 2, 3, True),
+                          ['a', 'c', None])
+        self.assertRaises(ValueError, _test_split_path, '/a', 5, 4)
+        self.assertEquals(_test_split_path('/a/c/', 2), ['a', 'c'])
+        self.assertEquals(_test_split_path('/a/c/', 2, 3), ['a', 'c', ''])
+        try:
+            _test_split_path('o\nn e', 2)
+        except ValueError, err:
+            self.assertEquals(str(err), 'Invalid path: o%0An%20e')
+        try:
+            _test_split_path('o\nn e', 2, 3, True)
+        except ValueError, err:
+            self.assertEquals(str(err), 'Invalid path: o%0An%20e')
+
+
 
 class TestStatusMap(unittest.TestCase):
     def test_status_map(self):
