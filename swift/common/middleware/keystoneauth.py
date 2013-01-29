@@ -169,6 +169,10 @@ class KeystoneAuth(object):
         user = env_identity.get('user', '')
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
+        #allow OPTIONS requests to proceed as normal
+        if req.method == 'OPTIONS':
+            return
+
         try:
             part = swift_utils.split_path(req.path, 1, 4, True)
             version, account, container, obj = part
@@ -243,6 +247,10 @@ class KeystoneAuth(object):
             version, account, container, obj = part
         except ValueError:
             return HTTPNotFound(request=req)
+
+        #allow OPTIONS requests to proceed as normal
+        if req.method == 'OPTIONS':
+            return
 
         is_authoritative_authz = (account and
                                   account.startswith(self.reseller_prefix))
