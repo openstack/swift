@@ -799,10 +799,14 @@ class RingBuilder(object):
 
     def search_devs(self, search_value):
         """
-The <search-value> can be of the form:
-    d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>
+    The <search-value> can be of the form::
+
+        d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>
+
     Any part is optional, but you must include at least one part.
-    Examples:
+
+    Examples::
+
         d74              Matches the device id 74
         z1               Matches devices in zone 1
         z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4
@@ -814,9 +818,13 @@ The <search-value> can be of the form:
         _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
         [::1]            Matches devices in any zone with the ip ::1
         z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678
-    Most specific example:
+
+    Most specific example::
+
         d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
+
     Nerd explanation:
+
         All items require their single character prefix except the ip, in which
         case the - is optional unless the device id or zone is also included.
         """

@@ -644,12 +644,10 @@ class ObjectController(object):
         upload_size = 0
         last_sync = 0
         with file.mkstemp() as fd:
-            if 'content-length' in request.headers:
-                try:
-                    fallocate(fd, int(request.headers['content-length']))
-                except OSError:
-                    return HTTPInsufficientStorage(drive=device,
-                                                   request=request)
+            try:
+                fallocate(fd, int(request.headers.get('content-length', 0)))
+            except OSError:
+                return HTTPInsufficientStorage(drive=device, request=request)
             reader = request.environ['wsgi.input'].read
             for chunk in iter(lambda: reader(self.network_chunk_size), ''):
                 upload_size += len(chunk)
