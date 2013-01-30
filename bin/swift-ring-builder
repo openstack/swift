@@ -473,14 +473,20 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
     def rebalance():
         """
-swift-ring-builder <builder_file> rebalance
+swift-ring-builder <builder_file> rebalance <seed>
     Attempts to rebalance the ring by reassigning partitions that haven't been
     recently reassigned.
         """
+        def get_seed(index):
+            try:
+                return argv[index]
+            except IndexError:
+                pass
+
         devs_changed = builder.devs_changed
         try:
             last_balance = builder.get_balance()
-            parts, balance = builder.rebalance()
+            parts, balance = builder.rebalance(seed=get_seed(3))
         except exceptions.RingBuilderError, e:
             print '-' * 79
             print ("An error has occurred during ring validation. Common\n"

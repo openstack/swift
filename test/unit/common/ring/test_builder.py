@@ -68,6 +68,35 @@ class TestRingBuilder(unittest.TestCase):
         r4 = rb.get_ring()
         self.assert_(r3 is r4)
 
+    def test_rebalance_with_seed(self):
+        devs = [(0, 10000), (1, 10001), (2, 10002), (1, 10003)]
+        ring_builders = []
+        for n in range(3):
+            rb = ring.RingBuilder(8, 3, 1)
+            for idx, (zone, port) in enumerate(devs):
+                rb.add_dev({'id': idx, 'zone': zone, 'weight': 1,
+                            'ip': '127.0.0.1', 'port': port, 'device': 'sda1'})
+            ring_builders.append(rb)
+
+        rb0 = ring_builders[0]
+        rb1 = ring_builders[1]
+        rb2 = ring_builders[2]
+
+        r0 = rb0.get_ring()
+        self.assertTrue(rb0.get_ring() is r0)
+
+
+        rb0.rebalance()  # NO SEED
+        rb1.rebalance(seed=10)
+        rb2.rebalance(seed=10)
+
+        r1 = rb1.get_ring()
+        r2 = rb2.get_ring()
+
+        self.assertFalse(rb0.get_ring() is r0)
+        self.assertNotEquals(r0.to_dict(), r1.to_dict())
+        self.assertEquals(r1.to_dict(), r2.to_dict())
+
     def test_add_dev(self):
         rb = ring.RingBuilder(8, 3, 1)
         dev = \
