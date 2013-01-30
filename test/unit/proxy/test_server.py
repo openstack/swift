@@ -28,7 +28,7 @@ from cStringIO import StringIO
 from gzip import GzipFile
 from httplib import HTTPException
 from shutil import rmtree
-from time import time
+import time
 from urllib import unquote, quote
 from hashlib import md5
 from tempfile import mkdtemp
@@ -150,7 +150,7 @@ def setup():
     _test_coros = \
         (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa)
     # Create account
-    ts = normalize_timestamp(time())
+    ts = normalize_timestamp(time.time())
     partition, nodes = prosrv.account_ring.get_nodes('a')
     for node in nodes:
         conn = swift.proxy.controllers.obj.http_connect(node['ip'],
@@ -390,11 +390,12 @@ class FakeMemcacheReturnsNone(FakeMemcache):
 def save_globals():
     orig_http_connect = getattr(swift.proxy.controllers.base, 'http_connect',
                                 None)
-    orig_account_info = getattr(proxy_server.Controller, 'account_info', None)
+    orig_account_info = getattr(swift.proxy.controllers.Controller,
+                                'account_info', None)
     try:
         yield True
     finally:
-        proxy_server.Controller.account_info = orig_account_info
+        swift.proxy.controllers.Controller.account_info = orig_account_info
         swift.proxy.controllers.base.http_connect = orig_http_connect
         swift.proxy.controllers.obj.http_connect = orig_http_connect
         swift.proxy.controllers.account.http_connect = orig_http_connect
@@ -430,7 +431,7 @@ class TestController(unittest.TestCase):
                                        account_ring=self.account_ring,
                                        container_ring=self.container_ring,
                                        object_ring=FakeRing())
-        self.controller = proxy_server.Controller(app)
+        self.controller = swift.proxy.controllers.Controller(app)
 
         self.account = 'some_account'
         self.container = 'some_container'
@@ -580,7 +581,7 @@ class TestController(unittest.TestCase):
             return None, None
 
         with save_globals():
-            proxy_server.Controller.account_info = account_info
+            swift.proxy.controllers.Controller.account_info = account_info
             ret = self.controller.container_info(self.account,
                                                  self.container)
             self.check_container_info_return(ret, True)
@@ -593,7 +594,7 @@ class TestController(unittest.TestCase):
         with save_globals():
             headers = {'x-container-read': self.read_acl,
                        'x-container-write': self.write_acl}
-            proxy_server.Controller.account_info = account_info
+            swift.proxy.controllers.Controller.account_info = account_info
             set_http_connect(200, headers=headers)
             ret = self.controller.container_info(self.account,
                                                  self.container)
@@ -616,7 +617,7 @@ class TestController(unittest.TestCase):
             return True, True, 0
 
         with save_globals():
-            proxy_server.Controller.account_info = account_info
+            swift.proxy.controllers.Controller.account_info = account_info
             set_http_connect(404, 404, 404)
             ret = self.controller.container_info(self.account,
                                                  self.container)
@@ -1831,7 +1832,7 @@ class TestObjectController(unittest.TestCase):
 
             for dev in self.app.account_ring.devs.values():
                 dev['errors'] = self.app.error_suppression_limit + 1
-                dev['last_error'] = time()
+                dev['last_error'] = time.time()
             set_http_connect(200)
             #                acct [isn't actually called since everything
             #                      is error limited]
@@ -1842,7 +1843,7 @@ class TestObjectController(unittest.TestCase):
                 dev['errors'] = 0
             for dev in self.app.container_ring.devs.values():
                 dev['errors'] = self.app.error_suppression_limit + 1
-                dev['last_error'] = time()
+                dev['last_error'] = time.time()
             set_http_connect(200, 200)
             #                acct cont [isn't actually called since
             #                           everything is error limited]
@@ -3423,10 +3424,10 @@ class TestObjectController(unittest.TestCase):
                                                        'container', 'object')
             set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
             self.app.memcache.store = {}
-            orig_time = proxy_server.time.time
+            orig_time = time.time
             try:
-                t = time()
-                proxy_server.time.time = lambda: t
+                t = time.time()
+                time.time = lambda: t
                 req = Request.blank('/a/c/o', {},
                                     headers={'Content-Type': 'foo/bar',
                                              'X-Delete-After': '60'})
@@ -3451,7 +3452,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(req.headers.get('x-delete-at'),
                                   str(int(t + 60)))
             finally:
-                proxy_server.time.time = orig_time
+                time.time = orig_time
 
     def test_POST_non_int_delete_after(self):
         with save_globals():
@@ -3495,7 +3496,7 @@ class TestObjectController(unittest.TestCase):
             controller.make_requests = fake_make_requests
             set_http_connect(200, 200)
             self.app.memcache.store = {}
-            t = str(int(time() + 100))
+            t = str(int(time.time() + 100))
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Type': 'foo/bar',
                                          'X-Delete-At': t})
@@ -3506,7 +3507,7 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
 
-            t = str(int(time() + 100)) + '.1'
+            t = str(int(time.time() + 100)) + '.1'
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Type': 'foo/bar',
                                          'X-Delete-At': t})
@@ -3515,7 +3516,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 400)
             self.assertTrue('Non-integer X-Delete-At' in resp.body)
 
-            t = str(int(time() - 100))
+            t = str(int(time.time() - 100))
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Type': 'foo/bar',
                                          'X-Delete-At': t})
@@ -3530,10 +3531,10 @@ class TestObjectController(unittest.TestCase):
                                                        'container', 'object')
             set_http_connect(200, 200, 201, 201, 201)
             self.app.memcache.store = {}
-            orig_time = proxy_server.time.time
+            orig_time = time.time
             try:
-                t = time()
-                proxy_server.time.time = lambda: t
+                t = time.time()
+                time.time = lambda: t
                 req = Request.blank('/a/c/o', {},
                                     headers={'Content-Length': '0',
                                              'Content-Type': 'foo/bar',
@@ -3544,7 +3545,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(req.headers.get('x-delete-at'),
                                   str(int(t + 60)))
             finally:
-                proxy_server.time.time = orig_time
+                time.time = orig_time
 
     def test_PUT_non_int_delete_after(self):
         with save_globals():
@@ -3589,7 +3590,7 @@ class TestObjectController(unittest.TestCase):
             controller._connect_put_node = fake_connect_put_node
             set_http_connect(200, 200)
             self.app.memcache.store = {}
-            t = str(int(time() + 100))
+            t = str(int(time.time() + 100))
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Length': '0',
                                          'Content-Type': 'foo/bar',
@@ -3601,7 +3602,7 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
 
-            t = str(int(time() + 100)) + '.1'
+            t = str(int(time.time() + 100)) + '.1'
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Length': '0',
                                          'Content-Type': 'foo/bar',
@@ -3611,7 +3612,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 400)
             self.assertTrue('Non-integer X-Delete-At' in resp.body)
 
-            t = str(int(time() - 100))
+            t = str(int(time.time() - 100))
             req = Request.blank('/a/c/o', {},
                                 headers={'Content-Length': '0',
                                          'Content-Type': 'foo/bar',
@@ -3977,7 +3978,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
-                                     'X-Delete-At': int(time()) + 100000})
+                                     'X-Delete-At': int(time.time()) + 100000})
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
@@ -4005,7 +4006,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
-                                     'X-Delete-At': int(time()) + 100000})
+                                     'X-Delete-At': int(time.time()) + 100000})
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
@@ -4179,7 +4180,7 @@ class TestContainerController(unittest.TestCase):
 
                 for dev in self.app.account_ring.devs.values():
                     dev['errors'] = self.app.error_suppression_limit + 1
-                    dev['last_error'] = time()
+                    dev['last_error'] = time.time()
                 set_http_connect(200, 200, 200, 200, 200, 200)
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)

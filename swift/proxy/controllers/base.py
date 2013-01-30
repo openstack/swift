@@ -28,7 +28,7 @@ import time
 import functools
 import inspect
 
-from eventlet import spawn_n, GreenPile, Timeout
+from eventlet import spawn_n, GreenPile
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
 
@@ -40,7 +40,7 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
-from swift.common.swob import Request, Response, status_map
+from swift.common.swob import Request, Response
 
 
 def update_headers(response, headers):
@@ -330,7 +330,7 @@ class Controller(object):
                                         path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    body = resp.read()
+                    resp.read()
                     if is_success(resp.status):
                         result_code = HTTP_OK
                         container_count = int(
@@ -421,7 +421,7 @@ class Controller(object):
                                         path, headers)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    body = resp.read()
+                    resp.read()
                 if is_success(resp.status):
                     container_info.update(
                         headers_to_container_info(resp.getheaders()))

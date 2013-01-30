@@ -17,14 +17,10 @@ import errno
 import os
 
 from swift.common.swob import Request, Response
-from swift.common.utils import get_logger, config_true_value
+from swift.common.utils import get_logger, config_true_value, json
 from swift.common.constraints import check_mount
 from resource import getpagesize
 from hashlib import md5
-try:
-    import simplejson as json
-except ImportError:
-    import json
 
 
 class ReconMiddleware(object):

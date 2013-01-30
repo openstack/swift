@@ -37,7 +37,7 @@ from swift.common.bufferedhttp import BufferedHTTPConnection
 from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
 from swift.common.daemon import Daemon
 from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
-    HTTPAccepted, HTTPInsufficientStorage, HTTPBadRequest
+    HTTPAccepted, HTTPBadRequest
 
 
 DEBUG_TIMINGS_THRESHOLD = 10

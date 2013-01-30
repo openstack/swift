@@ -18,7 +18,6 @@
 from __future__ import with_statement
 import cPickle as pickle
 import errno
-import itertools
 import os
 import time
 import traceback
@@ -224,8 +223,8 @@ class DiskFile(object):
     def _handle_close_quarantine(self):
         """Check if file needs to be quarantined"""
         try:
-            obj_size = self.get_data_file_size()
-        except DiskFileError, e:
+            self.get_data_file_size()
+        except DiskFileError:
             self.quarantine()
             return
         except DiskFileNotExist:
@@ -505,8 +504,8 @@ class ObjectController(object):
             self.logger.error(_('ERROR Container update failed: different  '
                                 'numbers of hosts and devices in request: '
                                 '"%s" vs "%s"' %
-                                (req.headers.get('X-Container-Host', ''),
-                                 req.headers.get('X-Container-Device', ''))))
+                                (headers_in.get('X-Container-Host', ''),
+                                 headers_in.get('X-Container-Device', ''))))
             return
 
         if contpartition:
@@ -590,7 +589,7 @@ class ObjectController(object):
         if file.is_deleted() or file.is_expired():
             return HTTPNotFound(request=request)
         try:
-            file_size = file.get_data_file_size()
+            file.get_data_file_size()
         except (DiskFileError, DiskFileNotExist):
             file.quarantine()
             return HTTPNotFound(request=request)

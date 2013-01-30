@@ -33,7 +33,7 @@ from urllib import unquote, quote
 from hashlib import md5
 from random import shuffle
 
-from eventlet import sleep, GreenPile, Timeout
+from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 

@@ -39,9 +39,7 @@ except ImportError:
 import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
-import socket
 import itertools
-import types
 
 import eventlet
 from eventlet import GreenPool, sleep, Timeout
@@ -286,7 +284,7 @@ def renamer(old, new):
     try:
         mkdirs(os.path.dirname(new))
         os.rename(old, new)
-    except OSError, err:
+    except OSError:
         mkdirs(os.path.dirname(new))
         os.rename(old, new)
 
@@ -1558,8 +1556,8 @@ def reiterate(iterable):
         try:
             chunk = ''
             while not chunk:
-                chunk = next(iterable)
-            return itertools.chain([chunk], iterable)
+                chunk = next(iterator)
+            return itertools.chain([chunk], iterator)
         except StopIteration:
             return []
 

@@ -26,7 +26,7 @@ from cStringIO import StringIO
 import UserDict
 import time
 from functools import partial
-from datetime import datetime, date, timedelta, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from email.utils import parsedate
 import urlparse
 import urllib2
@@ -1067,19 +1067,20 @@ def wsgify(func):
     argspec = inspect.getargspec(func)
     if argspec.args and argspec.args[0] == 'self':
         @functools.wraps(func)
-        def _wsgify(self, env, start_response):
+        def _wsgify_self(self, env, start_response):
             try:
                 return func(self, Request(env))(env, start_response)
             except HTTPException, err_resp:
                 return err_resp(env, start_response)
+        return _wsgify_self
     else:
         @functools.wraps(func)
-        def _wsgify(env, start_response):
+        def _wsgify_bare(env, start_response):
             try:
                 return func(Request(env))(env, start_response)
             except HTTPException, err_resp:
                 return err_resp(env, start_response)
-    return _wsgify
+        return _wsgify_bare
 
 
 class StatusMap(object):

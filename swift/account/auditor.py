@@ -112,7 +112,7 @@ class AccountAuditor(Daemon):
                 return
             broker = AccountBroker(path)
             if not broker.is_deleted():
-                info = broker.get_info()
+                broker.get_info()
                 self.logger.increment('passes')
                 self.account_passes += 1
                 self.logger.debug(_('Audit passed for %s') % broker.db_file)
