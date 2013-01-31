@@ -15,8 +15,7 @@
 
 import os
 import urllib
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
-    RawConfigParser
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge

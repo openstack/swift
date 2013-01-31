@@ -27,7 +27,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
-from swift.common.utils import cache_from_env, get_logger, get_remote_client, \
+from swift.common.utils import cache_from_env, get_logger, \
     split_path, config_true_value
 from swift.common.http import HTTP_CLIENT_CLOSED_REQUEST
 

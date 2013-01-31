@@ -32,11 +32,7 @@ from swift.common.utils import config_true_value, LogAdapter
 import swiftclient as client
 from swift.common import direct_client
 from swift.common.http import HTTP_CONFLICT
-
-try:
-    import simplejson as json
-except ImportError:
-    import json
+from swift.common.utils import json
 
 
 def _func_on_containers(logger, conf, concurrency_key, func):

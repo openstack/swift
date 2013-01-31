@@ -23,13 +23,8 @@ from time import time
 import os
 from io import BufferedReader
 
-from swift.common.utils import hash_path, validate_configuration
+from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
-
-try:
-    import simplejson as json
-except ImportError:
-    import json
 
 
 class RingData(object):

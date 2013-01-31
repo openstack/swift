@@ -27,10 +27,7 @@ import time
 from bisect import bisect
 from hashlib import md5
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
+from swift.common.utils import json
 
 DEFAULT_MEMCACHED_PORT = 11211
 

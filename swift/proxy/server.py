@@ -26,7 +26,6 @@
 
 import mimetypes
 import os
-import time
 from ConfigParser import ConfigParser
 import uuid
 
@@ -37,11 +36,10 @@ from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
-    ContainerController, Controller
-from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPForbidden, \
+    ContainerController
+from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPRequestEntityTooLarge, HTTPRequestTimeout, HTTPServerError, \
-    HTTPServiceUnavailable, HTTPClientDisconnect, status_map, Request, Response
+    HTTPServerError, Request
 
 
 class Application(object):

@@ -110,18 +110,13 @@ Example usage of this middleware via ``swift``:
 """
 
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
-
 import cgi
 import time
 from urllib import unquote, quote as urllib_quote
 
 
 from swift.common.utils import cache_from_env, get_logger, human_readable, \
-    split_path, config_true_value
+    split_path, config_true_value, json
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request, \
     WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND

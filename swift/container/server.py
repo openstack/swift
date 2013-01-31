@@ -15,11 +15,9 @@
 
 from __future__ import with_statement
 
-import itertools
 import os
 import time
 import traceback
-from urllib import unquote
 from xml.sax import saxutils
 from datetime import datetime
 

@@ -18,7 +18,6 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-from urllib import unquote
 from xml.sax import saxutils
 
 from eventlet import Timeout

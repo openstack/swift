@@ -566,7 +566,7 @@ class ObjectReplicator(Daemon):
             if not os.path.exists(obj_path):
                 try:
                     mkdirs(obj_path)
-                except Exception, err:
+                except Exception:
                     self.logger.exception('ERROR creating %s' % obj_path)
                 continue
             for partition in os.listdir(obj_path):
@@ -589,7 +589,7 @@ class ObjectReplicator(Daemon):
                              nodes=nodes,
                              delete=len(nodes) > len(part_nodes) - 1,
                              partition=partition))
-                except ValueError, OSError:
+                except (ValueError, OSError):
                     continue
         random.shuffle(jobs)
         self.job_count = len(jobs)
