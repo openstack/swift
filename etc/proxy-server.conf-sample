@@ -104,9 +104,6 @@ use = egg:swift#tempauth
 # to the auth subsystem, for granting tokens, etc.
 # auth_prefix = /auth/
 # token_life = 86400
-# This is a comma separated list of hosts allowed to send X-Container-Sync-Key
-# requests.
-# allowed_sync_hosts = 127.0.0.1
 # This allows middleware higher in the WSGI pipeline to override auth
 # processing, useful for middleware such as tempurl and formpost. If you know
 # you're not going to use such middleware and you want a bit of extra security,

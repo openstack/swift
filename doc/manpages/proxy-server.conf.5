@@ -143,8 +143,6 @@ The auth prefix will cause requests beginning with this prefix to be routed
 to the auth subsystem, for granting tokens, etc. The default is /auth/.
 .IP \fBtoken_life\fR
 This is the time in seconds before the token expires. The default is 86400.
-.IP \fBallowed_sync_hosts\fR
-This is a comma separated list of hosts allowed to send X-Container-Sync-Key requests.
 .IP \fBuser_<account>_<user>\fR
 Lastly, you need to list all the accounts/users you want here. The format is:
 user_<account>_<user> = <key> [group] [group] [...] [storage_url]
