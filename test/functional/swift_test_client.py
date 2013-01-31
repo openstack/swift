@@ -87,7 +87,7 @@ def listing_items(method):
 class Connection(object):
     def __init__(self, config):
         for key in 'auth_host auth_port auth_ssl username password'.split():
-            if not key in config:
+            if key not in config:
                 raise SkipTest
 
         self.auth_host = config['auth_host']
@@ -301,7 +301,7 @@ class Base:
         headers = dict(self.conn.response.getheaders())
         ret = {}
         for field in fields:
-            if not field[1] in headers:
+            if field[1] not in headers:
                 raise ValueError("%s was not found in response header" %
                                  (field[1]))
 
