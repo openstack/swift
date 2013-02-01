@@ -316,6 +316,10 @@ use = egg:swift#name_check
 # maximum_length = 255
 # forbidden_regexp = /\./|/\.\./|/\.$|/\.\.$
 
+[filter:list-endpoints]
+use = egg:swift#list_endpoints
+# list_endpoints_path = /endpoints/
+
 [filter:proxy-logging]
 use = egg:swift#proxy_logging
 # If not set, logging directives from [DEFAULT] without "access_" will be used
