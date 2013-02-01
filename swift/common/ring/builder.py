@@ -16,12 +16,11 @@
 import bisect
 import itertools
 import math
+import random
 import cPickle as pickle
-
 
 from array import array
 from collections import defaultdict
-from random import randint, shuffle
 from time import time
 
 from swift.common import exceptions
@@ -276,7 +275,7 @@ class RingBuilder(object):
         self.devs_changed = True
         self.version += 1
 
-    def rebalance(self):
+    def rebalance(self, seed=None):
         """
         Rebalance the ring.
 
@@ -294,6 +293,10 @@ class RingBuilder(object):
 
         :returns: (number_of_partitions_altered, resulting_balance)
         """
+
+        if seed:
+            random.seed(seed)
+
         self._ring = None
         if self._last_part_moves_epoch is None:
             self._initial_balance()
@@ -576,7 +579,10 @@ class RingBuilder(object):
         # We randomly pick a new starting point in the "circular" ring of
         # partitions to try to get a better rebalance when called multiple
         # times.
-        start = self._last_part_gather_start / 4 + randint(0, self.parts / 2)
+
+        start = self._last_part_gather_start / 4
+        start += random.randint(0, self.parts / 2)  # GRAH PEP8!!!
+
         self._last_part_gather_start = start
         for replica in xrange(self.replicas):
             part2dev = self._replica2part2dev[replica]
@@ -604,7 +610,7 @@ class RingBuilder(object):
         # it would concentrate load during failure recovery scenarios
         # (increasing risk). The "right" answer has yet to be debated to
         # conclusion, but working code wins for now.
-        shuffle(reassign_parts_list)
+        random.shuffle(reassign_parts_list)
         return reassign_parts_list
 
     def _reassign_parts(self, reassign_parts):
@@ -630,6 +636,7 @@ class RingBuilder(object):
         """
         for dev in self._iter_devs():
             dev['sort_key'] = self._sort_key_for(dev)
+
         available_devs = \
             sorted((d for d in self._iter_devs() if d['weight']),
                    key=lambda x: x['sort_key'])
@@ -720,7 +727,7 @@ class RingBuilder(object):
         # parts_wanted end up sorted above positive parts_wanted.
         return '%016x.%04x.%04x' % (
             (self.parts * self.replicas) + dev['parts_wanted'],
-            randint(0, 0xffff),
+            random.randint(0, 0xFFFF),
             dev['id'])
 
     def _build_max_replicas_by_tier(self):
