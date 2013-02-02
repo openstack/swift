@@ -16,6 +16,7 @@
 import array
 import cPickle as pickle
 import os
+import sys
 import unittest
 from gzip import GzipFile
 from shutil import rmtree
@@ -66,6 +67,29 @@ class TestRingData(unittest.TestCase):
         rd.save(ring_fname)
         rd2 = ring.RingData.load(ring_fname)
         self.assert_ring_data_equal(rd, rd2)
+
+    def test_deterministic_serialization(self):
+        """
+        Two identical rings should produce identical .gz files on disk.
+
+        Only true on Python 2.7 or greater.
+        """
+        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
+            return
+        os.mkdir(os.path.join(self.testdir, '1'))
+        os.mkdir(os.path.join(self.testdir, '2'))
+        # These have to have the same filename (not full path,
+        # obviously) since the filename gets encoded in the gzip data.
+        ring_fname1 = os.path.join(self.testdir, '1', 'the.ring.gz')
+        ring_fname2 = os.path.join(self.testdir, '2', 'the.ring.gz')
+        rd = ring.RingData(
+            [array.array('H', [0, 1, 0, 1]), array.array('H',[0, 1, 0, 1])],
+            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        rd.save(ring_fname1)
+        rd.save(ring_fname2)
+        with open(ring_fname1) as ring1:
+            with open(ring_fname2) as ring2:
+                self.assertEqual(ring1.read(), ring2.read())
 
 
 class TestRing(unittest.TestCase):
