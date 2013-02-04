@@ -559,6 +559,7 @@ class TestInternalClient(unittest.TestCase):
                     'x-account-container-count': containers,
                     'x-account-object-count': objects,
                 }
+                self.status_int = 200
 
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, resp):
@@ -582,6 +583,29 @@ class TestInternalClient(unittest.TestCase):
         client = InternalClient(self, path, Response(containers, objects))
         info = client.get_account_info(account)
         self.assertEquals((containers, objects), info)
+
+    def test_get_account_info_404(self):
+        class Response(object):
+            def __init__(self):
+                self.headers = {
+                    'x-account-container-count': 10,
+                    'x-account-object-count': 100,
+                }
+                self.status_int = 404
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                pass
+
+            def make_path(self, *a, **kw):
+                return 'some_path'
+
+            def make_request(self, *a, **kw):
+                return Response()
+
+        client = InternalClient()
+        info = client.get_account_info('some_account')
+        self.assertEquals((0, 0), info)
 
     def test_get_account_metadata(self):
         account, container, obj = path_parts()
@@ -804,6 +828,25 @@ class TestInternalClient(unittest.TestCase):
                 'account', 'container', 'object.gz'):
             ret_lines.append(line)
         self.assertEquals(lines, ret_lines)
+
+    def test_iter_object_lines_404(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                self.app = self.fake_app
+                self.user_agent = 'some_agent'
+                self.request_tries = 3
+
+            def fake_app(self, env, start_response):
+                start_response('404 Not Found', [])
+                return ['one\ntwo\nthree']
+
+        client = InternalClient()
+        lines = []
+        for line in client.iter_object_lines(
+                'some_account', 'some_container', 'some_object',
+                acceptable_statuses=(2, 404)):
+            lines.append(line)
+        self.assertEquals([], lines)
 
     def test_set_object_metadata(self):
         account, container, obj = path_parts()
