@@ -179,3 +179,10 @@ Bulk Operations (Delete and Archive Auto Extraction)
     :members:
     :show-inheritance:
 
+Container Quotas
+=============
+
+.. automodule:: swift.common.middleware.container_quotas
+    :members:
+    :show-inheritance:
+

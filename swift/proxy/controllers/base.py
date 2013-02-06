@@ -32,7 +32,9 @@ from eventlet import spawn_n, GreenPile
 from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
 
-from swift.common.utils import normalize_timestamp, config_true_value, public
+from swift.common.wsgi import make_pre_authed_request
+from swift.common.utils import normalize_timestamp, config_true_value, \
+    public, split_path, cache_from_env
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
@@ -186,6 +188,32 @@ def cors_validation(func):
             return func(*a, **kw)
 
     return wrapped
+
+
+def get_container_info(env, app):
+    """
+    Get the info structure for a container, based on env and app.
+    This is useful to middlewares.
+    """
+    cache = cache_from_env(env)
+    if not cache:
+        return None
+    (version, account, container, obj) = \
+        split_path(env['PATH_INFO'], 2, 4, True)
+    cache_key = get_container_memcache_key(account, container)
+    # Use a unique environment cache key per container.  If you copy this env
+    # to make a new request, it won't accidentally reuse the old container info
+    env_key = 'swift.%s' % cache_key
+    if env_key not in env:
+        container_info = cache.get(cache_key)
+        if not container_info:
+            resp = make_pre_authed_request(
+                env, 'HEAD', '/%s/%s/%s' % (version, account, container)
+            ).get_response(app)
+            container_info = headers_to_container_info(
+                resp.headers, resp.status_int)
+        env[env_key] = container_info
+    return env[env_key]
 
 
 class Controller(object):

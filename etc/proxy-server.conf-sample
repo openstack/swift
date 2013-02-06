@@ -33,7 +33,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors healthcheck cache ratelimit tempauth proxy-logging proxy-server
+pipeline = catch_errors healthcheck cache ratelimit tempauth container-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -338,3 +338,7 @@ use = egg:swift#bulk
 # max_containers_per_extraction = 10000
 # max_failed_files = 1000
 # max_deletes_per_request = 1000
+
+# Note: Put after auth in the pipeline.
+[filter:container-quotas]
+use = egg:swift#container_quotas
