@@ -190,7 +190,7 @@ def cors_validation(func):
     return wrapped
 
 
-def get_container_info(env, app):
+def get_container_info(env, app, swift_source=None):
     """
     Get the info structure for a container, based on env and app.
     This is useful to middlewares.
@@ -208,7 +208,8 @@ def get_container_info(env, app):
         container_info = cache.get(cache_key)
         if not container_info:
             resp = make_pre_authed_request(
-                env, 'HEAD', '/%s/%s/%s' % (version, account, container)
+                env, 'HEAD', '/%s/%s/%s' % (version, account, container),
+                swift_source=swift_source,
             ).get_response(app)
             container_info = headers_to_container_info(
                 resp.headers, resp.status_int)

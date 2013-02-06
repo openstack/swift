@@ -300,7 +300,7 @@ class WSGIContext(object):
 
 
 def make_pre_authed_request(env, method=None, path=None, body=None,
-                            headers=None, agent='Swift'):
+                            headers=None, agent='Swift', swift_source=None):
     """
     Makes a new swob.Request based on the current env but with the
     parameters specified. Note that this request will be preauthorized.
@@ -322,13 +322,16 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
                   '%(orig)s StaticWeb'. You also set agent to None to
                   use the original env's HTTP_USER_AGENT or '' to
                   have no HTTP_USER_AGENT.
+    :param swift_source: Used to mark the request as originating out of
+                         middleware. Will be logged in proxy logs.
     :returns: Fresh swob.Request object.
     """
     query_string = None
     if path and '?' in path:
         path, query_string = path.split('?', 1)
     newenv = make_pre_authed_env(env, method, path=unquote(path), agent=agent,
-                                 query_string=query_string)
+                                 query_string=query_string,
+                                 swift_source=swift_source)
     if not headers:
         headers = {}
     if body:
@@ -338,7 +341,7 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
 
 
 def make_pre_authed_env(env, method=None, path=None, agent='Swift',
-                        query_string=None):
+                        query_string=None, swift_source=None):
     """
     Returns a new fresh WSGI environment with escalated privileges to
     do backend checks, listings, etc. that the remote user wouldn't
@@ -361,6 +364,8 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
                   '%(orig)s StaticWeb'. You also set agent to None to
                   use the original env's HTTP_USER_AGENT or '' to
                   have no HTTP_USER_AGENT.
+    :param swift_source: Used to mark the request as originating out of
+                         middleware. Will be logged in proxy logs.
     :returns: Fresh WSGI environment.
     """
     newenv = {}
@@ -383,6 +388,8 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
             agent % {'orig': env.get('HTTP_USER_AGENT', '')}).strip()
     elif agent == '' and 'HTTP_USER_AGENT' in newenv:
         del newenv['HTTP_USER_AGENT']
+    if swift_source:
+        newenv['swift.source'] = swift_source
     newenv['swift.authorize'] = lambda req: None
     newenv['swift.authorize_override'] = True
     newenv['REMOTE_USER'] = '.wsgi.pre_authed'

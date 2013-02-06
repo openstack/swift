@@ -35,6 +35,27 @@ be separated with a simple .split()
 
 * Values that are missing (e.g. due to a header not being present) or zero
   are generally represented by a single hyphen ('-').
+
+The proxy-logging can be used twice in the proxy server's pipeline when there
+is middleware installed that can return custom responses that don't follow the
+standard pipeline to the proxy server.
+
+For example, with staticweb, the middleware might intercept a request to
+/v1/AUTH_acc/cont/, make a subrequest to the proxy to retrieve
+/v1/AUTH_acc/cont/index.html and, in effect, respond to the client's original
+request using the 2nd request's body. In this instance the subrequest will be
+logged by the rightmost middleware (with a swift.source set) and the outgoing
+request (with body overridden) will be logged by leftmost middleware.
+
+Requests that follow the normal pipeline (use the same wsgi environment
+throughout) will not be double logged because an environment variable
+(swift.proxy_access_log_made) is checked/set when a log is made.
+
+All middleware making subrequests should take care to set swift.source when
+needed. With the doubled proxy logs, any consumer/processor of swift's proxy
+logs should look at the swift.source field, the rightmost log value, to decide
+if this is a middleware subrequest or not. A log processor calculating
+bandwidth usage will want to only sum up logs with no swift.source.
 """
 
 import time
@@ -56,7 +77,6 @@ class ProxyLoggingMiddleware(object):
         self.log_hdrs = config_true_value(conf.get(
             'access_log_headers',
             conf.get('log_headers', 'no')))
-
         # The leading access_* check is in case someone assumes that
         # log_statsd_valid_http_methods behaves like the other log_statsd_*
         # settings.
@@ -89,6 +109,8 @@ class ProxyLoggingMiddleware(object):
         :param bytes_sent: bytes yielded to the WSGI server
         :param request_time: time taken to satisfy the request, in seconds
         """
+        if env.get('swift.proxy_access_log_made'):
+            return
         req = Request(env)
         if client_disconnect:  # log disconnected clients as '499' status code
             status_int = 499
@@ -122,6 +144,7 @@ class ProxyLoggingMiddleware(object):
                 '%.4f' % request_time,
                 req.environ.get('swift.source'),
             )))
+        env['swift.proxy_access_log_made'] = True
         # Log timing and bytes-transfered data to StatsD
         if req.path.startswith('/v1/'):
             try:
