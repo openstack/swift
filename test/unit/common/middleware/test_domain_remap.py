@@ -35,6 +35,11 @@ class TestDomainRemap(unittest.TestCase):
         self.app = domain_remap.DomainRemapMiddleware(FakeApp(), {})
 
     def test_domain_remap_passthrough(self):
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'SERVER_NAME': 'example.com'},
+                            headers={'Host': None})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'example.com'})
         resp = self.app(req.environ, start_response)
@@ -45,6 +50,11 @@ class TestDomainRemap(unittest.TestCase):
         self.assertEquals(resp, '/')
 
     def test_domain_remap_account(self):
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'SERVER_NAME': 'AUTH_a.example.com'},
+                            headers={'Host': None})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/v1/AUTH_a')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)

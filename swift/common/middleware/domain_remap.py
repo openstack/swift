@@ -78,7 +78,10 @@ class DomainRemapMiddleware(object):
     def __call__(self, env, start_response):
         if not self.storage_domain:
             return self.app(env, start_response)
-        given_domain = env['HTTP_HOST']
+        if 'HTTP_HOST' in env:
+            given_domain = env['HTTP_HOST']
+        else:
+            given_domain = env['SERVER_NAME']
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
