@@ -49,12 +49,12 @@ class Bulk(object):
     Extract Archive:
 
     Expand tar files into a swift account. Request must be a PUT with the
-    header X-Extract-Archive specifying the format of archive file. Accepted
-    formats are tar, tar.gz, and tar.bz2.
+    query parameter ?extract-archive=format specifying the format of archive
+    file. Accepted formats are tar, tar.gz, and tar.bz2.
 
     For a PUT to the following url:
 
-    /v1/AUTH_Account/$UPLOAD_PATH
+    /v1/AUTH_Account/$UPLOAD_PATH?extract-archive=tar.gz
 
     UPLOAD_PATH is where the files will be expanded to. UPLOAD_PATH can be a
     container, a pseudo-directory within a container, or an empty string. The
@@ -82,7 +82,7 @@ class Bulk(object):
     Bulk Delete:
 
     Will delete multiple objects from their account with a single request.
-    Responds to DELETE requests with a header 'X-Bulk-Delete: true'.
+    Responds to DELETE requests with query parameter ?bulk-delete set.
     The Content-Type should be set to text/plain. The body of the DELETE
     request will be a newline separated list of url encoded objects to delete.
     You can only delete 1000 (configurable) objects per request. The objects
@@ -364,17 +364,16 @@ class Bulk(object):
 
     @wsgify
     def __call__(self, req):
-        extract_type = \
-            req.headers.get('X-Extract-Archive', '').lower().strip('.')
-        if extract_type and req.method == 'PUT':
-            archive_type = {'tar': '', 'tar.gz': 'gz',
-                            'tar.bz2': 'bz2'}.get(extract_type)
+        extract_type = req.params.get('extract-archive')
+        if extract_type is not None and req.method == 'PUT':
+            archive_type = {
+                'tar': '', 'tar.gz': 'gz',
+                'tar.bz2': 'bz2'}.get(extract_type.lower().strip('.'))
             if archive_type is not None:
                 return self.handle_extract(req, archive_type)
             else:
                 return HTTPBadRequest("Unsupported archive format")
-        if (req.headers.get('X-Bulk-Delete', '').lower() in TRUE_VALUES and
-                req.method == 'DELETE'):
+        if 'bulk-delete' in req.params and req.method == 'DELETE':
             return self.handle_delete(req)
 
         return self.app
