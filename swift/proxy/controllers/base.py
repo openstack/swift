@@ -293,7 +293,7 @@ class Controller(object):
         :returns: True if error limited, False otherwise
         """
         now = time.time()
-        if not 'errors' in node:
+        if 'errors' not in node:
             return False
         if 'last_error' in node and node['last_error'] < \
                 now - self.app.error_suppression_interval:
