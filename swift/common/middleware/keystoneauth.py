@@ -62,13 +62,6 @@ class KeystoneAuth(object):
     setting which by default includes the admin and the swiftoperator
     roles.
 
-    The option is_admin if set to true will allow the
-    username that has the same name as the account name to be the owner.
-
-    Example: If we have the account called hellocorp with a user
-    hellocorp that user will be admin on that account and can give ACL
-    to all other users for hellocorp.
-
     If you need to have a different reseller_prefix to be able to
     mix different auth servers you can configure the option
     reseller_prefix in your keystoneauth entry like this :
@@ -217,6 +210,9 @@ class KeystoneAuth(object):
 
         # If user is of the same name of the tenant then make owner of it.
         if self.is_admin and user == tenant_name:
+            self.logger.warning("the is_admin feature has been deprecated "
+                                "and will be removed in the future "
+                                "update your config file")
             req.environ['swift_owner'] = True
             return
 
