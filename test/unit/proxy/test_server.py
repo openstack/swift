@@ -32,6 +32,7 @@ import time
 from urllib import unquote, quote
 from hashlib import md5
 from tempfile import mkdtemp
+import random
 
 import eventlet
 from eventlet import sleep, spawn, Timeout, util, wsgi, listen
@@ -334,7 +335,8 @@ class FakeRing(object):
                 self.devs[x] = devs[x] = \
                     {'ip': '10.0.0.%s' % x,
                      'port': 1000 + x,
-                     'device': 'sd' + (chr(ord('a') + x))}
+                     'device': 'sd' + (chr(ord('a') + x)),
+                     'id': x}
         return 1, devs
 
     def get_part_nodes(self, part):
@@ -408,15 +410,6 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.obj.http_connect = new_connect
     swift.proxy.controllers.account.http_connect = new_connect
     swift.proxy.controllers.container.http_connect = new_connect
-
-
-def set_shuffle():
-    shuffle = lambda l: None
-    proxy_server.shuffle = shuffle
-    swift.proxy.controllers.base.shuffle = shuffle
-    swift.proxy.controllers.obj.shuffle = shuffle
-    swift.proxy.controllers.account.shuffle = shuffle
-    swift.proxy.controllers.container.shuffle = shuffle
 
 
 # tests
@@ -752,6 +745,41 @@ class TestProxyServer(unittest.TestCase):
             self.assertEquals(resp.status, '403 Forbidden')
         finally:
             rmtree(swift_dir, ignore_errors=True)
+
+    def test_node_timing(self):
+        baseapp = proxy_server.Application({'sorting_method': 'timing'},
+                                           FakeMemcache(),
+                                           container_ring=FakeRing(),
+                                           object_ring=FakeRing(),
+                                           account_ring=FakeRing())
+        self.assertEquals(baseapp.node_timings, {})
+
+        req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'HEAD'})
+        baseapp.update_request(req)
+        resp = baseapp.handle_request(req)
+        self.assertEquals(resp.status_int, 503)  # couldn't connect to anything
+        exp_timings = {}
+        self.assertEquals(baseapp.node_timings, exp_timings)
+
+        proxy_server.time = lambda: times.pop(0)
+        try:
+            times = [time.time()]
+            exp_timings = {'127.0.0.1': (0.1,
+                                         times[0] + baseapp.timing_expiry)}
+            baseapp.set_node_timing({'ip': '127.0.0.1'}, 0.1)
+            self.assertEquals(baseapp.node_timings, exp_timings)
+        finally:
+            proxy_server.time = time.time
+
+        proxy_server.shuffle = lambda l: l
+        try:
+            nodes = [{'ip': '127.0.0.1'}, {'ip': '127.0.0.2'}, {'ip': '127.0.0.3'}]
+            res = baseapp.sort_nodes(nodes)
+            exp_sorting = [{'ip': '127.0.0.2'}, {'ip': '127.0.0.3'},
+                           {'ip': '127.0.0.1'}]
+            self.assertEquals(res, exp_sorting)
+        finally:
+            proxy_server.shuffle = random.shuffle
 
 
 class TestObjectController(unittest.TestCase):
@@ -1749,9 +1777,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
-            set_shuffle()
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
+            controller.app.sort_nodes = lambda l: l
             self.assert_status_map(controller.HEAD, (200, 200, 503, 200, 200),
                                    200)
             self.assertEquals(controller.app.object_ring.devs[0]['errors'], 2)
@@ -4214,9 +4242,9 @@ class TestContainerController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
-            set_shuffle()
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
+            controller.app.sort_nodes = lambda l: l
             self.assert_status_map(controller.HEAD, (200, 503, 200, 200), 200,
                                    missing_container=False)
             self.assertEquals(
@@ -5211,6 +5239,12 @@ class FakeObjectController(object):
             yield node
         for node in ring.get_more_nodes(partition):
             yield node
+
+    def sort_nodes(self, nodes):
+        return nodes
+
+    def set_node_timing(self, node, timing):
+        return
 
 
 class Stub(object):

@@ -353,10 +353,12 @@ class Controller(object):
                 break
             attempts_left -= 1
             try:
+                start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], partition, 'HEAD',
                                         path, headers)
+                self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     resp.read()
@@ -444,10 +446,12 @@ class Controller(object):
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
         for node in self.iter_nodes(part, nodes, self.app.container_ring):
             try:
+                start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, 'HEAD',
                                         path, headers)
+                self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     resp.read()
@@ -511,11 +515,13 @@ class Controller(object):
         self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
             try:
+                start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, method, path,
                                         headers=headers, query_string=query)
                     conn.node = node
+                self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
                     if not is_informational(resp.status) and \
@@ -720,6 +726,7 @@ class Controller(object):
                 break
             if self.error_limited(node):
                 continue
+            start_node_timing = time.time()
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
                     headers = dict(req.headers)
@@ -728,6 +735,7 @@ class Controller(object):
                         node['ip'], node['port'], node['device'], partition,
                         req.method, path, headers=headers,
                         query_string=req.query_string)
+                self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     possible_source = conn.getresponse()
                     # See NOTE: swift_conn at top of file about this.
