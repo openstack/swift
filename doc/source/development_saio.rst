@@ -9,11 +9,7 @@ Instructions for setting up a development VM
 This section documents setting up a virtual machine for doing Swift development.
 The virtual machine will emulate running a four node Swift cluster.
 
-* Get the *Ubuntu 10.04 LTS (Lucid Lynx)* server image:
-
-  - Ubuntu Server ISO: http://releases.ubuntu.com/lucid/ubuntu-10.04.4-server-amd64.iso (717 MB)
-  - Ubuntu Live/Install: http://cdimage.ubuntu.com/releases/lucid/release/ubuntu-10.04.4-dvd-amd64.iso (4.2 GB)
-  - Ubuntu Mirrors: https://launchpad.net/ubuntu/+cdmirrors
+* Get either Ubuntu 12.04 LTS (Precise Pangolin) or Ubuntu 10.04 LTS (Lucid Lynx) server image.
 
 * Create guest virtual machine from the Ubuntu image.
 
@@ -320,9 +316,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         [filter:proxy-logging]
         use = egg:swift#proxy_logging
 
-  #. Create `/etc/swift/swift.conf`:
-
-     .. code-block:: none
+  #. Create `/etc/swift/swift.conf`::
 
         [swift-hash]
         # random unique string that can never change (DO NOT LOSE)
@@ -739,31 +733,16 @@ Setting up scripts for running Swift
 
   #. `chmod +x ~/bin/*`
   #. `remakerings`
+  #. `cp ~/swift/test/sample.conf /etc/swift/test.conf`
   #. `cd ~/swift; ./.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
-  #. `cp ~/swift/test/sample.conf /etc/swift/test.conf`
   #. `cd ~/swift; ./.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
   #. `cd ~/swift; ./.probetests` (Note: probe tests will reset your
      environment as they call `resetswift` for each test.)
-
-If you plan to work on documentation (and who doesn't?!) you must
-install Sphinx and then you can build the documentation:
-
-On Ubuntu:
-  #. `sudo apt-get install python-sphinx`
-  #. `python setup.py build_sphinx`
-
-On MacOS:
-  #. `sudo easy_install -U sphinx`
-  #. `python setup.py build_sphinx`
-
-Install tox so you find Py26 and PEP8 problems before Jenkins does:
-  #. `sudo apt-get install python2.6-dev python-pip`
-  #. `sudo pip install tox`
 
 ----------------
 Debugging Issues

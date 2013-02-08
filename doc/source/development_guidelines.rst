@@ -30,9 +30,20 @@ To execute the unit tests:
 
   - `pip install tox`
 
+* If you do not have python 2.6 installed (as in 12.04):
+
+  - Add `export TOXENV=py27,pep8` to your `~/.bashrc`
+
+  - `. ~/.bashrc`
+
 * Run Tox from the root of the swift repo:
 
   - `tox`
+
+  Remarks:
+  if you installed using: `cd ~/swift; sudo python setup.py develop`,
+  you may need to do: `cd ~/swift; sudo chown -R swift:swift swift.egg-info`
+  prior to running tox
 
 * Optionally, run only specific tox builds:
 
@@ -56,6 +67,11 @@ More specifically:
         markup to designate parameters, return values, etc.  Documentation on
         the sphinx specific markup can be found here:
         http://sphinx.pocoo.org/markup/index.html
+
+Installing Sphinx:
+  #. Install sphinx (On Ubuntu: `sudo apt-get install python-sphinx`)
+  #. `python setup.py build_sphinx`
+
 
 ---------------------
 License and Copyright
