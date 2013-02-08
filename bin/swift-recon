@@ -309,7 +309,7 @@ class SwiftRecon(object):
             else:
                 print "[%s] - No hosts returned valid data." % k
         if least_recent_url is not None:
-            host = urlparse(url).netloc
+            host = urlparse(least_recent_url).netloc
             if not least_recent_time:
                 print 'Oldest completion was NEVER by %s.' % host
             else:
@@ -320,7 +320,7 @@ class SwiftRecon(object):
                                   time.gmtime(least_recent_time)),
                     elapsed, elapsed_unit, host)
         if most_recent_url is not None:
-            host = urlparse(url).netloc
+            host = urlparse(most_recent_url).netloc
             elapsed = time.time() - most_recent_time
             elapsed, elapsed_unit = seconds2timeunit(elapsed)
             print 'Most recent completion was %s (%d %s ago) by %s.' % (
@@ -364,7 +364,7 @@ class SwiftRecon(object):
         else:
             print "[replication_time] - No hosts returned valid data."
         if least_recent_url is not None:
-            host = urlparse(url).netloc
+            host = urlparse(least_recent_url).netloc
             if not least_recent_time:
                 print 'Oldest completion was NEVER by %s.' % host
             else:
@@ -375,7 +375,7 @@ class SwiftRecon(object):
                                   time.gmtime(least_recent_time)),
                     elapsed, elapsed_unit, host)
         if most_recent_url is not None:
-            host = urlparse(url).netloc
+            host = urlparse(most_recent_url).netloc
             elapsed = time.time() - most_recent_time
             elapsed, elapsed_unit = seconds2timeunit(elapsed)
             print 'Most recent completion was %s (%d %s ago) by %s.' % (
