@@ -187,7 +187,7 @@ class TestUntar(unittest.TestCase):
         def fake_start_response(*args, **kwargs):
             pass
 
-        req = Request.blank('/tar_works/acc/cont/')
+        req = Request.blank('/tar_works/acc/cont/?extract-archive=tar.gz')
         req.environ['wsgi.input'] = open(
             os.path.join(self.testdir, 'tar_works.tar.gz'))
         self.bulk(req.environ, fake_start_response)
@@ -196,14 +196,17 @@ class TestUntar(unittest.TestCase):
         self.app.calls = 0
         req.environ['wsgi.input'] = open(
             os.path.join(self.testdir, 'tar_works.tar.gz'))
-        req.headers['x-extract-archive'] = 'tar.gz'
         req.headers['transfer-encoding'] = 'Chunked'
         req.method = 'PUT'
         self.bulk(req.environ, fake_start_response)
         self.assertEquals(self.app.calls, 7)
 
         self.app.calls = 0
-        req.headers['x-extract-archive'] = 'bad'
+        req = Request.blank('/tar_works/acc/cont/?extract-archive=bad')
+        req.method = 'PUT'
+        req.headers['transfer-encoding'] = 'Chunked'
+        req.environ['wsgi.input'] = open(
+            os.path.join(self.testdir, 'tar_works.tar.gz'))
         t = self.bulk(req.environ, fake_start_response)
         self.assertEquals(t[0], "Unsupported archive format")
 
@@ -213,9 +216,11 @@ class TestUntar(unittest.TestCase):
         tar.add(os.path.join(self.testdir, base_name))
         tar.close()
         self.app.calls = 0
+        req = Request.blank('/tar_works/acc/cont/?extract-archive=tar')
+        req.method = 'PUT'
+        req.headers['transfer-encoding'] = 'Chunked'
         req.environ['wsgi.input'] = open(
             os.path.join(self.testdir, 'tar_works.tar'))
-        req.headers['x-extract-archive'] = 'tar'
         t = self.bulk(req.environ, fake_start_response)
         self.assertEquals(self.app.calls, 7)
 
@@ -434,9 +439,8 @@ class TestDelete(unittest.TestCase):
     def test_bulk_delete_call(self):
         def fake_start_response(*args, **kwargs):
             pass
-        req = Request.blank('/delete_works/AUTH_Acc')
+        req = Request.blank('/delete_works/AUTH_Acc?bulk-delete')
         req.method = 'DELETE'
-        req.headers['x-bulk-delete'] = 't'
         req.headers['Transfer-Encoding'] = 'chunked'
         req.environ['wsgi.input'] = StringIO('/c/f')
         self.bulk(req.environ, fake_start_response)
@@ -488,9 +492,8 @@ class TestDelete(unittest.TestCase):
         def fake_start_response(*args, **kwargs):
             self.assertTrue(args[0].startswith('413'))
 
-        req = Request.blank('/delete_works/AUTH_Acc')
+        req = Request.blank('/delete_works/AUTH_Acc?bulk-delete')
         req.method = 'DELETE'
-        req.headers['x-bulk-delete'] = 't'
         data = '\n\n' * self.bulk.max_deletes_per_request
         req.environ['wsgi.input'] = StringIO(data)
         req.content_length = len(data)
