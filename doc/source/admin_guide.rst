@@ -208,6 +208,7 @@ configuration file, /etc/swift/dispersion.conf. Example conf file::
     auth_url = http://localhost:8080/auth/v1.0
     auth_user = test:tester
     auth_key = testing
+    endpoint_type = internalURL
 
 There are also options for the conf file for specifying the dispersion coverage
 (defaults to 1%), retries, concurrency, etc. though usually the defaults are

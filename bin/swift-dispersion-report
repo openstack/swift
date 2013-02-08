@@ -324,6 +324,7 @@ Usage: %%prog [options] [conf_file]
     dispersion_coverage = int(conf.get('dispersion_coverage', 1))
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
+    endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
     if options.dump_json or config_true_value(conf.get('dump_json', 'no')):
         json_output = True
     container_report = config_true_value(conf.get('container_report', 'yes')) \
@@ -337,14 +338,17 @@ Usage: %%prog [options] [conf_file]
 
     coropool = GreenPool(size=concurrency)
 
+    os_options = {'endpoint_type': endpoint_type}
+
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],
-                          auth_version=conf.get('auth_version', '1.0'))
+                          auth_version=conf.get('auth_version', '1.0'),
+                          os_options=os_options)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
     connpool.create = lambda: Connection(
         conf['auth_url'], conf['auth_user'], conf['auth_key'], retries=retries,
-        preauthurl=url, preauthtoken=token)
+        preauthurl=url, preauthtoken=token, os_options=os_options)
 
     container_ring = Ring(swift_dir, ring_name='container')
     object_ring = Ring(swift_dir, ring_name='object')
