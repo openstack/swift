@@ -186,7 +186,7 @@ class InternalClient(object):
         """
 
         resp = self.make_request('HEAD', path, {}, acceptable_statuses)
-        if resp.status_int // 100 != 2:
+        if not resp.status_int // 100 == 2:
             return {}
         metadata_prefix = metadata_prefix.lower()
         metadata = {}
@@ -223,7 +223,7 @@ class InternalClient(object):
                 'GET', '%s?format=json&marker=%s&end_marker=%s' %
                 (path, quote(marker), quote(end_marker)),
                 {}, acceptable_statuses)
-            if resp.status_int != 200:
+            if not resp.status_int == 200:
                 break
             data = json.loads(resp.body)
             if not data:
@@ -334,6 +334,8 @@ class InternalClient(object):
 
         path = self.make_path(account)
         resp = self.make_request('HEAD', path, {}, acceptable_statuses)
+        if not resp.status_int // 100 == 2:
+            return (0, 0)
         return (int(resp.headers.get('x-account-container-count', 0)),
                 int(resp.headers.get('x-account-object-count', 0)))
 
@@ -406,7 +408,7 @@ class InternalClient(object):
 
         path = self.make_path(account, container)
         resp = self.make_request('HEAD', path, {}, (2, HTTP_NOT_FOUND))
-        return resp.status_int != HTTP_NOT_FOUND
+        return not resp.status_int == HTTP_NOT_FOUND
 
     def create_container(
             self, account, container, headers=None, acceptable_statuses=(2,)):
@@ -596,8 +598,9 @@ class InternalClient(object):
 
         headers = headers or {}
         path = self.make_path(account, container, obj)
-
         resp = self.make_request('GET', path, headers, acceptable_statuses)
+        if not resp.status_int // 100 == 2:
+            return
 
         last_part = ''
         compressed = obj.endswith('.gz')
