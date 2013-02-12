@@ -717,15 +717,15 @@ class File(Base):
 
         self.conn.put_start(self.path, hdrs=headers, parms=parms, cfg=cfg)
 
-        transfered = 0
+        transferred = 0
         buff = data.read(block_size)
         try:
             while len(buff) > 0:
                 self.conn.put_data(buff)
                 buff = data.read(block_size)
-                transfered += len(buff)
+                transferred += len(buff)
                 if callable(callback):
-                    callback(transfered, self.size)
+                    callback(transferred, self.size)
 
             self.conn.put_end()
         except socket.timeout, err:

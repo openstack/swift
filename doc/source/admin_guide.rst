@@ -354,7 +354,7 @@ Request URI                 Description
 /recon/sockstat             returns consumable info from /proc/net/sockstat|6
 /recon/devices              returns list of devices and devices dir i.e. /srv/node
 /recon/async                returns count of async pending
-/recon/replication          returns object replication times (for backward compatability)
+/recon/replication          returns object replication times (for backward compatibility)
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)

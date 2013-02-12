@@ -1462,7 +1462,7 @@ class TestObjectController(unittest.TestCase):
             limit = MAX_META_OVERALL_SIZE
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
-            count = limit / 256  # enough to cause the limit to be reched
+            count = limit / 256  # enough to cause the limit to be reached
             headers = dict(
                 (('X-Object-Meta-' + str(i), 'a' * 256)
                     for i in xrange(count + 1)))

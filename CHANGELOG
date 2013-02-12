@@ -183,7 +183,7 @@ swift (1.6.0)
       substantially affects the JSON output of the dispersion report, and any
       tools written to consume this output will need to be updated.
 
-    * Added Solaris (Illumos) compability
+    * Added Solaris (Illumos) compatibility
 
     * Added -a option to swift-get-nodes to show all handoffs
 

@@ -611,7 +611,7 @@ class TestServer(unittest.TestCase):
             self.assertEquals(len(running_pids), 1)
             self.assert_(1 in running_pids)
             self.assert_(2 not in running_pids)
-            # test persistant running pid files
+            # test persistent running pid files
             self.assert_(os.path.exists(os.path.join(t, 'test-server1.pid')))
             # test clean up stale pids
             pid_two = self.join_swift_dir('test-server2.pid')

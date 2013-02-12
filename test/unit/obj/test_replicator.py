@@ -373,7 +373,7 @@ class TestObjectReplicator(unittest.TestCase):
         whole_path_from = os.path.join(self.objects, '0', data_dir)
         hashes_file = os.path.join(self.objects, '0',
                                    object_replicator.HASH_FILE)
-        # test that non existant file except caught
+        # test that non existent file except caught
         self.assertEquals(object_replicator.invalidate_hash(whole_path_from),
                           None)
         # test that hashes get cleared

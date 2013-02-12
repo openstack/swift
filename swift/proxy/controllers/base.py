@@ -408,7 +408,7 @@ class Controller(object):
 
     def container_info(self, account, container, account_autocreate=False):
         """
-        Get container information and thusly verify container existance.
+        Get container information and thusly verify container existence.
         This will also make a call to account_info to verify that the
         account exists.
 

@@ -82,7 +82,7 @@ def command(func):
 
 
 def watch_server_pids(server_pids, interval=1, **kwargs):
-    """Monitor a collection of server pids yeilding back those pids that
+    """Monitor a collection of server pids yielding back those pids that
     aren't responding to signals.
 
     :param server_pids: a dict, lists of pids [int,...] keyed on

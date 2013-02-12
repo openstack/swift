@@ -302,7 +302,7 @@ class TestUtils(unittest.TestCase):
         lfo.tell()
 
     def test_parse_options(self):
-        # use mkstemp to get a file that is definately on disk
+        # use mkstemp to get a file that is definitely on disk
         with NamedTemporaryFile() as f:
             conf_file = f.name
             conf, options = utils.parse_options(test_args=[conf_file])

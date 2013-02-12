@@ -153,7 +153,8 @@ def check_mount(root, drive):
     """
     Verify that the path to the device is a mount point and mounted.  This
     allows us to fast fail on drives that have been unmounted because of
-    issues, and also prevents us for accidently filling up the root partition.
+    issues, and also prevents us for accidentally filling up the root
+    partition.
 
     :param root:  base path where the devices are mounted
     :param drive: drive name to be checked

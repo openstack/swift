@@ -56,7 +56,7 @@ Unauthorized and 404 Not Found) will instead serve the
 ``X-Container-Meta-Web-Error: error.html`` will serve .../404error.html for
 requests for paths not found.
 
-For psuedo paths that have no <index.name>, this middleware can serve HTML file
+For pseudo paths that have no <index.name>, this middleware can serve HTML file
 listings if you set the ``X-Container-Meta-Web-Listings: true`` metadata item
 on the container.
 

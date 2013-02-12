@@ -793,7 +793,7 @@ class ContainerBroker(DatabaseBroker):
             return (row[0] == 0)
 
     def _commit_puts(self, item_list=None):
-        """Handles commiting rows in .pending files."""
+        """Handles committing rows in .pending files."""
         if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
             return
         if item_list is None:
@@ -1320,7 +1320,7 @@ class AccountBroker(DatabaseBroker):
             WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
 
     def _commit_puts(self, item_list=None):
-        """Handles commiting rows in .pending files."""
+        """Handles committing rows in .pending files."""
         if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
             return
         if item_list is None:

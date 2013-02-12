@@ -146,7 +146,7 @@ class FallocateWrapper(object):
             self.func_name = 'posix_fallocate'
             self.fallocate = noop_libc_function
             return
-        ## fallocate is prefered because we need the on-disk size to match
+        ## fallocate is preferred because we need the on-disk size to match
         ## the allocated size. Older versions of sqlite require that the
         ## two sizes match. However, fallocate is Linux only.
         for func in ('fallocate', 'posix_fallocate'):
@@ -1066,7 +1066,7 @@ def compute_eta(start_time, current_value, final_value):
 
 def iter_devices_partitions(devices_dir, item_type):
     """
-    Iterate over partitions accross all devices.
+    Iterate over partitions across all devices.
 
     :param devices_dir: Path to devices
     :param item_type: One of 'accounts', 'containers', or 'objects'

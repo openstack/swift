@@ -106,7 +106,7 @@ class Auditor(object):
                     if resp.getheader('ETag').strip('"') != calc_hash:
                         self.object_checksum_mismatch += 1
                         consistent = False
-                        print '  MD5 doesnt match etag for "%s" on %s/%s' \
+                        print '  MD5 does not match etag for "%s" on %s/%s' \
                             % (path, node['ip'], node['device'])
                     etags.append(resp.getheader('ETag'))
                 else:

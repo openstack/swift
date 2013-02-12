@@ -295,7 +295,7 @@ class ContainerSync(Daemon):
                         break
                     key = hash_path(info['account'], info['container'],
                                     row['name'], raw_digest=True)
-                    # This node will only intially sync out one third of the
+                    # This node will only initially sync out one third of the
                     # objects (if 3 replicas, 1/4 if 4, etc.). This section
                     # will attempt to sync previously skipped rows in case the
                     # other nodes didn't succeed.
@@ -313,7 +313,7 @@ class ContainerSync(Daemon):
                     row = rows[0]
                     key = hash_path(info['account'], info['container'],
                                     row['name'], raw_digest=True)
-                    # This node will only intially sync out one third of the
+                    # This node will only initially sync out one third of the
                     # objects (if 3 replicas, 1/4 if 4, etc.). It'll come back
                     # around to the section above and attempt to sync
                     # previously skipped rows in case the other nodes didn't

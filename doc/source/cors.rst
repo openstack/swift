@@ -24,12 +24,12 @@ The supported headers are,
 +----------------------------------------------+------------------------------+
 |X-Container-Meta-Access-Control-Allow-Headers | Headers to be allowed in     |
 |                                              | actual request by browser,   |
-|                                              | space seperated.             |
+|                                              | space separated.             |
 +----------------------------------------------+------------------------------+
 |X-Container-Meta-Access-Control-Expose-Headers| Headers exposed to the user  |
 |                                              | agent (e.g. browser) in the  |
 |                                              | the actual request response. |
-|                                              | Space seperated.             |
+|                                              | Space separated.             |
 +----------------------------------------------+------------------------------+
 
 Before a browser issues an actual request it may issue a `preflight request`_.
@@ -70,7 +70,7 @@ header,::
       -H 'X-Container-Meta-Access-Control-Allow-Origin: http://localhost' \
       http://192.168.56.3:8080/v1/AUTH_test/cont1
 
-At this point the container is now accessable to CORS clients hosted on
+At this point the container is now accessible to CORS clients hosted on
 http://localhost. Open the test CORS page in your browser.
 
 #. Populate the Token field

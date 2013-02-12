@@ -154,7 +154,7 @@ class TestContainerSync(unittest.TestCase):
 
     def test_run_once(self):
         # This runs runs_once with fakes twice, the first causing an interim
-        # report, the second with no interm report.
+        # report, the second with no interim report.
         time_calls = [0]
         audit_location_generator_calls = [0]
 
