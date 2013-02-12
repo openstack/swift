@@ -80,7 +80,8 @@ class ContainerQuotaMiddleware(object):
 
         # check user uploads against quotas
         elif obj and req.method == 'PUT':
-            container_info = get_container_info(req.environ, self.app)
+            container_info = get_container_info(
+                req.environ, self.app, swift_source='CQ')
             if not container_info or not is_success(container_info['status']):
                 # this will hopefully 404 later
                 return self.app

@@ -309,18 +309,7 @@ class TempAuth(object):
             if 'x-storage-token' in req.headers and \
                     'x-auth-token' not in req.headers:
                 req.headers['x-auth-token'] = req.headers['x-storage-token']
-            if 'eventlet.posthooks' in env:
-                env['eventlet.posthooks'].append(
-                    (self.posthooklogger, (req,), {}))
-                return self.handle_request(req)(env, start_response)
-            else:
-                # Lack of posthook support means that we have to log on the
-                # start of the response, rather than after all the data has
-                # been sent. This prevents logging client disconnects
-                # differently than full transmissions.
-                response = self.handle_request(req)(env, start_response)
-                self.posthooklogger(env, req)
-                return response
+            return self.handle_request(req)(env, start_response)
         except (Exception, Timeout):
             print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
             self.logger.increment('errors')
@@ -465,42 +454,6 @@ class TempAuth(object):
             url = self.storage_url_scheme + ':' + url.split(':', 1)[1]
         resp.headers['x-storage-url'] = url
         return resp
-
-    def posthooklogger(self, env, req):
-        if not req.path.startswith(self.auth_prefix):
-            return
-        response = getattr(req, 'response', None)
-        if not response:
-            return
-        trans_time = '%.4f' % (time() - req.start_time)
-        the_request = quote(unquote(req.path))
-        if req.query_string:
-            the_request = the_request + '?' + req.query_string
-        # remote user for zeus
-        client = req.headers.get('x-cluster-client-ip')
-        if not client and 'x-forwarded-for' in req.headers:
-            # remote user for other lbs
-            client = req.headers['x-forwarded-for'].split(',')[0].strip()
-        logged_headers = None
-        if self.log_headers:
-            logged_headers = '\n'.join('%s: %s' % (k, v)
-                                       for k, v in req.headers.items())
-        status_int = response.status_int
-        if getattr(req, 'client_disconnect', False) or \
-                getattr(response, 'client_disconnect', False):
-            status_int = HTTP_CLIENT_CLOSED_REQUEST
-        self.logger.info(
-            ' '.join(quote(str(x)) for x in (client or '-',
-            req.remote_addr or '-', strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
-            req.method, the_request, req.environ['SERVER_PROTOCOL'],
-            status_int, req.referer or '-', req.user_agent or '-',
-            req.headers.get('x-auth-token',
-                            req.headers.get('x-auth-admin-user', '-')),
-            getattr(req, 'bytes_transferred', 0) or '-',
-            getattr(response, 'bytes_transferred', 0) or '-',
-            req.headers.get('etag', '-'),
-            req.environ.get('swift.trans_id', '-'), logged_headers or '-',
-            trans_time)))
 
 
 def filter_factory(global_conf, **local_conf):

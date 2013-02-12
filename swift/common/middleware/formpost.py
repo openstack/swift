@@ -109,7 +109,7 @@ from StringIO import StringIO
 from time import gmtime, strftime, time
 from urllib import quote, unquote
 
-from swift.common.utils import get_logger, streq_const_time
+from swift.common.utils import streq_const_time
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.http import HTTP_BAD_REQUEST
 
@@ -285,6 +285,9 @@ class FormPost(object):
 
     See above for a full description.
 
+    The proxy logs created for any subrequests made will have swift.source set
+    to "FP".
+
     :param app: The next WSGI filter or app in the paste.deploy
                 chain.
     :param conf: The configuration dict for the middleware.
@@ -295,10 +298,6 @@ class FormPost(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
-        #: The logger to use with this middleware.
-        self.logger = get_logger(conf, log_route='formpost')
-        #: The HTTP user agent to use with subrequests.
-        self.agent = '%(orig)s FormPost'
 
     def __call__(self, env, start_response):
         """
@@ -314,13 +313,12 @@ class FormPost(object):
                     _parse_attrs(env.get('CONTENT_TYPE') or '')
                 if content_type == 'multipart/form-data' and \
                         'boundary' in attrs:
+                    env['HTTP_USER_AGENT'] += ' FormPost'
                     status, headers, body = self._translate_form(
                         env, attrs['boundary'])
-                    self._log_request(env, int(status.split(' ', 1)[0]))
                     start_response(status, headers)
                     return body
             except (FormInvalid, EOFError), err:
-                self._log_request(env, HTTP_BAD_REQUEST)
                 body = 'FormPost: %s' % err
                 start_response(
                     '400 Bad Request',
@@ -413,7 +411,8 @@ class FormPost(object):
             max_file_size = int(attributes.get('max_file_size') or 0)
         except ValueError:
             raise FormInvalid('max_file_size not an integer')
-        subenv = make_pre_authed_env(orig_env, 'PUT', agent=self.agent)
+        subenv = make_pre_authed_env(orig_env, 'PUT', agent=None,
+                                     swift_source='FP')
         subenv['HTTP_TRANSFER_ENCODING'] = 'chunked'
         subenv['wsgi.input'] = _CappedFileLikeObject(fp, max_file_size)
         if subenv['PATH_INFO'][-1] != '/' and \
@@ -471,7 +470,7 @@ class FormPost(object):
             key = memcache.get('temp-url-key/%s' % account)
         if not key:
             newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
-                                         self.agent)
+                                         agent=None, swift_source='FP')
             newenv['CONTENT_LENGTH'] = '0'
             newenv['wsgi.input'] = StringIO('')
             key = [None]
@@ -490,45 +489,6 @@ class FormPost(object):
             if key and memcache:
                 memcache.set('temp-url-key/%s' % account, key, timeout=60)
         return key
-
-    def _log_request(self, env, response_status_int):
-        """
-        Used when a request might not be logged by the underlying
-        WSGI application, but we'd still like to record what
-        happened. An early 401 Unauthorized is a good example of
-        this.
-
-        :param env: The WSGI environment for the request.
-        :param response_status_int: The HTTP status we'll be replying
-                                    to the request with.
-        """
-        the_request = quote(unquote(env.get('PATH_INFO') or '/'))
-        if env.get('QUERY_STRING'):
-            the_request = the_request + '?' + env['QUERY_STRING']
-        client = env.get('HTTP_X_CLUSTER_CLIENT_IP')
-        if not client and 'HTTP_X_FORWARDED_FOR' in env:
-            # remote host for other lbs
-            client = env['HTTP_X_FORWARDED_FOR'].split(',')[0].strip()
-        if not client:
-            client = env.get('REMOTE_ADDR')
-        self.logger.info(' '.join(quote(str(x)) for x in (
-            client or '-',
-            env.get('REMOTE_ADDR') or '-',
-            strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
-            env.get('REQUEST_METHOD') or 'GET',
-            the_request,
-            env.get('SERVER_PROTOCOL') or '1.0',
-            response_status_int,
-            env.get('HTTP_REFERER') or '-',
-            (env.get('HTTP_USER_AGENT') or '-') + ' FormPOST',
-            env.get('HTTP_X_AUTH_TOKEN') or '-',
-            '-',
-            '-',
-            '-',
-            env.get('swift.trans_id') or '-',
-            '-',
-            '-',
-        )))
 
 
 def filter_factory(global_conf, **local_conf):

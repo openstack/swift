@@ -187,6 +187,14 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue('wsgi.input' in newenv)
         self.assertEquals(newenv['wsgi.input'].read(), '')
 
+        oldenv = {'swift.source': 'UT'}
+        newenv = wsgi.make_pre_authed_env(oldenv)
+        self.assertEquals(newenv['swift.source'], 'UT')
+
+        oldenv = {'swift.source': 'UT'}
+        newenv = wsgi.make_pre_authed_env(oldenv, swift_source='SA')
+        self.assertEquals(newenv['swift.source'], 'SA')
+
     def test_pre_auth_req(self):
         class FakeReq(object):
             @classmethod
@@ -237,6 +245,12 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(e['SCRIPT_NAME'], '')
         self.assertEquals(e['PATH_INFO'], '/override')
 
+    def test_pre_auth_req_swift_source(self):
+        r = wsgi.make_pre_authed_request(
+            {'QUERY_STRING': 'original'}, 'GET', 'path', 'the body',
+            swift_source='UT')
+        self.assertEquals(r.body, 'the body')
+        self.assertEquals(r.environ['swift.source'], 'UT')
 
 class TestWSGIContext(unittest.TestCase):
 

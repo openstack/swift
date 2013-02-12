@@ -33,7 +33,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors healthcheck cache ratelimit tempauth container-quotas proxy-logging proxy-server
+pipeline = catch_errors healthcheck proxy-logging cache ratelimit tempauth container-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -265,15 +265,6 @@ use = egg:swift#cname_lookup
 use = egg:swift#staticweb
 # Seconds to cache container x-container-meta-web-* header values.
 # cache_timeout = 300
-# You can override the default log routing for this filter here:
-# set log_name = staticweb
-# set log_facility = LOG_LOCAL0
-# set log_level = INFO
-# set log_address = /dev/log
-# set access_log_name = staticweb
-# set access_log_facility = LOG_LOCAL0
-# set access_log_level = INFO
-# set log_headers = False
 
 # Note: Put tempurl just before your auth filter(s) in the pipeline
 [filter:tempurl]
@@ -331,6 +322,11 @@ use = egg:swift#proxy_logging
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 # log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
+# Note: The double proxy-logging in the pipeline is not a mistake. The
+# left-most proxy-logging is there to log requests that were handled in
+# middleware and never made it through to the right-most middleware (and
+# proxy server). Double logging is prevented for normal requests. See
+# proxy-logging docs.
 
 # Note: Put before both ratelimit and auth in the pipeline.
 [filter:bulk]
