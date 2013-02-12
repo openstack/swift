@@ -40,14 +40,15 @@ class KeystoneAuth(object):
 
     If support is required for unvalidated users (as with anonymous
     access) or for tempurl/formpost middleware, authtoken will need
-    to be configured with delay_auth_decision set to 1.  See the
+    to be configured with ``delay_auth_decision`` set to 1.  See the
     Keystone documentation for more detail on how to configure the
     authtoken middleware.
 
     In proxy-server.conf you will need to have the setting account
     auto creation to true::
 
-        [app:proxy-server] account_autocreate = true
+        [app:proxy-server]
+        account_autocreate = true
 
     And add a swift authorization filter section, such as::
 
@@ -58,18 +59,18 @@ class KeystoneAuth(object):
     This maps tenants to account in Swift.
 
     The user whose able to give ACL / create Containers permissions
-    will be the one that are inside the operator_roles
+    will be the one that are inside the ``operator_roles``
     setting which by default includes the admin and the swiftoperator
     roles.
 
     If you need to have a different reseller_prefix to be able to
     mix different auth servers you can configure the option
-    reseller_prefix in your keystoneauth entry like this :
+    ``reseller_prefix`` in your keystoneauth entry like this::
 
         reseller_prefix = NEWAUTH_
 
     Make sure you have a underscore at the end of your new
-    reseller_prefix option.
+    ``reseller_prefix`` option.
 
     :param app: The next WSGI app in the pipeline
     :param conf: The dict of configuration values
