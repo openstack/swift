@@ -963,7 +963,7 @@ class TestObjectController(unittest.TestCase):
         listing3 = [{"hash": "6605f80e3cefaa24e9823544df4edbd6",
                      "last_modified": "2012-11-08T04:05:37.853710",
                      "bytes": 2,
-                     "name": "seg05",
+                     "name": u'\N{SNOWMAN}seg05',
                      "content_type": "application/octet-stream"}]
 
         response_bodies = (
@@ -1029,9 +1029,10 @@ class TestObjectController(unittest.TestCase):
                      ['GET', '/a/segments/seg04', {}],
                      ['GET', '/a/segments',
                       {'format': 'json', 'prefix': 'seg', 'marker': 'seg04'}],
-                     ['GET', '/a/segments/seg05', {}],
+                     ['GET', '/a/segments/\xe2\x98\x83seg05', {}],
                      ['GET', '/a/segments',
-                      {'format': 'json', 'prefix': 'seg', 'marker': 'seg05'}]])
+                      {'format': 'json', 'prefix': 'seg',
+                       'marker': '\xe2\x98\x83seg05'}]])
 
             finally:
                 # other tests in this file get very unhappy if this
