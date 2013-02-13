@@ -358,11 +358,11 @@ class FakeMemcache(object):
     def keys(self):
         return self.store.keys()
 
-    def set(self, key, value, timeout=0):
+    def set(self, key, value, time=0):
         self.store[key] = value
         return True
 
-    def incr(self, key, timeout=0):
+    def incr(self, key, time=0):
         self.store[key] = self.store.setdefault(key, 0) + 1
         return self.store[key]
 

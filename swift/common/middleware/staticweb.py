@@ -213,7 +213,7 @@ class _StaticWebContext(WSGIContext):
                 memcache_client.set(memcache_key,
                                     (self._index, self._error, self._listings,
                                      self._listings_css),
-                                    timeout=self.cache_timeout)
+                                    time=self.cache_timeout)
 
     def _listing(self, env, start_response, prefix=None):
         """

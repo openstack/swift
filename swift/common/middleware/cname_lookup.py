@@ -108,7 +108,7 @@ class CNAMELookupMiddleware(object):
                     if self.memcache:
                         memcache_key = ''.join(['cname-', given_domain])
                         self.memcache.set(memcache_key, found_domain,
-                                          timeout=ttl)
+                                          time=ttl)
                 if found_domain is None or found_domain == a_domain:
                     # no CNAME records or we're at the last lookup
                     error = True

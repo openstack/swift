@@ -401,7 +401,7 @@ class Controller(object):
             self.app.memcache.set(cache_key,
                                   {'status': result_code,
                                   'container_count': container_count},
-                                  timeout=cache_timeout)
+                                  time=cache_timeout)
         if result_code == HTTP_OK:
             return partition, nodes, container_count
         return None, None, None
@@ -472,11 +472,11 @@ class Controller(object):
             if container_info['status'] == HTTP_OK:
                 self.app.memcache.set(
                     cache_key, container_info,
-                    timeout=self.app.recheck_container_existence)
+                    time=self.app.recheck_container_existence)
             elif container_info['status'] == HTTP_NOT_FOUND:
                 self.app.memcache.set(
                     cache_key, container_info,
-                    timeout=self.app.recheck_container_existence * 0.1)
+                    time=self.app.recheck_container_existence * 0.1)
         if container_info['status'] == HTTP_OK:
             container_info['partition'] = part
             container_info['nodes'] = nodes

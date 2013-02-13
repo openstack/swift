@@ -79,7 +79,7 @@ class ContainerController(Controller):
             self.app.memcache.set(
                 cache_key,
                 headers_to_container_info(resp.headers, resp.status_int),
-                timeout=self.app.recheck_container_existence)
+                time=self.app.recheck_container_existence)
 
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
