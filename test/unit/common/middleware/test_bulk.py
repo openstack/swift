@@ -390,8 +390,8 @@ class TestUntar(unittest.TestCase):
 
     def test_get_response_body(self):
         self.assertRaises(
-            HTTPException, self.bulk.get_response_body, 'badformat', {}, [])
-        xml_body = self.bulk.get_response_body(
+            HTTPException, bulk.get_response_body, 'badformat', {}, [])
+        xml_body = bulk.get_response_body(
             'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']])
         self.assert_('&gt' in xml_body)
 
@@ -461,18 +461,20 @@ class TestDelete(unittest.TestCase):
             results = self.bulk.get_objs_to_delete(req)
             self.assertEquals(results, ['1', '2', '3'])
 
-    def test_bulk_delete_works_extra_newlines(self):
+    def test_bulk_delete_works_extra_newlines_extra_quoting(self):
         req = Request.blank('/delete_works/AUTH_Acc',
-                            body='/c/f\n\n\n/c/f404\n\n\n',
+                            body='/c/f\n\n\n/c/f404\n\n\n/c/%2525',
                             headers={'Accept': 'application/json'})
         req.method = 'DELETE'
         resp = self.bulk.handle_delete(req)
         self.assertEquals(
             self.app.delete_paths,
-            ['/delete_works/AUTH_Acc/c/f', '/delete_works/AUTH_Acc/c/f404'])
-        self.assertEquals(self.app.calls, 2)
+            ['/delete_works/AUTH_Acc/c/f',
+             '/delete_works/AUTH_Acc/c/f404',
+             '/delete_works/AUTH_Acc/c/%25'])
+        self.assertEquals(self.app.calls, 3)
         resp_data = json.loads(resp.body)
-        self.assertEquals(resp_data['Number Deleted'], 1)
+        self.assertEquals(resp_data['Number Deleted'], 2)
         self.assertEquals(resp_data['Number Not Found'], 1)
 
     def test_bulk_delete_too_many_newlines(self):

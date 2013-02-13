@@ -34,7 +34,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors healthcheck proxy-logging cache ratelimit tempauth container-quotas proxy-logging proxy-server
+pipeline = catch_errors healthcheck proxy-logging cache slo ratelimit tempauth container-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -94,6 +94,10 @@ use = egg:swift#proxy
 # If the timing sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
+# If set to false will treat objects with X-Static-Large-Object header set
+# as a regular object on GETs, i.e. will return that object's contents. Should
+# be set to false if slo is not used in pipeline.
+# allow_static_large_object = true
 
 [filter:tempauth]
 use = egg:swift#tempauth
@@ -348,3 +352,10 @@ use = egg:swift#bulk
 # Note: Put after auth in the pipeline.
 [filter:container-quotas]
 use = egg:swift#container_quotas
+
+# Note: Put before both ratelimit and auth in the pipeline.
+[filter:slo]
+use = egg:swift#slo
+# max_manifest_segments = 1000
+# max_manifest_size = 2097152
+# min_segment_size = 1048576

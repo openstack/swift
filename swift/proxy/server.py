@@ -113,6 +113,8 @@ class Application(object):
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
+        self.allow_static_large_object = config_true_value(
+            conf.get('allow_static_large_object', 'true'))
 
     def get_controller(self, path):
         """

@@ -233,13 +233,19 @@ def fake_http_connect(*code_iter, **kwargs):
             return FakeConn(100)
 
         def getheaders(self):
+            etag = self.etag
+            if not etag:
+                if isinstance(self.body, str):
+                    etag = '"' + md5(self.body).hexdigest() + '"'
+                else:
+                    etag = '"68b329da9893e34099c7d8ad5cb9c940"'
+
             headers = {'content-length': len(self.body),
                        'content-type': 'x-application/test',
                        'x-timestamp': self.timestamp,
                        'last-modified': self.timestamp,
                        'x-object-meta-test': 'testing',
-                       'etag':
-                       self.etag or '"68b329da9893e34099c7d8ad5cb9c940"',
+                       'etag': etag,
                        'x-works': 'yes',
                        'x-account-container-count': 12345}
             if not self.timestamp:
@@ -952,27 +958,29 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(test_errors, [])
 
     def test_GET_manifest_no_segments(self):
-        response_bodies = (
-            '',                     # HEAD /a
-            '',                     # HEAD /a/c
-            '',                     # GET manifest
-            simplejson.dumps([]))   # GET empty listing
+        for hdict in [{"X-Object-Manifest": "segments/seg"},
+                      {"X-Static-Large-Object": "True"}]:
+            response_bodies = (
+                '',                     # HEAD /a
+                '',                     # HEAD /a/c
+                '',                     # GET manifest
+                simplejson.dumps([]))   # GET empty listing
 
-        with save_globals():
-            controller = proxy_server.ObjectController(
-                self.app, 'a', 'c', 'manifest')
-            set_http_connect(
-                200,    # HEAD /a
-                200,    # HEAD /a/c
-                200,    # GET manifest
-                200,    # GET empty listing
-                headers={"X-Object-Manifest": "segments/seg"},
-                body_iter=response_bodies)
+            with save_globals():
+                controller = proxy_server.ObjectController(
+                    self.app, 'a', 'c', 'manifest')
+                set_http_connect(
+                    200,    # HEAD /a
+                    200,    # HEAD /a/c
+                    200,    # GET manifest
+                    200,    # GET empty listing
+                    headers=hdict,
+                    body_iter=response_bodies)
 
-            req = Request.blank('/a/c/manifest')
-            resp = controller.GET(req)
-            self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.body, '')
+                req = Request.blank('/a/c/manifest')
+                resp = controller.GET(req)
+                self.assertEqual(resp.status_int, 200)
+                self.assertEqual(resp.body, '')
 
     def test_GET_manifest_limited_listing(self):
         listing1 = [{"hash": "454dfc73af632012ce3e6217dc464241",
@@ -1024,6 +1032,7 @@ class TestObjectController(unittest.TestCase):
                     self.app, 'a', 'c', 'manifest')
 
                 requested = []
+
                 def capture_requested_paths(ipaddr, port, device, partition,
                                             method, path, headers=None,
                                             query_string=None):
@@ -1078,6 +1087,229 @@ class TestObjectController(unittest.TestCase):
                 # debugging of other tests.
                 swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = \
                     _orig_container_listing_limit
+
+    def test_GET_manifest_slo(self):
+        listing = [{"hash": "98568d540134639be4655198a36614a4",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            simplejson.dumps(listing),    # GET manifest
+            'Aa',                         # GET seg01
+            'Bb')                         # GET seg02
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET listing1
+                200,    # GET seg01
+                200,    # GET seg02
+                headers={"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'},
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+
+            req = Request.blank('/a/c/manifest')
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, 'AaBb')
+            self.assertEqual(resp.content_length, 4)
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d1/seg01', {}],
+                 ['GET', '/a/d2/seg02', {}]])
+
+    def test_GET_bad_etag_manifest_slo(self):
+        listing = [{"hash": "98568d540134639be4655198a36614a4",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "invalidhash",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            simplejson.dumps(listing),    # GET manifest
+            'Aa',                         # GET seg01
+            'Bb')                         # GET seg02
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET listing1
+                200,    # GET seg01
+                200,    # GET seg02
+                headers={"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'},
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+            req = Request.blank('/a/c/manifest')
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, 'Aa')  # dropped connection
+            self.assertEqual(resp.content_length, 4)  # content incomplete
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d1/seg01', {}],
+                 ['GET', '/a/d2/seg02', {}]])
+
+    def test_GET_bad_404_manifest_slo(self):
+        listing = [{"hash": "98568d540134639be4655198a36614a4",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "invalidhash",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg03",
+                    "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            simplejson.dumps(listing),    # GET manifest
+            'Aa',                         # GET seg01
+            '')                           # GET seg02
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET listing1
+                200,    # GET seg01
+                404,    # GET seg02
+                headers={"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'},
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+            req = Request.blank('/a/c/manifest')
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, 'Aa')  # dropped connection
+            self.assertEqual(resp.content_length, 6)  # content incomplete
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d1/seg01', {}],
+                 ['GET', '/a/d2/seg02', {}],
+                 ['GET', '/a/d2/seg02', {}],
+                 ['GET', '/a/d2/seg02', {}]])  # 2nd segment not found
+
+    def test_HEAD_manifest_slo(self):
+        listing = [{"hash": "454dfc73af632012ce3e6217dc464241",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "474bab96c67528d42d5c0c52b35228eb",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                              # HEAD /a
+            '',                              # HEAD /a/c
+            '',                              # HEAD manifest
+            simplejson.dumps(listing))       # GET manifest
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # HEAD listing1
+                200,    # GET listing1
+                headers={"X-Static-Large-Object": "True"},
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+
+            req = Request.blank('/a/c/manifest',
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = controller.HEAD(req)
+            self.assertEqual(resp.status_int, 200)
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['HEAD', '/a/c/manifest', {}],
+                 ['GET', '/a/c/manifest', {}]])
 
     def test_PUT_auto_content_type(self):
         with save_globals():
@@ -1196,6 +1428,17 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.PUT(req)
             self.assertEquals(res.status_int, 413)
+
+    def test_PUT_bad_content_type(self):
+        with save_globals():
+            set_http_connect(201, 201, 201)
+            controller = proxy_server.ObjectController(self.app, 'account',
+                                                       'container', 'object')
+            req = Request.blank('/a/c/o', {}, headers={
+                'Content-Length': 0, 'Content-Type': 'foo/bar;swift_hey=45'})
+            self.app.update_request(req)
+            res = controller.PUT(req)
+            self.assertEquals(res.status_int, 400)
 
     def test_PUT_getresponse_exceptions(self):
 

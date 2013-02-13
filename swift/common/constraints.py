@@ -42,6 +42,8 @@ MAX_META_VALUE_LENGTH = constraints_conf_int('max_meta_value_length', 256)
 MAX_META_COUNT = constraints_conf_int('max_meta_count', 90)
 #: Max overall size of metadata
 MAX_META_OVERALL_SIZE = constraints_conf_int('max_meta_overall_size', 4096)
+#: Max size of any header
+MAX_HEADER_SIZE = constraints_conf_int('max_header_size', 8192)
 #: Max object name length
 MAX_OBJECT_NAME_LENGTH = constraints_conf_int('max_object_name_length', 1024)
 #: Max object list length of a get request for a container
@@ -68,12 +70,14 @@ def check_metadata(req, target_type):
     :param req: request object
     :param target_type: str: one of: object, container, or account: indicates
                         which type the target storage for the metadata is
-    :raises HTTPBadRequest: bad metadata
+    :returns: HTTPBadRequest with bad metadata otherwise None
     """
     prefix = 'x-%s-meta-' % target_type.lower()
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.iteritems():
+        if isinstance(value, basestring) and len(value) > MAX_HEADER_SIZE:
+            return HTTPBadRequest('Header Line Too Long')
         if not key.lower().startswith(prefix):
             continue
         key = key[len(prefix):]
@@ -108,11 +112,11 @@ def check_object_creation(req, object_name):
 
     :param req: HTTP request object
     :param object_name: name of object to be created
-    :raises HTTPRequestEntityTooLarge: the object is too large
-    :raises HTTPLengthRequered: missing content-length header and not
-                                a chunked request
-    :raises HTTPBadRequest: missing or bad content-type header, or
-                            bad metadata
+    :returns HTTPRequestEntityTooLarge: the object is too large
+    :returns HTTPLengthRequired: missing content-length header and not
+                                 a chunked request
+    :returns HTTPBadRequest: missing or bad content-type header, or
+                             bad metadata
     """
     if req.content_length and req.content_length > MAX_FILE_SIZE:
         return HTTPRequestEntityTooLarge(body='Your request is too large.',

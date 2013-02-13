@@ -203,5 +203,13 @@ class TestConstraints(unittest.TestCase):
                               valid_utf8_str]:
             self.assertTrue(constraints.check_utf8(true_argument))
 
+    def test_validate_bad_meta(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'x-object-meta-hello':
+                     'ab' * constraints.MAX_HEADER_SIZE})
+        self.assertEquals(constraints.check_metadata(req, 'object').status_int,
+                          HTTP_BAD_REQUEST)
+
 if __name__ == '__main__':
     unittest.main()

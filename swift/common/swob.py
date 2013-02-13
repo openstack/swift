@@ -646,7 +646,10 @@ def _req_environ_property(environ_field):
         return self.environ.get(environ_field, None)
 
     def setter(self, value):
-        self.environ[environ_field] = value
+        if isinstance(value, unicode):
+            self.environ[environ_field] = value.encode('utf-8')
+        else:
+            self.environ[environ_field] = value
 
     return property(getter, setter, doc=("Get and set the %s property "
                     "in the WSGI environment") % environ_field)
@@ -730,6 +733,8 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
+        if isinstance(path, unicode):
+            path = path.encode('utf-8')
         parsed_path = urlparse.urlparse(path)
         server_name = 'localhost'
         if parsed_path.netloc:
