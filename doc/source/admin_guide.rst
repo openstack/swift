@@ -416,7 +416,8 @@ configuration entries (see the sample configuration files)::
 
     log_statsd_host = localhost
     log_statsd_port = 8125
-    log_statsd_default_sample_rate = 1
+    log_statsd_default_sample_rate = 1.0
+    log_statsd_sample_rate_factor = 1.0
     log_statsd_metric_prefix =                [empty-string]
 
 If `log_statsd_host` is not set, this feature is disabled.  The default values
@@ -431,9 +432,24 @@ probability of sending a sample for any given event or timing measurement.
 This sample rate is sent with each sample to StatsD and used to
 multiply the value.  For example, with a sample rate of 0.5, StatsD will
 multiply that counter's value by 2 when flushing the metric to an upstream
-monitoring system (Graphite_, Ganglia_, etc.).  To get the best data, start
-with the default `log_statsd_default_sample_rate` value of 1 and only lower
-it as needed.
+monitoring system (Graphite_, Ganglia_, etc.).
+
+Some relatively high-frequency metrics have a default sample rate less than
+one.  If you want to override the default sample rate for all metrics whose
+default sample rate is not specified in the Swift source, you may set
+`log_statsd_default_sample_rate` to a value less than one.  This is NOT
+recommended (see next paragraph).  A better way to reduce StatsD load is to
+adjust `log_statsd_sample_rate_factor` to a value less than one.  The
+`log_statsd_sample_rate_factor` is multiplied to any sample rate (either the
+global default or one specified by the actual metric logging call in the Swift
+source) prior to handling.  In other words, this one tunable can lower the
+frequency of all StatsD logging by a proportional amount.
+
+To get the best data, start with the default `log_statsd_default_sample_rate`
+and `log_statsd_sample_rate_factor` values of 1 and only lower
+`log_statsd_sample_rate_factor` if needed.  The
+`log_statsd_default_sample_rate` should not be used and remains for backward
+compatibility only.
 
 The metric prefix will be prepended to every metric sent to the StatsD server
 For example, with::

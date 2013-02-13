@@ -24,7 +24,8 @@
 # You can enable StatsD logging here:
 # log_statsd_host = localhost
 # log_statsd_port = 8125
-# log_statsd_default_sample_rate = 1
+# log_statsd_default_sample_rate = 1.0
+# log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
 # If you don't mind the extra disk space usage in overhead, you can turn this
 # on to preallocate disk space with SQLite databases to decrease fragmentation.

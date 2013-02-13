@@ -62,7 +62,7 @@ class AccountController(object):
         return AccountBroker(db_path, account=account, logger=self.logger)
 
     @public
-    @timing_stats
+    @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         try:
@@ -84,7 +84,7 @@ class AccountController(object):
         return HTTPNoContent(request=req)
 
     @public
-    @timing_stats
+    @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
         try:
@@ -139,7 +139,7 @@ class AccountController(object):
                 return HTTPAccepted(request=req)
 
     @public
-    @timing_stats
+    @timing_stats()
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
         # TODO(refactor): The account server used to provide a 'account and
@@ -186,7 +186,7 @@ class AccountController(object):
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
-    @timing_stats
+    @timing_stats()
     def GET(self, req):
         """Handle HTTP GET request."""
         try:
@@ -274,7 +274,7 @@ class AccountController(object):
         return ret
 
     @public
-    @timing_stats
+    @timing_stats()
     def REPLICATE(self, req):
         """
         Handle HTTP REPLICATE request.
@@ -298,7 +298,7 @@ class AccountController(object):
         return ret
 
     @public
-    @timing_stats
+    @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
         try:

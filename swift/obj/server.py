@@ -563,7 +563,7 @@ class ObjectController(object):
                 host, partition, contdevice, headers_out, objdevice)
 
     @public
-    @timing_stats
+    @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
         try:
@@ -612,7 +612,7 @@ class ObjectController(object):
         return HTTPAccepted(request=request)
 
     @public
-    @timing_stats
+    @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
         try:
@@ -710,7 +710,7 @@ class ObjectController(object):
         return resp
 
     @public
-    @timing_stats
+    @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
         try:
@@ -790,7 +790,7 @@ class ObjectController(object):
         return request.get_response(response)
 
     @public
-    @timing_stats
+    @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         try:
@@ -830,7 +830,7 @@ class ObjectController(object):
         return response
 
     @public
-    @timing_stats
+    @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         try:
@@ -878,7 +878,7 @@ class ObjectController(object):
         return resp
 
     @public
-    @timing_stats
+    @timing_stats(sample_rate=0.1)
     def REPLICATE(self, request):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used

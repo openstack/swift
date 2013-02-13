@@ -163,7 +163,7 @@ class ContainerController(object):
             return None
 
     @public
-    @timing_stats
+    @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         try:
@@ -205,7 +205,7 @@ class ContainerController(object):
             return HTTPNotFound()
 
     @public
-    @timing_stats
+    @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
         try:
@@ -268,7 +268,7 @@ class ContainerController(object):
                 return HTTPAccepted(request=req)
 
     @public
-    @timing_stats
+    @timing_stats(sample_rate=0.1)
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
         try:
@@ -306,7 +306,7 @@ class ContainerController(object):
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
-    @timing_stats
+    @timing_stats()
     def GET(self, req):
         """Handle HTTP GET request."""
         try:
@@ -413,7 +413,7 @@ class ContainerController(object):
         return ret
 
     @public
-    @timing_stats
+    @timing_stats(sample_rate=0.01)
     def REPLICATE(self, req):
         """
         Handle HTTP REPLICATE request (json-encoded RPC calls for replication.)
@@ -436,7 +436,7 @@ class ContainerController(object):
         return ret
 
     @public
-    @timing_stats
+    @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
         try:
