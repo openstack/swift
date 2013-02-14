@@ -57,6 +57,15 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect
 
 
+def segment_listing_iter(listing):
+    listing = iter(listing)
+    while True:
+        seg_dict = listing.next()
+        if isinstance(seg_dict['name'], unicode):
+            seg_dict['name'] = seg_dict['name'].encode('utf-8')
+        yield seg_dict
+
+
 class SegmentedIterable(object):
     """
     Iterable that returns the object contents for a segmented object in Swift.
@@ -77,7 +86,7 @@ class SegmentedIterable(object):
     def __init__(self, controller, container, listing, response=None):
         self.controller = controller
         self.container = container
-        self.listing = iter(listing)
+        self.listing = segment_listing_iter(listing)
         self.segment = 0
         self.segment_dict = None
         self.segment_peek = None
@@ -280,7 +289,7 @@ class ObjectController(Controller):
             sublisting = json.loads(lresp.body)
             if not sublisting:
                 break
-            marker = sublisting[-1]['name']
+            marker = sublisting[-1]['name'].encode('utf-8')
             yield sublisting
 
     def _remaining_items(self, listing_iter):
