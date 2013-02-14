@@ -487,7 +487,7 @@ class FormPost(object):
                 pass
             key = key[0]
             if key and memcache:
-                memcache.set('temp-url-key/%s' % account, key, timeout=60)
+                memcache.set('temp-url-key/%s' % account, key, time=60)
         return key
 
 

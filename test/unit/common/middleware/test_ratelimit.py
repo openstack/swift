@@ -36,11 +36,11 @@ class FakeMemcache(object):
     def get(self, key):
         return self.store.get(key)
 
-    def set(self, key, value, serialize=False, timeout=0):
+    def set(self, key, value, serialize=False, time=0):
         self.store[key] = value
         return True
 
-    def incr(self, key, delta=1, timeout=0):
+    def incr(self, key, delta=1, time=0):
         if self.error_on_incr:
             raise MemcacheConnectionError('Memcache restarting')
         if self.init_incr_return_neg:
@@ -52,8 +52,8 @@ class FakeMemcache(object):
             self.store[key] = 0
         return int(self.store[key])
 
-    def decr(self, key, delta=1, timeout=0):
-        return self.incr(key, delta=-delta, timeout=timeout)
+    def decr(self, key, delta=1, time=0):
+        return self.incr(key, delta=-delta, time=time)
 
     @contextmanager
     def soft_lock(self, key, timeout=0, retries=5):

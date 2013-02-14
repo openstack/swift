@@ -441,12 +441,12 @@ class TempAuth(object):
             # Save token
             memcache_token_key = '%s/token/%s' % (self.reseller_prefix, token)
             memcache_client.set(memcache_token_key, (expires, groups),
-                                timeout=float(expires - time()))
+                                time=float(expires - time()))
             # Record the token with the user info for future use.
             memcache_user_key = \
                 '%s/user/%s' % (self.reseller_prefix, account_user)
             memcache_client.set(memcache_user_key, token,
-                                timeout=float(expires - time()))
+                                time=float(expires - time()))
         resp = Response(request=req, headers={
             'x-auth-token': token, 'x-storage-token': token})
         url = self.users[account_user]['url'].replace('$HOST', resp.host_url)
