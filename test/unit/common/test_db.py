@@ -1662,21 +1662,6 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 1)
 
-    def test_get_container_timestamp(self):
-        """ Test swift.common.db.AccountBroker.get_container_timestamp """
-        broker = AccountBroker(':memory:', account='a')
-        broker.initialize(normalize_timestamp('1'))
-
-        # Create initial container
-        timestamp = normalize_timestamp(time())
-        broker.put_container('container_name', timestamp, 0, 0, 0)
-        # test extant map
-        ts = broker.get_container_timestamp('container_name')
-        self.assertEquals(ts, timestamp)
-        # test missing map
-        ts = broker.get_container_timestamp('something else')
-        self.assertEquals(ts, None)
-
     def test_put_container(self):
         """ Test swift.common.db.AccountBroker.put_container """
         broker = AccountBroker(':memory:', account='a')

@@ -1407,28 +1407,6 @@ class AccountBroker(DatabaseBroker):
             DatabaseBroker._reclaim(self, conn, container_timestamp)
             conn.commit()
 
-    def get_container_timestamp(self, container_name):
-        """
-        Get the put_timestamp of a container.
-
-        :param container_name: container name
-
-        :returns: put_timestamp of the container
-        """
-        try:
-            self._commit_puts()
-        except LockTimeout:
-            if not self.stale_reads_ok:
-                raise
-        with self.get() as conn:
-            ret = conn.execute('''
-                SELECT put_timestamp FROM container
-                WHERE name = ? AND deleted != 1''',
-                              (container_name,)).fetchone()
-            if ret:
-                ret = ret[0]
-            return ret
-
     def put_container(self, name, put_timestamp, delete_timestamp,
                       object_count, bytes_used):
         """
