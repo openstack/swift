@@ -8,7 +8,7 @@ Replication uses a push model, with records and files generally only being copie
 
 Every deleted record or file in the system is marked by a tombstone, so that deletions can be replicated alongside creations.  These tombstones are cleaned up by the replication process after a period of time referred to as the consistency window, which is related to replication duration and how long transient failures can remove a node from the cluster.  Tombstone cleanup must be tied to replication to reach replica convergence.
 
-If a replicator detects that a remote drive is has failed, it will use the ring's "get_more_nodes" interface to choose an alternate node to synchronize with.  The replicator can maintain desired levels of replication in the face of disk failures, though some replicas may not be in an immediately usable location.  Note that the replicator doesn't maintain desired levels of replication in the case of other failures (e.g. entire node failures) because the most of such failures are transient.
+If a replicator detects that a remote drive has failed, it will use the ring's "get_more_nodes" interface to choose an alternate node to synchronize with.  The replicator can maintain desired levels of replication in the face of disk failures, though some replicas may not be in an immediately usable location.  Note that the replicator doesn't maintain desired levels of replication in the case of other failures (e.g. entire node failures) because the most of such failures are transient.
 
 Replication is an area of active development, and likely rife with potential improvements to speed and correctness.
 

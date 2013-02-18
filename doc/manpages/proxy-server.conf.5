@@ -192,7 +192,10 @@ Logging address. The default is /dev/log.
 .IP "\fBset log_headers\fR "
 Enables the ability to log request headers. The default is False.
 .IP \fBmemcache_servers\fR
-If not set in the configuration file, the value for memcache_servers will be read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that file, it will default to the value below. You can specify multiple servers separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211. This can be a list separated by commas. The default is 127.0.0.1:11211.
+If not set in the configuration file, the value for memcache_servers will be
+read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that
+file, it will default to 127.0.0.1:11211. You can specify multiple servers
+separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211.
 .IP \fBmemcache_serialization_support\fR
 This sets how memcache values are serialized and deserialized:
 .RE
@@ -533,8 +536,6 @@ per second.  The default is 1.
 .RE
 .PD
 
-
-
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-proxy-server and
@@ -543,8 +544,5 @@ also Openstack-Swift as a whole can be found at
 and
 .BI http://swift.openstack.org
 
-
 .SH "SEE ALSO"
-.BR swift-proxy-server(1),
-
-
+.BR swift-proxy-server(1)
