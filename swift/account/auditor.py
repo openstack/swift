@@ -21,7 +21,7 @@ import swift.common.db
 from swift.account import server as account_server
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, audit_location_generator, \
-    config_true_value, dump_recon_cache
+    config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
 
 from eventlet import Timeout
@@ -38,6 +38,9 @@ class AccountAuditor(Daemon):
         self.interval = int(conf.get('interval', 1800))
         self.account_passes = 0
         self.account_failures = 0
+        self.accounts_running_time = 0
+        self.max_accounts_per_second = \
+            float(conf.get('accounts_per_second', 200))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -67,6 +70,8 @@ class AccountAuditor(Daemon):
                 reported = time.time()
                 self.account_passes = 0
                 self.account_failures = 0
+            self.accounts_running_time = ratelimit_sleep(
+                self.accounts_running_time, self.max_accounts_per_second)
         return reported
 
     def run_forever(self, *args, **kwargs):

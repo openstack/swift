@@ -424,14 +424,17 @@ account_suppression_time  60                 Seconds to suppress updating an
 
 [container-auditor]
 
-==================  =================  =======================================
-Option              Default            Description
-------------------  -----------------  ---------------------------------------
-log_name            container-auditor  Label used when logging
-log_facility        LOG_LOCAL0         Syslog log facility
-log_level           INFO               Logging level
-interval            1800               Minimum time for a pass to take
-==================  =================  =======================================
+=====================  =================  =======================================
+Option                 Default            Description
+---------------------  -----------------  ---------------------------------------
+log_name               container-auditor  Label used when logging
+log_facility           LOG_LOCAL0         Syslog log facility
+log_level              INFO               Logging level
+interval               1800               Minimum time for a pass to take
+containers_per_second  200                Maximum containers audited per second. 
+                                          Should be tuned according to individual
+                                          system specs. 0 is unlimited.
+=====================  =================  =======================================
 
 ----------------------------
 Account Server Configuration
@@ -515,6 +518,9 @@ log_name              account-auditor  Label used when logging
 log_facility          LOG_LOCAL0       Syslog log facility
 log_level             INFO             Logging level
 interval              1800             Minimum time for a pass to take
+accounts_per_second   200              Maximum accounts audited per second. 
+                                       Should be tuned according to individual
+                                       system specs. 0 is unlimited. 
 ====================  ===============  =======================================
 
 [account-reaper]

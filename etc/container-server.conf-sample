@@ -107,6 +107,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 # Will audit, at most, 1 container per device per interval
 # interval = 1800
+# containers_per_second = 200
 # recon_cache_path = /var/cache/swift
 
 [container-sync]

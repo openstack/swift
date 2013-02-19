@@ -92,6 +92,7 @@ use = egg:swift#recon
 # interval = 1800
 # log_facility = LOG_LOCAL0
 # log_level = INFO
+# accounts_per_second = 200
 # recon_cache_path = /var/cache/swift
 
 [account-reaper]
