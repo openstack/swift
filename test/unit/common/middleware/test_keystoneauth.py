@@ -79,6 +79,12 @@ class SwiftAuth(unittest.TestCase):
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 200)
 
+    def test_anonymous_with_validtoken_authorized_for_permitted_referrer(self):
+        req = self._make_request(headers={'X_IDENTITY_STATUS': 'Confirmed'})
+        req.acl = '.r:*'
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertEqual(resp.status_int, 200)
+
     def test_anonymous_is_not_authorized_for_unknown_reseller_prefix(self):
         req = self._make_request(path='/v1/BLAH_foo/c/o',
                                  headers={'X_IDENTITY_STATUS': 'Invalid'})

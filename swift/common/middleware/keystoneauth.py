@@ -190,6 +190,12 @@ class KeystoneAuth(object):
                                          tenant_id, user, user))
             return
 
+        acl_authorized = self._authorize_unconfirmed_identity(req, obj,
+                                                              referrers,
+                                                              roles)
+        if acl_authorized:
+            return
+
         # Check if a user tries to access an account that does not match their
         # token
         if not self._reseller_check(account, tenant_id):
@@ -217,11 +223,7 @@ class KeystoneAuth(object):
             req.environ['swift_owner'] = True
             return
 
-        authorized = self._authorize_unconfirmed_identity(req, obj, referrers,
-                                                          roles)
-        if authorized:
-            return
-        elif authorized is not None:
+        if acl_authorized is not None:
             return self.denied_response(req)
 
         # Check if we have the role in the userroles and allow it
