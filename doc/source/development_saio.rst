@@ -167,7 +167,6 @@ Setting up rsync
         read only = false
         lock file = /var/lock/container6041.lock
 
-
         [object6010]
         max connections = 25
         path = /srv/1/node/
@@ -750,8 +749,9 @@ Debugging Issues
 
 If all doesn't go as planned, and tests fail, or you can't auth, or something doesn't work, here are some good starting places to look for issues:
 
-#. Everything is logged in /var/log/syslog, so that is a good first place to
-   look for errors (most likely python tracebacks).
+#. Everything is logged using system facilities -- usually in /var/log/syslog,
+   but possibly in /var/log/messages on e.g. Fedora -- so that is a good first
+   place to look for errors (most likely python tracebacks).
 #. Make sure all of the server processes are running.  For the base
    functionality, the Proxy, Account, Container, and Object servers
    should be running.
