@@ -84,6 +84,39 @@ if hash_conf.read('/etc/swift/swift.conf'):
     except (NoSectionError, NoOptionError):
         pass
 
+
+def backward(f, blocksize=4096):
+    """
+    A generator returning lines from a file starting with the last line,
+    then the second last line, etc. i.e., it reads lines backwards.
+    Stops when the first line (if any) is read.
+    This is useful when searching for recent activity in very
+    large files.
+
+    :param f: file object to read
+    :param blocksize: no of characters to go backwards at each block
+    """
+    f.seek(0, os.SEEK_END)
+    if f.tell() == 0:
+        return
+    last_row = ''
+    while f.tell() != 0:
+        try:
+            f.seek(-blocksize, os.SEEK_CUR)
+        except IOError:
+            blocksize = f.tell()
+            f.seek(-blocksize, os.SEEK_CUR)
+        block = f.read(blocksize)
+        f.seek(-blocksize, os.SEEK_CUR)
+        rows = block.split('\n')
+        rows[-1] = rows[-1] + last_row
+        while rows:
+            last_row = rows.pop(-1)
+            if rows and last_row:
+                yield last_row
+    yield last_row
+
+
 # Used when reading config values
 TRUE_VALUES = set(('true', '1', 'yes', 'on', 't', 'y'))
 
