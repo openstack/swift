@@ -16,7 +16,7 @@
 import unittest
 
 from swift.common.middleware import keystoneauth
-from swift.common.swob import Request, Response, HTTPForbidden
+from swift.common.swob import Request, Response
 from swift.common.http import HTTP_FORBIDDEN
 
 
@@ -59,6 +59,18 @@ class SwiftAuth(unittest.TestCase):
     def _get_successful_middleware(self):
         response_iter = iter([('200 OK', {}, '')])
         return keystoneauth.filter_factory({})(FakeApp(response_iter))
+
+    def test_invalid_request_authorized(self):
+        role = self.test_auth.reseller_admin_role
+        headers = self._get_identity_headers(role=role)
+        req = self._make_request('/', headers=headers)
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertEqual(resp.status_int, 404)
+
+    def test_invalid_request_non_authorized(self):
+        req = self._make_request('/')
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertEqual(resp.status_int, 404)
 
     def test_confirmed_identity_is_authorized(self):
         role = self.test_auth.reseller_admin_role
