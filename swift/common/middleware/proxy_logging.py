@@ -99,22 +99,28 @@ class ProxyLoggingMiddleware(object):
                                         log_route='proxy-access')
         self.access_logger.set_statsd_prefix('proxy-server')
 
-    def log_request(self, env, status_int, bytes_received, bytes_sent,
-                    request_time, client_disconnect):
+    def method_from_req(self, req):
+        return req.environ.get('swift.orig_req_method', req.method)
+
+    def req_already_logged(self, req):
+        return req.environ.get('swift.proxy_access_log_made')
+
+    def mark_req_logged(self, req):
+        req.environ['swift.proxy_access_log_made'] = True
+
+    def log_request(self, req, status_int, bytes_received, bytes_sent,
+                    request_time):
         """
         Log a request.
 
-        :param env: WSGI environment
+        :param req: swob.Request object for the request
         :param status_int: integer code for the response status
         :param bytes_received: bytes successfully read from the request body
         :param bytes_sent: bytes yielded to the WSGI server
         :param request_time: time taken to satisfy the request, in seconds
         """
-        if env.get('swift.proxy_access_log_made'):
+        if self.req_already_logged(req):
             return
-        req = Request(env)
-        if client_disconnect:  # log disconnected clients as '499' status code
-            status_int = 499
         req_path = get_valid_utf8_str(req.path)
         the_request = quote(unquote(req_path))
         if req.query_string:
@@ -123,7 +129,7 @@ class ProxyLoggingMiddleware(object):
         if self.log_hdrs:
             logged_headers = '\n'.join('%s: %s' % (k, v)
                                        for k, v in req.headers.items())
-        method = req.environ.get('swift.orig_req_method', req.method)
+        method = self.method_from_req(req)
         self.access_logger.info(' '.join(
             quote(str(x) if x else '-')
             for x in (
@@ -145,8 +151,18 @@ class ProxyLoggingMiddleware(object):
                 '%.4f' % request_time,
                 req.environ.get('swift.source'),
             )))
-        env['swift.proxy_access_log_made'] = True
+        self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
+        metric_name = self.statsd_metric_name(req, status_int, method)
+        # Only log data for valid controllers (or SOS) to keep the metric count
+        # down (egregious errors will get logged by the proxy server itself).
+        if metric_name:
+            self.access_logger.timing(metric_name + '.timing',
+                                      request_time * 1000)
+            self.access_logger.update_stats(metric_name + '.xfer',
+                                            bytes_received + bytes_sent)
+
+    def statsd_metric_name(self, req, status_int, method):
         if req.path.startswith('/v1/'):
             try:
                 stat_type = [None, 'account', 'container',
@@ -154,17 +170,12 @@ class ProxyLoggingMiddleware(object):
             except IndexError:
                 stat_type = 'object'
         else:
-            stat_type = env.get('swift.source')
-        # Only log data for valid controllers (or SOS) to keep the metric count
-        # down (egregious errors will get logged by the proxy server itself).
-        if stat_type:
-            stat_method = method if method in self.valid_methods \
-                else 'BAD_METHOD'
-            metric_name = '.'.join((stat_type, stat_method, str(status_int)))
-            self.access_logger.timing(metric_name + '.timing',
-                                      request_time * 1000)
-            self.access_logger.update_stats(metric_name + '.xfer',
-                                            bytes_received + bytes_sent)
+            stat_type = req.environ.get('swift.source')
+        if stat_type is None:
+            return None
+        stat_method = method if method in self.valid_methods \
+            else 'BAD_METHOD'
+        return '.'.join((stat_type, stat_method, str(status_int)))
 
     def __call__(self, env, start_response):
         start_response_args = [None]
@@ -174,6 +185,14 @@ class ProxyLoggingMiddleware(object):
 
         def my_start_response(status, headers, exc_info=None):
             start_response_args[0] = (status, list(headers), exc_info)
+
+        def status_int_for_logging(client_disconnect=False, start_status=None):
+            # log disconnected clients as '499' status code
+            if client_disconnect or input_proxy.client_disconnect:
+                return 499
+            elif start_status is None:
+                return int(start_response_args[0][0].split(' ', 1)[0])
+            return start_status
 
         def iter_response(iterable):
             iterator = iter(iterable)
@@ -193,6 +212,17 @@ class ProxyLoggingMiddleware(object):
                     start_response_args[0][1].append(
                         ('content-length', str(sum(len(i) for i in iterable))))
             start_response(*start_response_args[0])
+            req = Request(env)
+
+            # Log timing information for time-to-first-byte (GET requests only)
+            method = self.method_from_req(req)
+            if method == 'GET' and not self.req_already_logged(req):
+                status_int = status_int_for_logging()
+                metric_name = self.statsd_metric_name(req, status_int, method)
+                if metric_name:
+                    self.access_logger.timing_since(
+                        metric_name + '.first-byte.timing', start_time)
+
             bytes_sent = 0
             client_disconnect = False
             try:
@@ -204,18 +234,19 @@ class ProxyLoggingMiddleware(object):
                 client_disconnect = True
                 raise
             finally:
-                status_int = int(start_response_args[0][0].split(' ', 1)[0])
+                status_int = status_int_for_logging(client_disconnect)
                 self.log_request(
-                    env, status_int, input_proxy.bytes_received, bytes_sent,
-                    time.time() - start_time,
-                    client_disconnect or input_proxy.client_disconnect)
+                    req, status_int, input_proxy.bytes_received, bytes_sent,
+                    time.time() - start_time)
 
         try:
             iterable = self.app(env, my_start_response)
         except Exception:
+            req = Request(env)
+            status_int = status_int_for_logging(start_status=500)
             self.log_request(
-                env, 500, input_proxy.bytes_received, 0,
-                time.time() - start_time, input_proxy.client_disconnect)
+                req, status_int, input_proxy.bytes_received, 0,
+                time.time() - start_time)
             raise
         else:
             return iter_response(iterable)
