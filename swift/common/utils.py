@@ -508,6 +508,12 @@ class StatsdClient(object):
         return self.timing(metric, (time.time() - orig_time) * 1000,
                            sample_rate)
 
+    def transfer_rate(self, metric, elasped_time, byte_xfer, sample_rate=None):
+        if byte_xfer:
+            return self.timing(metric,
+                               elasped_time * 1000 / byte_xfer * 1000,
+                               sample_rate)
+
 
 def timing_stats(**dec_kwargs):
     """
@@ -662,6 +668,7 @@ class LogAdapter(logging.LoggerAdapter, object):
     decrement = statsd_delegate('decrement')
     timing = statsd_delegate('timing')
     timing_since = statsd_delegate('timing_since')
+    transfer_rate = statsd_delegate('transfer_rate')
 
 
 class SwiftLogFormatter(logging.Formatter):
