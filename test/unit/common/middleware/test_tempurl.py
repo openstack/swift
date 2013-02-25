@@ -103,10 +103,47 @@ class TestTempURL(unittest.TestCase):
             environ={'QUERY_STRING':
                        'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
         req.environ['swift.cache'].set('temp-url-key/a', key)
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-disposition'],
+                          'attachment; filename="o"')
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_with_filename(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path, environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'filename=bob%%20%%22killer%%22.txt' % (sig, expires)})
+        req.environ['swift.cache'].set('temp-url-key/a', key)
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-disposition'],
+                          'attachment; filename="bob \\\"killer\\\".txt"')
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_but_404(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path,
+            environ={'QUERY_STRING':
+                       'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
+        req.environ['swift.cache'].set('temp-url-key/a', key)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 404)
-        self.assertEquals(resp.headers['content-disposition'],
-                          'attachment; filename=o')
+        self.assertFalse('content-disposition' in resp.headers)
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -491,17 +528,21 @@ class TestTempURL(unittest.TestCase):
         s = 'f5d5051bddf5df7e27c628818738334f'
         e = int(time() + 86400)
         self.assertEquals(self.tempurl._get_temp_url_info({'QUERY_STRING':
-            'temp_url_sig=%s&temp_url_expires=%s' % (s, e)}), (s, e))
-        self.assertEquals(self.tempurl._get_temp_url_info({}), (None, None))
+            'temp_url_sig=%s&temp_url_expires=%s' % (s, e)}), (s, e, None))
+        self.assertEquals(self.tempurl._get_temp_url_info({
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'filename=bobisyouruncle' % (s, e)}), (s, e, 'bobisyouruncle'))
+        self.assertEquals(self.tempurl._get_temp_url_info({}),
+                          (None, None, None))
         self.assertEquals(self.tempurl._get_temp_url_info({'QUERY_STRING':
-            'temp_url_expires=%s' % e}), (None, e))
+            'temp_url_expires=%s' % e}), (None, e, None))
         self.assertEquals(self.tempurl._get_temp_url_info({'QUERY_STRING':
-            'temp_url_sig=%s' % s}), (s, None))
+            'temp_url_sig=%s' % s}), (s, None, None))
         self.assertEquals(self.tempurl._get_temp_url_info({'QUERY_STRING':
-            'temp_url_sig=%s&temp_url_expires=bad' % s}), (s, 0))
+            'temp_url_sig=%s&temp_url_expires=bad' % s}), (s, 0, None))
         e = int(time() - 1)
         self.assertEquals(self.tempurl._get_temp_url_info({'QUERY_STRING':
-            'temp_url_sig=%s&temp_url_expires=%s' % (s, e)}), (s, 0))
+            'temp_url_sig=%s&temp_url_expires=%s' % (s, e)}), (s, 0, None))
 
     def test_get_key_memcache(self):
         self.app.status_headers_body_iter = iter([('404 Not Found', {}, '')])
