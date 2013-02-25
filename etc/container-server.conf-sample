@@ -105,7 +105,7 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
-# Will audit, at most, 1 container per device per interval
+# Will audit each container at most once per interval
 # interval = 1800
 # recon_cache_path = /var/cache/swift
 
@@ -117,7 +117,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 # If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 # sync_proxy = http://127.0.0.1:8888
-# Will sync, at most, each container once per interval
+# Will sync each container at most once per interval
 # interval = 300
 # Maximum amount of time to spend syncing each container per pass
 # container_time = 60
