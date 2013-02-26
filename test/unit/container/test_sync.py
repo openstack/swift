@@ -422,10 +422,10 @@ class TestContainerSync(unittest.TestCase):
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
             # Succeeds because no rows match
-            self.assertEquals(cs.container_failures, 0)
+            self.assertEquals(cs.container_failures, 1)
             self.assertEquals(cs.container_skips, 0)
             self.assertEquals(fcb.sync_point1, None)
-            self.assertEquals(fcb.sync_point2, 1)
+            self.assertEquals(fcb.sync_point2, -1)
 
             def fake_hash_path(account, container, obj, raw_digest=False):
                 # Ensures that all rows match for full syncing, ordinal is 0
@@ -446,7 +446,7 @@ class TestContainerSync(unittest.TestCase):
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
             # Succeeds because the two sync points haven't deviated yet
-            self.assertEquals(cs.container_failures, 0)
+            self.assertEquals(cs.container_failures, 1)
             self.assertEquals(cs.container_skips, 0)
             self.assertEquals(fcb.sync_point1, -1)
             self.assertEquals(fcb.sync_point2, -1)
@@ -465,9 +465,9 @@ class TestContainerSync(unittest.TestCase):
             cs.container_sync('isa.db')
             # Fails because container_sync_row will fail since the row has no
             # 'deleted' key
-            self.assertEquals(cs.container_failures, 1)
+            self.assertEquals(cs.container_failures, 2)
             self.assertEquals(cs.container_skips, 0)
-            self.assertEquals(fcb.sync_point1, -1)
+            self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, -1)
 
             fcb = FakeContainerBroker('path',
@@ -484,9 +484,9 @@ class TestContainerSync(unittest.TestCase):
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
             # Fails because delete_object fails
-            self.assertEquals(cs.container_failures, 2)
+            self.assertEquals(cs.container_failures, 3)
             self.assertEquals(cs.container_skips, 0)
-            self.assertEquals(fcb.sync_point1, -1)
+            self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, -1)
 
             def fake_delete_object(*args, **kwargs):
@@ -507,7 +507,7 @@ class TestContainerSync(unittest.TestCase):
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
             # Succeeds because delete_object succeeds
-            self.assertEquals(cs.container_failures, 2)
+            self.assertEquals(cs.container_failures, 3)
             self.assertEquals(cs.container_skips, 0)
             self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, 1)
@@ -574,10 +574,11 @@ class TestContainerSync(unittest.TestCase):
             cs.allowed_sync_hosts = ['127.0.0.1']
             cs.container_sync('isa.db')
             # Fails because row is missing 'deleted' key
+            # Nevertheless the fault is skipped
             self.assertEquals(cs.container_failures, 1)
             self.assertEquals(cs.container_skips, 0)
-            self.assertEquals(fcb.sync_point1, -1)
-            self.assertEquals(fcb.sync_point2, -1)
+            self.assertEquals(fcb.sync_point1, 1)
+            self.assertEquals(fcb.sync_point2, None)
 
             fcb = FakeContainerBroker('path',
                 info={'account': 'a', 'container': 'c',

@@ -223,7 +223,7 @@ hash of the object name, so it's not always guaranteed to be exactly
 one out of every three rows, but it usually gets close. For the sake
 of example, let's say that this process ends up owning rows 2 and 5.
 
-Once it's finished syncing those rows, it updates SP1 to be the
+Once it's finished trying to sync those rows, it updates SP1 to be the
 biggest row-id that it's seen, which is 6 in this example. ::
 
    SP2           SP1
@@ -241,19 +241,23 @@ container, creating new rows in the database. ::
 
 On the next run, the container-sync starts off looking at rows with
 ids between SP1 and SP2. This time, there are a bunch of them. The
-sync process takes the ones it *does not* own and syncs them. Again,
-this is based on the hashes, so this will be everything it didn't sync
-before. In this example, that's rows 0, 1, 3, 4, and 6.
+sync process try to sync all of them. If it succeeds, it will set
+SP2 to equal SP1. If it fails, it will set SP2 to the failed object
+and will continue to try all other objects till SP1, setting SP2 to
+the first object that failed.
 
-Under normal circumstances, the container-sync processes for the other
-replicas will have already taken care of synchronizing those rows, so
-this is a set of quick checks. However, if one of those other sync
+Under normal circumstances, the container-sync processes
+will have already taken care of synchronizing all rows, between SP1
+and SP2, resulting in a set of quick checks.
+However, if one of the sync
 processes failed for some reason, then this is a vital fallback to
 make sure all the objects in the container get synchronized. Without
 this seemingly-redundant work, any container-sync failure results in
-unsynchronized objects.
+unsynchronized objects. Note that the container sync will persistently
+retry to sync any faulty object until success, while logging each failure.
 
-Once it's done with the fallback rows, SP2 is advanced to SP1. ::
+Once it's done with the fallback rows, and assuming no faults occured,
+SP2 is advanced to SP1. ::
 
                  SP2
                  SP1
