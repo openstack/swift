@@ -23,7 +23,7 @@ import swift.common.db
 from swift.container import server as container_server
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, audit_location_generator, \
-    config_true_value, dump_recon_cache
+    config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
 
 
@@ -38,6 +38,9 @@ class ContainerAuditor(Daemon):
         self.interval = int(conf.get('interval', 1800))
         self.container_passes = 0
         self.container_failures = 0
+        self.containers_running_time = 0
+        self.max_containers_per_second = \
+            float(conf.get('containers_per_second', 200))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -66,6 +69,8 @@ class ContainerAuditor(Daemon):
                 reported = time.time()
                 self.container_passes = 0
                 self.container_failures = 0
+            self.containers_running_time = ratelimit_sleep(
+                self.containers_running_time, self.max_containers_per_second)
         return reported
 
     def run_forever(self, *args, **kwargs):

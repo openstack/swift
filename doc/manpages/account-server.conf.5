@@ -210,6 +210,8 @@ Logging level. The default is INFO.
 Logging address. The default is /dev/log.
 .IP \fBinterval\fR
 Will audit, at most, 1 account per device per interval. The default is 1800 seconds.
+.IP \fBaccounts_per_second\fR
+Maximum accounts audited per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 200.
 .RE
 
 
