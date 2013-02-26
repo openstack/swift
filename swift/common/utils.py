@@ -675,7 +675,24 @@ class SwiftLogFormatter(logging.Formatter):
             # Catch log messages that were not initiated by swift
             # (for example, the keystone auth middleware)
             record.server = record.name
-        msg = logging.Formatter.format(self, record)
+
+        # Included from Python's logging.Formatter and then altered slightly to
+        # replace \n with #012
+        record.message = record.getMessage()
+        if self._fmt.find('%(asctime)') >= 0:
+            record.asctime = self.formatTime(record, self.datefmt)
+        msg = (self._fmt % record.__dict__).replace('\n', '#012')
+        if record.exc_info:
+            # Cache the traceback text to avoid converting it multiple times
+            # (it's constant anyway)
+            if not record.exc_text:
+                record.exc_text = self.formatException(
+                    record.exc_info).replace('\n', '#012')
+        if record.exc_text:
+            if msg[-3:] != '#012':
+                msg = msg + '#012'
+            msg = msg + record.exc_text
+
         if (hasattr(record, 'txn_id') and record.txn_id and
                 record.levelno != logging.INFO and
                 record.txn_id not in msg):
