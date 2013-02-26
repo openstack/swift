@@ -38,6 +38,7 @@ from tempfile import TemporaryFile, NamedTemporaryFile
 from logging import handlers as logging_handlers
 
 from eventlet import sleep
+from mock import patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout)
@@ -1540,6 +1541,57 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             self.assertEquals(logger.thread_locals, ('5678', '5.6.7.8'))
         finally:
             logger.thread_locals = orig_thread_locals
+
+    def test_no_fdatasync(self):
+        called = []
+        class NoFdatasync:
+            pass
+        def fsync(fd):
+            called.append(fd)
+        with patch('swift.common.utils.os', NoFdatasync()):
+            with patch('swift.common.utils.fsync', fsync):
+                utils.fdatasync(12345)
+                self.assertEquals(called, [12345])
+
+    def test_yes_fdatasync(self):
+        called = []
+        class YesFdatasync:
+            def fdatasync(self, fd):
+                called.append(fd)
+        with patch('swift.common.utils.os', YesFdatasync()):
+            utils.fdatasync(12345)
+            self.assertEquals(called, [12345])
+
+    def test_fsync_bad_fullsync(self):
+        called = []
+        class FCNTL:
+            F_FULLSYNC = 123
+            def fcntl(self, fd, op):
+                raise IOError(18)
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            self.assertRaises(OSError, lambda: utils.fsync(12345))
+
+    def test_fsync_f_fullsync(self):
+        called = []
+        class FCNTL:
+            F_FULLSYNC = 123
+            def fcntl(self, fd, op):
+                called[:] = [fd, op]
+                return 0
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            utils.fsync(12345)
+            self.assertEquals(called, [12345, 123])
+
+    def test_fsync_no_fullsync(self):
+        called = []
+        class FCNTL:
+            pass
+        def fsync(fd):
+            called.append(fd)
+        with patch('swift.common.utils.fcntl', FCNTL()):
+            with patch('os.fsync', fsync):
+                utils.fsync(12345)
+                self.assertEquals(called, [12345])
 
 
 if __name__ == '__main__':

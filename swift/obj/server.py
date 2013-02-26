@@ -31,7 +31,7 @@ from xattr import getxattr, setxattr
 from eventlet import sleep, Timeout, tpool
 
 from swift.common.utils import mkdirs, normalize_timestamp, public, \
-    storage_directory, hash_path, renamer, fallocate, fsync, \
+    storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
     split_path, drop_buffer_cache, get_logger, write_pickle, \
     config_true_value, validate_device_partition, timing_stats
 from swift.common.bufferedhttp import http_connect
@@ -659,7 +659,7 @@ class ObjectController(object):
                     chunk = chunk[written:]
                 # For large files sync every 512MB (by default) written
                 if upload_size - last_sync >= self.bytes_per_sync:
-                    tpool.execute(fsync, fd)
+                    tpool.execute(fdatasync, fd)
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
                 sleep()
