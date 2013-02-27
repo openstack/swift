@@ -96,6 +96,7 @@ add the configuration for the authtoken middleware::
   admin_tenant_name = service
   admin_user = swift
   admin_password = password
+  cache = swift.cache
 
 The actual values for these variables will need to be set depending on
 your situation.  For more information, please refer to the Keystone

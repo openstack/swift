@@ -160,6 +160,7 @@ user_test_tester3 = testing3
 # admin_user = swift
 # admin_password = password
 # delay_auth_decision = 1
+# cache = swift.cache
 #
 # [filter:keystoneauth]
 # use = egg:swift#keystoneauth
