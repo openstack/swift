@@ -466,7 +466,12 @@ class TestController(unittest.TestCase):
             self.assertEquals(count, 12345)
 
             cache_key = get_account_memcache_key(self.account)
-            self.assertEquals({'status': 200, 'container_count': 12345},
+            container_info = {'status': 200,
+                              'container_count': 12345,
+                              'total_object_count': None,
+                              'bytes': None,
+                              'meta': {}}
+            self.assertEquals(container_info,
                               self.memcache.get(cache_key))
 
             set_http_connect()
@@ -485,7 +490,12 @@ class TestController(unittest.TestCase):
             self.assertEquals(count, None)
 
             cache_key = get_account_memcache_key(self.account)
-            self.assertEquals({'status': 404, 'container_count': 0},
+            container_info = {'status': 404,
+                              'container_count': 0,
+                              'total_object_count': None,
+                              'bytes': None,
+                              'meta': {}}
+            self.assertEquals(container_info,
                               self.memcache.get(cache_key))
 
             set_http_connect()

@@ -42,7 +42,6 @@ set:
 +---------------------------------------------+-------------------------------+
 """
 
-from swift.common.utils import split_path
 from swift.common.http import is_success
 from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import Response, HTTPBadRequest, wsgify
@@ -93,9 +92,9 @@ class ContainerQuotaMiddleware(object):
                 if int(container_info['meta']['quota-bytes']) < new_size:
                     return self.bad_response(req, container_info)
             if 'quota-count' in container_info.get('meta', {}) and \
-                    'count' in container_info and \
+                    'object_count' in container_info and \
                     container_info['meta']['quota-count'].isdigit():
-                new_count = int(container_info['count']) + 1
+                new_count = int(container_info['object_count']) + 1
                 if int(container_info['meta']['quota-count']) < new_count:
                     return self.bad_response(req, container_info)
 

@@ -97,17 +97,33 @@ def get_container_memcache_key(account, container):
     return 'container/%s/%s' % (account, container)
 
 
+def headers_to_account_info(headers, status_int=HTTP_OK):
+    """
+    Construct a cacheable dict of account info based on response headers.
+    """
+    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    return {
+        'status': status_int,
+        'container_count': headers.get('x-account-container-count'),
+        'total_object_count': headers.get('x-account-object-count'),
+        'bytes': headers.get('x-account-bytes-used'),
+        'meta': dict((key[15:], value)
+                     for key, value in headers.iteritems()
+                     if key.startswith('x-account-meta-'))
+    }
+
+
 def headers_to_container_info(headers, status_int=HTTP_OK):
     """
     Construct a cacheable dict of container info based on response headers.
     """
-    headers = dict(headers)
+    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
     return {
         'status': status_int,
         'read_acl': headers.get('x-container-read'),
         'write_acl': headers.get('x-container-write'),
         'sync_key': headers.get('x-container-sync-key'),
-        'count': headers.get('x-container-object-count'),
+        'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
         'cors': {
@@ -120,9 +136,9 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
             'max_age': headers.get(
                 'x-container-meta-access-control-max-age')
         },
-        'meta': dict((key.lower()[17:], value)
+        'meta': dict((key[17:], value)
                      for key, value in headers.iteritems()
-                     if key.lower().startswith('x-container-meta-'))
+                     if key.startswith('x-container-meta-'))
     }
 
 
@@ -198,8 +214,8 @@ def get_container_info(env, app, swift_source=None):
     cache = cache_from_env(env)
     if not cache:
         return None
-    (version, account, container, obj) = \
-        split_path(env['PATH_INFO'], 2, 4, True)
+    (version, account, container, _) = \
+        split_path(env['PATH_INFO'], 3, 4, True)
     cache_key = get_container_memcache_key(account, container)
     # Use a unique environment cache key per container.  If you copy this env
     # to make a new request, it won't accidentally reuse the old container info
@@ -214,6 +230,33 @@ def get_container_info(env, app, swift_source=None):
             container_info = headers_to_container_info(
                 resp.headers, resp.status_int)
         env[env_key] = container_info
+    return env[env_key]
+
+
+def get_account_info(env, app, swift_source=None):
+    """
+    Get the info structure for an account, based on env and app.
+    This is useful to middlewares.
+    """
+    cache = cache_from_env(env)
+    if not cache:
+        return None
+    (version, account, container, _) = \
+        split_path(env['PATH_INFO'], 2, 4, True)
+    cache_key = get_account_memcache_key(account)
+    # Use a unique environment cache key per account.  If you copy this env
+    # to make a new request, it won't accidentally reuse the old account info
+    env_key = 'swift.%s' % cache_key
+    if env_key not in env:
+        account_info = cache.get(cache_key)
+        if not account_info:
+            resp = make_pre_authed_request(
+                env, 'HEAD', '/%s/%s' % (version, account),
+                swift_source=swift_source,
+            ).get_response(app)
+            account_info = headers_to_account_info(
+                resp.headers, resp.status_int)
+        env[env_key] = account_info
     return env[env_key]
 
 
@@ -326,6 +369,11 @@ class Controller(object):
                   or (None, None, None) if it does not exist
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
+        account_info = {'status': 0,
+                        'container_count': 0,
+                        'total_object_count': None,
+                        'bytes': None,
+                        'meta': {}}
         # 0 = no responses, 200 = found, 404 = not found, -1 = mixed responses
         if self.app.memcache:
             cache_key = get_account_memcache_key(account)
@@ -341,7 +389,6 @@ class Controller(object):
             elif result_code == HTTP_NOT_FOUND and not autocreate:
                 return None, None, None
         result_code = 0
-        container_count = 0
         attempts_left = len(nodes)
         path = '/%s' % account
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
@@ -362,8 +409,8 @@ class Controller(object):
                     resp.read()
                     if is_success(resp.status):
                         result_code = HTTP_OK
-                        container_count = int(
-                            resp.getheader('x-account-container-count') or 0)
+                        account_info.update(
+                            headers_to_account_info(resp.getheaders()))
                         break
                     elif resp.status == HTTP_NOT_FOUND:
                         if result_code == 0:
@@ -398,12 +445,12 @@ class Controller(object):
                 cache_timeout = self.app.recheck_account_existence
             else:
                 cache_timeout = self.app.recheck_account_existence * 0.1
+            account_info.update(status=result_code)
             self.app.memcache.set(cache_key,
-                                  {'status': result_code,
-                                  'container_count': container_count},
+                                  account_info,
                                   time=cache_timeout)
         if result_code == HTTP_OK:
-            return partition, nodes, container_count
+            return partition, nodes, account_info['container_count']
         return None, None, None
 
     def container_info(self, account, container, account_autocreate=False):

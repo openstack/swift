@@ -87,7 +87,7 @@ class TestContainerQuotas(unittest.TestCase):
 
     def test_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
-        cache = FakeCache({'count': 1, 'meta': {'quota-count': '1'}})
+        cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'}})
         req = Request.blank('/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
@@ -96,7 +96,7 @@ class TestContainerQuotas(unittest.TestCase):
 
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
-        cache = FakeCache({'count': 1, 'meta': {'quota-count': '2'}})
+        cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '2'}})
         req = Request.blank('/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
@@ -152,7 +152,7 @@ class TestContainerQuotas(unittest.TestCase):
 
     def test_auth_fail(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
-        cache = FakeCache({'count': 1, 'meta': {'quota-count': '1'},
+        cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'},
                            'write_acl': None})
         req = Request.blank('/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
