@@ -585,6 +585,10 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(logger.txn_id, '12345')
             logger.warn('test 12345 test')
             self.assertEquals(strip_value(sio), 'test 12345 test\n')
+            # Test multi line collapsing
+            logger.error('my\nerror\nmessage')
+            log_msg = strip_value(sio)
+            self.assert_('my#012error#012message' in log_msg)
 
             # test client_ip
             self.assertFalse(logger.client_ip)
