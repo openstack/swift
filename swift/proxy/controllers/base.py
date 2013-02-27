@@ -210,6 +210,8 @@ def get_container_info(env, app, swift_source=None):
     """
     Get the info structure for a container, based on env and app.
     This is useful to middlewares.
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the container_info.
     """
     cache = cache_from_env(env)
     if not cache:
@@ -237,6 +239,8 @@ def get_account_info(env, app, swift_source=None):
     """
     Get the info structure for an account, based on env and app.
     This is useful to middlewares.
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the account_info.
     """
     cache = cache_from_env(env)
     if not cache:
