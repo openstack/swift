@@ -19,7 +19,6 @@ from __future__ import with_statement
 from contextlib import contextmanager
 import hashlib
 import logging
-import operator
 import os
 from uuid import uuid4
 import sys
@@ -112,11 +111,8 @@ def chexor(old, name, timestamp):
     """
     if name is None:
         raise Exception('name is None!')
-    old = old.decode('hex')
-    new = hashlib.md5(('%s-%s' % (name, timestamp)).encode('utf_8')).digest()
-    response = ''.join(
-        map(chr, map(operator.xor, map(ord, old), map(ord, new))))
-    return response.encode('hex')
+    new = hashlib.md5(('%s-%s' % (name, timestamp)).encode('utf8')).hexdigest()
+    return '%032x' % (int(old, 16) ^ int(new, 16))
 
 
 def get_db_connection(path, timeout=30, okay_to_create=False):
