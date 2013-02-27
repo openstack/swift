@@ -142,14 +142,8 @@ class AccountController(object):
     @timing_stats()
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        # TODO(refactor): The account server used to provide a 'account and
-        # container existence check all-in-one' call by doing a HEAD with a
-        # container path. However, container existence is now checked with the
-        # container servers directly so this is no longer needed. We should
-        # refactor out the container existence check here and retest
-        # everything.
         try:
-            drive, part, account, container = req.split_path(3, 4)
+            drive, part, account = req.split_path(3)
             validate_device_partition(drive, part)
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
@@ -157,9 +151,8 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
-        if not container:
-            broker.pending_timeout = 0.1
-            broker.stale_reads_ok = True
+        broker.pending_timeout = 0.1
+        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -169,10 +162,6 @@ class AccountController(object):
             'X-Account-Bytes-Used': info['bytes_used'],
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp']}
-        if container:
-            container_ts = broker.get_container_timestamp(container)
-            if container_ts is not None:
-                headers['X-Container-Timestamp'] = container_ts
         headers.update((key, value)
                        for key, (value, timestamp) in
                        broker.metadata.iteritems() if value != '')
