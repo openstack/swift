@@ -31,7 +31,6 @@ import time
 from datetime import datetime
 from urllib import unquote, quote
 from hashlib import md5
-from random import shuffle
 
 from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
@@ -123,7 +122,7 @@ class SegmentedIterable(object):
                 sleep(max(self.next_get_time - time.time(), 0))
             self.next_get_time = time.time() + \
                 1.0 / self.controller.app.rate_limit_segments_per_sec
-            shuffle(nodes)
+            nodes = self.controller.app.sort_nodes(nodes)
             resp = self.controller.GETorHEAD_base(
                 req, _('Object'), partition,
                 self.controller.iter_nodes(partition, nodes,
@@ -271,7 +270,7 @@ class ObjectController(Controller):
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
-            shuffle(lnodes)
+            nodes = self.app.sort_nodes(lnodes)
             lresp = self.GETorHEAD_base(
                 lreq, _('Container'), lpartition, lnodes, lreq.path_info,
                 len(lnodes))
@@ -337,7 +336,7 @@ class ObjectController(Controller):
 
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        shuffle(nodes)
+        nodes = self.app.sort_nodes(nodes)
         resp = self.GETorHEAD_base(
             req, _('Object'), partition,
             self.iter_nodes(partition, nodes, self.app.object_ring),
@@ -558,10 +557,12 @@ class ObjectController(Controller):
         self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
             try:
+                start_time = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(
                         node['ip'], node['port'], node['device'], part, 'PUT',
                         path, headers)
+                self.app.set_node_timing(node, time.time() - start_time)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getexpect()
                 if resp.status == HTTP_CONTINUE:

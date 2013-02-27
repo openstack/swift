@@ -87,6 +87,13 @@ use = egg:swift#proxy
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second.
 # rate_limit_segments_per_sec = 1
+# Storage nodes can be chosen at random (shuffle) or by using timing
+# measurements. Using timing measurements may allow for lower overall latency.
+# The valid values for sorting_method are "shuffle" and "timing"
+# sorting_method = shuffle
+# If the timing sorting_method is used, the timings will only be valid for
+# the number of seconds configured by timing_expiry.
+# timing_expiry = 300
 
 [filter:tempauth]
 use = egg:swift#tempauth

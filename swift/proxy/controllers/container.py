@@ -26,7 +26,6 @@
 
 import time
 from urllib import unquote
-from random import shuffle
 
 from swift.common.utils import normalize_timestamp, public, csv_append
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
@@ -69,7 +68,7 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part, nodes = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
-        shuffle(nodes)
+        nodes = self.app.sort_nodes(nodes)
         resp = self.GETorHEAD_base(
             req, _('Container'), part, nodes, req.path_info, len(nodes))
         if self.app.memcache:

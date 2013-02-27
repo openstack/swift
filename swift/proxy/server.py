@@ -28,6 +28,8 @@ import mimetypes
 import os
 from ConfigParser import ConfigParser
 import uuid
+from random import shuffle
+from time import time
 
 from eventlet import Timeout
 
@@ -108,6 +110,9 @@ class Application(object):
             a.strip()
             for a in conf.get('cors_allow_origin', '').split(',')
             if a.strip()]
+        self.node_timings = {}
+        self.timing_expiry = int(conf.get('timing_expiry', 300))
+        self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
 
     def get_controller(self, path):
         """
@@ -241,6 +246,33 @@ class Application(object):
         except (Exception, Timeout):
             self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)
+
+    def sort_nodes(self, nodes):
+        '''
+        Sorts nodes in-place (and returns the sorted list) according to
+        the configured strategy. The default "sorting" is to randomly
+        shuffle the nodes. If the "timing" strategy is chosen, the nodes
+        are sorted according to the stored timing data.
+        '''
+        # In the case of timing sorting, shuffling ensures that close timings
+        # (ie within the rounding resolution) won't prefer one over another.
+        # Python's sort is stable (http://wiki.python.org/moin/HowTo/Sorting/)
+        shuffle(nodes)
+        if self.sorting_method == 'timing':
+            now = time()
+
+            def key_func(node):
+                timing, expires = self.node_timings.get(node['ip'], (-1.0, 0))
+                return timing if expires > now else -1.0
+            nodes.sort(key=key_func)
+        return nodes
+
+    def set_node_timing(self, node, timing):
+        if self.sorting_method != 'timing':
+            return
+        now = time()
+        timing = round(timing, 3)  # sort timings to the millisecond
+        self.node_timings[node['ip']] = (timing, now + self.timing_expiry)
 
 
 def app_factory(global_conf, **local_conf):
