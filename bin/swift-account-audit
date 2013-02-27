@@ -55,10 +55,9 @@ class Auditor(object):
     def __init__(self, swift_dir='/etc/swift', concurrency=50, deep=False,
                  error_file=None):
         self.pool = GreenPool(concurrency)
-        self.object_ring = Ring(os.path.join(swift_dir, ring_name='object'))
-        self.container_ring = \
-            Ring(os.path.join(swift_dir, ring_name='container'))
-        self.account_ring = Ring(os.path.join(swift_dir, ring_name='account'))
+        self.object_ring = Ring(swift_dir, ring_name='object')
+        self.container_ring = Ring(swift_dir, ring_name='container')
+        self.account_ring = Ring(swift_dir, ring_name='account')
         self.deep = deep
         self.error_file = error_file
         # zero out stats
@@ -312,17 +311,17 @@ class Auditor(object):
 
     def print_stats(self):
         print
-        print "  Accounts checked: %d" % self.accounts_checked
+        print     "  Accounts checked: %d" % self.accounts_checked
         if self.account_not_found:
             print "  Missing Replicas: %d" % self.account_not_found
         if self.account_exceptions:
             print "        Exceptions: %d" % self.account_exceptions
         if self.account_container_mismatch:
-            print " Cntainer mismatch: %d" % self.account_container_mismatch
+            print "Container mismatch: %d" % self.account_container_mismatch
         if self.account_object_mismatch:
             print "   Object mismatch: %d" % self.account_object_mismatch
         print
-        print "Containers checked: %d" % self.containers_checked
+        print     "Containers checked: %d" % self.containers_checked
         if self.container_not_found:
             print "  Missing Replicas: %d" % self.container_not_found
         if self.container_exceptions:
@@ -330,9 +329,9 @@ class Auditor(object):
         if self.container_count_mismatch:
             print "    Count mismatch: %d" % self.container_count_mismatch
         if self.container_obj_mismatch:
-            print "      Obj mismatch: %d" % self.container_obj_mismatch
+            print "   Object mismatch: %d" % self.container_obj_mismatch
         print
-        print "   Objects checked: %d" % self.objects_checked
+        print     "   Objects checked: %d" % self.objects_checked
         if self.object_not_found:
             print "  Missing Replicas: %d" % self.object_not_found
         if self.object_exceptions:
