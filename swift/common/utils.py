@@ -64,7 +64,6 @@ logging._levelNames[NOTICE] = 'NOTICE'
 SysLogHandler.priority_map['NOTICE'] = 'notice'
 
 # These are lazily pulled from libc elsewhere
-_sys_fsync = None
 _sys_fallocate = None
 _posix_fadvise = None
 
@@ -231,46 +230,31 @@ def fallocate(fd, size):
         raise OSError(err, 'Unable to fallocate(%s)' % size)
 
 
-class FsyncWrapper(object):
-
-    def __init__(self):
-        if hasattr(os, 'fdatasync'):
-            self.func_name = 'fdatasync'
-            self.fsync = os.fdatasync
-            self.fcntl_flag = None
-        elif hasattr(fcntl, 'F_FULLFSYNC'):
-            self.func_name = 'fcntl'
-            self.fsync = fcntl.fcntl
-            self.fcntl_flag = fcntl.F_FULLFSYNC
-        else:
-            self.func_name = 'fsync'
-            self.fsync = os.fsync
-            self.fcntl_flag = None
-
-    def __call__(self, fd):
-        args = {
-            'fdatasync': (fd, ),
-            'fsync': (fd, ),
-            'fcntl': (fd, self.fcntl_flag)
-        }
-        return self.fsync(*args[self.func_name])
-
-
 def fsync(fd):
     """
-    Write buffered changes to disk.
+    Sync modified file data and metadata to disk.
 
     :param fd: file descriptor
     """
+    if hasattr(fcntl, 'F_FULLSYNC'):
+        try:
+            fcntl.fcntl(fd, fcntl.F_FULLSYNC)
+        except IOError as e:
+            raise OSError(e.errno, 'Unable to F_FULLSYNC(%s)' % fd)
+    else:
+        os.fsync(fd)
 
-    global _sys_fsync
-    if _sys_fsync is None:
-        _sys_fsync = FsyncWrapper()
 
-    ret = _sys_fsync(fd)
-    err = ctypes.get_errno()
-    if ret and err != 0:
-        raise OSError(err, 'Unable to fsync(%s)' % fd)
+def fdatasync(fd):
+    """
+    Sync modified file data to disk.
+
+    :param fd: file descriptor
+    """
+    try:
+        os.fdatasync(fd)
+    except AttributeError:
+        fsync(fd)
 
 
 def drop_buffer_cache(fd, offset, length):
