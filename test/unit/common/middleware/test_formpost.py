@@ -54,7 +54,8 @@ class FakeMemcache(object):
 
 class FakeApp(object):
 
-    def __init__(self, status_headers_body_iter=None):
+    def __init__(self, status_headers_body_iter=None,
+                 check_no_query_string=True):
         self.status_headers_body_iter = status_headers_body_iter
         if not self.status_headers_body_iter:
             self.status_headers_body_iter = iter([('404 Not Found', {
@@ -62,8 +63,12 @@ class FakeApp(object):
                 'x-test-header-two-a': 'value2',
                 'x-test-header-two-b': 'value3'}, '')])
         self.requests = []
+        self.check_no_query_string = check_no_query_string
 
     def __call__(self, env, start_response):
+        if self.check_no_query_string and env.get('QUERY_STRING'):
+            raise Exception('Query string %s should have been discarded!' %
+                            env['QUERY_STRING'])
         body = ''
         while True:
             chunk = env['wsgi.input'].read()
@@ -944,6 +949,42 @@ class TestFormPost(unittest.TestCase):
         self.assertEquals(len(self.app.requests), 1)
         self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
 
+    def test_subrequest_does_not_pass_query(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        env['QUERY_STRING'] = 'this=should&not=get&passed'
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.cache'] = FakeMemcache()
+        # We don't cache the key so that it's asked for (and FakeApp verifies
+        # that no QUERY_STRING got passed).
+        self.app = FakeApp(
+            iter([('200 Ok', {'x-account-meta-temp-url-key': 'abc'}, ''),
+                  ('201 Created', {}, ''),
+                  ('201 Created', {}, '')]),
+            check_no_query_string=True)
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        # Make sure we 201 Created, which means we made the final subrequest
+        # (and FakeAp verifies that no QUERY_STRING got passed).
+        self.assertEquals(status, '201 Created')
+        self.assertEquals(exc_info, None)
+        self.assertTrue('201 Created' in body)
+        self.assertEquals(len(self.app.requests), 3)
+
     def test_subrequest_fails(self):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
@@ -1131,6 +1172,81 @@ class TestFormPost(unittest.TestCase):
             'http://brim.net?status=400&message=no%20files%20to%20process'
             in body)
         self.assertEquals(len(self.app.requests), 0)
+
+    def test_redirect(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
+            int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.cache'] = FakeMemcache()
+        env['swift.cache'].set('temp-url-key/AUTH_test', key)
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '303 See Other')
+        location = None
+        for h, v in headers:
+            if h.lower() == 'location':
+                location = v
+        self.assertEquals(location, 'http://redirect?status=201&message=')
+        self.assertEquals(exc_info, None)
+        self.assertTrue(location in body)
+        self.assertEquals(len(self.app.requests), 2)
+        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+
+    def test_redirect_with_query(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://redirect?one=two', 1024, 10,
+            int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.cache'] = FakeMemcache()
+        env['swift.cache'].set('temp-url-key/AUTH_test', key)
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '303 See Other')
+        location = None
+        for h, v in headers:
+            if h.lower() == 'location':
+                location = v
+        self.assertEquals(location,
+                          'http://redirect?one=two&status=201&message=')
+        self.assertEquals(exc_info, None)
+        self.assertTrue(location in body)
+        self.assertEquals(len(self.app.requests), 2)
+        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_no_redirect(self):
         key = 'abc'

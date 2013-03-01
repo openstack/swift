@@ -377,7 +377,8 @@ class FormPost(object):
         if not status:
             status = '400 Bad Request'
             message = 'no files to process'
-        if not attributes.get('redirect'):
+        redirect = attributes.get('redirect')
+        if not redirect:
             body = status
             if message:
                 body = status + '\r\nFormPost: ' + message.title()
@@ -385,13 +386,14 @@ class FormPost(object):
                        ('Content-Length', len(body))]
             return status, headers, body
         status = status.split(' ', 1)[0]
-        body = '<html><body><p><a href="%s?status=%s&message=%s">Click to ' \
-               'continue...</a></p></body></html>' % \
-               (attributes['redirect'], quote(status), quote(message))
-        headers = [
-            ('Location', '%s?status=%s&message=%s' % (
-                attributes['redirect'], quote(status), quote(message))),
-            ('Content-Length', str(len(body)))]
+        if '?' in redirect:
+            redirect += '&'
+        else:
+            redirect += '?'
+        redirect += 'status=%s&message=%s' % (quote(status), quote(message))
+        body = '<html><body><p><a href="%s">' \
+               'Click to continue...</a></p></body></html>' % redirect
+        headers = [('Location', redirect), ('Content-Length', str(len(body)))]
         return '303 See Other', headers, body
 
     def _perform_subrequest(self, orig_env, attributes, fp, key):
@@ -413,6 +415,8 @@ class FormPost(object):
             raise FormInvalid('max_file_size not an integer')
         subenv = make_pre_authed_env(orig_env, 'PUT', agent=None,
                                      swift_source='FP')
+        if 'QUERY_STRING' in subenv:
+            del subenv['QUERY_STRING']
         subenv['HTTP_TRANSFER_ENCODING'] = 'chunked'
         subenv['wsgi.input'] = _CappedFileLikeObject(fp, max_file_size)
         if subenv['PATH_INFO'][-1] != '/' and \
@@ -471,6 +475,8 @@ class FormPost(object):
         if not key:
             newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
                                          agent=None, swift_source='FP')
+            if 'QUERY_STRING' in newenv:
+                del newenv['QUERY_STRING']
             newenv['CONTENT_LENGTH'] = '0'
             newenv['wsgi.input'] = StringIO('')
             key = [None]
