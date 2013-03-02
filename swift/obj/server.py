@@ -207,7 +207,7 @@ class DiskFile(object):
 
     def app_iter_ranges(self, ranges, content_type, boundary, size):
         """Returns an iterator over the data file for a set of ranges"""
-        if (not ranges or len(ranges) == 0):
+        if not ranges:
             yield ''
         else:
             try:
