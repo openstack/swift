@@ -69,6 +69,16 @@ locations in Swift.
 Note that changing the X-Account-Meta-Temp-URL-Key will invalidate
 any previously generated temporary URLs within 60 seconds (the
 memcache time for the key).
+
+With GET TempURLs, a Content-Disposition header will be set on the
+response so that browsers will interpret this as a file attachment to
+be saved. The filename chosen is based on the object name, but you
+can override this with a filename query parameter. Modifying the
+above example::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&filename=My+Test+File.pdf
 """
 
 __all__ = ['TempURL', 'filter_factory',
@@ -83,7 +93,7 @@ from hashlib import sha1
 from os.path import basename
 from StringIO import StringIO
 from time import gmtime, strftime, time
-from urllib import quote, unquote
+from urllib import unquote, urlencode
 from urlparse import parse_qs
 
 from swift.common.wsgi import make_pre_authed_env
@@ -224,7 +234,7 @@ class TempURL(object):
         :param start_response: The WSGI start_response hook.
         :returns: Response as per WSGI.
         """
-        temp_url_sig, temp_url_expires = self._get_temp_url_info(env)
+        temp_url_sig, temp_url_expires, filename = self._get_temp_url_info(env)
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -251,19 +261,30 @@ class TempURL(object):
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
         env['REMOTE_USER'] = '.wsgi.tempurl'
+        qs = {'temp_url_sig': temp_url_sig,
+              'temp_url_expires': temp_url_expires}
+        if filename:
+            qs['filename'] = filename
+        env['QUERY_STRING'] = urlencode(qs)
 
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
-            if env['REQUEST_METHOD'] == 'GET':
+            if env['REQUEST_METHOD'] == 'GET' and status[0] == '2':
                 already = False
                 for h, v in headers:
                     if h.lower() == 'content-disposition':
                         already = True
                         break
+                if already and filename:
+                    headers = list((h, v) for h, v in headers
+                                   if h.lower() != 'content-disposition')
+                    already = False
                 if not already:
-                    headers.append(
-                        ('Content-Disposition', 'attachment; filename=%s' %
-                            (quote(basename(env['PATH_INFO'])))))
+                    headers.append((
+                        'Content-Disposition',
+                        'attachment; filename="%s"' % (
+                            filename or
+                            basename(env['PATH_INFO'])).replace('"', '\\"')))
             return start_response(status, headers, exc_info)
 
         return self.app(env, _start_response)
@@ -298,7 +319,7 @@ class TempURL(object):
         :param env: The WSGI environment for the request.
         :returns: (sig, expires) as described above.
         """
-        temp_url_sig = temp_url_expires = None
+        temp_url_sig = temp_url_expires = filename = None
         qs = parse_qs(env.get('QUERY_STRING', ''))
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
@@ -309,7 +330,9 @@ class TempURL(object):
                 temp_url_expires = 0
             if temp_url_expires < time():
                 temp_url_expires = 0
-        return temp_url_sig, temp_url_expires
+        if 'filename' in qs:
+            filename = qs['filename'][0]
+        return temp_url_sig, temp_url_expires, filename
 
     def _get_key(self, env, account):
         """
