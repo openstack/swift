@@ -22,6 +22,9 @@ import struct
 from time import time
 import os
 from io import BufferedReader
+from hashlib import md5
+from itertools import chain
+from struct import unpack_from
 
 from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
@@ -247,6 +250,11 @@ class Ring(object):
         """
         Generator to get extra nodes for a partition for hinted handoff.
 
+        The handoff nodes will try to be in zones other than the
+        primary zones, will take into account the device weights, and
+        will usually keep the same sequences of handoffs even with
+        ring changes.
+
         :param part: partition to get handoff nodes for
         :returns: generator of node dicts
 
@@ -254,23 +262,38 @@ class Ring(object):
         """
         if time() > self._rtime:
             self._reload()
-        used_tiers = set()
-        for part2dev_id in self._replica2part2dev_id:
-            if len(part2dev_id) > part:
-                for tier in tiers_for_dev(self._devs[part2dev_id[part]]):
-                    used_tiers.add(tier)
-
-        for level in self.tiers_by_length:
-            tiers = list(level)
-            while tiers:
-                tier = tiers.pop(part % len(tiers))
-                if tier in used_tiers:
-                    continue
-                for i in xrange(len(self.tier2devs[tier])):
-                    dev = self.tier2devs[tier][(part + i) %
-                                               len(self.tier2devs[tier])]
-                    if not dev.get('weight'):
-                        continue
-                    yield dev
-                    used_tiers.update(tiers_for_dev(dev))
-                    break
+        used = set(part2dev_id[part]
+                   for part2dev_id in self._replica2part2dev_id
+                   if len(part2dev_id) > part)
+        same_zones = set(self._devs[part2dev_id[part]]['zone']
+                         for part2dev_id in self._replica2part2dev_id
+                         if len(part2dev_id) > part)
+        parts = len(self._replica2part2dev_id[0])
+        start = struct.unpack_from(
+            '>I', md5(str(part)).digest())[0] >> self._part_shift
+        inc = int(parts / 65536) or 1
+        # Two loops for execution speed, second loop doesn't need the zone
+        # check.
+        for handoff_part in chain(xrange(start, parts, inc),
+                                  xrange(inc - ((parts - start) % inc),
+                                         start, inc)):
+            for part2dev_id in self._replica2part2dev_id:
+                try:
+                    dev_id = part2dev_id[handoff_part]
+                    dev = self._devs[dev_id]
+                    if dev_id not in used and dev['zone'] not in same_zones:
+                        yield dev
+                        used.add(dev_id)
+                except IndexError:  # Happens with partial replicas
+                    pass
+        for handoff_part in chain(xrange(start, parts, inc),
+                                  xrange(inc - ((parts - start) % inc),
+                                         start, inc)):
+            for part2dev_id in self._replica2part2dev_id:
+                try:
+                    dev_id = part2dev_id[handoff_part]
+                    if dev_id not in used:
+                        yield self._devs[dev_id]
+                        used.add(dev_id)
+                except IndexError:  # Happens with partial replicas
+                    pass
