@@ -106,6 +106,8 @@ class KeystoneAuth(object):
             environ['keystone.identity'] = identity
             environ['REMOTE_USER'] = identity.get('tenant')
             environ['swift.authorize'] = self.authorize
+            if self.reseller_admin_role in identity.get('roles', []):
+                environ['reseller_request'] = True
         else:
             self.logger.debug('Authorizing as anonymous')
             environ['swift.authorize'] = self.authorize_anonymous
