@@ -51,6 +51,15 @@ Load balancing and network design is left as an exercise to the reader,
 but this is a very important part of the cluster, so time should be spent
 designing the network for a Swift cluster.
 
+
+---------------------
+Web Front End Options
+---------------------
+
+Swift comes with an integral web front end. However, it can also be deployed
+as a request processor of an Apache2 using mod_wsgi as described in 
+:doc:`Apache Deployment Guide <apache_deployment_guide>`.
+
 .. _ring-preparing:
 
 ------------------

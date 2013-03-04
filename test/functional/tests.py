@@ -67,6 +67,8 @@ for k in default_constraints:
         # tests.
         config[k] = '%s constraint is not defined' % k
 
+web_front_end = config.get('web_front_end', 'integral')
+normalized_urls = config.get('normalized_urls', False)
 
 def load_constraint(name):
     c = config[name]
@@ -220,7 +222,10 @@ class TestAccount(Base):
 
     def testInvalidPath(self):
         was_url = self.env.account.conn.storage_url
-        self.env.account.conn.storage_url = "/%s" % was_url
+        if (normalized_urls):
+            self.env.account.conn.storage_url = '/'
+        else:
+            self.env.account.conn.storage_url = "/%s" % was_url
         self.env.account.conn.make_request('GET')
         try:
             self.assert_status(404)
@@ -724,6 +729,7 @@ class TestContainerPathsEnv:
             'dir1/subdir+with{whatever/file D',
         ]
 
+        stored_files = set()
         for f in cls.files:
             file = cls.container.file(f)
             if f.endswith('/'):
@@ -731,6 +737,16 @@ class TestContainerPathsEnv:
             else:
                 file.write_random(cls.file_size, hdrs={'Content-Type':
                                   'application/directory'})
+            if (normalized_urls):
+                nfile = '/'.join(filter(None, f.split('/')))
+                if (f[-1] == '/'):
+                    nfile += '/'
+                stored_files.add(nfile)
+            else:
+                stored_files.add(f)
+        cls.stored_files = sorted(stored_files)
+
+        
 
 
 class TestContainerPaths(Base):
@@ -754,7 +770,7 @@ class TestContainerPaths(Base):
                     found_files.append(file)
 
         recurse_path('')
-        for file in self.env.files:
+        for file in self.env.stored_files:
             if file.startswith('/'):
                 self.assert_(file not in found_dirs)
                 self.assert_(file not in found_files)
@@ -764,10 +780,11 @@ class TestContainerPaths(Base):
             else:
                 self.assert_(file in found_files)
                 self.assert_(file not in found_dirs)
+
         found_files = []
         found_dirs = []
         recurse_path('/')
-        for file in self.env.files:
+        for file in self.env.stored_files:
             if not file.startswith('/'):
                 self.assert_(file not in found_dirs)
                 self.assert_(file not in found_files)
@@ -785,7 +802,7 @@ class TestContainerPaths(Base):
             if isinstance(files[0], dict):
                 files = [str(x['name']) for x in files]
 
-            self.assertEquals(files, sorted(self.env.files))
+            self.assertEquals(files, self.env.stored_files)
 
         for format in ('json', 'xml'):
             for file in self.env.container.files(parms={'format': format}):
@@ -799,18 +816,20 @@ class TestContainerPaths(Base):
         def assert_listing(path, list):
             files = self.env.container.files(parms={'path': path})
             self.assertEquals(sorted(list, cmp=locale.strcoll), files)
-
-        assert_listing('/', ['/dir1/', '/dir2/', '/file1', '/file A'])
-        assert_listing('/dir1',
-                       ['/dir1/file2', '/dir1/subdir1/', '/dir1/subdir2/'])
-        assert_listing('/dir1/',
-                       ['/dir1/file2', '/dir1/subdir1/', '/dir1/subdir2/'])
-        assert_listing('/dir1/subdir1',
-                       ['/dir1/subdir1/subsubdir2/', '/dir1/subdir1/file2',
-                        '/dir1/subdir1/file3', '/dir1/subdir1/file4',
-                        '/dir1/subdir1/subsubdir1/'])
-        assert_listing('/dir1/subdir2', [])
-        assert_listing('', ['file1', 'dir1/', 'dir2/'])
+        if not normalized_urls:
+            assert_listing('/', ['/dir1/', '/dir2/', '/file1', '/file A'])
+            assert_listing('/dir1',
+                           ['/dir1/file2', '/dir1/subdir1/', '/dir1/subdir2/'])
+            assert_listing('/dir1/',
+                           ['/dir1/file2', '/dir1/subdir1/', '/dir1/subdir2/'])
+            assert_listing('/dir1/subdir1',
+                           ['/dir1/subdir1/subsubdir2/', '/dir1/subdir1/file2',
+                            '/dir1/subdir1/file3', '/dir1/subdir1/file4',
+                            '/dir1/subdir1/subsubdir1/'])
+            assert_listing('/dir1/subdir2', [])
+            assert_listing('', ['file1', 'dir1/', 'dir2/'])
+        else:
+            assert_listing('', ['file1', 'dir1/', 'dir2/', 'file A'])
         assert_listing('dir1', ['dir1/file2', 'dir1/subdir1/',
                                 'dir1/subdir2/', 'dir1/subdir with spaces/',
                                 'dir1/subdir+with{whatever/'])
@@ -1486,6 +1505,8 @@ class TestFile(Base):
         self.assertEquals(etag, header_etag)
 
     def testChunkedPut(self):
+        if (web_front_end == 'apache2'):
+            raise SkipTest()
         data = File.random_data(10000)
         etag = File.compute_md5sum(data)
 
