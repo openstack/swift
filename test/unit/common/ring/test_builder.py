@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import operator
 import os
 import unittest
 import cPickle as pickle
@@ -96,6 +97,16 @@ class TestRingBuilder(unittest.TestCase):
         self.assertFalse(rb0.get_ring() is r0)
         self.assertNotEquals(r0.to_dict(), r1.to_dict())
         self.assertEquals(r1.to_dict(), r2.to_dict())
+
+    def test_set_replicas(self):
+        rb = ring.RingBuilder(8, 3.2, 1)
+        rb.devs_changed = False
+        rb.set_replicas(3.25)
+        self.assertTrue(rb.devs_changed)
+
+        rb.devs_changed = False
+        rb.set_replicas(3.2500001)
+        self.assertFalse(rb.devs_changed)
 
     def test_add_dev(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -532,6 +543,65 @@ class TestRingBuilder(unittest.TestCase):
 
         rb.rebalance()
 
+    def test_set_replicas_increase(self):
+        rb = ring.RingBuilder(8, 2, 0)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.rebalance()
+        rb.validate()
+
+        rb.replicas = 2.1
+        rb.rebalance()
+        rb.validate()
+
+        self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
+                         [256, 256, 25])
+
+        rb.replicas = 2.2
+        rb.rebalance()
+        rb.validate()
+        self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
+                         [256, 256, 51])
+
+    def test_set_replicas_decrease(self):
+        rb = ring.RingBuilder(4, 5, 0)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.rebalance()
+        rb.validate()
+
+        rb.replicas = 4.9
+        rb.rebalance()
+        print repr(rb._replica2part2dev)
+        print repr(rb.devs)
+        rb.validate()
+
+        self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
+                         [16, 16, 16, 16, 14])
+
+        # cross a couple of integer thresholds (4 and 3)
+        rb.replicas = 2.5
+        rb.rebalance()
+        rb.validate()
+
+        self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
+                         [16, 16, 8])
+
+    def test_fractional_replicas_rebalance(self):
+        rb = ring.RingBuilder(8, 2.5, 0)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.rebalance()  # passes by not crashing
+        rb.validate()   # also passes by not crashing
+        self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
+                         [256, 256, 128])
+
     def test_load(self):
         rb = ring.RingBuilder(8, 3, 1)
         devs = [{'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.0',
@@ -679,6 +749,31 @@ class TestRingBuilder(unittest.TestCase):
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
+
+    def test_get_part_devices(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.rebalance()
+
+        part_devs = sorted(rb.get_part_devices(0),
+                           key=operator.itemgetter('id'))
+        self.assertEqual(part_devs, [rb.devs[0], rb.devs[1]])
+
+    def test_get_part_devices_partial_replicas(self):
+        rb = ring.RingBuilder(8, 2.5, 1)
+        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
+                    'port': 10001, 'device': 'sda1'})
+        rb.rebalance()
+
+        # note: partition 255 will only have 2 replicas
+        part_devs = sorted(rb.get_part_devices(255),
+                           key=operator.itemgetter('id'))
+        self.assertEqual(part_devs, [rb.devs[0], rb.devs[1]])
 
 
 if __name__ == '__main__':
