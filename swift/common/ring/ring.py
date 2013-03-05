@@ -37,6 +37,10 @@ class RingData(object):
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
 
+        for dev in self.devs:
+            if dev is not None:
+                dev.setdefault("region", 1)
+
     @classmethod
     def deserialize_v1(cls, gz_file):
         json_len, = struct.unpack('!I', gz_file.read(4))
@@ -266,39 +270,52 @@ class Ring(object):
         """
         if time() > self._rtime:
             self._reload()
-        used = set(part2dev_id[part]
-                   for part2dev_id in self._replica2part2dev_id
-                   if len(part2dev_id) > part)
-        same_zones = set(self._devs[part2dev_id[part]]['zone']
-                         for part2dev_id in self._replica2part2dev_id
-                         if len(part2dev_id) > part)
+        primary_nodes = self._get_part_nodes(part)
+
+        used = set(d['id'] for d in primary_nodes)
+        same_regions = set(d['region'] for d in primary_nodes)
+        same_zones = set((d['region'], d['zone']) for d in primary_nodes)
+
         parts = len(self._replica2part2dev_id[0])
         start = struct.unpack_from(
             '>I', md5(str(part)).digest())[0] >> self._part_shift
         inc = int(parts / 65536) or 1
-        # Two loops for execution speed, second loop doesn't need the zone
-        # check.
+        # Multiple loops for execution speed; the checks and bookkeeping get
+        # simpler as you go along
         for handoff_part in chain(xrange(start, parts, inc),
                                   xrange(inc - ((parts - start) % inc),
                                          start, inc)):
             for part2dev_id in self._replica2part2dev_id:
-                try:
+                if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     dev = self._devs[dev_id]
-                    if dev_id not in used and dev['zone'] not in same_zones:
+                    region = dev['region']
+                    zone = (dev['region'], dev['zone'])
+                    if dev_id not in used and region not in same_regions:
                         yield dev
                         used.add(dev_id)
-                        same_zones.add(dev['zone'])
-                except IndexError:  # Happens with partial replicas
-                    pass
+                        same_regions.add(region)
+                        same_zones.add(zone)
+
         for handoff_part in chain(xrange(start, parts, inc),
                                   xrange(inc - ((parts - start) % inc),
                                          start, inc)):
             for part2dev_id in self._replica2part2dev_id:
-                try:
+                if handoff_part < len(part2dev_id):
+                    dev_id = part2dev_id[handoff_part]
+                    dev = self._devs[dev_id]
+                    zone = (dev['region'], dev['zone'])
+                    if dev_id not in used and zone not in same_zones:
+                        yield dev
+                        used.add(dev_id)
+                        same_zones.add(zone)
+
+        for handoff_part in chain(xrange(start, parts, inc),
+                                  xrange(inc - ((parts - start) % inc),
+                                         start, inc)):
+            for part2dev_id in self._replica2part2dev_id:
+                if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     if dev_id not in used:
                         yield self._devs[dev_id]
                         used.add(dev_id)
-                except IndexError:  # Happens with partial replicas
-                    pass

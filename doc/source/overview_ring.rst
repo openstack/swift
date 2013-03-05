@@ -98,9 +98,9 @@ device and device['weight']]``
 Partition Assignment List
 *************************
 
-This is a list of array('I') of devices ids. The outermost list contains an
-array('I') for each replica. Each array('I') has a length equal to the
-partition count for the ring. Each integer in the array('I') is an index into
+This is a list of array('H') of devices ids. The outermost list contains an
+array('H') for each replica. Each array('H') has a length equal to the
+partition count for the ring. Each integer in the array('H') is an index into
 the above list of devices. The partition list is known internally to the Ring
 class as _replica2part2dev_id.
 
@@ -108,8 +108,28 @@ So, to create a list of device dictionaries assigned to a partition, the Python
 code would look like: ``devices = [self.devs[part2dev_id[partition]] for
 part2dev_id in self._replica2part2dev_id]``
 
-array('I') is used for memory conservation as there may be millions of
+That code is a little simplistic, as it does not account for the
+removal of duplicate devices. If a ring has more replicas than
+devices, then a partition will have more than one replica on one
+device; that's simply the pigeonhole principle at work.
+
+array('H') is used for memory conservation as there may be millions of
 partitions.
+
+*******************
+Fractional Replicas
+*******************
+
+A ring is not restricted to having an integer number of replicas. In order to
+support the gradual changing of replica counts, the ring is able to have a real
+number of replicas.
+
+When the number of replicas is not an integer, then the last element of
+_replica2part2dev_id will have a length that is less than the partition count
+for the ring. This means that some partitions will have more replicas than
+others. For example, if a ring has 3.25 replicas, then 25% of its partitions
+will have four replicas, while the remaining 75% will have just three.
+
 
 *********************
 Partition Shift Value
@@ -123,25 +143,37 @@ in this process. For example, to compute the partition for the path
 unpack_from('>I', md5('/account/container/object').digest())[0] >>
 self._part_shift``
 
+For a ring generated with part_power P, the partition shift value is
+32 - P.
+
 -----------------
 Building the Ring
 -----------------
 
 The initial building of the ring first calculates the number of partitions that
 should ideally be assigned to each device based the device's weight. For
-example, if the partition power of 20 the ring will have 1,048,576 partitions.
+example, given a partition power of 20, the ring will have 1,048,576 partitions.
 If there are 1,000 devices of equal weight they will each desire 1,048.576
 partitions. The devices are then sorted by the number of partitions they desire
 and kept in order throughout the initialization process.
 
-Then, the ring builder assigns each replica of each partition to the device
-that desires the most partitions at that point while keeping it as far away as
+Note: each device is also assigned a random tiebreaker value that is used when
+two devices desire the same number of partitions. This tiebreaker is not stored
+on disk anywhere, and so two different rings created with the same parameters
+will have different partition assignments. For repeatable partition assignments,
+``RingBuilder.rebalance()`` takes an optional seed value that will be used to
+seed Python's pseudo-random number generator.
+
+Then, the ring builder assigns each replica of each partition to the device that
+desires the most partitions at that point while keeping it as far away as
 possible from other replicas. The ring builder prefers to assign a replica to a
-device in a zone that has no replicas already; should there be no such zone
-available, the ring builder will try to find a device on a different server;
-failing that, it will just look for a device that has no replicas; finally, if
-all other options are exhausted, the ring builder will assign the replica to
-the device that has the fewest replicas already assigned.
+device in a regions that has no replicas already; should there be no such region
+available, the ring builder will try to find a device in a different zone; if
+not possible, it will look on a different server; failing that, it will just
+look for a device that has no replicas; finally, if all other options are
+exhausted, the ring builder will assign the replica to the device that has the
+fewest replicas already assigned. Note that assignment of multiple replicas to
+one device will only happen if the ring has fewer devices than it has replicas.
 
 When building a new ring based on an old ring, the desired number of partitions
 each device wants is recalculated. Next the partitions to be reassigned are

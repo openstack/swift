@@ -43,7 +43,8 @@ class TestRingData(unittest.TestCase):
 
     def test_attrs(self):
         r2p2d = [[0, 1, 0, 1], [0, 1, 0, 1]]
-        d = [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}]
+        d = [{'id': 0, 'zone': 0, 'region': 0},
+             {'id': 1, 'zone': 1, 'region': 1}]
         s = 30
         rd = ring.RingData(r2p2d, d, s)
         self.assertEquals(rd._replica2part2dev_id, r2p2d)
@@ -104,14 +105,14 @@ class TestRing(unittest.TestCase):
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [3, 4, 3, 4])]
-        self.intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
+        self.intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
                                'ip': '10.1.1.1', 'port': 6000},
-                              {'id': 1, 'zone': 0, 'weight': 1.0,
+                              {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
                                'ip': '10.1.1.1', 'port': 6000},
                               None,
-                              {'id': 3, 'zone': 2, 'weight': 1.0,
+                              {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
                                'ip': '10.1.2.1', 'port': 6000},
-                              {'id': 4, 'zone': 2, 'weight': 1.0,
+                              {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
                                'ip': '10.1.2.2', 'port': 6000}]
         self.intended_part_shift = 30
         self.intended_reload_time = 15
@@ -149,7 +150,7 @@ class TestRing(unittest.TestCase):
                     ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 5)
-        self.intended_devs.append({'id': 3, 'zone': 3, 'weight': 1.0})
+        self.intended_devs.append({'id': 3, 'region': 0, 'zone': 3, 'weight': 1.0})
         ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
@@ -162,7 +163,7 @@ class TestRing(unittest.TestCase):
                     ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 6)
-        self.intended_devs.append({'id': 5, 'zone': 4, 'weight': 1.0})
+        self.intended_devs.append({'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
         ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
@@ -176,7 +177,7 @@ class TestRing(unittest.TestCase):
         orig_mtime = self.ring._mtime
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 7)
-        self.intended_devs.append({'id': 6, 'zone': 5, 'weight': 1.0})
+        self.intended_devs.append({'id': 6, 'region': 0, 'zone': 5, 'weight': 1.0})
         ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
@@ -189,7 +190,7 @@ class TestRing(unittest.TestCase):
                     ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 8)
-        self.intended_devs.append({'id': 5, 'zone': 4, 'weight': 1.0})
+        self.intended_devs.append({'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
         ring.RingData(self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
@@ -312,7 +313,8 @@ class TestRing(unittest.TestCase):
                 for device in xrange(1, 4):
                     rb.add_dev({'id': next_dev_id,
                                 'ip': '1.2.%d.%d' % (zone, server),
-                                'port': 1234, 'zone': zone, 'weight': 1.0})
+                                'port': 1234, 'zone': zone, 'region': 0,
+                                'weight': 1.0})
                     next_dev_id += 1
         rb.rebalance(seed=1)
         rb.get_ring().save(self.testgz)
@@ -343,7 +345,7 @@ class TestRing(unittest.TestCase):
         server = 0
         rb.add_dev({'id': next_dev_id,
                     'ip': '1.2.%d.%d' % (zone, server),
-                    'port': 1234, 'zone': zone, 'weight': 1.0})
+                    'port': 1234, 'zone': zone, 'region': 0, 'weight': 1.0})
         next_dev_id += 1
         rb.rebalance(seed=1)
         rb.get_ring().save(self.testgz)
@@ -541,6 +543,57 @@ class TestRing(unittest.TestCase):
         seen_zones = set(primary_zones2)
         seen_zones.update(d['zone'] for d in devs2[:6])
         self.assertEquals(seen_zones, set(range(1, 10)))
+
+        # Test distribution across regions
+        rb.set_replicas(3)
+        for region in xrange(1, 5):
+            rb.add_dev({'id': next_dev_id,
+                        'ip': '1.%d.1.%d' % (region, server), 'port': 1234,
+                        'zone': 1, 'region': region, 'weight': 1.0})
+            next_dev_id += 1
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=1)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=1)
+        rb.get_ring().save(self.testgz)
+        r = ring.Ring(self.testdir, ring_name='whatever')
+
+        # There's 5 regions now, so the primary nodes + first 2 handoffs
+        # should span all 5 regions
+        part, devs = r.get_nodes('a1', 'c1', 'o1')
+        primary_regions = set(d['region'] for d in devs)
+        primary_zones = set((d['region'], d['zone']) for d in devs)
+        more_devs = list(r.get_more_nodes(part))
+
+        seen_regions = set(primary_regions)
+        seen_regions.update(d['region'] for d in more_devs[:2])
+        self.assertEquals(seen_regions, set(range(0, 5)))
+
+        # There are 13 zones now, so the first 13 nodes should all have
+        # distinct zones (that's r0z0, r0z1, ..., r0z8, r1z1, r2z1, r3z1, and
+        # r4z1).
+        seen_zones = set(primary_zones)
+        seen_zones.update((d['region'], d['zone']) for d in more_devs[:10])
+        self.assertEquals(13, len(seen_zones))
+
+        # Here's a brittle canary-in-the-coalmine test to make sure the region
+        # handoff computation didn't change accidentally
+        exp_handoffs = [111, 112, 74, 54, 93, 31, 2, 43, 100, 22, 71, 32, 92,
+                        35, 9, 50, 41, 76, 80, 84, 88, 17, 94, 101, 1, 10, 96,
+                        44, 73, 6, 75, 102, 37, 21, 97, 29, 105, 5, 28, 47,
+                        106, 30, 16, 39, 77, 42, 72, 20, 13, 34, 99, 108, 14,
+                        66, 61, 81, 90, 4, 40, 3, 45, 62, 7, 15, 87, 12, 83,
+                        89, 53, 33, 98, 49, 65, 25, 107, 56, 58, 86, 48, 57,
+                        24, 11, 23, 26, 46, 64, 69, 38, 36, 79, 63, 104, 51,
+                        70, 82, 67, 68, 8, 95, 91, 55, 59, 85]
+        dev_ids = [d['id'] for d in more_devs]
+
+        self.assertEquals(len(dev_ids), len(exp_handoffs))
+        for index, dev_id in enumerate(dev_ids):
+            self.assertEquals(
+                dev_id, exp_handoffs[index],
+                'handoff differs at position %d\n%s\n%s' % (
+                    index, dev_ids[index:], exp_handoffs[index:]))
 
 
 if __name__ == '__main__':

@@ -49,14 +49,14 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_get_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
-        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10004, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.remove_dev(1)
         rb.rebalance()
         r = rb.get_ring()
@@ -75,7 +75,7 @@ class TestRingBuilder(unittest.TestCase):
         for n in range(3):
             rb = ring.RingBuilder(8, 3, 1)
             for idx, (zone, port) in enumerate(devs):
-                rb.add_dev({'id': idx, 'zone': zone, 'weight': 1,
+                rb.add_dev({'id': idx, 'region': 0, 'zone': zone, 'weight': 1,
                             'ip': '127.0.0.1', 'port': port, 'device': 'sda1'})
             ring_builders.append(rb)
 
@@ -110,28 +110,30 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_add_dev(self):
         rb = ring.RingBuilder(8, 3, 1)
-        dev = \
-            {'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1', 'port': 10000}
+        dev = {'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+               'ip': '127.0.0.1', 'port': 10000}
         rb.add_dev(dev)
         self.assertRaises(exceptions.DuplicateDeviceError, rb.add_dev, dev)
         rb = ring.RingBuilder(8, 3, 1)
         #test add new dev with no id
-        rb.add_dev({'zone': 0, 'weight': 1, 'ip': '127.0.0.1', 'port': 6000})
+        rb.add_dev({'zone': 0, 'region': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[0]['id'], 0)
         #test add another dev with no id
-        rb.add_dev({'zone': 3, 'weight': 1, 'ip': '127.0.0.1', 'port': 6000})
+        rb.add_dev({'zone': 3, 'region': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[1]['id'], 1)
 
     def test_set_dev_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 0.5, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 0.5, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
-        rb.add_dev({'id': 3, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 0.5,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 0.5,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.rebalance()
         r = rb.get_ring()
         counts = {}
@@ -152,14 +154,14 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_remove_dev(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
-        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.rebalance()
         r = rb.get_ring()
         counts = {}
@@ -180,17 +182,17 @@ class TestRingBuilder(unittest.TestCase):
     def test_remove_a_lot(self):
         rb = ring.RingBuilder(3, 3, 1)
         rb.add_dev({'id': 0, 'device': 'd0', 'ip': '10.0.0.1',
-                    'port': 6002, 'weight': 1000.0, 'zone': 1})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 1})
         rb.add_dev({'id': 1, 'device': 'd1', 'ip': '10.0.0.2',
-                    'port': 6002, 'weight': 1000.0, 'zone': 2})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 2})
         rb.add_dev({'id': 2, 'device': 'd2', 'ip': '10.0.0.3',
-                    'port': 6002, 'weight': 1000.0, 'zone': 3})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 3})
         rb.add_dev({'id': 3, 'device': 'd3', 'ip': '10.0.0.1',
-                    'port': 6002, 'weight': 1000.0, 'zone': 1})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 1})
         rb.add_dev({'id': 4, 'device': 'd4', 'ip': '10.0.0.2',
-                    'port': 6002, 'weight': 1000.0, 'zone': 2})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 2})
         rb.add_dev({'id': 5, 'device': 'd5', 'ip': '10.0.0.3',
-                    'port': 6002, 'weight': 1000.0, 'zone': 3})
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 3})
         rb.rebalance()
         rb.validate()
 
@@ -216,15 +218,15 @@ class TestRingBuilder(unittest.TestCase):
 
     def _shuffled_gather_helper(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
         rb.rebalance()
-        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         parts = rb._gather_reassign_parts()
         max_run = 0
@@ -243,34 +245,64 @@ class TestRingBuilder(unittest.TestCase):
         return max_run > len(parts) / 2
 
     def test_multitier_partial(self):
-        # Multitier test, zones full, nodes not full
-        rb = ring.RingBuilder(8, 6, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc'})
-
-        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdd'})
-        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdf'})
-
-        rb.add_dev({'id': 6, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sdg'})
-        rb.add_dev({'id': 7, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sdh'})
-        rb.add_dev({'id': 8, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sdi'})
+        # Multitier test, nothing full
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 2, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 3, 'zone': 3, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
 
         rb.rebalance()
         rb.validate()
 
         for part in xrange(rb.parts):
-            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            counts = defaultdict(lambda: defaultdict(int))
+            for replica in xrange(rb.replicas):
+                dev = rb.devs[rb._replica2part2dev[replica][part]]
+                counts['region'][dev['region']] += 1
+                counts['zone'][dev['zone']] += 1
+
+            if any(c > 1 for c in counts['region'].values()):
+                raise AssertionError(
+                    "Partition %d not evenly region-distributed (got %r)" %
+                    (part, counts['region']))
+            if any(c > 1 for c in counts['zone'].values()):
+                raise AssertionError(
+                    "Partition %d not evenly zone-distributed (got %r)" %
+                    (part, counts['zone']))
+
+        # Multitier test, zones full, nodes not full
+        rb = ring.RingBuilder(8, 6, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdf'})
+
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sdg'})
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sdh'})
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sdi'})
+
+        rb.rebalance()
+        rb.validate()
+
+        for part in xrange(rb.parts):
+            counts = defaultdict(lambda: defaultdict(int))
             for replica in xrange(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
@@ -288,26 +320,26 @@ class TestRingBuilder(unittest.TestCase):
     def test_multitier_full(self):
         # Multitier test, #replicas == #devs
         rb = ring.RingBuilder(8, 6, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 2, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdd'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdd'})
 
-        rb.add_dev({'id': 4, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdf'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdf'})
 
         rb.rebalance()
         rb.validate()
 
         for part in xrange(rb.parts):
-            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            counts = defaultdict(lambda: defaultdict(int))
             for replica in xrange(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
@@ -325,26 +357,26 @@ class TestRingBuilder(unittest.TestCase):
     def test_multitier_overfull(self):
         # Multitier test, #replicas > #devs + 2 (to prove even distribution)
         rb = ring.RingBuilder(8, 8, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 2, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 3, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdd'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdd'})
 
-        rb.add_dev({'id': 4, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sdf'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdf'})
 
         rb.rebalance()
         rb.validate()
 
         for part in xrange(rb.parts):
-            counts = defaultdict(lambda: defaultdict(lambda: 0))
+            counts = defaultdict(lambda: defaultdict(int))
             for replica in xrange(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
@@ -365,22 +397,22 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_multitier_expansion_more_devices(self):
         rb = ring.RingBuilder(8, 6, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
 
         rb.rebalance()
         rb.validate()
 
-        rb.add_dev({'id': 3, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdd'})
-        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdf'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf'})
 
         for _ in xrange(5):
             rb.pretend_min_part_hours_passed()
@@ -388,8 +420,8 @@ class TestRingBuilder(unittest.TestCase):
         rb.validate()
 
         for part in xrange(rb.parts):
-            counts = dict(zone=defaultdict(lambda: 0),
-                          dev_id=defaultdict(lambda: 0))
+            counts = dict(zone=defaultdict(int),
+                          dev_id=defaultdict(int))
             for replica in xrange(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
@@ -401,17 +433,17 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_multitier_part_moves_with_0_min_part_hours(self):
         rb = ring.RingBuilder(8, 3, 0)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
         rb.rebalance()
         rb.validate()
 
         # min_part_hours is 0, so we're clear to move 2 replicas to
         # new devs
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb1'})
-        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc1'})
         rb.rebalance()
         rb.validate()
 
@@ -426,17 +458,17 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_multitier_part_moves_with_positive_min_part_hours(self):
         rb = ring.RingBuilder(8, 3, 99)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
         rb.rebalance()
         rb.validate()
 
         # min_part_hours is >0, so we'll only be able to move 1
         # replica to a new home
-        rb.add_dev({'id': 1, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb1'})
-        rb.add_dev({'id': 2, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdc1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         rb.validate()
@@ -453,20 +485,20 @@ class TestRingBuilder(unittest.TestCase):
     def test_multitier_dont_move_too_many_replicas(self):
         rb = ring.RingBuilder(8, 3, 0)
         # there'll be at least one replica in z0 and z1
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb1'})
         rb.rebalance()
         rb.validate()
 
         # only 1 replica should move
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdd1'})
-        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sde1'})
-        rb.add_dev({'id': 4, 'zone': 4, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sdf1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sde1'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 4, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf1'})
         rb.rebalance()
         rb.validate()
 
@@ -485,12 +517,12 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_rerebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
         rb.rebalance()
         r = rb.get_ring()
         counts = {}
@@ -498,8 +530,8 @@ class TestRingBuilder(unittest.TestCase):
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEquals(counts, {0: 256, 1: 256, 2: 256})
-        rb.add_dev({'id': 3, 'zone': 3, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         r = rb.get_ring()
@@ -521,21 +553,21 @@ class TestRingBuilder(unittest.TestCase):
         """ Test for https://bugs.launchpad.net/swift/+bug/845952 """
         # min_part of 0 to allow for rapid rebalancing
         rb = ring.RingBuilder(8, 3, 0)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
 
         rb.rebalance()
 
-        rb.add_dev({'id': 3, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
-        rb.add_dev({'id': 4, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10004, 'device': 'sda1'})
-        rb.add_dev({'id': 5, 'zone': 2, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10005, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10005, 'device': 'sda1'})
 
         rb.rebalance()
 
@@ -545,10 +577,10 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_set_replicas_increase(self):
         rb = ring.RingBuilder(8, 2, 0)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()
         rb.validate()
 
@@ -567,10 +599,10 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_set_replicas_decrease(self):
         rb = ring.RingBuilder(4, 5, 0)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()
         rb.validate()
 
@@ -593,10 +625,10 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_fractional_replicas_rebalance(self):
         rb = ring.RingBuilder(8, 2.5, 0)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()  # passes by not crashing
         rb.validate()   # also passes by not crashing
         self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
@@ -604,14 +636,17 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_load(self):
         rb = ring.RingBuilder(8, 3, 1)
-        devs = [{'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.0',
-                 'port': 10000, 'device': 'sda1', 'meta': 'meta0'},
-                {'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                 'port': 10001, 'device': 'sdb1', 'meta': 'meta1'},
-                {'id': 2, 'zone': 2, 'weight': 2, 'ip': '127.0.0.2',
-                 'port': 10002, 'device': 'sdc1', 'meta': 'meta2'},
-                {'id': 3, 'zone': 3, 'weight': 2, 'ip': '127.0.0.3',
-                 'port': 10003, 'device': 'sdd1'}]
+        devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                 'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1',
+                 'meta': 'meta0'},
+                {'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                 'ip': '127.0.0.1', 'port': 10001, 'device': 'sdb1',
+                 'meta': 'meta1'},
+                {'id': 2, 'region': 0, 'zone': 2, 'weight': 2,
+                 'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc1',
+                 'meta': 'meta2'},
+                {'id': 3, 'region': 0, 'zone': 3, 'weight': 2,
+                 'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1'}]
         for d in devs:
             rb.add_dev(d)
         rb.rebalance()
@@ -653,17 +688,27 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_search_devs(self):
         rb = ring.RingBuilder(8, 3, 1)
-        devs = [{'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.0',
-                 'port': 10000, 'device': 'sda1', 'meta': 'meta0'},
-                {'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                 'port': 10001, 'device': 'sdb1', 'meta': 'meta1'},
-                {'id': 2, 'zone': 2, 'weight': 2, 'ip': '127.0.0.2',
-                 'port': 10002, 'device': 'sdc1', 'meta': 'meta2'},
-                {'id': 3, 'zone': 3, 'weight': 2, 'ip': '127.0.0.3',
-                 'port': 10003, 'device': 'sdd1', 'meta': 'meta3'}]
+        devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                 'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1',
+                 'meta': 'meta0'},
+                {'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                 'ip': '127.0.0.1', 'port': 10001, 'device': 'sdb1',
+                 'meta': 'meta1'},
+                {'id': 2, 'region': 1, 'zone': 2, 'weight': 2,
+                 'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc1',
+                 'meta': 'meta2'},
+                {'id': 3, 'region': 1, 'zone': 3, 'weight': 2,
+                 'ip': '127.0.0.3', 'port': 10003, 'device': 'sdffd1',
+                 'meta': 'meta3'}]
         for d in devs:
             rb.add_dev(d)
         rb.rebalance()
+        res = rb.search_devs('r0')
+        self.assertEquals(res, [devs[0], devs[1]])
+        res = rb.search_devs('r1')
+        self.assertEquals(res, [devs[2], devs[3]])
+        res = rb.search_devs('r1z2')
+        self.assertEquals(res, [devs[2]])
         res = rb.search_devs('d1')
         self.assertEquals(res, [devs[1]])
         res = rb.search_devs('z1')
@@ -681,14 +726,14 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_validate(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'zone': 2, 'weight': 2, 'ip': '127.0.0.1',
-                    'port': 10002, 'device': 'sda1'})
-        rb.add_dev({'id': 3, 'zone': 3, 'weight': 2, 'ip': '127.0.0.1',
-                    'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.rebalance()
         r = rb.get_ring()
         counts = {}
@@ -744,18 +789,18 @@ class TestRingBuilder(unittest.TestCase):
         # Validate that zero weight devices with no partitions don't count on
         # the 'worst' value.
         self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
-        rb.add_dev({'id': 4, 'zone': 0, 'weight': 0, 'ip': '127.0.0.1',
-                    'port': 10004, 'device': 'sda1'})
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 0,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
         self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
 
     def test_get_part_devices(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()
 
         part_devs = sorted(rb.get_part_devices(0),
@@ -764,10 +809,10 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_get_part_devices_partial_replicas(self):
         rb = ring.RingBuilder(8, 2.5, 1)
-        rb.add_dev({'id': 0, 'zone': 0, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'zone': 1, 'weight': 1, 'ip': '127.0.0.1',
-                    'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()
 
         # note: partition 255 will only have 2 replicas

@@ -129,6 +129,11 @@ class RingBuilder(object):
             self._remove_devs = builder['_remove_devs']
         self._ring = None
 
+        # Old builders may not have a region defined for their devices, in
+        # which case we default it to 1.
+        for dev in self._iter_devs():
+            dev.setdefault("region", 1)
+
     def to_dict(self):
         """
         Returns a dict that can be used later with copy_from to
@@ -224,9 +229,10 @@ class RingBuilder(object):
         weight  a float of the relative weight of this device as compared to
                 others; this indicates how many partitions the builder will try
                 to assign to this device
+        region  integer indicating which region the device is in
         zone    integer indicating which zone the device is in; a given
                 partition will not be assigned to multiple devices within the
-                same zone
+                same (region, zone) pair if there is any alternative
         ip      the ip address of the device
         port    the tcp port of the device
         device  the device's name on disk (sdb1, for example)
@@ -413,11 +419,11 @@ class RingBuilder(object):
     def get_balance(self):
         """
         Get the balance of the ring. The balance value is the highest
-        percentage off the desired amount of partitions a given device wants.
-        For instance, if the "worst" device wants (based on its relative weight
-        and its zone's relative weight) 123 partitions and it has 124
-        partitions, the balance value would be 0.83 (1 extra / 123 wanted * 100
-        for percentage).
+        percentage off the desired amount of partitions a given device
+        wants. For instance, if the "worst" device wants (based on its
+        weight relative to the sum of all the devices' weights) 123
+        partitions and it has 124 partitions, the balance value would
+        be 0.83 (1 extra / 123 wanted * 100 for percentage).
 
         :returns: balance of the ring
         """
@@ -712,10 +718,10 @@ class RingBuilder(object):
         they still want and kept in that order throughout the process. The
         gathered partitions are iterated through, assigning them to devices
         according to the "most wanted" while keeping the replicas as "far
-        apart" as possible. Two different zones are considered the
-        farthest-apart things, followed by different ip/port pairs within a
-        zone; the least-far-apart things are different devices with the same
-        ip/port pair in the same zone.
+        apart" as possible. Two different regions are considered the
+        farthest-apart things, followed by zones, then different ip/port pairs
+        within a zone; the least-far-apart things are different devices with
+        the same ip/port pair in the same zone.
 
         If you want more replicas than devices, you won't get all your
         replicas.
@@ -761,8 +767,8 @@ class RingBuilder(object):
             depth += 1
 
         for part, replace_replicas in reassign_parts:
-            # Gather up what other tiers (zones, ip_ports, and devices) the
-            # replicas not-to-be-moved are in for this part.
+            # Gather up what other tiers (regions, zones, ip/ports, and
+            # devices) the replicas not-to-be-moved are in for this part.
             other_replicas = defaultdict(int)
             unique_tiers_by_tier_len = defaultdict(set)
             for replica in self._replicas_for_part(part):
@@ -977,13 +983,14 @@ class RingBuilder(object):
         """
     The <search-value> can be of the form::
 
-        d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>
+        d<device_id>r<region>z<zone>-<ip>:<port>/<device_name>_<meta>
 
     Any part is optional, but you must include at least one part.
 
     Examples::
 
         d74              Matches the device id 74
+        r4               Matches devices in region 4
         z1               Matches devices in zone 1
         z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4
         1.2.3.4          Matches devices in any zone with the ip 1.2.3.4
@@ -997,7 +1004,7 @@ class RingBuilder(object):
 
     Most specific example::
 
-        d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
+        d74r4z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
 
     Nerd explanation:
 
@@ -1011,6 +1018,12 @@ class RingBuilder(object):
             while i < len(search_value) and search_value[i].isdigit():
                 i += 1
             match.append(('id', int(search_value[1:i])))
+            search_value = search_value[i:]
+        if search_value.startswith('r'):
+            i = 1
+            while i < len(search_value) and search_value[i].isdigit():
+                i += 1
+            match.append(('region', int(search_value[1:i])))
             search_value = search_value[i:]
         if search_value.startswith('z'):
             i = 1
