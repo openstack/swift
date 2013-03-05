@@ -194,3 +194,11 @@ Container Quotas
     :members:
     :show-inheritance:
 
+.. _slo-doc:
+
+Static Large Objects
+====================
+
+.. automodule:: swift.common.middleware.slo
+    :members:
+    :show-inheritance:

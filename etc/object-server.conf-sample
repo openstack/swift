@@ -60,7 +60,7 @@ use = egg:swift#object
 # Comma separated list of headers that can be set in metadata on an object.
 # This list is in addition to X-Object-Meta-* headers and cannot include
 # Content-Type, etag, Content-Length, or deleted
-# allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest
+# allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object
 # auto_create_account_prefix = .
 
 [filter:healthcheck]

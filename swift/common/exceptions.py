@@ -102,3 +102,7 @@ class ListingIterNotAuthorized(ListingIterError):
 
     def __init__(self, aresp):
         self.aresp = aresp
+
+
+class SloSegmentError(SwiftException):
+    pass

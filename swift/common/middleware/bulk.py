@@ -42,6 +42,41 @@ ACCEPTABLE_FORMATS = ['text/plain', 'application/json', 'application/xml',
                       'text/xml']
 
 
+def get_response_body(data_format, data_dict, error_list):
+    """
+    Returns a properly formatted response body according to format.
+    :params data_format: resulting format
+    :params data_dict: generated data about results.
+    :params error_list: list of quoted filenames that failed
+    """
+    if data_format == 'text/plain':
+        output = ''
+        for key in sorted(data_dict.keys()):
+            output += '%s: %s\n' % (key, data_dict[key])
+        output += 'Errors:\n'
+        output += '\n'.join(
+            ['%s, %s' % (name, status)
+             for name, status in error_list])
+        return output
+    if data_format == 'application/json':
+        data_dict['Errors'] = error_list
+        return json.dumps(data_dict)
+    if data_format.endswith('/xml'):
+        output = '<?xml version="1.0" encoding="UTF-8"?>\n<delete>\n'
+        for key in sorted(data_dict.keys()):
+            xml_key = key.replace(' ', '_').lower()
+            output += '<%s>%s</%s>\n' % (xml_key, data_dict[key], xml_key)
+        output += '<errors>\n'
+        output += '\n'.join(
+            ['<object>'
+             '<name>%s</name><status>%s</status>'
+             '</object>' % (saxutils.escape(name), status) for
+             name, status in error_list])
+        output += '</errors>\n</delete>\n'
+        return output
+    raise HTTPNotAcceptable('Invalid output type')
+
+
 class Bulk(object):
     """
     Middleware that will do many operations on a single request.
@@ -165,7 +200,7 @@ class Bulk(object):
                     self.max_deletes_per_request)
             if '\n' in line:
                 obj_to_delete, line = line.split('\n', 1)
-                objs_to_delete.append(obj_to_delete)
+                objs_to_delete.append(unquote(obj_to_delete))
             else:
                 data = req.body_file.read(MAX_PATH_LENGTH)
                 if data:
@@ -173,46 +208,13 @@ class Bulk(object):
                 else:
                     data_remaining = False
                     if line.strip():
-                        objs_to_delete.append(line)
+                        objs_to_delete.append(unquote(line))
             if len(line) > MAX_PATH_LENGTH * 2:
                 raise HTTPBadRequest('Invalid File Name')
         return objs_to_delete
 
-    def get_response_body(self, data_format, data_dict, error_list):
-        """
-        Returns a properly formatted response body according to format.
-        :params data_format: resulting format
-        :params data_dict: generated data about results.
-        :params error_list: list of quoted filenames that failed
-        """
-        if data_format == 'text/plain':
-            output = ''
-            for key in sorted(data_dict.keys()):
-                output += '%s: %s\n' % (key, data_dict[key])
-            output += 'Errors:\n'
-            output += '\n'.join(
-                ['%s, %s' % (name, status)
-                 for name, status in error_list])
-            return output
-        if data_format == 'application/json':
-            data_dict['Errors'] = error_list
-            return json.dumps(data_dict)
-        if data_format.endswith('/xml'):
-            output = '<?xml version="1.0" encoding="UTF-8"?>\n<delete>\n'
-            for key in sorted(data_dict.keys()):
-                xml_key = key.replace(' ', '_').lower()
-                output += '<%s>%s</%s>\n' % (xml_key, data_dict[key], xml_key)
-            output += '<errors>\n'
-            output += '\n'.join(
-                ['<object>'
-                 '<name>%s</name><status>%s</status>'
-                 '</object>' % (saxutils.escape(name), status) for
-                 name, status in error_list])
-            output += '</errors>\n</delete>\n'
-            return output
-        raise HTTPNotAcceptable('Invalid output type')
-
-    def handle_delete(self, req):
+    def handle_delete(self, req, objs_to_delete=None, user_agent='BulkDelete',
+                      swift_source='BD'):
         """
         :params req: a swob Request
         :raises HTTPException: on unhandled errors
@@ -231,7 +233,8 @@ class Bulk(object):
         if not out_content_type:
             return HTTPNotAcceptable(request=req)
 
-        objs_to_delete = self.get_objs_to_delete(req)
+        if objs_to_delete is None:
+            objs_to_delete = self.get_objs_to_delete(req)
         failed_files = []
         success_count = not_found_count = 0
         failed_file_response_type = HTTPBadRequest
@@ -239,7 +242,6 @@ class Bulk(object):
             obj_to_delete = obj_to_delete.strip().lstrip('/')
             if not obj_to_delete:
                 continue
-            obj_to_delete = unquote(obj_to_delete)
             delete_path = '/'.join(['', vrs, account, obj_to_delete])
             if not check_utf8(delete_path):
                 failed_files.append([quote(delete_path),
@@ -250,8 +252,8 @@ class Bulk(object):
             del(new_env['wsgi.input'])
             new_env['CONTENT_LENGTH'] = 0
             new_env['HTTP_USER_AGENT'] = \
-                '%s BulkDelete' % req.environ.get('HTTP_USER_AGENT')
-            new_env['swift.source'] = 'BD'
+                '%s %s' % (req.environ.get('HTTP_USER_AGENT'), user_agent)
+            new_env['swift.source'] = swift_source
             delete_obj_req = Request.blank(delete_path, new_env)
             resp = delete_obj_req.get_response(self.app)
             if resp.status_int // 100 == 2:
@@ -265,7 +267,7 @@ class Bulk(object):
                     failed_file_response_type = HTTPBadGateway
                 failed_files.append([quote(delete_path), resp.status])
 
-        resp_body = self.get_response_body(
+        resp_body = get_response_body(
             out_content_type,
             {'Number Deleted': success_count,
              'Number Not Found': not_found_count},
@@ -371,7 +373,7 @@ class Bulk(object):
                         failed_files.append([
                             quote(destination[:MAX_PATH_LENGTH]), resp.status])
 
-            resp_body = self.get_response_body(
+            resp_body = get_response_body(
                 out_content_type,
                 {'Number Files Created': success_count},
                 failed_files)

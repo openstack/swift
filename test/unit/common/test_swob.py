@@ -19,6 +19,7 @@ import unittest
 import datetime
 import re
 from StringIO import StringIO
+from urllib import quote
 
 import swift.common.swob
 
@@ -492,6 +493,14 @@ class TestRequest(unittest.TestCase):
         except ValueError, err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
+    def test_unicode_path(self):
+        req = swift.common.swob.Request.blank(u'/\u2661')
+        self.assertEquals(req.path, quote(u'/\u2661'.encode('utf-8')))
+
+    def test_unicode_query(self):
+        req = swift.common.swob.Request.blank(u'/')
+        req.query_string = u'x=\u2661'
+        self.assertEquals(req.params['x'], u'\u2661'.encode('utf-8'))
 
 
 class TestStatusMap(unittest.TestCase):
