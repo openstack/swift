@@ -284,6 +284,7 @@ class Ring(object):
                     if dev_id not in used and dev['zone'] not in same_zones:
                         yield dev
                         used.add(dev_id)
+                        same_zones.add(dev['zone'])
                 except IndexError:  # Happens with partial replicas
                     pass
         for handoff_part in chain(xrange(start, parts, inc),
