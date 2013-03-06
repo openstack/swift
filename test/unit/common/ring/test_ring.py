@@ -274,14 +274,15 @@ class TestRing(unittest.TestCase):
         exp_part = 6
         exp_devs = [48, 93, 96]
         exp_zones = set([5, 8, 9])
-        exp_handoffs = [11, 47, 25, 76, 69, 23, 64, 43, 34, 3, 30, 83, 31, 16,
-                        27, 39, 32, 60, 77, 24, 0, 42, 8, 72, 19, 71, 26, 9,
-                        20, 35, 13, 5, 38, 14, 28, 41, 18, 66, 61, 21, 81, 1,
-                        78, 74, 46, 4, 68, 40, 80, 75, 45, 79, 44, 62, 29, 7,
-                        15, 70, 65, 12, 82, 17, 22, 6, 2, 67, 37, 63, 33, 73,
-                        36, 10, 99, 59, 106, 107, 50, 88, 57, 103, 100, 56, 91,
-                        84, 94, 102, 52, 101, 95, 105, 58, 90, 86, 54, 49, 87,
-                        104, 97, 55, 89, 53, 92, 85, 51, 98]
+
+        exp_handoffs = [11, 47, 25, 76, 69, 23, 99, 59, 106, 64, 107, 43, 50,
+                        34, 88, 3, 57, 30, 83, 31, 16, 27, 103, 39, 32, 60, 77,
+                        24, 0, 42, 8, 100, 72, 56, 19, 71, 26, 9, 20, 35, 91,
+                        13, 84, 5, 38, 14, 94, 28, 41, 18, 66, 102, 52, 101,
+                        61, 95, 21, 81, 1, 78, 105, 58, 74, 90, 86, 46, 4, 68,
+                        40, 80, 54, 75, 45, 79, 44, 49, 62, 29, 7, 15, 70, 87,
+                        65, 12, 82, 17, 104, 97, 55, 22, 6, 89, 2, 67, 37, 63,
+                        53, 92, 33, 85, 73, 51, 98, 36, 10]
         exp_first_handoffs = [1, 37, 48, 68, 84, 75, 11, 101, 14, 73, 100, 75,
                               29, 19, 18, 101, 15, 99, 95, 24, 46, 82, 73, 62,
                               24, 89, 9, 22, 107, 74, 54, 63, 40, 106, 99, 83,
@@ -324,11 +325,14 @@ class TestRing(unittest.TestCase):
         devs = list(r.get_more_nodes(part))
         self.assertEquals([d['id'] for d in devs], exp_handoffs)
         seen_shared_zone = False
-        for dev in devs:
-            if dev['zone'] in primary_zones:
-                seen_shared_zone = True
-            else:
-                self.assertFalse(seen_shared_zone)
+
+        # The first 6 replicas plus the 3 primary nodes should cover all 9
+        # zones in this test
+        seen_zones = set(primary_zones)
+        seen_zones.update(d['zone'] for d in devs[:6])
+        self.assertEquals(seen_zones, set(range(1, 10)))
+
+        # The first handoff nodes for each partition in the ring
         devs = []
         for part in xrange(r.partition_count):
             devs.append(r.get_more_nodes(part).next()['id'])
@@ -359,12 +363,12 @@ class TestRing(unittest.TestCase):
                 dev, exp_handoffs[index],
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids[index:], exp_handoffs[index:]))
-        seen_shared_zone = False
-        for dev in devs:
-            if dev['zone'] in primary_zones:
-                seen_shared_zone = True
-            else:
-                self.assertFalse(seen_shared_zone)
+
+        # The handoffs still cover all the non-primary zones first
+        seen_zones = set(primary_zones)
+        seen_zones.update(d['zone'] for d in devs[:6])
+        self.assertEquals(seen_zones, set(range(1, 10)))
+
         devs = []
         for part in xrange(r.partition_count):
             devs.append(r.get_more_nodes(part).next()['id'])
@@ -383,14 +387,16 @@ class TestRing(unittest.TestCase):
         # Change expectations
         # The long string of handoff nodes for the partition were the same for
         # the first 20, which is pretty good.
-        exp_handoffs[20:] = [42, 8, 72, 19, 71, 26, 9, 20, 35, 13, 5, 38, 14,
-                             28, 41, 18, 66, 61, 21, 81, 1, 78, 74, 46, 4, 68,
-                             40, 80, 75, 45, 79, 44, 62, 29, 7, 15, 70, 65, 12,
-                             82, 17, 22, 6, 2, 67, 37, 63, 33, 73, 36, 10, 99,
-                             59, 106, 107, 50, 88, 57, 103, 108, 100, 56, 91,
-                             84, 94, 102, 52, 101, 95, 105, 58, 90, 86, 54, 49,
-                             87, 104, 97, 55, 89, 53, 92, 85, 51, 98]
-        # Just 4 of the first handoffs changed
+        exp_handoffs[20:] = [16, 27, 103, 39, 32, 60, 77, 24, 108, 42, 8, 100,
+                             72, 56, 19, 71, 26, 9, 20, 35, 91, 13, 84, 5, 38,
+                             14, 94, 28, 41, 18, 66, 102, 52, 101, 61, 95, 21,
+                             81, 1, 78, 105, 58, 74, 90, 86, 46, 4, 68, 40, 80,
+                             54, 75, 45, 79, 44, 49, 62, 29, 7, 15, 70, 87, 65,
+                             12, 82, 17, 104, 97, 55, 22, 6, 89, 2, 67, 37, 63,
+                             53, 92, 33, 85, 73, 51, 98, 36, 10]
+
+        # Just a few of the first handoffs changed
+        exp_first_handoffs[3] = 68
         exp_first_handoffs[55] = 104
         exp_first_handoffs[116] = 6
         exp_first_handoffs[181] = 15
@@ -409,12 +415,11 @@ class TestRing(unittest.TestCase):
                 dev, exp_handoffs[index],
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids[index:], exp_handoffs[index:]))
-        seen_shared_zone = False
-        for dev in devs:
-            if dev['zone'] in primary_zones:
-                seen_shared_zone = True
-            else:
-                self.assertFalse(seen_shared_zone)
+
+        seen_zones = set(primary_zones)
+        seen_zones.update(d['zone'] for d in devs[:6])
+        self.assertEquals(seen_zones, set(range(1, 10)))
+
         devs = []
         for part in xrange(r.partition_count):
             devs.append(r.get_more_nodes(part).next()['id'])
@@ -435,15 +440,16 @@ class TestRing(unittest.TestCase):
         exp_zones.add(4)
         # Caused some major changes in the sequence of handoffs for our test
         # partition, but at least the first stayed the same.
-        exp_handoffs[1:] = [81, 25, 76, 3, 69, 23, 64, 13, 34, 30, 16, 83, 31,
-                            27, 74, 32, 60, 77, 24, 63, 8, 72, 19, 71, 7, 26,
-                            9, 20, 35, 5, 14, 62, 28, 18, 66, 82, 22, 61, 21,
-                            1, 67, 78, 4, 79, 68, 80, 75, 6, 29, 15, 70, 65,
-                            12, 17, 2, 33, 73, 10, 99, 59, 106, 45, 107, 43,
-                            50, 88, 57, 46, 103, 39, 108, 42, 100, 56, 91, 52,
-                            84, 87, 38, 94, 41, 90, 102, 101, 85, 95, 98, 105,
-                            58, 86, 40, 54, 44, 49, 104, 97, 55, 89, 37, 53,
-                            92, 51, 36]
+        exp_handoffs[1:] = [81, 25, 69, 23, 99, 59, 76, 3, 106, 45, 64, 107,
+                            43, 13, 50, 34, 88, 57, 30, 16, 83, 31, 46, 27,
+                            103, 39, 74, 32, 60, 77, 24, 108, 42, 63, 8, 100,
+                            72, 56, 19, 71, 7, 26, 9, 20, 35, 91, 52, 84, 5,
+                            87, 38, 14, 94, 62, 28, 41, 90, 18, 66, 82, 102,
+                            22, 101, 61, 85, 95, 21, 98, 1, 67, 78, 105, 58,
+                            86, 4, 79, 68, 40, 80, 54, 75, 44, 49, 6, 29, 15,
+                            70, 65, 12, 17, 104, 97, 55, 89, 2, 37, 53, 92,
+                            33, 73, 51, 36, 10]
+
         # Lots of first handoffs changed, but 30 of 256 is still just 11.72%.
         exp_first_handoffs[1] = 6
         exp_first_handoffs[4] = 104
@@ -484,17 +490,17 @@ class TestRing(unittest.TestCase):
         devs = list(r.get_more_nodes(part))
         dev_ids = [d['id'] for d in devs]
         self.assertEquals(len(dev_ids), len(exp_handoffs))
+
         for index, dev in enumerate(dev_ids):
             self.assertEquals(
                 dev, exp_handoffs[index],
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids[index:], exp_handoffs[index:]))
-        seen_shared_zone = False
-        for dev in devs:
-            if dev['zone'] in primary_zones:
-                seen_shared_zone = True
-            else:
-                self.assertFalse(seen_shared_zone)
+
+        seen_zones = set(primary_zones)
+        seen_zones.update(d['zone'] for d in devs[:6])
+        self.assertEquals(seen_zones, set(range(1, 10)))
+
         devs = []
         for part in xrange(r.partition_count):
             devs.append(r.get_more_nodes(part).next()['id'])
@@ -508,14 +514,15 @@ class TestRing(unittest.TestCase):
         exp_part2 = 136
         exp_devs2 = [52, 76, 97]
         exp_zones2 = set([9, 5, 7])
-        exp_handoffs2 = [2, 67, 37, 63, 44, 92, 33, 23, 85, 42, 35, 36, 10, 89,
-                         84, 43, 4, 17, 32, 12, 41, 31, 65, 20, 25, 61, 1, 40,
-                         9, 94, 47, 69, 95, 45, 5, 71, 86, 30, 93, 28, 91, 15,
-                         88, 39, 18, 70, 27, 16, 24, 21, 14, 11, 8, 62, 6, 26,
-                         29, 60, 34, 13, 87, 38, 3, 66, 7, 46, 64, 22, 68, 19,
-                         90, 107, 96, 53, 103, 108, 73, 51, 98, 80, 49, 104,
-                         58, 56, 74, 101, 78, 48, 57, 83, 72, 54, 77, 50, 105,
-                         55, 59, 99, 75, 106, 82, 79, 81, 102, 100]
+        exp_handoffs2 = [2, 67, 37, 92, 33, 23, 107, 96, 63, 53, 44, 103, 108,
+                         85, 73, 51, 42, 98, 35, 36, 10, 89, 80, 84, 43, 4, 17,
+                         49, 104, 32, 12, 41, 58, 31, 65, 20, 25, 61, 1, 40, 9,
+                         94, 47, 69, 56, 74, 101, 95, 45, 5, 71, 86, 78, 30, 93,
+                         48, 28, 91, 15, 88, 39, 18, 57, 83, 72, 70, 27, 54, 16,
+                         24, 21, 14, 11, 8, 77, 62, 50, 6, 105, 26, 55, 29, 60,
+                         34, 13, 87, 59, 38, 99, 75, 106, 3, 82, 66, 79, 7, 46,
+                         64, 81, 22, 68, 19, 102, 90, 100]
+
         part2, devs2 = r.get_nodes('a', 'c', 'o2')
         primary_zones2 = set(d['zone'] for d in devs2)
         self.assertEquals(part2, exp_part2)
@@ -523,18 +530,17 @@ class TestRing(unittest.TestCase):
         self.assertEquals(primary_zones2, exp_zones2)
         devs2 = list(r.get_more_nodes(part2))
         dev_ids2 = [d['id'] for d in devs2]
+
         self.assertEquals(len(dev_ids2), len(exp_handoffs2))
         for index, dev in enumerate(dev_ids2):
             self.assertEquals(
                 dev, exp_handoffs2[index],
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids2[index:], exp_handoffs2[index:]))
-        seen_shared_zone = False
-        for dev in devs2:
-            if dev['zone'] in primary_zones2:
-                seen_shared_zone = True
-            else:
-                self.assertFalse(seen_shared_zone)
+
+        seen_zones = set(primary_zones2)
+        seen_zones.update(d['zone'] for d in devs2[:6])
+        self.assertEquals(seen_zones, set(range(1, 10)))
 
 
 if __name__ == '__main__':
