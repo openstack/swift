@@ -756,6 +756,9 @@ Metric Name                              Description
 `object-server.PUT.timeouts`             Count of object PUTs which exceeded max_upload_time.
 `object-server.PUT.timing`               Timing data for each PUT request not resulting in an
                                          error.
+`object-server.PUT.<device>.timing`      Timing data per kB transfered (ms/kB) for each 
+                                         non-zero-byte PUT request on each device. 
+                                         Monitoring problematic devices, higher is bad. 
 `object-server.GET.errors.timing`        Timing data for GET request errors: bad request,
                                          not mounted, header timestamps before the epoch,
                                          precondition failed.

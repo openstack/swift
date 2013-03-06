@@ -643,6 +643,7 @@ class ObjectController(object):
         etag = md5()
         upload_size = 0
         last_sync = 0
+        elasped_time = 0
         with file.mkstemp() as fd:
             try:
                 fallocate(fd, int(request.headers.get('content-length', 0)))
@@ -650,6 +651,7 @@ class ObjectController(object):
                 return HTTPInsufficientStorage(drive=device, request=request)
             reader = request.environ['wsgi.input'].read
             for chunk in iter(lambda: reader(self.network_chunk_size), ''):
+                start_time = time.time()
                 upload_size += len(chunk)
                 if time.time() > upload_expiration:
                     self.logger.increment('PUT.timeouts')
@@ -664,6 +666,11 @@ class ObjectController(object):
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
                 sleep()
+                elasped_time += time.time() - start_time
+
+            if upload_size:
+                self.logger.transfer_rate(
+                    'PUT.' + device + '.timing', elasped_time, upload_size)
 
             if 'content-length' in request.headers and \
                     int(request.headers['content-length']) != upload_size:
