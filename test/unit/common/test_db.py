@@ -71,7 +71,7 @@ class TestChexor(unittest.TestCase):
             '4f2ea31ac14d4273fe32ba08062b21de')
 
     def test_invalid_old_hash(self):
-        self.assertRaises(TypeError, chexor, 'oldhash', 'name',
+        self.assertRaises(ValueError, chexor, 'oldhash', 'name',
                           normalize_timestamp(1))
 
     def test_no_name(self):
