@@ -17,16 +17,17 @@ import errno
 import os
 import socket
 import sys
-from httplib import HTTPException
 from time import sleep
 from nose import SkipTest
 from ConfigParser import MissingSectionHeaderError
 
 from test import get_config
 
-from swiftclient import get_auth, http_connection
+from swiftclient import get_auth, http_connection, HTTPException
 
 conf = get_config('func_test')
+web_front_end = conf.get('web_front_end', 'integral')
+normalized_urls = conf.get('normalized_urls', False)
 
 # If no conf was read, we will fall back to old school env vars
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')

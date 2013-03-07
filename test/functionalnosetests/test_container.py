@@ -24,7 +24,7 @@ from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
 
 from swift_testing import check_response, retry, skip, skip2, skip3, \
-                          swift_test_user
+                          swift_test_user, web_front_end
 
 
 class TestContainer(unittest.TestCase):
@@ -561,8 +561,11 @@ class TestContainer(unittest.TestCase):
                          {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(put)
-        self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
-        self.assertEquals(resp.status, 412)
+        if (web_front_end == 'apache2'):
+            self.assertEquals(resp.status, 404)
+        else:
+            self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
+            self.assertEquals(resp.status, 412)
 
 
 if __name__ == '__main__':
