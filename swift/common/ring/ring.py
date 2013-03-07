@@ -24,7 +24,6 @@ import os
 from io import BufferedReader
 from hashlib import md5
 from itertools import chain
-from struct import unpack_from
 
 from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
@@ -191,10 +190,15 @@ class Ring(object):
         return getmtime(self.serialized_path) != self._mtime
 
     def _get_part_nodes(self, part):
+        part_nodes = []
         seen_ids = set()
-        return [self._devs[r[part]] for r in
-                (rpd for rpd in self._replica2part2dev_id if len(rpd) > part)
-                if not (r[part] in seen_ids or seen_ids.add(r[part]))]
+        for r2p2d in self._replica2part2dev_id:
+            if part < len(r2p2d):
+                dev_id = r2p2d[part]
+                if dev_id not in seen_ids:
+                    part_nodes.append(self.devs[dev_id])
+                seen_ids.add(dev_id)
+        return part_nodes
 
     def get_part_nodes(self, part):
         """
