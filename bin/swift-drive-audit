@@ -100,8 +100,11 @@ def get_errors(minutes):
                 year -= 1
             prev_entry_month = log_time_entry[0]
             log_time_string = '%s %s' % (year, ' '.join(log_time_entry))
-            log_time = datetime.datetime.strptime(
-                log_time_string, '%Y %b %d %H:%M:%S')
+            try:
+                log_time = datetime.datetime.strptime(
+                    log_time_string, '%Y %b %d %H:%M:%S')
+            except ValueError:
+                continue
             if log_time > end_time:
                 for err in error_re:
                     for device in err.findall(line):
