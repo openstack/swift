@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import optparse
 from array import array
 from errno import EEXIST
 from itertools import islice, izip
@@ -48,6 +49,185 @@ def format_device(dev):
     return ('d%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)sR'
             '%(replication_ip)s:%(replication_port)s/%(device)s_'
             '"%(meta)s"' % copy_dev)
+
+
+def _parse_add_values(argvish):
+    """
+    Parse devices to add as specified on the command line.
+
+    Will exit on error and spew warnings.
+
+    :returns: array of device dicts
+    """
+
+    parser = optparse.OptionParser()
+    parser.add_option('-r', '--region', type="int",
+                      help="Region")
+    parser.add_option('-z', '--zone', type="int",
+                      help="Zone")
+    parser.add_option('-i', '--ip', type="string",
+                      help="IP address")
+    parser.add_option('-p', '--port', type="int",
+                      help="Port number")
+    parser.add_option('-j', '--replication-ip', type="string",
+                      help="Replication IP address")
+    parser.add_option('-q', '--replication-port', type="int",
+                      help="Replication port number")
+    parser.add_option('-d', '--device', type="string",
+                      help="Device name (e.g. md0, sdb1)")
+    parser.add_option('-w', '--weight', type="float",
+                      help="Device weight")
+    parser.add_option('-m', '--meta', type="string", default="",
+                      help="Extra device info (just a string)")
+    opts, args = parser.parse_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the --options format,
+    # but not both. If both are specified, raise an error.
+    opts_used = opts.region or opts.zone or opts.ip or opts.port or \
+        opts.device or opts.weight or opts.meta
+
+    if len(args) > 0 and opts_used:
+        print Commands.add.__doc__.strip()
+        exit(EXIT_ERROR)
+    elif len(args) > 0:
+        if len(args) % 2 != 0:
+            print Commands.add.__doc__.strip()
+            exit(EXIT_ERROR)
+
+        parsed_devs = []
+        devs_and_weights = izip(islice(args, 0, len(args), 2),
+                                islice(args, 1, len(args), 2))
+
+        for devstr, weightstr in devs_and_weights:
+            region = 1
+            rest = devstr
+            if devstr.startswith('r'):
+                i = 1
+                while i < len(devstr) and devstr[i].isdigit():
+                    i += 1
+                region = int(devstr[1:i])
+                rest = devstr[i:]
+            else:
+                stderr.write("WARNING: No region specified for %s. "
+                             "Defaulting to region 1.\n" % devstr)
+
+            if not rest.startswith('z'):
+                print 'Invalid add value: %s' % devstr
+                exit(EXIT_ERROR)
+            i = 1
+            while i < len(rest) and rest[i].isdigit():
+                i += 1
+            zone = int(rest[1:i])
+            rest = rest[i:]
+
+            if not rest.startswith('-'):
+                print 'Invalid add value: %s' % devstr
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+            i = 1
+            if rest[i] == '[':
+                i += 1
+                while i < len(rest) and rest[i] != ']':
+                    i += 1
+                i += 1
+                ip = rest[1:i].lstrip('[').rstrip(']')
+                rest = rest[i:]
+            else:
+                while i < len(rest) and rest[i] in '0123456789.':
+                    i += 1
+                ip = rest[1:i]
+                rest = rest[i:]
+
+            if not rest.startswith(':'):
+                print 'Invalid add value: %s' % devstr
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+            i = 1
+            while i < len(rest) and rest[i].isdigit():
+                i += 1
+            port = int(rest[1:i])
+            rest = rest[i:]
+
+            replication_ip = ip
+            replication_port = port
+            if rest.startswith('R'):
+                i = 1
+                if rest[i] == '[':
+                    i += 1
+                    while i < len(rest) and rest[i] != ']':
+                        i += 1
+                    i += 1
+                    replication_ip = rest[1:i].lstrip('[').rstrip(']')
+                    rest = rest[i:]
+                else:
+                    while i < len(rest) and rest[i] in '0123456789.':
+                        i += 1
+                    replication_ip = rest[1:i]
+                    rest = rest[i:]
+
+                if not rest.startswith(':'):
+                    print 'Invalid add value: %s' % devstr
+                    print "The on-disk ring builder is unchanged.\n"
+                    exit(EXIT_ERROR)
+                i = 1
+                while i < len(rest) and rest[i].isdigit():
+                    i += 1
+                replication_port = int(rest[1:i])
+                rest = rest[i:]
+
+            if not rest.startswith('/'):
+                print 'Invalid add value: %s' % devstr
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+            i = 1
+            while i < len(rest) and rest[i] != '_':
+                i += 1
+            device_name = rest[1:i]
+            rest = rest[i:]
+
+            meta = ''
+            if rest.startswith('_'):
+                meta = rest[1:]
+
+            try:
+                weight = float(weightstr)
+            except ValueError:
+                print 'Invalid weight value: %s' % weightstr
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+
+            if weight < 0:
+                print 'Invalid weight value (must be positive): %s' % weightstr
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+
+            parsed_devs.append({'region': region, 'zone': zone, 'ip': ip,
+                                'port': port, 'device': device_name,
+                                'replication_ip': replication_ip,
+                                'replication_port': replication_port,
+                                'weight': weight, 'meta': meta})
+        return parsed_devs
+    else:
+        for attribute, shortopt, longopt in (['region', '-r', '--region'],
+                                             ['zone', '-z', '--zone'],
+                                             ['ip', '-i', '--ip'],
+                                             ['port', '-p', '--port'],
+                                             ['device', '-d', '--device'],
+                                             ['weight', '-w', '--weight']):
+            if not getattr(opts, attribute, None):
+                print 'Required argument %s/%s not specified.' % \
+                    (shortopt, longopt)
+                print "The on-disk ring builder is unchanged.\n"
+                exit(EXIT_ERROR)
+
+        replication_ip = getattr(opts, 'replication_ip', opts.ip)
+        replication_port = getattr(opts, 'replication_port', opts.port)
+
+        return [{'region': opts.region, 'zone': opts.zone, 'ip': opts.ip,
+                 'port': opts.port, 'device': opts.device, 'meta': opts.meta,
+                 'replication_ip': replication_ip,
+                 'replication_port': replication_port,
+                 'weight': opts.weight}]
 
 
 class Commands:
@@ -208,6 +388,13 @@ swift-ring-builder <builder_file> add
 
     Where <r_ip> and <r_port> are replication ip and port.
 
+or
+
+swift-ring-builder <builder_file> add
+    [--region <region>] --zone <zone> --ip <ip> --port <port>
+    --replication-ip <r_ip> --replication-port <r_port>
+    --device <device_name> --meta <meta> --weight <weight>
+
     Adds devices to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
     can make multiple device changes and rebalance them all just once.
@@ -216,128 +403,21 @@ swift-ring-builder <builder_file> add
             print Commands.add.__doc__.strip()
             exit(EXIT_ERROR)
 
-        devs_and_weights = izip(islice(argv, 3, len(argv), 2),
-                                islice(argv, 4, len(argv), 2))
-        for devstr, weightstr in devs_and_weights:
-            region = 1
-            rest = devstr
-            if devstr.startswith('r'):
-                i = 1
-                while i < len(devstr) and devstr[i].isdigit():
-                    i += 1
-                region = int(devstr[1:i])
-                rest = devstr[i:]
-            else:
-                stderr.write("WARNING: No region specified for %s. "
-                             "Defaulting to region 1.\n" % devstr)
-
-            if not rest.startswith('z'):
-                print 'Invalid add value: %s' % devstr
-                exit(EXIT_ERROR)
-            i = 1
-            while i < len(rest) and rest[i].isdigit():
-                i += 1
-            zone = int(rest[1:i])
-            rest = rest[i:]
-
-            if not rest.startswith('-'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-            i = 1
-            if rest[i] == '[':
-                i += 1
-                while i < len(rest) and rest[i] != ']':
-                    i += 1
-                i += 1
-                ip = rest[1:i].lstrip('[').rstrip(']')
-                rest = rest[i:]
-            else:
-                while i < len(rest) and rest[i] in '0123456789.':
-                    i += 1
-                ip = rest[1:i]
-                rest = rest[i:]
-
-            if not rest.startswith(':'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-            i = 1
-            while i < len(rest) and rest[i].isdigit():
-                i += 1
-            port = int(rest[1:i])
-            rest = rest[i:]
-
-            replication_ip = ip
-            replication_port = port
-            if rest.startswith('R'):
-                i = 1
-                if rest[i] == '[':
-                    i += 1
-                    while i < len(rest) and rest[i] != ']':
-                        i += 1
-                    i += 1
-                    replication_ip = rest[1:i].lstrip('[').rstrip(']')
-                    rest = rest[i:]
-                else:
-                    while i < len(rest) and rest[i] in '0123456789.':
-                        i += 1
-                    replication_ip = rest[1:i]
-                    rest = rest[i:]
-
-                if not rest.startswith(':'):
-                    print 'Invalid add value: %s' % devstr
-                    print "The on-disk ring builder is unchanged.\n"
-                    exit(EXIT_ERROR)
-                i = 1
-                while i < len(rest) and rest[i].isdigit():
-                    i += 1
-                replication_port = int(rest[1:i])
-                rest = rest[i:]
-
-            if not rest.startswith('/'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-            i = 1
-            while i < len(rest) and rest[i] != '_':
-                i += 1
-            device_name = rest[1:i]
-            rest = rest[i:]
-
-            meta = ''
-            if rest.startswith('_'):
-                meta = rest[1:]
-
-            try:
-                weight = float(weightstr)
-            except ValueError:
-                print 'Invalid weight value: %s' % weightstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-
-            if weight < 0:
-                print 'Invalid weight value (must be positive): %s' % weightstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-
+        for new_dev in _parse_add_values(argv[3:]):
             for dev in builder.devs:
                 if dev is None:
                     continue
-                if dev['ip'] == ip and dev['port'] == port and \
-                        dev['device'] == device_name:
+                if dev['ip'] == new_dev['ip'] and \
+                        dev['port'] == new_dev['port'] and \
+                        dev['device'] == new_dev['device']:
                     print 'Device %d already uses %s:%d/%s.' % \
                           (dev['id'], dev['ip'], dev['port'], dev['device'])
                     print "The on-disk ring builder is unchanged.\n"
                     exit(EXIT_ERROR)
-            dev_params = {'region': region, 'zone': zone, 'ip': ip,
-                          'port': port, 'replication_ip': replication_ip,
-                          'replication_port': replication_port,
-                          'device': device_name, 'weight': weight,
-                          'meta': meta}
-            dev_id = builder.add_dev(dev_params)
+            dev_id = builder.add_dev(new_dev)
             print('Device %s with %s weight got id %s' %
-                  (format_device(dev_params), weight, dev_id))
+                  (format_device(new_dev), new_dev['weight'], dev_id))
+
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
