@@ -34,7 +34,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors healthcheck proxy-logging cache slo ratelimit tempauth container-quotas proxy-logging proxy-server
+pipeline = catch_errors healthcheck proxy-logging cache slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -363,3 +363,6 @@ use = egg:swift#slo
 # max_manifest_segments = 1000
 # max_manifest_size = 2097152
 # min_segment_size = 1048576
+
+[filter:account-quotas]
+use = egg:swift#account_quotas

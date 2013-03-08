@@ -104,6 +104,8 @@ setup(
             'bulk=swift.common.middleware.bulk:filter_factory',
             'container_quotas=swift.common.middleware.container_quotas:'
             'filter_factory',
+            'account_quotas=swift.common.middleware.account_quotas:'
+            'filter_factory',
             'proxy_logging=swift.common.middleware.proxy_logging:'
             'filter_factory',
             'slo=swift.common.middleware.slo:filter_factory',
