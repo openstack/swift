@@ -39,6 +39,11 @@ Additionally, if the auth system sets the request environ's swift_owner key to
 True, the proxy will return additional header information in some requests,
 such as the X-Container-Sync-Key for a container GET or HEAD.
 
+Users with the special group ``.reseller_admin`` can operate on any account.
+For an example usage please see :mod:`swift.common.middleware.tempauth`.
+If a request is coming from a reseller the auth system sets the request environ
+reseller_request to True. This can be used by other middlewares.
+
 TempAuth will now allow OPTIONS requests to go through without a token.
 
 The user starts a session by sending a ReST request to the auth system to
@@ -129,6 +134,11 @@ containers are the ones who has the Keystone role specified in the
 This user who have one of those role will be able to give ACLs to
 other users on containers, see the documentation on ACL here
 :mod:`swift.common.middleware.acl`.
+
+Users with the Keystone role defined in ``reseller_admin_role``
+(``ResellerAdmin`` by default) can operate on any account. The auth system
+sets the request environ reseller_request to True if a request is coming
+from an user with this role. This can be used by other middlewares.
 
 --------------
 Extending Auth
