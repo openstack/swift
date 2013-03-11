@@ -95,6 +95,8 @@ use = egg:swift#recon
 # stats_interval = 300
 # max duration of a partition rsync
 # rsync_timeout = 900
+# bandwith limit for rsync in kB/s. 0 means unlimited
+# rsync_bwlimit = 0
 # passed to rsync for io op timeout
 # rsync_io_timeout = 30
 # max duration of an http request
