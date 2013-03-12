@@ -247,7 +247,7 @@ def fake_http_connect(*code_iter, **kwargs):
                        'x-object-meta-test': 'testing',
                        'etag': etag,
                        'x-works': 'yes',
-                       'x-account-container-count': 12345}
+                       'x-account-container-count': kwargs.get('count', 12345)}
             if not self.timestamp:
                 del headers['x-timestamp']
             try:
@@ -444,6 +444,32 @@ class TestController(unittest.TestCase):
             p, n = self.account_ring.get_nodes(self.account)
         self.assertEqual(p, partition)
         self.assertEqual(n, nodes)
+
+    def test_account_info_container_count(self):
+        with save_globals():
+            set_http_connect(200, count=123)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
+            self.assertEquals(count, 123)
+        with save_globals():
+            set_http_connect(200, count='123')
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
+            self.assertEquals(count, 123)
+        with save_globals():
+            cache_key = get_account_memcache_key(self.account)
+            account_info = {'status': 200, 'container_count': 1234}
+            self.memcache.set(cache_key, account_info)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
+            self.assertEquals(count, 1234)
+        with save_globals():
+            cache_key = get_account_memcache_key(self.account)
+            account_info = {'status': 200, 'container_count': '1234'}
+            self.memcache.set(cache_key, account_info)
+            partition, nodes, count = \
+                self.controller.account_info(self.account)
+            self.assertEquals(count, 1234)
 
     def test_make_requests(self):
         with save_globals():
