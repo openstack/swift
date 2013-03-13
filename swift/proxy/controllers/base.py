@@ -165,9 +165,6 @@ def cors_validation(func):
                 controller.container_info(controller.account_name,
                                           controller.container_name)
             cors_info = container_info.get('cors', {})
-            if not controller.is_origin_allowed(cors_info, req_origin):
-                # invalid CORS request
-                return Response(status=HTTP_UNAUTHORIZED)
 
             # Call through to the decorated method
             resp = func(*a, **kw)
