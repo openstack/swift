@@ -18,6 +18,7 @@ import cPickle as pickle
 from array import array
 from errno import EEXIST
 from itertools import islice, izip
+from math import ceil
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv, exit
@@ -167,16 +168,17 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
             print 'No matching devices found'
             exit(EXIT_ERROR)
         devs = [d['id'] for d in devs]
-        matches = [array('i') for x in xrange(builder.replicas)]
+        max_replicas = int(ceil(builder.replicas))
+        matches = [array('i') for x in xrange(max_replicas)]
         for part in xrange(builder.parts):
             count = len([d for d in builder.get_part_devices(part)
                          if d['id'] in devs])
             if count:
-                matches[builder.replicas - count].append(part)
+                matches[max_replicas - count].append(part)
         print 'Partition   Matches'
         for index, parts in enumerate(matches):
             for part in parts:
-                print '%9d   %7d' % (part, builder.replicas - index)
+                print '%9d   %7d' % (part, max_replicas - index)
         exit(EXIT_SUCCESS)
 
     def add():
