@@ -4086,30 +4086,6 @@ class TestObjectController(unittest.TestCase):
                 'x-auth-token, x-foo',
                 sortHeaderNames(resp.headers['access-control-allow-headers']))
 
-    def test_CORS_invalid_origin(self):
-        with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
-
-            def stubContainerInfo(*args):
-                return {
-                    'cors': {
-                        'allow_origin': 'http://baz'
-                    }
-                }
-            controller.container_info = stubContainerInfo
-
-            def objectGET(controller, req):
-                return Response()
-
-            req = Request.blank(
-                '/a/c/o.jpg',
-                {'REQUEST_METHOD': 'GET'},
-                headers={'Origin': 'http://foo.bar'})
-
-            resp = cors_validation(objectGET)(controller, req)
-
-            self.assertEquals(401, resp.status_int)
-
     def test_CORS_valid(self):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
@@ -4938,30 +4914,6 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(
                 'x-auth-token, x-foo',
                 sortHeaderNames(resp.headers['access-control-allow-headers']))
-
-    def test_CORS_invalid_origin(self):
-        with save_globals():
-            controller = proxy_server.ContainerController(self.app, 'a', 'c')
-
-            def stubContainerInfo(*args):
-                return {
-                    'cors': {
-                        'allow_origin': 'http://baz'
-                    }
-                }
-            controller.container_info = stubContainerInfo
-
-            def containerGET(controller, req):
-                return Response()
-
-            req = Request.blank(
-                '/a/c/o.jpg',
-                {'REQUEST_METHOD': 'GET'},
-                headers={'Origin': 'http://foo.bar'})
-
-            resp = cors_validation(containerGET)(controller, req)
-
-            self.assertEquals(401, resp.status_int)
 
     def test_CORS_valid(self):
         with save_globals():
