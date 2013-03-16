@@ -22,10 +22,6 @@ The supported headers are,
 |X-Container-Meta-Access-Control-Max-Age       | Max age for the Origin to    |
 |                                              | hold the preflight results.  |
 +----------------------------------------------+------------------------------+
-|X-Container-Meta-Access-Control-Allow-Headers | Headers to be allowed in     |
-|                                              | actual request by browser,   |
-|                                              | space separated.             |
-+----------------------------------------------+------------------------------+
 |X-Container-Meta-Access-Control-Expose-Headers| Headers exposed to the user  |
 |                                              | agent (e.g. browser) in the  |
 |                                              | the actual request response. |

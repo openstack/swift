@@ -3999,7 +3999,6 @@ class TestObjectController(unittest.TestCase):
                 return {
                     'cors': {
                         'allow_origin': 'http://foo.bar:8080 https://foo.bar',
-                        'allow_headers': 'x-foo',
                         'max_age': '999',
                     }
                 }
@@ -4022,9 +4021,6 @@ class TestObjectController(unittest.TestCase):
                 len(resp.headers['access-control-allow-methods'].split(', ')),
                 7)
             self.assertEquals('999', resp.headers['access-control-max-age'])
-            self.assertEquals(
-                'x-auth-token, x-foo',
-                sortHeaderNames(resp.headers['access-control-allow-headers']))
             req = Request.blank(
                 '/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -4059,7 +4055,6 @@ class TestObjectController(unittest.TestCase):
                 return {
                     'cors': {
                         'allow_origin': '*',
-                        'allow_headers': 'x-foo',
                         'max_age': '999',
                     }
                 }
@@ -4082,9 +4077,6 @@ class TestObjectController(unittest.TestCase):
                 len(resp.headers['access-control-allow-methods'].split(', ')),
                 7)
             self.assertEquals('999', resp.headers['access-control-max-age'])
-            self.assertEquals(
-                'x-auth-token, x-foo',
-                sortHeaderNames(resp.headers['access-control-allow-headers']))
 
     def test_CORS_valid(self):
         with save_globals():
@@ -4827,7 +4819,6 @@ class TestContainerController(unittest.TestCase):
                 return {
                     'cors': {
                         'allow_origin': 'http://foo.bar:8080 https://foo.bar',
-                        'allow_headers': 'x-foo',
                         'max_age': '999',
                     }
                 }
@@ -4850,9 +4841,6 @@ class TestContainerController(unittest.TestCase):
                 len(resp.headers['access-control-allow-methods'].split(', ')),
                 6)
             self.assertEquals('999', resp.headers['access-control-max-age'])
-            self.assertEquals(
-                'x-auth-token, x-foo',
-                sortHeaderNames(resp.headers['access-control-allow-headers']))
             req = Request.blank(
                 '/a/c',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -4888,7 +4876,6 @@ class TestContainerController(unittest.TestCase):
                 return {
                     'cors': {
                         'allow_origin': '*',
-                        'allow_headers': 'x-foo',
                         'max_age': '999',
                     }
                 }
@@ -4911,8 +4898,20 @@ class TestContainerController(unittest.TestCase):
                 len(resp.headers['access-control-allow-methods'].split(', ')),
                 6)
             self.assertEquals('999', resp.headers['access-control-max-age'])
+
+            req = Request.blank(
+                '/a/c/o.jpg',
+                {'REQUEST_METHOD': 'OPTIONS'},
+                headers={'Origin': 'https://bar.baz',
+                         'Access-Control-Request-Headers':
+                         'x-foo, x-bar, x-auth-token',
+                         'Access-Control-Request-Method': 'GET'}
+            )
+            req.content_length = 0
+            resp = controller.OPTIONS(req)
+            self.assertEquals(200, resp.status_int)
             self.assertEquals(
-                'x-auth-token, x-foo',
+                sortHeaderNames('x-foo, x-bar, x-auth-token'),
                 sortHeaderNames(resp.headers['access-control-allow-headers']))
 
     def test_CORS_valid(self):
