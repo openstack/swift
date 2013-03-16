@@ -437,6 +437,17 @@ class TestController(unittest.TestCase):
         self.read_acl = 'read_acl'
         self.write_acl = 'write_acl'
 
+    def test_transfer_headers(self):
+        src_headers = {'x-remove-base-meta-owner': 'x',
+                       'x-base-meta-size': '151M',
+                       'new-owner': 'Kun'}
+        dst_headers = {'x-base-meta-owner': 'Gareth',
+                       'x-base-meta-size': '150M'}
+        self.controller.transfer_headers(src_headers, dst_headers)
+        expected_headers = {'x-base-meta-owner': '',
+                            'x-base-meta-size': '151M'}
+        self.assertEquals(dst_headers, expected_headers)
+
     def check_account_info_return(self, partition, nodes, is_none=False):
         if is_none:
             p, n = None, None
@@ -4317,6 +4328,17 @@ class TestContainerController(unittest.TestCase):
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing())
+
+    def test_transfer_headers(self):
+        src_headers = {'x-remove-versions-location': 'x',
+                       'x-container-read': '*:user'}
+        dst_headers = {'x-versions-location': 'backup'}
+        controller = swift.proxy.controllers.ContainerController(self.app,
+                                                                 'a', 'c')
+        controller.transfer_headers(src_headers, dst_headers)
+        expected_headers = {'x-versions-location': '',
+                            'x-container-read': '*:user'}
+        self.assertEqual(dst_headers, expected_headers)
 
     def assert_status_map(self, method, statuses, expected,
                           raise_exc=False, missing_container=False):

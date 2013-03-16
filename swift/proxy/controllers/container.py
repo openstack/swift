@@ -50,6 +50,12 @@ class ContainerController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
 
+    def _x_remove_headers(self):
+        st = self.server_type.lower()
+        return ['x-remove-%s-read' % st,
+                'x-remove-%s-write' % st,
+                'x-remove-versions-location']
+
     def clean_acls(self, req):
         if 'swift.clean_acl' in req.environ:
             for header in ('x-container-read', 'x-container-write'):
