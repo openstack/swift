@@ -79,6 +79,13 @@ class SwiftAuth(unittest.TestCase):
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 200)
 
+    def test_detect_reseller_request(self):
+        role = self.test_auth.reseller_admin_role
+        headers = self._get_identity_headers(role=role)
+        req = self._make_request('/v1/AUTH_acct/c', headers)
+        resp = req.get_response(self._get_successful_middleware())
+        self.assertTrue(req.environ.get('reseller_request'))
+
     def test_confirmed_identity_is_not_authorized(self):
         headers = self._get_identity_headers()
         req = self._make_request('/v1/AUTH_acct/c', headers)

@@ -16,6 +16,7 @@
 import unittest
 from contextlib import contextmanager
 from base64 import b64encode
+from time import time
 
 from swift.common.middleware import tempauth as auth
 from swift.common.swob import Request, Response
@@ -326,6 +327,15 @@ class TestAuth(unittest.TestCase):
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com,.rlistings'
         self.assertEquals(self.test_auth.authorize(req), None)
+
+    def test_detect_reseller_request(self):
+        req = self._make_request('/v1/AUTH_admin',
+                                 headers={'X-Auth-Token': 'AUTH_t'})
+        cache_key = 'AUTH_/token/AUTH_t'
+        cache_entry = (time()+3600, '.reseller_admin')
+        req.environ['swift.cache'].set(cache_key, cache_entry)
+        resp = req.get_response(self.test_auth)
+        self.assertTrue(req.environ.get('reseller_request', False))
 
     def test_account_put_permissions(self):
         req = self._make_request('/v1/AUTH_new',
