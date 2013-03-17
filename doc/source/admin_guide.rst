@@ -328,8 +328,9 @@ periodically on your object servers::
 
     */5 * * * * swift /usr/bin/swift-recon-cron /etc/swift/object-server.conf
 
-Once the recon middleware is enabled a GET request for "/recon/<metric>" to
-the server will return a json formatted response::
+Once the recon middleware is enabled, a GET request for
+"/recon/<metric>" to the backend object server will return a
+JSON-formatted response::
 
     fhines@ubuntu:~$ curl -i http://localhost:6030/recon/async
     HTTP/1.1 200 OK
@@ -338,6 +339,10 @@ the server will return a json formatted response::
     Date: Tue, 18 Oct 2011 21:03:01 GMT
 
     {"async_pending": 0}
+
+
+Note that the default port for the object server is 6000, except on a
+Swift All-In-One installation, which uses 6010, 6020, 6030, and 6040.
 
 The following metrics and telemetry are currently exposed:
 
