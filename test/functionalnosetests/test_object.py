@@ -23,7 +23,7 @@ from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
 
 from swift_testing import check_response, retry, skip, skip3, \
-    swift_test_user, web_front_end
+    swift_test_perm, web_front_end
 from test import get_config
 
 
@@ -220,8 +220,8 @@ class TestObject(unittest.TestCase):
             conn.request('PUT', '%s/%s' % (parsed.path,
                                            shared_container), '',
                          {'X-Auth-Token': token,
-                         'X-Container-Read': swift_test_user[2],
-                         'X-Container-Write': swift_test_user[2]})
+                          'X-Container-Read': swift_test_perm[2],
+                          'X-Container-Write': swift_test_perm[2]})
             return check_response(conn)
         resp = retry(put)
         resp.read()
@@ -419,8 +419,8 @@ class TestObject(unittest.TestCase):
             # Grant access to the third account
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, self.container),
-                    '', {'X-Auth-Token': token, 'X-Container-Read':
-                    swift_test_user[2]})
+                    '', {'X-Auth-Token': token,
+                         'X-Container-Read': swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
@@ -494,8 +494,8 @@ class TestObject(unittest.TestCase):
             # Grant access to the third account
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, acontainer),
-                    '', {'X-Auth-Token': token, 'X-Container-Read':
-                    swift_test_user[2]})
+                    '', {'X-Auth-Token': token,
+                         'X-Container-Read': swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
