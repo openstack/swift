@@ -1,3 +1,77 @@
+swift (1.8.0)
+
+    * Make rings' replica count adjustable
+
+    * Added a region tier to the ring above zones
+
+    * Added timing-based sorting of object servers on read requests
+
+    * Added support for auto-extract archive uploads
+
+    * Added support for bulk delete requests
+
+    * Added support for large objects with static manifests
+
+    * Added list_endpoints middleware to provide an API for determining where
+      the ring places data
+
+    * proxy-logging middleware can now handle logging for other middleware
+
+      proxy-logging should be used twice in the proxy pipeline. The first
+      handles middleware logs for requests that never made it all the way
+      to the server. The last handles requests that do make it to the server.
+
+      This is a change that may require an update to your proxy server
+      config file or custom middleware that you may be using. See the full
+      docs at http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.proxy_logging.
+
+    * Changed the default sample rate for a few high-traffic requests.
+
+      Added log_statsd_sample_rate_factor to globally tune the StatsD
+      sample rate. This tunable can be used to reduce StatsD traffic
+      proportionally for all metrics and is intended to replace
+      log_statsd_default_sample_rate, which is left alone for
+      backward-compatibility, should anyone be using it.
+
+    * Added user-managed container quotas
+
+    * Added support for account-level quotas managed by an auth reseller
+
+    * Added --run-dir option to swift-init
+
+    * Added more options to swift-bench
+
+    * Added support for CORS "actual requests"
+
+    * Added fallocate_reserve option to protect against full drives
+
+    * Allow ring rebalance to take a seed
+
+    * Ring serialization will now produce the same gzip file (Py2.7)
+
+    * Added support to swift-drive-audit for handling rotated logs
+
+    * Added first-byte latency timings for GET requests
+
+    * Added per disk PUT timing monitoring support
+
+    * Added speed limit options for DB auditor
+
+    * Force log entries to be one line
+
+    * Ensure that fsync is used and not just fdatasync
+
+    * Improved handoff node selection
+
+    * Deprecated keystone is_admin feature
+
+    * Fix large objects with unicode in the segment names
+
+    * Update Swift's MemcacheRing to provide API compatibility with
+      standard Python memcache libraries
+
+    * Various other minor bug fixes and improvements
+
 swift (1.7.6)
 
     * Better tempauth storage URL guessing
@@ -32,7 +106,7 @@ swift (1.7.6)
 
     * Swift now returns 406 if it can't satisfy Accept
 
-    * Fix infinite recursion bug in obejct replicator
+    * Fix infinite recursion bug in object replicator
 
     * Swift will now reject names with NULL characters
 
