@@ -206,8 +206,20 @@ class TestAuthorize(unittest.TestCase):
         req = self._check_authenticate(identity=identity)
         self.assertTrue(req.environ.get('swift_owner'))
 
+    def test_authorize_succeeds_for_insensitive_reseller_admin(self):
+        roles = [self.test_auth.reseller_admin_role.upper()]
+        identity = self._get_identity(roles=roles)
+        req = self._check_authenticate(identity=identity)
+        self.assertTrue(req.environ.get('swift_owner'))
+
     def test_authorize_succeeds_as_owner_for_operator_role(self):
-        roles = self.test_auth.operator_roles.split(',')[0]
+        roles = self.test_auth.operator_roles.split(',')
+        identity = self._get_identity(roles=roles)
+        req = self._check_authenticate(identity=identity)
+        self.assertTrue(req.environ.get('swift_owner'))
+
+    def test_authorize_succeeds_as_owner_for_insensitive_operator_role(self):
+        roles = [r.upper() for r in self.test_auth.operator_roles.split(',')]
         identity = self._get_identity(roles=roles)
         req = self._check_authenticate(identity=identity)
         self.assertTrue(req.environ.get('swift_owner'))
