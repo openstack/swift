@@ -694,9 +694,9 @@ if __name__ == '__main__':
     if argv[0].endswith('-safe'):
         try:
             with lock_parent_directory(abspath(argv[1]), 15):
-                Commands.__dict__.get(command, Commands.unknown)()
+                Commands.__dict__.get(command, Commands.unknown.im_func)()
         except exceptions.LockTimeout:
             print "Ring/builder dir currently locked."
             exit(2)
     else:
-        Commands.__dict__.get(command, Commands.unknown)()
+        Commands.__dict__.get(command, Commands.unknown.im_func)()
