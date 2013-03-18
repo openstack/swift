@@ -937,6 +937,8 @@ class RingBuilder(object):
 
         Deliberately includes duplicates.
         """
+        if self._replica2part2dev is None:
+            return []
         return [self.devs[part2dev[part]]
                 for part2dev in self._replica2part2dev
                 if part < len(part2dev)]
