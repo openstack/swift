@@ -86,6 +86,15 @@ General OS configuration and partitioning for each node
         export STORAGE_LOCAL_NET_IP=10.1.2.3
         export PROXY_LOCAL_NET_IP=10.1.2.4
 
+#. Create directory /var/run/swift and change the ownership to the user and group
+   which Swift services will run under. Since the directory is only needed for runtime,
+   when system shuts down, the directory will be gone. It is necessary to have
+   the directory recreated when system is restarted. To do that, also add the
+   following lines into /etc/rc.local before line "exit 0".
+
+        mkdir -p /var/run/swift
+        chown swift:swift /var/run/swift
+
 .. note::
     The random string of text in /etc/swift/swift.conf is
     used as a salt when hashing to determine mappings in the ring.
