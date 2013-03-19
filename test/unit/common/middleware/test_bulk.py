@@ -461,6 +461,12 @@ class TestDelete(unittest.TestCase):
             results = self.bulk.get_objs_to_delete(req)
             self.assertEquals(results, ['1', '2', '3'])
 
+        with patch.object(self.bulk, 'max_deletes_per_request', 9):
+            with patch.object(bulk, 'MAX_PATH_LENGTH', 1):
+                req_body = '\n'.join([str(i) for i in xrange(10)])
+                req = Request.blank('/delete_works/AUTH_Acc', body=req_body)
+                self.assertRaises(HTTPException, self.bulk.get_objs_to_delete, req)
+
     def test_bulk_delete_works_extra_newlines_extra_quoting(self):
         req = Request.blank('/delete_works/AUTH_Acc',
                             body='/c/f\n\n\n/c/f404\n\n\n/c/%2525',
