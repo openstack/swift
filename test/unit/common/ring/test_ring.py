@@ -97,6 +97,7 @@ class TestRing(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
@@ -133,11 +134,14 @@ class TestRing(unittest.TestCase):
         self.assertEquals(self.ring.serialized_path, self.testgz)
         # test invalid endcap
         _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
+        _orig_hash_path_prefix = utils.HASH_PATH_PREFIX
         try:
             utils.HASH_PATH_SUFFIX = ''
+            utils.HASH_PATH_PREFIX = ''
             self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
         finally:
             utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
+            utils.HASH_PATH_PREFIX = _orig_hash_path_prefix
 
     def test_has_changed(self):
         self.assertEquals(self.ring.has_changed(), False)

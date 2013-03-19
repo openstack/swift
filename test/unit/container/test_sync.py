@@ -23,6 +23,7 @@ from swiftclient import ClientException
 
 
 utils.HASH_PATH_SUFFIX = 'endcap'
+utils.HASH_PATH_PREFIX = 'endcap'
 
 
 class FakeRing(object):
