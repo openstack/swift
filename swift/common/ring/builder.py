@@ -39,12 +39,22 @@ class RingBuilder(object):
     a rebalance request is an isolated request or due to added, changed, or
     removed devices.
 
-    :param part_power: number of partitions = 2**part_power
+    :param part_power: number of partitions = 2**part_power.
     :param replicas: number of replicas for each partition
     :param min_part_hours: minimum number of hours between partition changes
     """
 
     def __init__(self, part_power, replicas, min_part_hours):
+        if part_power > 32:
+            raise ValueError("part_power must be at most 32 (was %d)"
+                             % (part_power,))
+        if replicas < 1:
+            raise ValueError("replicas must be at least 1 (was %.6f)"
+                             % (replicas,))
+        if min_part_hours < 0:
+            raise ValueError("min_part_hours must be non-negative (was %d)"
+                             % (min_part_hours,))
+
         self.part_power = part_power
         self.replicas = replicas
         self.min_part_hours = min_part_hours
