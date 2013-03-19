@@ -135,6 +135,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         # Setup a test ring (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')

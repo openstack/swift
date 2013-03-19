@@ -383,6 +383,7 @@ class TestObjectController(unittest.TestCase):
     def setUp(self):
         """ Set up for testing swift.object_server.ObjectController """
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = 'startcap'
         self.testdir = \
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
@@ -1808,6 +1809,8 @@ class TestObjectController(unittest.TestCase):
                          'x-trans-id': '-'}})
 
     def test_async_update_saves_on_exception(self):
+        _prefix = utils.HASH_PATH_PREFIX
+        utils.HASH_PATH_PREFIX = ''
 
         def fake_http_connect(*args):
             raise Exception('test')
@@ -1820,6 +1823,7 @@ class TestObjectController(unittest.TestCase):
                 {'x-timestamp': '1', 'x-out': 'set'}, 'sda1')
         finally:
             object_server.http_connect = orig_http_connect
+            utils.HASH_PATH_PREFIX = _prefix
         self.assertEquals(
             pickle.load(open(os.path.join(self.testdir, 'sda1',
                 'async_pending', 'a83',
@@ -1828,6 +1832,8 @@ class TestObjectController(unittest.TestCase):
              'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
+        _prefix = utils.HASH_PATH_PREFIX
+        utils.HASH_PATH_PREFIX = ''
 
         def fake_http_connect(status):
 
@@ -1860,6 +1866,7 @@ class TestObjectController(unittest.TestCase):
                      'op': 'PUT'})
         finally:
             object_server.http_connect = orig_http_connect
+            utils.HASH_PATH_PREFIX = _prefix
 
     def test_async_update_does_not_save_on_2xx(self):
 

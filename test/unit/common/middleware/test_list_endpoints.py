@@ -36,6 +36,7 @@ def start_response(*args):
 class TestListEndpoints(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
