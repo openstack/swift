@@ -194,10 +194,6 @@ class Bulk(object):
             raise HTTPBadRequest('Invalid request: no content sent.')
 
         while data_remaining:
-            if len(objs_to_delete) > self.max_deletes_per_request:
-                raise HTTPRequestEntityTooLarge(
-                    'Maximum Bulk Deletes: %d per request' %
-                    self.max_deletes_per_request)
             if '\n' in line:
                 obj_to_delete, line = line.split('\n', 1)
                 objs_to_delete.append(unquote(obj_to_delete))
@@ -209,6 +205,10 @@ class Bulk(object):
                     data_remaining = False
                     if line.strip():
                         objs_to_delete.append(unquote(line))
+            if len(objs_to_delete) > self.max_deletes_per_request:
+                raise HTTPRequestEntityTooLarge(
+                    'Maximum Bulk Deletes: %d per request' %
+                    self.max_deletes_per_request)
             if len(line) > MAX_PATH_LENGTH * 2:
                 raise HTTPBadRequest('Invalid File Name')
         return objs_to_delete
