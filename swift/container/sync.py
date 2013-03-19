@@ -286,6 +286,7 @@ class ContainerSync(Daemon):
                     self.logger.increment('failures')
                     return
                 stop_at = time() + self.container_time
+                next_sync_point = None
                 while time() < stop_at and sync_point2 < sync_point1:
                     rows = broker.get_items_since(sync_point2, 1)
                     if not rows:
@@ -296,16 +297,19 @@ class ContainerSync(Daemon):
                     key = hash_path(info['account'], info['container'],
                                     row['name'], raw_digest=True)
                     # This node will only initially sync out one third of the
-                    # objects (if 3 replicas, 1/4 if 4, etc.). This section
-                    # will attempt to sync previously skipped rows in case the
-                    # other nodes didn't succeed.
-                    if unpack_from('>I', key)[0] % \
-                            len(nodes) != ordinal:
-                        if not self.container_sync_row(row, sync_to, sync_key,
-                                                       broker, info):
-                            return
+                    # objects (if 3 replicas, 1/4 if 4, etc.) and will skip
+                    # problematic rows as needed in case of faults.
+                    # This section will attempt to sync previously skipped
+                    # rows in case the previous attempts by any of the nodes
+                    # didn't succeed.
+                    if not self.container_sync_row(row, sync_to, sync_key,
+                                                   broker, info):
+                        if not next_sync_point:
+                            next_sync_point = sync_point2
                     sync_point2 = row['ROWID']
                     broker.set_x_container_sync_points(None, sync_point2)
+                if next_sync_point:
+                    broker.set_x_container_sync_points(None, next_sync_point)
                 while time() < stop_at:
                     rows = broker.get_items_since(sync_point1, 1)
                     if not rows:
@@ -317,12 +321,11 @@ class ContainerSync(Daemon):
                     # objects (if 3 replicas, 1/4 if 4, etc.). It'll come back
                     # around to the section above and attempt to sync
                     # previously skipped rows in case the other nodes didn't
-                    # succeed.
+                    # succeed or in case it failed to do so the first time.
                     if unpack_from('>I', key)[0] % \
                             len(nodes) == ordinal:
-                        if not self.container_sync_row(row, sync_to, sync_key,
-                                                       broker, info):
-                            return
+                        self.container_sync_row(row, sync_to, sync_key,
+                                                broker, info)
                     sync_point1 = row['ROWID']
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
@@ -420,10 +423,11 @@ class ContainerSync(Daemon):
                      'sync_to': sync_to})
             elif err.http_status == HTTP_NOT_FOUND:
                 self.logger.info(
-                    _('Not found %(sync_from)r => %(sync_to)r'),
+                    _('Not found %(sync_from)r => %(sync_to)r \
+                      - object %(obj_name)r'),
                     {'sync_from': '%s/%s' %
                         (quote(info['account']), quote(info['container'])),
-                     'sync_to': sync_to})
+                     'sync_to': sync_to, 'obj_name': row['name']})
             else:
                 self.logger.exception(
                     _('ERROR Syncing %(db_file)s %(row)s'),
