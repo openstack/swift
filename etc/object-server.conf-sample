@@ -70,6 +70,8 @@ use = egg:swift#object
 # verbs, set to "False". Unless you have a separate replication network, you
 # should not specify any value for "replication_server".
 # replication_server = False
+# A value of 0 means "don't use thread pools". A reasonable starting point is 4.
+# threads_per_disk = 0
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

@@ -27,9 +27,9 @@ import re
 import socket
 import sys
 from textwrap import dedent
+import threading
 import time
 import unittest
-from threading import Thread
 from Queue import Queue, Empty
 from getpass import getuser
 from shutil import rmtree
@@ -1531,7 +1531,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.sock.bind(('localhost', 0))
         self.port = self.sock.getsockname()[1]
         self.queue = Queue()
-        self.reader_thread = Thread(target=self.statsd_reader)
+        self.reader_thread = threading.Thread(target=self.statsd_reader)
         self.reader_thread.setDaemon(1)
         self.reader_thread.start()
 
@@ -1813,6 +1813,92 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             with patch('os.fsync', fsync):
                 utils.fsync(12345)
                 self.assertEquals(called, [12345])
+
+
+class TestThreadpool(unittest.TestCase):
+
+    def _thread_id(self):
+        return threading.current_thread().ident
+
+    def _capture_args(self, *args, **kwargs):
+        return {'args': args, 'kwargs': kwargs}
+
+    def _raise_valueerror(self):
+        return int('fishcakes')
+
+    def test_run_in_thread_with_threads(self):
+        tp = utils.ThreadPool(1)
+
+        my_id = self._thread_id()
+        other_id = tp.run_in_thread(self._thread_id)
+        self.assertNotEquals(my_id, other_id)
+
+        result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
+        self.assertEquals(result, {'args': (1, 2),
+                                   'kwargs': {'bert': 'ernie'}})
+
+        caught = False
+        try:
+            tp.run_in_thread(self._raise_valueerror)
+        except ValueError:
+            caught = True
+        self.assertTrue(caught)
+
+    def test_force_run_in_thread_with_threads(self):
+        # with nthreads > 0, force_run_in_thread looks just like run_in_thread
+        tp = utils.ThreadPool(1)
+
+        my_id = self._thread_id()
+        other_id = tp.force_run_in_thread(self._thread_id)
+        self.assertNotEquals(my_id, other_id)
+
+        result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
+        self.assertEquals(result, {'args': (1, 2),
+                                   'kwargs': {'bert': 'ernie'}})
+
+        caught = False
+        try:
+            tp.force_run_in_thread(self._raise_valueerror)
+        except ValueError:
+            caught = True
+        self.assertTrue(caught)
+
+    def test_run_in_thread_without_threads(self):
+        # with zero threads, run_in_thread doesn't actually do so
+        tp = utils.ThreadPool(0)
+
+        my_id = self._thread_id()
+        other_id = tp.run_in_thread(self._thread_id)
+        self.assertEquals(my_id, other_id)
+
+        result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
+        self.assertEquals(result, {'args': (1, 2),
+                                   'kwargs': {'bert': 'ernie'}})
+
+        caught = False
+        try:
+            tp.run_in_thread(self._raise_valueerror)
+        except ValueError:
+            caught = True
+        self.assertTrue(caught)
+
+    def test_force_run_in_thread_without_threads(self):
+        # with zero threads, force_run_in_thread uses eventlet.tpool
+        tp = utils.ThreadPool(0)
+
+        my_id = self._thread_id()
+        other_id = tp.force_run_in_thread(self._thread_id)
+        self.assertNotEquals(my_id, other_id)
+
+        result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
+        self.assertEquals(result, {'args': (1, 2),
+                                   'kwargs': {'bert': 'ernie'}})
+        caught = False
+        try:
+            tp.force_run_in_thread(self._raise_valueerror)
+        except ValueError:
+            caught = True
+        self.assertTrue(caught)
 
 
 if __name__ == '__main__':

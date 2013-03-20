@@ -49,13 +49,15 @@ class TestDiskFile(unittest.TestCase):
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
 
-        def fake_exe(*args, **kwargs):
-            pass
+        self._real_tpool_execute = tpool.execute
+        def fake_exe(meth, *args, **kwargs):
+            return meth(*args, **kwargs)
         tpool.execute = fake_exe
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
         rmtree(os.path.dirname(self.testdir))
+        tpool.execute = self._real_tpool_execute
 
     def _create_test_file(self, data, keep_data_fp=True):
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
