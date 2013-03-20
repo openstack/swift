@@ -643,7 +643,7 @@ class ObjectController(object):
         etag = md5()
         upload_size = 0
         last_sync = 0
-        elasped_time = 0
+        elapsed_time = 0
         with file.mkstemp() as fd:
             try:
                 fallocate(fd, int(request.headers.get('content-length', 0)))
@@ -666,11 +666,11 @@ class ObjectController(object):
                     drop_buffer_cache(fd, last_sync, upload_size - last_sync)
                     last_sync = upload_size
                 sleep()
-                elasped_time += time.time() - start_time
+                elapsed_time += time.time() - start_time
 
             if upload_size:
                 self.logger.transfer_rate(
-                    'PUT.' + device + '.timing', elasped_time, upload_size)
+                    'PUT.' + device + '.timing', elapsed_time, upload_size)
 
             if 'content-length' in request.headers and \
                     int(request.headers['content-length']) != upload_size:
