@@ -51,9 +51,10 @@ The number of object segments is limited to a configurable amount, default
 (configurable). On upload, the middleware will head every segment passed in and
 verify the size and etag of each. If any of the objects do not match (not
 found, size/etag mismatch, below minimum size) then the user will receive a 4xx
-error response.
+error response. If everything does match, the user will receive a 2xx response
+and the SLO object is ready for downloading.
 
-If everything matches, a json manifest generated from the user input is
+Behind the scenes, on success, a json manifest generated from the user input is
 sent to object servers with an extra "X-Static-Large-Object: True" header
 and a modified Content-Type. The parameter: swift_bytes=$total_size will be
 appended to the existing Content-Type, where total_size is the sum of all
@@ -137,7 +138,7 @@ from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
-    HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, wsgify
+    HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, wsgify
 from swift.common.utils import json, get_logger, config_true_value
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
@@ -211,6 +212,9 @@ class StaticLargeObject(object):
         if req.headers.get('X-Copy-From'):
             raise HTTPMethodNotAllowed(
                 'Multipart Manifest PUTs cannot be Copy requests')
+        if req.content_length is None and \
+                req.headers.get('transfer-encoding', '').lower() != 'chunked':
+            raise HTTPLengthRequired(request=req)
         parsed_data = parse_input(req.body_file.read(self.max_manifest_size))
         problem_segments = []
 
@@ -342,6 +346,12 @@ class StaticLargeObject(object):
             if req.method == 'DELETE' and \
                     req.params.get('multipart-manifest') == 'delete':
                 return self.handle_multipart_delete(req)
+            if 'X-Static-Large-Object' in req.headers:
+                raise HTTPBadRequest(
+                    request=req,
+                    body='X-Static-Large-Object is a reserved header. '
+                    'To create a static large object add query param '
+                    'multipart-manifest=put.')
 
         return self.app
 

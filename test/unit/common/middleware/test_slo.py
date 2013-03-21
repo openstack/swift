@@ -153,6 +153,13 @@ class TestStaticLargeObject(unittest.TestCase):
         self.assertEquals(self.app.calls, 1)
         self.assertEquals(''.join(resp_iter), 'passed')
 
+    def test_slo_header_assigned(self):
+        req = Request.blank(
+            '/v/a/c/o', headers={'x-static-large-object': "true"})
+        resp = self.slo(req.environ, fake_start_response)
+        self.assert_(
+            resp[0].startswith('X-Static-Large-Object is a reserved header'))
+
     def test_parse_input(self):
         self.assertRaises(HTTPException, slo.parse_input, 'some non json')
         data = json.dumps(
