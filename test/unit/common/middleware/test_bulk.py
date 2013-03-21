@@ -229,9 +229,10 @@ class TestUntar(unittest.TestCase):
         resp = self.bulk.handle_extract(req, '')
         self.assertEquals(resp.status_int, 404)
 
+    def test_content_length_required(self):
         req = Request.blank('/create_cont_fail/acc/cont')
         resp = self.bulk.handle_extract(req, '')
-        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(resp.status_int, 411)
 
     def build_tar(self, dir_tree=None):
         if not dir_tree:
@@ -465,7 +466,8 @@ class TestDelete(unittest.TestCase):
             with patch.object(bulk, 'MAX_PATH_LENGTH', 1):
                 req_body = '\n'.join([str(i) for i in xrange(10)])
                 req = Request.blank('/delete_works/AUTH_Acc', body=req_body)
-                self.assertRaises(HTTPException, self.bulk.get_objs_to_delete, req)
+                self.assertRaises(
+                    HTTPException, self.bulk.get_objs_to_delete, req)
 
     def test_bulk_delete_works_extra_newlines_extra_quoting(self):
         req = Request.blank('/delete_works/AUTH_Acc',
