@@ -94,7 +94,10 @@ class ContainerController(object):
         :param container: container name
         :param broker: container DB broker object
         :returns: if all the account requests return a 404 error code,
-                  HTTPNotFound response object, otherwise None.
+                  HTTPNotFound response object,
+                  if the account cannot be updated due to a malformed header,
+                  an HTTPBadRequest response object,
+                  otherwise None.
         """
         account_hosts = [h.strip() for h in
                          req.headers.get('X-Account-Host', '').split(',')]
@@ -110,7 +113,7 @@ class ContainerController(object):
                                 '"%s" vs "%s"' %
                                 (req.headers.get('X-Account-Host', ''),
                                  req.headers.get('X-Account-Device', ''))))
-            return
+            return HTTPBadRequest(req=req)
 
         if account_partition:
             updates = zip(account_hosts, account_devices)

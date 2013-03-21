@@ -16,20 +16,16 @@
 from __future__ import with_statement
 import cPickle as pickle
 import logging
-from logging.handlers import SysLogHandler
 import os
 import sys
 import unittest
 import urlparse
 import signal
-from ConfigParser import ConfigParser
 from contextlib import contextmanager
-from cStringIO import StringIO
 from gzip import GzipFile
-from httplib import HTTPException
 from shutil import rmtree
 import time
-from urllib import unquote, quote
+from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
 import random
@@ -38,7 +34,7 @@ import eventlet
 from eventlet import sleep, spawn, Timeout, util, wsgi, listen
 import simplejson
 
-from test.unit import connect_tcp, readuntil2crlfs, FakeLogger
+from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -194,130 +190,6 @@ def sortHeaderNames(headerNames):
     headers = [a.strip() for a in headerNames.split(',') if a.strip()]
     headers.sort()
     return ', '.join(headers)
-
-
-def fake_http_connect(*code_iter, **kwargs):
-
-    class FakeConn(object):
-
-        def __init__(self, status, etag=None, body='', timestamp='1',
-                     expect_status=None):
-            self.status = status
-            if expect_status is None:
-                self.expect_status = self.status
-            else:
-                self.expect_status = expect_status
-            self.reason = 'Fake'
-            self.host = '1.2.3.4'
-            self.port = '1234'
-            self.sent = 0
-            self.received = 0
-            self.etag = etag
-            self.body = body
-            self.timestamp = timestamp
-
-        def getresponse(self):
-            if kwargs.get('raise_exc'):
-                raise Exception('test')
-            if kwargs.get('raise_timeout_exc'):
-                raise Timeout()
-            return self
-
-        def getexpect(self):
-            if self.expect_status == -2:
-                raise HTTPException()
-            if self.expect_status == -3:
-                return FakeConn(507)
-            if self.expect_status == -4:
-                return FakeConn(201)
-            return FakeConn(100)
-
-        def getheaders(self):
-            etag = self.etag
-            if not etag:
-                if isinstance(self.body, str):
-                    etag = '"' + md5(self.body).hexdigest() + '"'
-                else:
-                    etag = '"68b329da9893e34099c7d8ad5cb9c940"'
-
-            headers = {'content-length': len(self.body),
-                       'content-type': 'x-application/test',
-                       'x-timestamp': self.timestamp,
-                       'last-modified': self.timestamp,
-                       'x-object-meta-test': 'testing',
-                       'etag': etag,
-                       'x-works': 'yes',
-                       'x-account-container-count': kwargs.get('count', 12345)}
-            if not self.timestamp:
-                del headers['x-timestamp']
-            try:
-                if container_ts_iter.next() is False:
-                    headers['x-container-timestamp'] = '1'
-            except StopIteration:
-                pass
-            if 'slow' in kwargs:
-                headers['content-length'] = '4'
-            if 'headers' in kwargs:
-                headers.update(kwargs['headers'])
-            return headers.items()
-
-        def read(self, amt=None):
-            if 'slow' in kwargs:
-                if self.sent < 4:
-                    self.sent += 1
-                    sleep(0.1)
-                    return ' '
-            rv = self.body[:amt]
-            self.body = self.body[amt:]
-            return rv
-
-        def send(self, amt=None):
-            if 'slow' in kwargs:
-                if self.received < 4:
-                    self.received += 1
-                    sleep(0.1)
-
-        def getheader(self, name, default=None):
-            return dict(self.getheaders()).get(name.lower(), default)
-
-    timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
-    etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
-    x = kwargs.get('missing_container', [False] * len(code_iter))
-    if not isinstance(x, (tuple, list)):
-        x = [x] * len(code_iter)
-    container_ts_iter = iter(x)
-    code_iter = iter(code_iter)
-    static_body = kwargs.get('body', None)
-    body_iter = kwargs.get('body_iter', None)
-    if body_iter:
-        body_iter = iter(body_iter)
-
-    def connect(*args, **ckwargs):
-        if 'give_content_type' in kwargs:
-            if len(args) >= 7 and 'Content-Type' in args[6]:
-                kwargs['give_content_type'](args[6]['Content-Type'])
-            else:
-                kwargs['give_content_type']('')
-        if 'give_connect' in kwargs:
-            kwargs['give_connect'](*args, **ckwargs)
-        status = code_iter.next()
-        if isinstance(status, tuple):
-            status, expect_status = status
-        else:
-            expect_status = status
-        etag = etag_iter.next()
-        timestamp = timestamps_iter.next()
-
-        if status <= 0:
-            raise HTTPException()
-        if body_iter is None:
-            body = static_body or ''
-        else:
-            body = body_iter.next()
-        return FakeConn(status, etag, body=body, timestamp=timestamp,
-                        expect_status=expect_status)
-
-    return connect
 
 
 class FakeRing(object):
@@ -883,7 +755,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Storage-Token: t\r\n'
                      'Content-Length: %s\r\n'
                      'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (path, str(len(obj)),  obj))
+                     '\r\n%s' % (path, str(len(obj)), obj))
             fd.flush()
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 201'
@@ -2435,7 +2307,7 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Content-Length': '0',
                                          'X-Copy-From': '/c/o'})
             self.app.update_request(req)
- 
+
             class LargeResponseBody(object):
 
                 def __len__(self):
@@ -2450,7 +2322,6 @@ class TestObjectController(unittest.TestCase):
             self.app.memcache.store = {}
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 413)
-
 
     def test_COPY(self):
         with save_globals():
@@ -2580,7 +2451,6 @@ class TestObjectController(unittest.TestCase):
             self.app.memcache.store = {}
             resp = controller.COPY(req)
             self.assertEquals(resp.status_int, 413)
-
 
     def test_COPY_newest(self):
         with save_globals():
@@ -3986,7 +3856,7 @@ class TestObjectController(unittest.TestCase):
                  'X-Auth-Token: t\r\n'
                  'Content-Length: %s\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (obj_len,  'a' * obj_len))
+                 '\r\n%s' % (obj_len, 'a' * obj_len))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -4175,6 +4045,7 @@ class TestObjectController(unittest.TestCase):
                                                  'X-Container-Host',
                                                  'X-Container-Device'])
         seen_headers = []
+
         def capture_headers(ipaddr, port, device, partition, method,
                             path, headers=None, query_string=None):
             captured = {}
@@ -4188,7 +4059,7 @@ class TestObjectController(unittest.TestCase):
             set_http_connect(*connect_args, give_connect=capture_headers,
                              **kwargs)
             resp = controller_call(req)
-            self.assertEqual(2, resp.status_int // 100) # sanity check
+            self.assertEqual(2, resp.status_int // 100)  # sanity check
 
             # don't care about the account/container HEADs, so chuck
             # the first two requests
@@ -4322,7 +4193,6 @@ class TestObjectController(unittest.TestCase):
                 {'X-Delete-At-Host': None,
                  'X-Delete-At-Partition': None,
                  'X-Delete-At-Device': None}])
-
 
     def test_PUT_x_delete_at_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)
@@ -5017,7 +4887,7 @@ class TestContainerController(unittest.TestCase):
             set_http_connect(*connect_args, give_connect=capture_headers,
                              **kwargs)
             resp = controller_call(req)
-            self.assertEqual(2, resp.status_int // 100) # sanity check
+            self.assertEqual(2, resp.status_int // 100)  # sanity check
 
             # don't care about the account HEAD, so throw away the
             # first element
@@ -5140,7 +5010,7 @@ class TestAccountController(unittest.TestCase):
             self.app.allow_account_management = False
             controller = proxy_server.AccountController(self.app, 'account')
             req = Request.blank('/account', {'REQUEST_METHOD': 'OPTIONS'},
-                headers = {'Origin': 'http://foo.com',
+                headers={'Origin': 'http://foo.com',
                                      'Access-Control-Request-Method': 'GET'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
