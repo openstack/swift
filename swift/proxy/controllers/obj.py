@@ -848,6 +848,8 @@ class ObjectController(Controller):
                 # CONTAINER_LISTING_LIMIT segments in a segmented object. In
                 # this case, we're going to refuse to do the server-side copy.
                 return HTTPRequestEntityTooLarge(request=req)
+            if new_req.content_length > MAX_FILE_SIZE:
+                return HTTPRequestEntityTooLarge(request=req)
             new_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
             del new_req.headers['X-Copy-From']
