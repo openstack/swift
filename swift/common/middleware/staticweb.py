@@ -280,7 +280,10 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n'
         for item in listing:
             if 'subdir' in item:
-                subdir = item['subdir']
+                if isinstance(item['subdir'], unicode):
+                    subdir = item['subdir'].encode('utf-8')
+                else:
+                    subdir = item['subdir']
                 if prefix:
                     subdir = subdir[len(prefix):]
                 body += '   <tr class="item subdir">\n' \
@@ -291,7 +294,10 @@ class _StaticWebContext(WSGIContext):
                         (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
-                name = item['name']
+                if isinstance(item['name'], unicode):
+                    name = item['name'].encode('utf-8')
+                else:
+                    name = item['name']
                 if prefix:
                     name = name[len(prefix):]
                 body += '   <tr class="item %s">\n' \
