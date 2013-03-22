@@ -38,7 +38,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
-    DiskFileNotExist
+    DiskFileNotExist, DiskFileCollision
 from swift.obj.replicator import tpool_reraise, invalidate_hash, \
     quarantine_renamer, get_hashes
 from swift.common.http import is_success
@@ -46,7 +46,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
-    HTTPInsufficientStorage, multi_range_iterator
+    HTTPInsufficientStorage, HTTPForbidden, multi_range_iterator
 
 
 DATADIR = 'objects'
@@ -105,6 +105,7 @@ class DiskFile(object):
     :param keep_data_fp: if True, don't close the fp, otherwise close it
     :param disk_chunk_size: size of chunks on file reads
     :param iter_hook: called when __iter__ returns a chunk
+    :raises DiskFileCollision: on md5 collision
     """
 
     def __init__(self, path, device, partition, account, container, obj,
@@ -155,6 +156,14 @@ class DiskFile(object):
                     if key.lower() not in DISALLOWED_HEADERS:
                         del self.metadata[key]
                 self.metadata.update(read_metadata(mfp))
+        if 'name' in self.metadata:
+            if self.metadata['name'] != self.name:
+                self.logger.error(_('Client path %(client)s does not match '
+                                    'path stored in object metadata %(meta)s'),
+                                  {'client': self.name,
+                                   'meta': self.metadata['name']})
+                raise DiskFileCollision('Client path does not match path '
+                                        'stored in object metadata')
 
     def __iter__(self):
         """Returns an iterator over the data file."""
@@ -926,6 +935,8 @@ class ObjectController(object):
                     res = HTTPMethodNotAllowed()
                 else:
                     res = method(req)
+            except DiskFileCollision:
+                res = HTTPForbidden(request=req)
             except (Exception, Timeout):
                 self.logger.exception(_(
                     'ERROR __call__ error with %(method)s'

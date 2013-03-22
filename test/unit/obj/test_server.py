@@ -153,7 +153,6 @@ class TestDiskFile(unittest.TestCase):
             hook_call_count[0] += 1
 
         df = self._get_data_file(fsize=65, csize=8, iter_hook=hook)
-        print repr(df.__dict__)
         for _ in df:
             pass
 
@@ -1415,6 +1414,65 @@ class TestObjectController(unittest.TestCase):
                                         start_response)
         self.assertEquals(errbuf.getvalue(), '')
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
+
+        def my_check(*args):
+            return False
+        def my_storage_directory(*args):
+            return self.testdir+'/collide'
+        _storage_directory = object_server.storage_directory
+        _check = object_server.check_object_creation
+        try:
+            object_server.storage_directory = my_storage_directory
+            object_server.check_object_creation = my_check
+            inbuf = StringIO()
+            errbuf = StringIO()
+            outbuf = StringIO()
+            self.object_controller.__call__({'REQUEST_METHOD': 'PUT',
+                                             'SCRIPT_NAME': '',
+                                             'PATH_INFO': '/sda1/p/a/c/o',
+                                             'SERVER_NAME': '127.0.0.1',
+                                             'SERVER_PORT': '8080',
+                                             'SERVER_PROTOCOL': 'HTTP/1.0',
+                                             'CONTENT_LENGTH': '0',
+                                             'CONTENT_TYPE': 'text/html',
+                                             'HTTP_X_TIMESTAMP': 1.2,
+                                             'wsgi.version': (1, 0),
+                                             'wsgi.url_scheme': 'http',
+                                             'wsgi.input': inbuf,
+                                             'wsgi.errors': errbuf,
+                                             'wsgi.multithread': False,
+                                             'wsgi.multiprocess': False,
+                                             'wsgi.run_once': False},
+                                           start_response)
+            self.assertEquals(errbuf.getvalue(), '')
+            self.assertEquals(outbuf.getvalue()[:4], '201 ')
+
+            inbuf = StringIO()
+            errbuf = StringIO()
+            outbuf = StringIO()
+            self.object_controller.__call__({'REQUEST_METHOD': 'PUT',
+                                             'SCRIPT_NAME': '',
+                                             'PATH_INFO': '/sda1/q/b/d/x',
+                                             'SERVER_NAME': '127.0.0.1',
+                                             'SERVER_PORT': '8080',
+                                             'SERVER_PROTOCOL': 'HTTP/1.0',
+                                             'CONTENT_LENGTH': '0',
+                                             'CONTENT_TYPE': 'text/html',
+                                             'HTTP_X_TIMESTAMP': 1.3,
+                                             'wsgi.version': (1, 0),
+                                             'wsgi.url_scheme': 'http',
+                                             'wsgi.input': inbuf,
+                                             'wsgi.errors': errbuf,
+                                             'wsgi.multithread': False,
+                                             'wsgi.multiprocess': False,
+                                             'wsgi.run_once': False},
+                                           start_response)
+            self.assertEquals(errbuf.getvalue(), '')
+            self.assertEquals(outbuf.getvalue()[:4], '403 ')
+
+        finally:
+            object_server.storage_directory = _storage_directory
+            object_server.check_object_creation = _check
 
     def test_invalid_method_doesnt_exist(self):
         errbuf = StringIO()
