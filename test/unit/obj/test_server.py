@@ -28,7 +28,6 @@ from hashlib import md5
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout
 from test.unit import FakeLogger
-from test.unit import _getxattr as getxattr
 from test.unit import _setxattr as setxattr
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server, replicator
@@ -677,8 +676,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY')
-        self.assertEquals(pickle.loads(getxattr(objfile,
-                            object_server.METADATA_KEY)),
+        self.assertEquals(object_server.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '6',
                            'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
@@ -708,8 +706,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY TWO')
-        self.assertEquals(pickle.loads(getxattr(objfile,
-                            object_server.METADATA_KEY)),
+        self.assertEquals(object_server.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '10',
                            'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
@@ -751,8 +748,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY THREE')
-        self.assertEquals(pickle.loads(getxattr(objfile,
-        object_server.METADATA_KEY)),
+        self.assertEquals(object_server.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '12',
                            'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
@@ -1590,8 +1586,8 @@ class TestObjectController(unittest.TestCase):
             storage_directory(object_server.DATADIR, 'p', hash_path('a', 'c',
             'o')), timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
-        self.assertEquals(pickle.loads(getxattr(objfile,
-            object_server.METADATA_KEY)), {'X-Timestamp': timestamp,
+        self.assertEquals(object_server.read_metadata(objfile),
+            {'X-Timestamp': timestamp,
             'Content-Length': '0', 'Content-Type': 'text/plain', 'name':
             '/a/c/o', 'X-Object-Manifest': 'c/o/', 'ETag':
             'd41d8cd98f00b204e9800998ecf8427e'})
