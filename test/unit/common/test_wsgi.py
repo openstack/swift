@@ -13,23 +13,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.common.utils """
+""" Tests for swift.common.wsgi """
 
 from __future__ import with_statement
 import errno
+import logging
 import mimetools
 import socket
 import unittest
+import os
+import pickle
+from textwrap import dedent
+from gzip import GzipFile
 from StringIO import StringIO
 from collections import defaultdict
 from urllib import quote
 
+from eventlet import listen
+
+import swift
 from swift.common.swob import Request
-from swift.common import wsgi
+from swift.common import wsgi, utils, ring
+
+from test.unit import temptree
+
+from mock import patch
+
+
+def _fake_rings(tmpdir):
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                  'port': 6012},
+                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                  'port': 6022}], 30),
+                GzipFile(os.path.join(tmpdir, 'account.ring.gz'), 'wb'))
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                  'port': 6011},
+                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                  'port': 6021}], 30),
+                GzipFile(os.path.join(tmpdir, 'container.ring.gz'), 'wb'))
+    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                  'port': 6010},
+                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                  'port': 6020}], 30),
+                GzipFile(os.path.join(tmpdir, 'object.ring.gz'), 'wb'))
 
 
 class TestWSGI(unittest.TestCase):
     """ Tests for swift.common.wsgi """
+
+    def setUp(self):
+        utils.HASH_PATH_PREFIX = 'startcap'
+        self._orig_parsetype = mimetools.Message.parsetype
+
+    def tearDown(self):
+        mimetools.Message.parsetype = self._orig_parsetype
 
     def test_monkey_patch_mimetools(self):
         sio = StringIO('blah')
@@ -68,6 +108,90 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(mimetools.Message(sio).maintype, 'text')
         sio = StringIO('Content-Type: text/html; charset=ISO-8859-4')
         self.assertEquals(mimetools.Message(sio).subtype, 'html')
+
+    def test_init_request_processor(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = catch_errors proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            app, conf, logger, log_name = wsgi.init_request_processor(
+                conf_file, 'proxy-server')
+        # verify pipeline is catch_errors -> proxy-servery
+        expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
+        self.assert_(isinstance(app, expected))
+        self.assert_(isinstance(app.app, swift.proxy.server.Application))
+        # config settings applied to app instance
+        self.assertEquals(0.2, app.app.conn_timeout)
+        # appconfig returns values from 'proxy-server' section
+        expected = {
+            '__file__': conf_file,
+            'here': os.path.dirname(conf_file),
+            'conn_timeout': '0.2',
+            'swift_dir': t,
+        }
+        self.assertEquals(expected, conf)
+        # logger works
+        logger.info('testing')
+        self.assertEquals('proxy-server', log_name)
+
+    def test_init_request_processor_from_conf_dir(self):
+        config_dir = {
+            'proxy-server.conf.d/pipeline.conf': """
+            [pipeline:main]
+            pipeline = catch_errors proxy-server
+            """,
+            'proxy-server.conf.d/app.conf': """
+            [app:proxy-server]
+            use = egg:swift#proxy
+            conn_timeout = 0.2
+            """,
+            'proxy-server.conf.d/catch-errors.conf': """
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+            """
+        }
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as conf_root:
+            conf_dir = os.path.join(conf_root, 'proxy-server.conf.d')
+            with open(os.path.join(conf_dir, 'swift.conf'), 'w') as f:
+                f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
+            _fake_rings(conf_root)
+            app, conf, logger, log_name = wsgi.init_request_processor(
+                conf_dir, 'proxy-server')
+        # verify pipeline is catch_errors -> proxy-servery
+        expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
+        self.assert_(isinstance(app, expected))
+        self.assert_(isinstance(app.app, swift.proxy.server.Application))
+        # config settings applied to app instance
+        self.assertEquals(0.2, app.app.conn_timeout)
+        # appconfig returns values from 'proxy-server' section
+        expected = {
+            '__file__': conf_dir,
+            'here': conf_dir,
+            'conn_timeout': '0.2',
+            'swift_dir': conf_root,
+        }
+        self.assertEquals(expected, conf)
+        # logger works
+        logger.info('testing')
+        self.assertEquals('proxy-server', log_name)
 
     def test_get_socket(self):
         # stubs
@@ -170,6 +294,117 @@ class TestWSGI(unittest.TestCase):
             wsgi.sleep = old_sleep
             wsgi.time = old_time
 
+    def test_run_server(self):
+        config = """
+        [DEFAULT]
+        eventlet_debug = yes
+        client_timeout = 30
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            with patch('swift.common.wsgi.wsgi') as _wsgi:
+                with patch('swift.common.wsgi.eventlet') as _eventlet:
+                    conf = wsgi.appconfig(conf_file)
+                    logger = logging.getLogger('test')
+                    sock = listen(('localhost', 0))
+                    wsgi.run_server(conf, logger, sock)
+        self.assertEquals('HTTP/1.0',
+                          _wsgi.HttpProtocol.default_request_version)
+        self.assertEquals(30, _wsgi.WRITE_TIMEOUT)
+        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
+        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
+                                                          socket=True)
+        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        _wsgi.server.assert_called()
+        args, kwargs = _wsgi.server.call_args
+        server_sock, server_app, server_logger = args
+        self.assertEquals(sock, server_sock)
+        self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assert_(isinstance(server_logger, wsgi.NullLogger))
+        self.assert_('custom_pool' in kwargs)
+
+    def test_run_server_conf_dir(self):
+        config_dir = {
+            'proxy-server.conf.d/pipeline.conf': """
+            [pipeline:main]
+            pipeline = proxy-server
+            """,
+            'proxy-server.conf.d/app.conf': """
+            [app:proxy-server]
+            use = egg:swift#proxy
+            """,
+            'proxy-server.conf.d/default.conf': """
+            [DEFAULT]
+            eventlet_debug = yes
+            client_timeout = 30
+            """
+        }
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as conf_root:
+            conf_dir = os.path.join(conf_root, 'proxy-server.conf.d')
+            with open(os.path.join(conf_dir, 'swift.conf'), 'w') as f:
+                f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
+            _fake_rings(conf_root)
+            with patch('swift.common.wsgi.wsgi') as _wsgi:
+                with patch('swift.common.wsgi.eventlet') as _eventlet:
+                    conf = wsgi.appconfig(conf_dir)
+                    logger = logging.getLogger('test')
+                    sock = listen(('localhost', 0))
+                    wsgi.run_server(conf, logger, sock)
+
+        self.assertEquals('HTTP/1.0',
+                          _wsgi.HttpProtocol.default_request_version)
+        self.assertEquals(30, _wsgi.WRITE_TIMEOUT)
+        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
+        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
+                                                          socket=True)
+        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        _wsgi.server.assert_called()
+        args, kwargs = _wsgi.server.call_args
+        server_sock, server_app, server_logger = args
+        self.assertEquals(sock, server_sock)
+        self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assert_(isinstance(server_logger, wsgi.NullLogger))
+        self.assert_('custom_pool' in kwargs)
+
+    def test_appconfig_dir_ignores_hidden_files(self):
+        config_dir = {
+            'server.conf.d/01.conf': """
+            [app:main]
+            use = egg:swift#proxy
+            port = 8080
+            """,
+            'server.conf.d/.01.conf.swp': """
+            [app:main]
+            use = egg:swift#proxy
+            port = 8081
+            """,
+        }
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as path:
+            conf_dir = os.path.join(path, 'server.conf.d')
+            conf = wsgi.appconfig(conf_dir)
+        expected = {
+            '__file__': os.path.join(path, 'server.conf.d'),
+            'here': os.path.join(path, 'server.conf.d'),
+            'port': '8080',
+        }
+        self.assertEquals(conf, expected)
+
     def test_pre_auth_wsgi_input(self):
         oldenv = {}
         newenv = wsgi.make_pre_authed_env(oldenv)
@@ -245,6 +480,7 @@ class TestWSGI(unittest.TestCase):
             swift_source='UT')
         self.assertEquals(r.body, 'the body')
         self.assertEquals(r.environ['swift.source'], 'UT')
+
 
 class TestWSGIContext(unittest.TestCase):
 

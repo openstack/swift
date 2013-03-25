@@ -25,6 +25,7 @@ import random
 import re
 import socket
 import sys
+from textwrap import dedent
 import time
 import unittest
 from threading import Thread
@@ -366,7 +367,7 @@ class TestUtils(unittest.TestCase):
         utils.sys.stderr = stde
         self.assertRaises(SystemExit, utils.parse_options, once=True,
                           test_args=[])
-        self.assert_('missing config file' in stdo.getvalue())
+        self.assert_('missing config' in stdo.getvalue())
 
         # verify conf file must exist, context manager will delete temp file
         with NamedTemporaryFile() as f:
@@ -721,6 +722,84 @@ log_name = %(yarr)s'''
         os.unlink('/tmp/test')
         self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
 
+    def test_readconf_dir(self):
+        config_dir = {
+            'server.conf.d/01.conf': """
+            [DEFAULT]
+            port = 8080
+            foo = bar
+
+            [section1]
+            name=section1
+            """,
+            'server.conf.d/section2.conf': """
+            [DEFAULT]
+            port = 8081
+            bar = baz
+
+            [section2]
+            name=section2
+            """,
+            'other-server.conf.d/01.conf': """
+            [DEFAULT]
+            port = 8082
+
+            [section3]
+            name=section3
+            """
+        }
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as path:
+            conf_dir = os.path.join(path, 'server.conf.d')
+            conf = utils.readconf(conf_dir)
+        expected = {
+            '__file__': os.path.join(path, 'server.conf.d'),
+            'log_name': None,
+            'section1': {
+                'port': '8081',
+                'foo': 'bar',
+                'bar': 'baz',
+                'name': 'section1',
+            },
+            'section2': {
+                'port': '8081',
+                'foo': 'bar',
+                'bar': 'baz',
+                'name': 'section2',
+            },
+        }
+        self.assertEquals(conf, expected)
+
+    def test_readconf_dir_ignores_hidden_and_nondotconf_files(self):
+        config_dir = {
+            'server.conf.d/01.conf': """
+            [section1]
+            port = 8080
+            """,
+            'server.conf.d/.01.conf.swp': """
+            [section]
+            port = 8081
+            """,
+            'server.conf.d/01.conf-bak': """
+            [section]
+            port = 8082
+            """,
+        }
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as path:
+            conf_dir = os.path.join(path, 'server.conf.d')
+            conf = utils.readconf(conf_dir)
+        expected = {
+            '__file__': os.path.join(path, 'server.conf.d'),
+            'log_name': None,
+            'section1': {
+                'port': '8080',
+            },
+        }
+        self.assertEquals(conf, expected)
+
     def test_drop_privileges(self):
         user = getuser()
         # over-ride os with mock
@@ -924,6 +1003,26 @@ log_name = %(yarr)s'''
             f4 = os.path.join(t, 'folder2/3.txt')
             for f in [f1, f2, f3, f4]:
                 self.assert_(f in folder_texts)
+
+    def test_search_tree_with_directory_ext_match(self):
+        files = (
+            'object-server/object-server.conf-base',
+            'object-server/1.conf.d/base.conf',
+            'object-server/1.conf.d/1.conf',
+            'object-server/2.conf.d/base.conf',
+            'object-server/2.conf.d/2.conf',
+            'object-server/3.conf.d/base.conf',
+            'object-server/3.conf.d/3.conf',
+            'object-server/4.conf.d/base.conf',
+            'object-server/4.conf.d/4.conf',
+        )
+        with temptree(files) as t:
+            conf_dirs = utils.search_tree(t, 'object-server', '.conf',
+                                          dir_ext='conf.d')
+        self.assertEquals(len(conf_dirs), 4)
+        for i in range(4):
+            conf_dir = os.path.join(t, 'object-server/%d.conf.d' % (i + 1))
+            self.assert_(conf_dir in conf_dirs)
 
     def test_write_file(self):
         with temptree([]) as t:

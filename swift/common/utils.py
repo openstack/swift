@@ -941,7 +941,7 @@ def parse_options(parser=None, once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print _("Error: missing config file argument")
+        print _("Error: missing config path argument")
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
@@ -1208,13 +1208,21 @@ def cache_from_env(env):
     return item_from_env(env, 'swift.cache')
 
 
-def readconf(conffile, section_name=None, log_name=None, defaults=None,
+def read_conf_dir(parser, conf_dir):
+    conf_files = []
+    for f in os.listdir(conf_dir):
+        if f.endswith('.conf') and not f.startswith('.'):
+            conf_files.append(os.path.join(conf_dir, f))
+    return parser.read(sorted(conf_files))
+
+
+def readconf(conf_path, section_name=None, log_name=None, defaults=None,
              raw=False):
     """
-    Read config file and return config items as a dict
+    Read config file(s) and return config items as a dict
 
-    :param conffile: path to config file, or a file-like object (hasattr
-                     readline)
+    :param conf_path: path to config file/directory, or a file-like object
+                     (hasattr readline)
     :param section_name: config section to read (will return all sections if
                      not defined)
     :param log_name: name to be used with logging (will use section_name if
@@ -1228,18 +1236,23 @@ def readconf(conffile, section_name=None, log_name=None, defaults=None,
         c = RawConfigParser(defaults)
     else:
         c = ConfigParser(defaults)
-    if hasattr(conffile, 'readline'):
-        c.readfp(conffile)
+    if hasattr(conf_path, 'readline'):
+        c.readfp(conf_path)
     else:
-        if not c.read(conffile):
-            print _("Unable to read config file %s") % conffile
+        if os.path.isdir(conf_path):
+            # read all configs in directory
+            success = read_conf_dir(c, conf_path)
+        else:
+            success = c.read(conf_path)
+        if not success:
+            print _("Unable to read config from %s") % conf_path
             sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
             print _("Unable to find %s config section in %s") % \
-                (section_name, conffile)
+                (section_name, conf_path)
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
@@ -1252,7 +1265,7 @@ def readconf(conffile, section_name=None, log_name=None, defaults=None,
             conf.update({s: dict(c.items(s))})
         if 'log_name' not in conf:
             conf['log_name'] = log_name
-    conf['__file__'] = conffile
+    conf['__file__'] = conf_path
     return conf
 
 
@@ -1277,27 +1290,44 @@ def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
         renamer(tmppath, dest)
 
 
-def search_tree(root, glob_match, ext):
-    """Look in root, for any files/dirs matching glob, recurively traversing
+def search_tree(root, glob_match, ext='', dir_ext=None):
+    """Look in root, for any files/dirs matching glob, recursively traversing
     any found directories looking for files ending with ext
 
     :param root: start of search path
     :param glob_match: glob to match in root, matching dirs are traversed with
                        os.walk
     :param ext: only files that end in ext will be returned
+    :param dir_ext: if present directories that end with dir_ext will not be
+                    traversed and instead will be returned as a matched path
 
     :returns: list of full paths to matching files, sorted
 
     """
     found_files = []
     for path in glob.glob(os.path.join(root, glob_match)):
-        if path.endswith(ext):
-            found_files.append(path)
-        else:
+        if os.path.isdir(path):
             for root, dirs, files in os.walk(path):
-                for file in files:
-                    if file.endswith(ext):
-                        found_files.append(os.path.join(root, file))
+                if dir_ext and root.endswith(dir_ext):
+                    found_files.append(root)
+                    # the root is a config dir, descend no further
+                    break
+                for file_ in files:
+                    if ext and not file_.endswith(ext):
+                        continue
+                    found_files.append(os.path.join(root, file_))
+                found_dir = False
+                for dir_ in dirs:
+                    if dir_ext and dir_.endswith(dir_ext):
+                        found_dir = True
+                        found_files.append(os.path.join(root, dir_))
+                if found_dir:
+                    # do not descend further into matching directories
+                    break
+        else:
+            if ext and not path.endswith(ext):
+                continue
+            found_files.append(path)
     return sorted(found_files)
 
 
