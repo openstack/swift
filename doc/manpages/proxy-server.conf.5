@@ -78,6 +78,10 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
+.IP \fBtrans_id_suffix\fR
+This optional suffix (default is empty) that would be appended to the swift transaction
+id allows one to easily figure out from which cluster that X-Trans-Id belongs to.
+This is very useful when one is managing more than one swift cluster.
 .RE
 .PD
 
@@ -431,7 +435,7 @@ Python regular expressions of substrings that will not be allowed in a name.
 
 
 .RS 0
-.IP "\fB[filter:proxy_logging]\fR"
+.IP "\fB[filter:proxy-logging]\fR"
 .RE
 
 Logging for the proxy server now lives in this middleware.
