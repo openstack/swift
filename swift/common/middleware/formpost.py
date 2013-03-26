@@ -106,12 +106,11 @@ import re
 import rfc822
 from hashlib import sha1
 from StringIO import StringIO
-from time import gmtime, strftime, time
-from urllib import quote, unquote
+from time import time
+from urllib import quote
 
 from swift.common.utils import streq_const_time
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.http import HTTP_BAD_REQUEST
 
 
 #: The size of data to read from the form at any given time.
