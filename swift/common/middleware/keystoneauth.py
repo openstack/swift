@@ -1,5 +1,4 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -119,12 +118,30 @@ class KeystoneAuth(object):
 
     def _keystone_identity(self, environ):
         """Extract the identity from the Keystone auth component."""
+        # In next release, we would add user id in env['keystone.identity'] by
+        # using _integral_keystone_identity to replace current
+        # _keystone_identity. The purpose of keeping it in this release it for
+        # back compatibility.
         if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
             return
         roles = []
         if 'HTTP_X_ROLES' in environ:
             roles = environ['HTTP_X_ROLES'].split(',')
         identity = {'user': environ.get('HTTP_X_USER_NAME'),
+                    'tenant': (environ.get('HTTP_X_TENANT_ID'),
+                               environ.get('HTTP_X_TENANT_NAME')),
+                    'roles': roles}
+        return identity
+
+    def _integral_keystone_identity(self, environ):
+        """Extract the identity from the Keystone auth component."""
+        if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
+            return
+        roles = []
+        if 'HTTP_X_ROLES' in environ:
+            roles = environ['HTTP_X_ROLES'].split(',')
+        identity = {'user': (environ.get('HTTP_X_USER_ID'),
+                             environ.get('HTTP_X_USER_NAME')),
                     'tenant': (environ.get('HTTP_X_TENANT_ID'),
                                environ.get('HTTP_X_TENANT_NAME')),
                     'roles': roles}
@@ -137,33 +154,35 @@ class KeystoneAuth(object):
         """Check reseller prefix."""
         return account == self._get_account_for_tenant(tenant_id)
 
-    def _authorize_cross_tenant(self, user, tenant_id, tenant_name, roles):
+    def _authorize_cross_tenant(self, user_id, user_name,
+                                tenant_id, tenant_name, roles):
         """ Check cross-tenant ACLs
 
-        Match tenant_id:user, tenant_name:user, and *:user.
+        Match tenant:user, tenant and user could be its id, name or '*'
 
-        :param user: The user name from the identity token.
+        :param user_id: The user id from the identity token.
+        :param user_name: The user name from the identity token.
         :param tenant_id: The tenant ID from the identity token.
         :param tenant_name: The tenant name from the identity token.
         :param roles: The given container ACL.
 
-        :returns: True if tenant_id:user, tenant_name:user, or *:user matches
-                  the given ACL. False otherwise.
+        :returns: matched string if tenant(name/id/*):user(name/id/*) matches
+                  the given ACL.
+                  None otherwise.
 
         """
-        wildcard_tenant_match = '*:%s' % (user)
-        tenant_id_user_match = '%s:%s' % (tenant_id, user)
-        tenant_name_user_match = '%s:%s' % (tenant_name, user)
-
-        return (wildcard_tenant_match in roles
-                or tenant_id_user_match in roles
-                or tenant_name_user_match in roles)
+        for tenant in [tenant_id, tenant_name, '*']:
+            for user in [user_id, user_name, '*']:
+                s = '%s:%s' % (tenant, user)
+                if s in roles:
+                    return s
+        return None
 
     def authorize(self, req):
         env = req.environ
-        env_identity = env.get('keystone.identity', {})
-        tenant_id, tenant_name = env_identity.get('tenant')
-        user = env_identity.get('user', '')
+        env_identity = self._integral_keystone_identity(env)
+        tenant_id, tenant_name = env_identity['tenant']
+        user_id, user_name = env_identity['user']
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
         #allow OPTIONS requests to proceed as normal
@@ -187,10 +206,12 @@ class KeystoneAuth(object):
             return
 
         # cross-tenant authorization
-        if self._authorize_cross_tenant(user, tenant_id, tenant_name, roles):
-            log_msg = 'user %s:%s, %s:%s, or *:%s allowed in ACL authorizing'
-            self.logger.debug(log_msg % (tenant_name, user,
-                                         tenant_id, user, user))
+        matched_acl = self._authorize_cross_tenant(user_id, user_name,
+                                                   tenant_id, tenant_name,
+                                                   roles)
+        if matched_acl is not None:
+            log_msg = 'user %s allowed in ACL authorizing.' % matched_acl
+            self.logger.debug(log_msg)
             return
 
         acl_authorized = self._authorize_unconfirmed_identity(req, obj,
@@ -219,7 +240,7 @@ class KeystoneAuth(object):
                 return
 
         # If user is of the same name of the tenant then make owner of it.
-        if self.is_admin and user == tenant_name:
+        if self.is_admin and user_name == tenant_name:
             self.logger.warning("the is_admin feature has been deprecated "
                                 "and will be removed in the future "
                                 "update your config file")
@@ -233,7 +254,8 @@ class KeystoneAuth(object):
         for user_role in user_roles:
             if user_role in (r.lower() for r in roles):
                 log_msg = 'user %s:%s allowed in ACL: %s authorizing'
-                self.logger.debug(log_msg % (tenant_name, user, user_role))
+                self.logger.debug(log_msg % (tenant_name, user_name,
+                                             user_role))
                 return
 
         return self.denied_response(req)
