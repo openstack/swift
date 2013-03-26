@@ -201,7 +201,7 @@ class TestTempURL(unittest.TestCase):
         path = '/v1/a/c/o'
         key = 'abc'
         hmac_body = '%s\n%s\n%s' % (method, expires, path)
-        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        hmac.new(key, hmac_body, sha1).hexdigest()
         req = self._make_request(path,
             environ={'QUERY_STRING': 'temp_url_expires=%s' % expires})
         req.environ['swift.cache'].set('temp-url-key/a', key)

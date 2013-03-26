@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 from eventlet import spawn, Timeout, listen
 import simplejson
 
-from swift.common.swob import Request, HTTPBadRequest
+from swift.common.swob import Request
 import swift.container
 from swift.container import server as container_server
 from swift.common.utils import normalize_timestamp, mkdirs
@@ -1176,7 +1176,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '412 ')
 
     def test_invalid_method_doesnt_exist(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -1190,7 +1189,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_is_not_public(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 

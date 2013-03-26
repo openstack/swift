@@ -470,7 +470,6 @@ class TestContainer(Base):
         prefixs = ['alpha/', 'beta/', 'kappa/']
         prefix_files = {}
 
-        all_files = []
         for prefix in prefixs:
             prefix_files[prefix] = []
 
@@ -746,7 +745,7 @@ class TestContainerPathsEnv:
                 stored_files.add(f)
         cls.stored_files = sorted(stored_files)
 
-        
+
 
 
 class TestContainerPaths(Base):
@@ -1186,7 +1185,6 @@ class TestFile(Base):
     def testRangedGetsWithLWSinHeader(self):
         #Skip this test until webob 1.2 can tolerate LWS in Range header.
         file_length = 10000
-        range_size = file_length / 10
         file = self.env.container.file(Utils.create_name())
         data = file.write_random(file_length)
 

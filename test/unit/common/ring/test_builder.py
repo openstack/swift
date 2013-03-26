@@ -23,7 +23,6 @@ from mock import Mock, call as mock_call
 
 from swift.common import exceptions
 from swift.common import ring
-from swift.common.ring import RingBuilder, RingData
 
 
 class TestRingBuilder(unittest.TestCase):
@@ -669,7 +668,7 @@ class TestRingBuilder(unittest.TestCase):
             fake_pickle = Mock(return_value=rb)
             fake_open = Mock(return_value=None)
             pickle.load = fake_pickle
-            builder = RingBuilder.load('fake.builder', open=fake_open)
+            builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             self.assertEquals(fake_pickle.call_count, 1)
             fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
             self.assertEquals(builder, rb)
@@ -679,7 +678,7 @@ class TestRingBuilder(unittest.TestCase):
             #test old style builder
             fake_pickle.return_value = rb.to_dict()
             pickle.load = fake_pickle
-            builder = RingBuilder.load('fake.builder', open=fake_open)
+            builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
@@ -691,7 +690,7 @@ class TestRingBuilder(unittest.TestCase):
                 del(dev['meta'])
             fake_pickle.return_value = no_meta_builder
             pickle.load = fake_pickle
-            builder = RingBuilder.load('fake.builder', open=fake_open)
+            builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()

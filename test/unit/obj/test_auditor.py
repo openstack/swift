@@ -15,7 +15,6 @@
 
 from test import unit
 import unittest
-import tempfile
 import os
 import time
 from shutil import rmtree
@@ -26,9 +25,8 @@ from swift.obj import auditor
 from swift.obj import server as object_server
 from swift.obj.server import DiskFile, write_metadata, DATADIR
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    renamer, storage_directory
+    storage_directory
 from swift.obj.replicator import invalidate_hash
-from swift.common.exceptions import AuditException
 
 
 class TestAuditor(unittest.TestCase):
@@ -303,8 +301,6 @@ class TestAuditor(unittest.TestCase):
     def test_with_tombstone(self):
         ts_file_path = self.setup_bad_zero_byte(with_ts=True)
         self.auditor.run_once()
-        quarantine_path = os.path.join(self.devices,
-                                       'sda', 'quarantined', 'objects')
         self.assertTrue(ts_file_path.endswith('ts'))
         self.assertTrue(os.path.exists(ts_file_path))
 

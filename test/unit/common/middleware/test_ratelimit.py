@@ -158,7 +158,7 @@ class TestRateLimit(unittest.TestCase):
         global time_ticker
         begin = time.time()
         for x in range(0, num):
-            result = callable_func()
+            callable_func()
         end = time.time()
         total_time = float(num) / rate - 1.0 / rate # 1st request isn't limited
         # Allow for one second of variation in the total time.

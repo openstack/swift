@@ -447,8 +447,8 @@ class Container(Base):
         raise ResponseError(self.conn.response)
 
     def info(self, hdrs={}, parms={}, cfg={}):
-        status = self.conn.make_request('HEAD', self.path, hdrs=hdrs,
-                                        parms=parms, cfg=cfg)
+        self.conn.make_request('HEAD', self.path, hdrs=hdrs,
+                               parms=parms, cfg=cfg)
 
         if self.conn.response.status == 204:
             fields = [['bytes_used', 'x-container-bytes-used'],

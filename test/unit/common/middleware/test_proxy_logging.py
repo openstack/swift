@@ -15,7 +15,7 @@
 
 import unittest
 import time
-from urllib import quote, unquote
+from urllib import unquote
 import cStringIO as StringIO
 from logging.handlers import SysLogHandler
 
@@ -65,7 +65,7 @@ class FakeAppReadline(object):
     def __call__(self, env, start_response):
         start_response('200 OK', [('Content-Type', 'text/plain'),
                                  ('Content-Length', '8')])
-        line = env['wsgi.input'].readline()
+        env['wsgi.input'].readline()
         return ["FAKE APP"]
 
 
@@ -130,7 +130,8 @@ class TestProxyLogging(unittest.TestCase):
         for url in ['/', '/foo', '/foo/bar', '/v1']:
             req = Request.blank(url, environ={'REQUEST_METHOD': 'GET'})
             resp = app(req.environ, start_response)
-            resp_body = ''.join(resp)
+            # get body
+            ''.join(resp)
             self.assertEqual([], app.access_logger.log_dict['timing'])
             self.assertEqual([], app.access_logger.log_dict['update_stats'])
 
@@ -295,7 +296,7 @@ class TestProxyLogging(unittest.TestCase):
             'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
         resp_body = ''.join(resp)
-        log_parts = self._log_parts(app, should_be_empty=True)
+        self._log_parts(app, should_be_empty=True)
         self.assertEquals(resp_body, 'FAKE APP')
 
     def test_multi_segment_resp(self):
@@ -321,7 +322,8 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         headers = unquote(log_parts[14]).split('\n')
         self.assert_('Host: localhost:80' in headers)
@@ -333,7 +335,8 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank('/v1/a/c/o/foo', environ={'REQUEST_METHOD': 'PUT',
             'wsgi.input': StringIO.StringIO('some stuff')})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[11], str(len('FAKE APP')))
         self.assertEquals(log_parts[10], str(len('some stuff')))
@@ -349,7 +352,8 @@ class TestProxyLogging(unittest.TestCase):
             'wsgi.input': StringIO.StringIO(
                             'some stuff\nsome other stuff\n')})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[11], str(len('FAKE APP')))
         self.assertEquals(log_parts[10], str(len('some stuff\n')))
@@ -363,7 +367,8 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                 'QUERY_STRING': 'x=3'})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(unquote(log_parts[4]), '/?x=3')
 
@@ -373,7 +378,8 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                 'REMOTE_ADDR': '1.2.3.4'})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[0], '1.2.3.4')  # client ip
         self.assertEquals(log_parts[1], '1.2.3.4')  # remote addr
@@ -386,7 +392,8 @@ class TestProxyLogging(unittest.TestCase):
             'REMOTE_ADDR': '1.2.3.4',
             'HTTP_X_FORWARDED_FOR': '4.5.6.7,8.9.10.11'})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[0], '4.5.6.7')  # client ip
         self.assertEquals(log_parts[1], '1.2.3.4')  # remote addr
@@ -398,7 +405,8 @@ class TestProxyLogging(unittest.TestCase):
             'REMOTE_ADDR': '1.2.3.4',
             'HTTP_X_CLUSTER_CLIENT_IP': '4.5.6.7'})
         resp = app(req.environ, start_response)
-        exhaust_generator = [x for x in resp]
+        # exhaust generator
+        [x for x in resp]
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[0], '4.5.6.7')  # client ip
         self.assertEquals(log_parts[1], '1.2.3.4')  # remote addr
@@ -421,7 +429,8 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        read_first_chunk = next(resp)
+        # read first chunk
+        next(resp)
         resp.close()  # raise a GeneratorExit in middleware app_iter loop
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[6], '499')
@@ -434,7 +443,8 @@ class TestProxyLogging(unittest.TestCase):
             'wsgi.input': FileLikeExceptor()})
         try:
             resp = app(req.environ, start_response)
-            body = ''.join(resp)
+            # read body
+            ''.join(resp)
         except IOError:
             pass
         log_parts = self._log_parts(app)
@@ -449,7 +459,8 @@ class TestProxyLogging(unittest.TestCase):
             'wsgi.input': FileLikeExceptor()})
         try:
             resp = app(req.environ, start_response)
-            body = ''.join(resp)
+            # read body
+            ''.join(resp)
         except IOError:
             pass
         log_parts = self._log_parts(app)

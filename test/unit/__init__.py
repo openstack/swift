@@ -1,6 +1,5 @@
 """ Swift tests """
 
-import sys
 import os
 import copy
 import logging
@@ -12,13 +11,11 @@ from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
-from ConfigParser import MissingSectionHeaderError
-from StringIO import StringIO
-from swift.common.utils import readconf, config_true_value
-from logging import Handler
+from swift.common.utils import config_true_value
 from hashlib import md5
-from eventlet import sleep, spawn, Timeout
+from eventlet import sleep, Timeout
 import logging.handlers
+from httplib import HTTPException
 
 
 def readuntil2crlfs(fd):

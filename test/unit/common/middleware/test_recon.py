@@ -620,14 +620,8 @@ class TestReconSuccess(TestCase):
                             'UDP: inuse 16 mem 4', 'UDPLITE: inuse 0',
                             'RAW: inuse 0', 'FRAG: inuse 0 memory 0',
                             '']
-        sockstat6_content = ['TCP6: inuse 1',
-                             'UDP6: inuse 3',
-                             'UDPLITE6: inuse 0',
-                             'RAW6: inuse 0',
-                             'FRAG6: inuse 0 memory 0',
-                             '']
         oart = OpenAndReadTester(sockstat_content)
-        rv = self.app.get_socket_info(openr=oart.open)
+        self.app.get_socket_info(openr=oart.open)
         self.assertEquals(oart.open_calls, [(('/proc/net/sockstat', 'r'), {}),
                                             (('/proc/net/sockstat6', 'r'), {})])
 
@@ -672,7 +666,7 @@ class TestReconMiddleware(unittest.TestCase):
 
     def test_get_device_info(self):
         get_device_resp = ['{"/srv/1/node": ["sdb1"]}']
-        req = Request.blank('/recon/devices', 
+        req = Request.blank('/recon/devices',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_device_resp)
@@ -811,7 +805,7 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_unmounted_resp)
-    
+
     def test_recon_no_get_unmounted(self):
         get_unmounted_resp = '[]'
         self.app.get_unmounted = self.frecon.fake_no_unmounted

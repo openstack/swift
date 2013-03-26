@@ -20,8 +20,6 @@ import os
 from gzip import GzipFile
 from shutil import rmtree
 import cPickle as pickle
-import logging
-import fcntl
 import time
 import tempfile
 from contextlib import contextmanager
@@ -407,7 +405,7 @@ class TestObjectReplicator(unittest.TestCase):
         try:
             rmtree(self.objects, ignore_errors=1)
             object_replicator.mkdirs = blowup_mkdirs
-            jobs = self.replicator.collect_jobs()
+            self.replicator.collect_jobs()
             self.assertTrue('exception' in self.replicator.logger.log_dict)
             self.assertEquals(
                 len(self.replicator.logger.log_dict['exception']), 1)
@@ -423,7 +421,6 @@ class TestObjectReplicator(unittest.TestCase):
     def test_collect_jobs(self):
         jobs = self.replicator.collect_jobs()
         jobs_to_delete = [j for j in jobs if j['delete']]
-        jobs_to_keep = [j for j in jobs if not j['delete']]
         jobs_by_part = {}
         for job in jobs:
             jobs_by_part[job['partition']] = job
@@ -458,7 +455,6 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertTrue(os.path.isfile(part_1_path))  # sanity check
         jobs = self.replicator.collect_jobs()
         jobs_to_delete = [j for j in jobs if j['delete']]
-        jobs_to_keep = [j for j in jobs if not j['delete']]
         jobs_by_part = {}
         for job in jobs:
             jobs_by_part[job['partition']] = job
@@ -484,8 +480,6 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate()
@@ -494,8 +488,6 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_override_params(self):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sdb'])

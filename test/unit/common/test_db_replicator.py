@@ -22,7 +22,6 @@ from shutil import rmtree
 from tempfile import mkdtemp, NamedTemporaryFile
 
 from swift.common import db_replicator
-from swift.common import utils
 from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 
@@ -215,11 +214,9 @@ class TestDBReplicator(unittest.TestCase):
     def test_rsync_file(self):
         replicator = TestReplicator({})
         with _mock_process(-1):
-            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
             self.assertEquals(False,
                     replicator._rsync_file('/some/file', 'remote:/some/file'))
         with _mock_process(0):
-            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
             self.assertEquals(True,
                     replicator._rsync_file('/some/file', 'remote:/some/file'))
 

@@ -16,19 +16,13 @@
 """ Tests for swift.common.utils """
 
 from __future__ import with_statement
-import logging
+import errno
 import mimetools
-import os
 import socket
-import sys
 import unittest
-from getpass import getuser
-from shutil import rmtree
 from StringIO import StringIO
 from collections import defaultdict
 from urllib import quote
-
-from eventlet import sleep
 
 from swift.common.swob import Request
 from swift.common import wsgi

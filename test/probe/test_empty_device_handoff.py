@@ -17,7 +17,7 @@
 import os
 import shutil
 
-from subprocess import call, Popen
+from subprocess import call
 from unittest import main, TestCase
 from uuid import uuid4
 

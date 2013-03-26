@@ -334,7 +334,7 @@ class TestAuth(unittest.TestCase):
         cache_key = 'AUTH_/token/AUTH_t'
         cache_entry = (time()+3600, '.reseller_admin')
         req.environ['swift.cache'].set(cache_key, cache_entry)
-        resp = req.get_response(self.test_auth)
+        req.get_response(self.test_auth)
         self.assertTrue(req.environ.get('reseller_request', False))
 
     def test_account_put_permissions(self):

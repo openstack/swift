@@ -15,7 +15,6 @@
 
 import cPickle as pickle
 import os
-import sys
 import unittest
 from gzip import GzipFile
 from shutil import rmtree

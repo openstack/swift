@@ -13,13 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import errno
 import os
 import socket
 import sys
 from time import sleep
-from nose import SkipTest
-from ConfigParser import MissingSectionHeaderError
 
 from test import get_config
 
@@ -153,10 +150,10 @@ def retry(func, *args, **kwargs):
             if attempts > retries:
                 raise
             parsed[use_account] = conn[use_account] = None
-        except AuthError, err:
+        except AuthError:
             url[use_account] = token[use_account] = None
             continue
-        except InternalServerError, err:
+        except InternalServerError:
             pass
         if attempts <= retries:
             sleep(backoff)

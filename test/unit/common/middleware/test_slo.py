@@ -17,9 +17,7 @@ import unittest
 from mock import patch
 from swift.common.middleware import slo
 from swift.common.utils import json
-from swift.common.constraints import MAX_META_VALUE_LENGTH
-from swift.common.swob import Request, Response, HTTPException, \
-    HTTPRequestEntityTooLarge
+from swift.common.swob import Request, Response, HTTPException
 
 
 class FakeApp(object):

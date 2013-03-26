@@ -22,7 +22,6 @@ from contextlib import contextmanager
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import staticweb
-from test.unit import FakeLogger
 
 
 class FakeMemcache(object):
@@ -459,11 +458,6 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c3/').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 200)
         self.assert_('Test main index.html file.' in resp.body)
-
-    def test_container3subdir(self):
-        resp = Request.blank(
-                '/v1/a/c3/subdir').get_response(self.test_staticweb)
-        self.assertEquals(resp.status_int, 301)
 
     def test_container3subsubdir(self):
         resp = Request.blank(

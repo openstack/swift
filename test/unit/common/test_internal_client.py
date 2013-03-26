@@ -289,7 +289,7 @@ class TestInternalClient(unittest.TestCase):
             try:
                 client.make_request('GET', '/', {}, (201,))
             except Exception, err:
-                exc = err
+                pass
             self.assertEquals(200, err.resp.status_int)
         finally:
             internal_client.sleep = old_sleep
@@ -324,7 +324,7 @@ class TestInternalClient(unittest.TestCase):
             try:
                 client.make_request('PUT', '/', {}, (2,), fobj)
             except Exception, err:
-                exc = err
+                pass
             self.assertEquals(404, err.resp.status_int)
         finally:
             internal_client.sleep = old_sleep

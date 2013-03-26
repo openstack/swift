@@ -20,7 +20,6 @@ from test.unit import temptree
 import ctypes
 import errno
 import logging
-import mimetools
 import os
 import random
 import re
@@ -35,9 +34,7 @@ from shutil import rmtree
 from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile
-from logging import handlers as logging_handlers
 
-from eventlet import sleep
 from mock import patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
@@ -422,7 +419,7 @@ class TestUtils(unittest.TestCase):
 
         try:
             utils.SysLogHandler = syslog_handler_catcher
-            logger = utils.get_logger({
+            utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
             self.assertEquals([
@@ -431,7 +428,7 @@ class TestUtils(unittest.TestCase):
                 syslog_handler_args)
 
             syslog_handler_args = []
-            logger = utils.get_logger({
+            utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
                 'log_address': '/foo/bar',
             }, 'server', log_route='server')
@@ -445,7 +442,7 @@ class TestUtils(unittest.TestCase):
 
             # Using UDP with default port
             syslog_handler_args = []
-            logger = utils.get_logger({
+            utils.get_logger({
                 'log_udp_host': 'syslog.funtimes.com',
             }, 'server', log_route='server')
             self.assertEquals([
@@ -456,7 +453,7 @@ class TestUtils(unittest.TestCase):
 
             # Using UDP with non-default port
             syslog_handler_args = []
-            logger = utils.get_logger({
+            utils.get_logger({
                 'log_udp_host': 'syslog.funtimes.com',
                 'log_udp_port': '2123',
             }, 'server', log_route='server')
@@ -627,7 +624,7 @@ class TestUtils(unittest.TestCase):
         self.assert_('127.0.0.1' in myips)
 
     def test_hash_path(self):
-        _prefix = utils.HASH_PATH_PREFIX 
+        _prefix = utils.HASH_PATH_PREFIX
         utils.HASH_PATH_PREFIX = ''
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someones changes the results hash_path produces, they know it
@@ -1576,7 +1573,6 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             self.assertEquals(called, [12345])
 
     def test_fsync_bad_fullsync(self):
-        called = []
         class FCNTL:
             F_FULLSYNC = 123
             def fcntl(self, fd, op):

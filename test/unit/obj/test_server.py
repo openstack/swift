@@ -22,7 +22,7 @@ import unittest
 import email
 from shutil import rmtree
 from StringIO import StringIO
-from time import gmtime, sleep, strftime, time
+from time import gmtime, strftime, time
 from tempfile import mkdtemp
 from hashlib import md5
 
@@ -31,7 +31,7 @@ from test.unit import FakeLogger
 from test.unit import _getxattr as getxattr
 from test.unit import _setxattr as setxattr
 from test.unit import connect_tcp, readuntil2crlfs
-from swift.obj import server as object_server, replicator
+from swift.obj import server as object_server
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory
@@ -1421,7 +1421,6 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_doesnt_exist(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         def start_response(*args):
@@ -1433,7 +1432,6 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_is_not_public(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         def start_response(*args):

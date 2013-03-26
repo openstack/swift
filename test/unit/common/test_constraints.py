@@ -16,8 +16,7 @@
 import unittest
 from test.unit import MockTrue
 
-from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
-    HTTPRequestEntityTooLarge, Request
+from swift.common.swob import HTTPBadRequest, Request
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
     HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED
 from swift.common import constraints

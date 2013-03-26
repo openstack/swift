@@ -330,7 +330,6 @@ class TestRing(unittest.TestCase):
         self.assertEquals(primary_zones, exp_zones)
         devs = list(r.get_more_nodes(part))
         self.assertEquals([d['id'] for d in devs], exp_handoffs)
-        seen_shared_zone = False
 
         # The first 6 replicas plus the 3 primary nodes should cover all 9
         # zones in this test

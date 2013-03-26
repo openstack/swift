@@ -74,7 +74,6 @@ class TestListEndpoints(unittest.TestCase):
                           'ip': '10.1.2.2', 'port': 6000,
                           'device': 'sdd1'}]
         intended_part_shift = 30
-        intended_reload_time = 15
         ring.RingData(intended_replica2part2dev_id_a,
                       intended_devs, intended_part_shift).save(accountgz)
         ring.RingData(intended_replica2part2dev_id_c,

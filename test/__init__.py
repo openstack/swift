@@ -4,8 +4,6 @@
 import __builtin__
 import sys
 import os
-from ConfigParser import MissingSectionHeaderError
-from StringIO import StringIO
 
 from swift.common.utils import readconf
 

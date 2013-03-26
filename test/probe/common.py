@@ -16,7 +16,7 @@
 from httplib import HTTPConnection
 from os import kill
 from signal import SIGTERM
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE
 from time import sleep, time
 
 from swiftclient import get_auth, head_account

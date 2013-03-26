@@ -20,7 +20,6 @@ import hashlib
 import os
 import unittest
 from shutil import rmtree, copy
-from StringIO import StringIO
 from time import sleep, time
 from uuid import uuid4
 
@@ -695,7 +694,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('z', normalize_timestamp(time()), 0, 'text/plain',
                 'd41d8cd98f00b204e9800998ecf8427e')
         # Test before deletion
-        res = broker.reclaim(normalize_timestamp(time()), time())
+        broker.reclaim(normalize_timestamp(time()), time())
         broker.delete_db(normalize_timestamp(time()))
 
     def test_delete_object(self):

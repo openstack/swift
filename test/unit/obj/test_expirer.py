@@ -13,15 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-from sys import exc_info
 from time import time
 from unittest import main, TestCase
 from test.unit import FakeLogger
 
 from swift.common import internal_client
 from swift.obj import expirer
-from swift.proxy.server import Application
 
 
 def not_random():
@@ -402,14 +399,13 @@ class TestObjectExpirer(TestCase):
                                    'interval': interval})
         orig_random = expirer.random
         orig_sleep = expirer.sleep
-        exc = None
         try:
             expirer.random = not_random
             expirer.sleep = not_sleep
             x.run_once = raise_system_exit
             x.run_forever()
         except SystemExit, err:
-            exc = err
+            pass
         finally:
             expirer.random = orig_random
             expirer.sleep = orig_sleep
@@ -428,13 +424,12 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         x.logger = FakeLogger()
         orig_sleep = expirer.sleep
-        exc = None
         try:
             expirer.sleep = not_sleep
             x.run_once = raise_exceptions
             x.run_forever()
         except SystemExit, err:
-            exc = err
+            pass
         finally:
             expirer.sleep = orig_sleep
         self.assertEquals(str(err), 'exiting exception 2')

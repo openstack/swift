@@ -280,7 +280,7 @@ class TestCappedFileLikeObject(unittest.TestCase):
             self.assertEquals(fp.readline(), 'def')
         except EOFError, err:
             exc = err
-        self.assertEquals(str(err), 'max_file_size exceeded')
+        self.assertEquals(str(exc), 'max_file_size exceeded')
 
     def test_read_sized(self):
         fp = formpost._CappedFileLikeObject(StringIO('abcdefg'), 10)

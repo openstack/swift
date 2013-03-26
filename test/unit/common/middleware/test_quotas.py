@@ -15,7 +15,7 @@
 
 import unittest
 
-from swift.common.swob import Request, Response, HTTPUnauthorized
+from swift.common.swob import Request, HTTPUnauthorized
 from swift.common.middleware import container_quotas
 
 class FakeCache(object):

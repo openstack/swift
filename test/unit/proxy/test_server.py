@@ -30,8 +30,7 @@ from hashlib import md5
 from tempfile import mkdtemp
 import random
 
-import eventlet
-from eventlet import sleep, spawn, Timeout, util, wsgi, listen
+from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect

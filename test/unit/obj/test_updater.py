@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import cPickle as pickle
-import json
 import os
 import unittest
 from gzip import GzipFile

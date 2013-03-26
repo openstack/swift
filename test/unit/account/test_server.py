@@ -1097,7 +1097,6 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '412 ')
 
     def test_invalid_method_doesnt_exist(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -1111,7 +1110,6 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_is_not_public(self):
-        inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
