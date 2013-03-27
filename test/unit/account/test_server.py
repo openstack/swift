@@ -99,6 +99,28 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.DELETE(req)
         self.assertEquals(resp.status_int, 204)
 
+    def test_DELETE_invalid_partition(self):
+        req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'DELETE',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.DELETE(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_DELETE_timestamp_not_float(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                  'HTTP_X_TIMESTAMP': '0'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': 'not-float'})
+        resp = self.controller.DELETE(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_DELETE_insufficient_storage(self):
+        self.controller = AccountController({'devices': self.testdir})
+        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'DELETE',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.DELETE(req)
+        self.assertEquals(resp.status_int, 507)
+
     def test_HEAD_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = self.controller.HEAD(req)
@@ -160,6 +182,28 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.headers['x-account-container-count'], '2')
         self.assertEquals(resp.headers['x-account-object-count'], '4')
         self.assertEquals(resp.headers['x-account-bytes-used'], '6')
+
+    def test_HEAD_invalid_partition(self):
+        req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'HEAD',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_HEAD_invalid_content_type(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                  'HTTP_X_TIMESTAMP': '0'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Accept': 'application/plain'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 406)
+
+    def test_HEAD_insufficient_storage(self):
+        self.controller = AccountController({'devices': self.testdir})
+        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'HEAD',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 507)
 
     def test_PUT_not_found(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
@@ -249,6 +293,19 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assert_('x-account-meta-test' not in resp.headers)
 
+    def test_PUT_invalid_partition(self):
+        req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'PUT',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_PUT_insufficient_storage(self):
+        self.controller = AccountController({'devices': self.testdir})
+        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 507)
+
     def test_POST_HEAD_metadata(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(1)})
@@ -294,6 +351,38 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 204)
         self.assert_('x-account-meta-test' not in resp.headers)
+
+    def test_POST_invalid_partition(self):
+        req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'POST',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_POST_timestamp_not_float(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST',
+                                                  'HTTP_X_TIMESTAMP': '0'},
+                            headers={'X-Timestamp': 'not-float'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 400)
+
+    def test_POST_insufficient_storage(self):
+        self.controller = AccountController({'devices': self.testdir})
+        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'POST',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 507)
+
+    def test_POST_after_DELETE_not_found(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                  'HTTP_X_TIMESTAMP': '0'})
+        self.controller.PUT(req)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
+                                                  'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.DELETE(req)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST',
+                                                  'HTTP_X_TIMESTAMP': '2'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 404)
 
     def test_GET_not_found_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
@@ -750,7 +839,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         self.controller.PUT(req)
-        req = Request.blank('/sda1/p/a?format=plain', 
+        req = Request.blank('/sda1/p/a?format=plain',
                             environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/json'
         resp = self.controller.GET(req)
@@ -922,12 +1011,21 @@ class TestAccountController(unittest.TestCase):
                         listing.append(node2.firstChild.nodeValue)
         self.assertEquals(listing, ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
+    def test_GET_insufficient_storage(self):
+        self.controller = AccountController({'devices': self.testdir})
+        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'GET',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 507)
+
     def test_through_call(self):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
+
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
                                   'PATH_INFO': '/sda1/p/a',
@@ -950,8 +1048,10 @@ class TestAccountController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
+
         self.controller.__call__({'REQUEST_METHOD': 'GET',
                                   'SCRIPT_NAME': '',
                                   'PATH_INFO': '/bob',
@@ -970,12 +1070,40 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(errbuf.getvalue(), '')
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
+    def test_through_call_invalid_path_utf8(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+
+        def start_response(*args):
+            outbuf.writelines(args)
+
+        self.controller.__call__({'REQUEST_METHOD': 'GET',
+                                  'SCRIPT_NAME': '',
+                                  'PATH_INFO': '\x00',
+                                  'SERVER_NAME': '127.0.0.1',
+                                  'SERVER_PORT': '8080',
+                                  'SERVER_PROTOCOL': 'HTTP/1.0',
+                                  'CONTENT_LENGTH': '0',
+                                  'wsgi.version': (1, 0),
+                                  'wsgi.url_scheme': 'http',
+                                  'wsgi.input': inbuf,
+                                  'wsgi.errors': errbuf,
+                                  'wsgi.multithread': False,
+                                  'wsgi.multiprocess': False,
+                                  'wsgi.run_once': False},
+                                 start_response)
+        self.assertEquals(errbuf.getvalue(), '')
+        self.assertEquals(outbuf.getvalue()[:4], '412 ')
+
     def test_invalid_method_doesnt_exist(self):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
+
         self.controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
                                   'PATH_INFO': '/sda1/p/a'},
                                  start_response)
@@ -986,8 +1114,10 @@ class TestAccountController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
+
         self.controller.__call__({'REQUEST_METHOD': '__init__',
                                   'PATH_INFO': '/sda1/p/a'},
                                  start_response)
