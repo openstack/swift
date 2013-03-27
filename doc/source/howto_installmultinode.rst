@@ -90,7 +90,7 @@ General OS configuration and partitioning for each node
    which Swift services will run under. Since the directory is only needed for runtime,
    when system shuts down, the directory will be gone. It is necessary to have
    the directory recreated when system is restarted. To do that, also add the
-   following lines into /etc/rc.local before line "exit 0".
+   following lines into /etc/rc.local before line "exit 0".::
 
         mkdir -p /var/run/swift
         chown swift:swift /var/run/swift
