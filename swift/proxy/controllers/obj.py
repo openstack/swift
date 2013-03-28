@@ -322,7 +322,7 @@ class ObjectController(Controller):
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
-            nodes = self.app.sort_nodes(lnodes)
+            lnodes = self.app.sort_nodes(lnodes)
             lresp = self.GETorHEAD_base(
                 lreq, _('Container'), lpartition, lnodes, lreq.path_info,
                 len(lnodes))
