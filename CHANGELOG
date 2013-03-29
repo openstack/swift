@@ -33,6 +33,11 @@ swift (1.8.0)
       log_statsd_default_sample_rate, which is left alone for
       backward-compatibility, should anyone be using it.
 
+    * Added swift_hash_path_prefix option to swift.conf
+
+      New deployments are advised to set this value to a random secret
+      to protect against hash collisions
+
     * Added user-managed container quotas
 
     * Added support for account-level quotas managed by an auth reseller
