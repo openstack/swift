@@ -127,6 +127,7 @@ class TestUtils(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = 'startcap'
 
     def test_normalize_timestamp(self):
         """ Test swift.common.utils.normalize_timestamp """
@@ -626,20 +627,28 @@ class TestUtils(unittest.TestCase):
         self.assert_('127.0.0.1' in myips)
 
     def test_hash_path(self):
+        _prefix = utils.HASH_PATH_PREFIX 
+        utils.HASH_PATH_PREFIX = ''
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someones changes the results hash_path produces, they know it
-        self.assertEquals(utils.hash_path('a'),
-                          '1c84525acb02107ea475dcd3d09c2c58')
-        self.assertEquals(utils.hash_path('a', 'c'),
-                          '33379ecb053aa5c9e356c68997cbb59e')
-        self.assertEquals(utils.hash_path('a', 'c', 'o'),
-                          '06fbf0b514e5199dfc4e00f42eb5ea83')
-        self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
-                          '06fbf0b514e5199dfc4e00f42eb5ea83')
-        self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=True),
-                          '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
-                          '\x00\xf4.\xb5\xea\x83')
-        self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
+        try:
+            self.assertEquals(utils.hash_path('a'),
+                              '1c84525acb02107ea475dcd3d09c2c58')
+            self.assertEquals(utils.hash_path('a', 'c'),
+                              '33379ecb053aa5c9e356c68997cbb59e')
+            self.assertEquals(utils.hash_path('a', 'c', 'o'),
+                              '06fbf0b514e5199dfc4e00f42eb5ea83')
+            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
+                              '06fbf0b514e5199dfc4e00f42eb5ea83')
+            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=True),
+                              '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
+                              '\x00\xf4.\xb5\xea\x83')
+            self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
+            utils.HASH_PATH_PREFIX = 'abcdef'
+            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
+                              '363f9b535bfb7d17a43a46a358afca0e')
+        finally:
+            utils.HASH_PATH_PREFIX = _prefix
 
     def test_load_libc_function(self):
         self.assert_(callable(

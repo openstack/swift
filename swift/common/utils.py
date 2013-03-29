@@ -76,10 +76,16 @@ FALLOCATE_RESERVE = 0
 # will end up with would also require knowing this suffix.
 hash_conf = ConfigParser()
 HASH_PATH_SUFFIX = ''
+HASH_PATH_PREFIX = ''
 if hash_conf.read('/etc/swift/swift.conf'):
     try:
         HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
                                          'swift_hash_path_suffix')
+    except (NoSectionError, NoOptionError):
+        pass
+    try:
+        HASH_PATH_PREFIX = hash_conf.get('swift-hash',
+                                         'swift_hash_path_prefix')
     except (NoSectionError, NoOptionError):
         pass
 
@@ -134,8 +140,9 @@ def noop_libc_function(*args):
 
 
 def validate_configuration():
-    if HASH_PATH_SUFFIX == '':
-        sys.exit("Error: [swift-hash]: swift_hash_path_suffix missing "
+    if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
+        sys.exit("Error: [swift-hash]: both swift_hash_path_suffix "
+                 "and swift_hash_path_prefix are missing "
                  "from /etc/swift/swift.conf")
 
 
@@ -991,9 +998,11 @@ def hash_path(account, container=None, object=None, raw_digest=False):
     if object:
         paths.append(object)
     if raw_digest:
-        return md5('/' + '/'.join(paths) + HASH_PATH_SUFFIX).digest()
+        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+                   + HASH_PATH_SUFFIX).digest()
     else:
-        return md5('/' + '/'.join(paths) + HASH_PATH_SUFFIX).hexdigest()
+        return md5(HASH_PATH_PREFIX + '/' + '/'.join(paths)
+                   + HASH_PATH_SUFFIX).hexdigest()
 
 
 @contextmanager

@@ -62,6 +62,7 @@ class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = 'startcap'
         utils.drop_privileges = lambda *args: None
         utils.capture_stdio = lambda *args: None
 

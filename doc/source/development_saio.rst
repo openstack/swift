@@ -318,7 +318,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
   #. Create `/etc/swift/swift.conf`::
 
         [swift-hash]
-        # random unique string that can never change (DO NOT LOSE)
+        # random unique strings that can never change (DO NOT LOSE)
+        swift_hash_path_prefix = changeme
         swift_hash_path_suffix = changeme
 
   #. Create `/etc/swift/account-server/1.conf`::
