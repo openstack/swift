@@ -167,16 +167,12 @@ class SegmentedIterable(object):
                     'Could not load object segment %(path)s:'
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             if self.is_slo:
-                if (resp.content_length != self.segment_dict['bytes'] or
-                        resp.etag != self.segment_dict['hash']):
+                if resp.etag != self.segment_dict['hash']:
                     raise SloSegmentError(_(
                         'Object segment no longer valid: '
-                        '%(path)s etag: %(r_etag)s != %(s_etag)s or '
-                        'size: %(r_size)s != %(s_size)s') %
+                        '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
                         {'path': path, 'r_etag': resp.etag,
-                         's_etag': self.segment_dict['hash'],
-                         'r_size': resp.content_length,
-                         's_size': self.segment_dict['bytes']})
+                         's_etag': self.segment_dict['hash']}))
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
