@@ -104,7 +104,7 @@ Example usage of this middleware via ``swift``:
 
 import cgi
 import time
-from urllib import unquote, quote as urllib_quote
+from urllib import quote as urllib_quote
 
 
 from swift.common.utils import cache_from_env, human_readable, split_path, \

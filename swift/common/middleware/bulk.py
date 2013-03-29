@@ -20,7 +20,7 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, wsgify
-from swift.common.utils import json, TRUE_VALUES
+from swift.common.utils import json
 from swift.common.constraints import check_utf8, MAX_FILE_SIZE
 from swift.common.http import HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, \
     HTTP_NOT_FOUND

@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from time import gmtime, strftime, time
+from time import time
 from traceback import format_exc
-from urllib import quote, unquote
+from urllib import unquote
 from uuid import uuid4
 from hashlib import sha1
 import hmac
@@ -29,7 +29,6 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, \
     split_path, config_true_value
-from swift.common.http import HTTP_CLIENT_CLOSED_REQUEST
 
 
 class TempAuth(object):

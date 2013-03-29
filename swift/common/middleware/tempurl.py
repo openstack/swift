@@ -92,12 +92,11 @@ import hmac
 from hashlib import sha1
 from os.path import basename
 from StringIO import StringIO
-from time import gmtime, strftime, time
-from urllib import unquote, urlencode
+from time import time
+from urllib import urlencode
 from urlparse import parse_qs
 
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.http import HTTP_UNAUTHORIZED
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
