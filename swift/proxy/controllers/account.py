@@ -31,7 +31,7 @@ from swift.account.utils import account_listing_response, \
 from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
 from swift.common.http import HTTP_NOT_FOUND
-from swift.proxy.controllers.base import Controller, get_account_memcache_key
+from swift.proxy.controllers.base import Controller, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 
 
@@ -84,9 +84,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = self.generate_request_headers(req, transfer=True)
-        if self.app.memcache:
-            self.app.memcache.delete(
-                get_account_memcache_key(self.account_name))
+        clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'PUT',
             req.path_info, [headers] * len(accounts))
@@ -106,14 +104,12 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = self.generate_request_headers(req, transfer=True)
-        if self.app.memcache:
-            self.app.memcache.delete(
-                get_account_memcache_key(self.account_name))
+        clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'POST',
             req.path_info, [headers] * len(accounts))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            self.autocreate_account(self.account_name)
+            self.autocreate_account(req.environ, self.account_name)
             resp = self.make_requests(
                 req, self.app.account_ring, account_partition, 'POST',
                 req.path_info, [headers] * len(accounts))
@@ -134,9 +130,7 @@ class AccountController(Controller):
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
         headers = self.generate_request_headers(req)
-        if self.app.memcache:
-            self.app.memcache.delete(
-                get_account_memcache_key(self.account_name))
+        clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'DELETE',
             req.path_info, [headers] * len(accounts))

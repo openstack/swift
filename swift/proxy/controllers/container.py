@@ -30,7 +30,7 @@ from swift.common.utils import public, csv_append
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    get_container_memcache_key, headers_to_container_info, cors_validation
+    cors_validation, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -75,15 +75,6 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         resp = self.GETorHEAD_base(
             req, _('Container'), self.app.container_ring, part, req.path_info)
-        if self.app.memcache:
-            # set the memcache container size for ratelimiting
-            cache_key = get_container_memcache_key(self.account_name,
-                                                   self.container_name)
-            self.app.memcache.set(
-                cache_key,
-                headers_to_container_info(resp.headers, resp.status_int),
-                time=self.app.recheck_container_existence)
-
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
@@ -124,11 +115,11 @@ class ContainerController(Controller):
                         (len(self.container_name), MAX_CONTAINER_NAME_LENGTH)
             return resp
         account_partition, accounts, container_count = \
-            self.account_info(self.account_name)
+            self.account_info(self.account_name, req)
         if not accounts and self.app.account_autocreate:
-            self.autocreate_account(self.account_name)
+            self.autocreate_account(req.environ, self.account_name)
             account_partition, accounts, container_count = \
-                self.account_info(self.account_name)
+                self.account_info(self.account_name, req)
         if not accounts:
             return HTTPNotFound(request=req)
         if self.app.max_containers_per_account > 0 and \
@@ -142,10 +133,8 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = self._backend_requests(req, len(containers),
                                          account_partition, accounts)
-        if self.app.memcache:
-            cache_key = get_container_memcache_key(self.account_name,
-                                                   self.container_name)
-            self.app.memcache.delete(cache_key)
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring,
             container_partition, 'PUT', req.path_info, headers)
@@ -160,15 +149,14 @@ class ContainerController(Controller):
         if error_response:
             return error_response
         account_partition, accounts, container_count = \
-            self.account_info(self.account_name)
+            self.account_info(self.account_name, req)
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = self.generate_request_headers(req, transfer=True)
-        if self.app.memcache:
-            self.app.memcache.delete(get_container_memcache_key(
-                self.account_name, self.container_name))
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring, container_partition, 'POST',
             req.path_info, [headers] * len(containers))
@@ -186,10 +174,8 @@ class ContainerController(Controller):
             self.account_name, self.container_name)
         headers = self._backend_requests(req, len(containers),
                                          account_partition, accounts)
-        if self.app.memcache:
-            cache_key = get_container_memcache_key(self.account_name,
-                                                   self.container_name)
-            self.app.memcache.delete(cache_key)
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring, container_partition, 'DELETE',
             req.path_info, headers)

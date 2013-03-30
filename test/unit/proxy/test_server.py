@@ -34,7 +34,8 @@ import mock
 from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
-from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect
+from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
+    fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -195,79 +196,6 @@ def sortHeaderNames(headerNames):
     return ', '.join(headers)
 
 
-class FakeRing(object):
-
-    def __init__(self, replicas=3):
-        # 9 total nodes (6 more past the initial 3) is the cap, no matter if
-        # this is set higher, or R^2 for R replicas
-        self.replicas = replicas
-        self.max_more_nodes = 0
-        self.devs = {}
-
-    def set_replicas(self, replicas):
-        self.replicas = replicas
-        self.devs = {}
-
-    @property
-    def replica_count(self):
-        return self.replicas
-
-    def get_part(self, account, container=None, obj=None):
-        return 1
-
-    def get_nodes(self, account, container=None, obj=None):
-        devs = []
-        for x in xrange(self.replicas):
-            devs.append(self.devs.get(x))
-            if devs[x] is None:
-                self.devs[x] = devs[x] = \
-                    {'ip': '10.0.0.%s' % x,
-                     'port': 1000 + x,
-                     'device': 'sd' + (chr(ord('a') + x)),
-                     'id': x}
-        return 1, devs
-
-    def get_part_nodes(self, part):
-        return self.get_nodes('blah')[1]
-
-    def get_more_nodes(self, nodes):
-        # replicas^2 is the true cap
-        for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
-                                           self.replicas * self.replicas)):
-            yield {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
-
-
-class FakeMemcache(object):
-
-    def __init__(self):
-        self.store = {}
-
-    def get(self, key):
-        return self.store.get(key)
-
-    def keys(self):
-        return self.store.keys()
-
-    def set(self, key, value, time=0):
-        self.store[key] = value
-        return True
-
-    def incr(self, key, time=0):
-        self.store[key] = self.store.setdefault(key, 0) + 1
-        return self.store[key]
-
-    @contextmanager
-    def soft_lock(self, key, timeout=0, retries=5):
-        yield True
-
-    def delete(self, key):
-        try:
-            del self.store[key]
-        except Exception:
-            pass
-        return True
-
-
 class FakeMemcacheReturnsNone(FakeMemcache):
 
     def get(self, key):
@@ -392,9 +320,11 @@ class TestController(unittest.TestCase):
             self.check_account_info_return(partition, nodes)
             self.assertEquals(count, 12345)
 
+            # Test the internal representation in memcache
+            # 'container_count' changed from int to str
             cache_key = get_account_memcache_key(self.account)
             container_info = {'status': 200,
-                              'container_count': 12345,
+                              'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
                               'meta': {}}
@@ -416,9 +346,11 @@ class TestController(unittest.TestCase):
             self.check_account_info_return(partition, nodes, True)
             self.assertEquals(count, None)
 
+            # Test the internal representation in memcache
+            # 'container_count' changed from 0 to None
             cache_key = get_account_memcache_key(self.account)
             container_info = {'status': 404,
-                              'container_count': 0,
+                              'container_count': None, # internally keep None
                               'total_object_count': None,
                               'bytes': None,
                               'meta': {}}
@@ -442,8 +374,9 @@ class TestController(unittest.TestCase):
             self.assertEquals(count, None)
 
         with save_globals():
-            test(503, 404, 404)
-            test(404, 404, 503)
+            # We cache if we have two 404 responses - fail if only one
+            test(503, 503, 404)
+            test(504, 404, 503)
             test(404, 507, 503)
             test(503, 503, 503)
 
@@ -481,14 +414,12 @@ class TestController(unittest.TestCase):
 
     # tests if 200 is cached and used
     def test_container_info_200(self):
-        def account_info(self, account, request, autocreate=False):
-            return True, True, 0
 
         with save_globals():
             headers = {'x-container-read': self.read_acl,
                        'x-container-write': self.write_acl}
-            swift.proxy.controllers.Controller.account_info = account_info
-            set_http_connect(200, headers=headers)
+            set_http_connect(200, # account_info is found
+                             200, headers=headers) # container_info is found
             ret = self.controller.container_info(
                 self.account, self.container, self.request)
             self.check_container_info_return(ret)
@@ -506,12 +437,28 @@ class TestController(unittest.TestCase):
 
     # tests if 404 is cached and used
     def test_container_info_404(self):
-        def account_info(self, account, request, autocreate=False):
+        def account_info(self, account, request):
             return True, True, 0
 
         with save_globals():
-            swift.proxy.controllers.Controller.account_info = account_info
-            set_http_connect(404, 404, 404)
+            set_http_connect(503, 204, # account_info found
+                             504, 404, 404) # container_info 'NotFound'
+            ret = self.controller.container_info(
+                self.account, self.container, self.request)
+            self.check_container_info_return(ret, True)
+
+            cache_key = get_container_memcache_key(self.account,
+                                                   self.container)
+            cache_value = self.memcache.get(cache_key)
+            self.assertTrue(isinstance(cache_value, dict))
+            self.assertEquals(404, cache_value.get('status'))
+
+            set_http_connect()
+            ret = self.controller.container_info(
+                self.account, self.container, self.request)
+            self.check_container_info_return(ret, True)
+
+            set_http_connect(503, 404, 404)# account_info 'NotFound'
             ret = self.controller.container_info(
                 self.account, self.container, self.request)
             self.check_container_info_return(ret, True)
@@ -537,8 +484,9 @@ class TestController(unittest.TestCase):
             self.check_container_info_return(ret, True)
 
         with save_globals():
-            test(503, 404, 404)
-            test(404, 404, 503)
+            # We cache if we have two 404 responses - fail if only one
+            test(503, 503, 404)
+            test(504, 404, 503)
             test(404, 507, 503)
             test(503, 503, 503)
 
@@ -2328,36 +2276,50 @@ class TestObjectController(unittest.TestCase):
 
             set_http_connect(404, 404, 404)
             #                acct acct acct
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
             set_http_connect(503, 404, 404)
             #                acct acct acct
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
             set_http_connect(503, 503, 404)
             #                acct acct acct
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
             set_http_connect(503, 503, 503)
             #                acct acct acct
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
             set_http_connect(200, 200, 204, 204, 204)
             #                acct cont obj  obj  obj
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 204)
 
             set_http_connect(200, 404, 404, 404)
             #                acct cont cont cont
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
             set_http_connect(200, 503, 503, 503)
             #                acct cont cont cont
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
@@ -2367,6 +2329,8 @@ class TestObjectController(unittest.TestCase):
             set_http_connect(200)
             #                acct [isn't actually called since everything
             #                      is error limited]
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
@@ -2378,6 +2342,8 @@ class TestObjectController(unittest.TestCase):
             set_http_connect(200, 200)
             #                acct cont [isn't actually called since
             #                           everything is error limited]
+            # make sure to use a fresh request without cached env
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'DELETE'})
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
@@ -4633,10 +4599,10 @@ class TestContainerController(unittest.TestCase):
 
     def test_HEAD_GET(self):
         with save_globals():
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
 
-            def test_status_map(statuses, expected, **kwargs):
+            def test_status_map(statuses, expected,
+                                c_expected=None, a_expected=None, **kwargs):
                 set_http_connect(*statuses, **kwargs)
                 self.app.memcache.store = {}
                 req = Request.blank('/a/c', {})
@@ -4647,6 +4613,18 @@ class TestContainerController(unittest.TestCase):
                 if expected < 400:
                     self.assert_('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
+                if c_expected:
+                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertEquals(res.environ['swift.container/a/c']['status'],
+                                      c_expected)
+                else:
+                    self.assertTrue('swift.container/a/c' not in res.environ)
+                if a_expected:
+                    self.assertTrue('swift.account/a' in res.environ)
+                    self.assertEquals(res.environ['swift.account/a']['status'],
+                                      a_expected)
+                else:
+                    self.assertTrue('swift.account/a' not in res.environ)
 
                 set_http_connect(*statuses, **kwargs)
                 self.app.memcache.store = {}
@@ -4658,17 +4636,37 @@ class TestContainerController(unittest.TestCase):
                 if expected < 400:
                     self.assert_('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
-
-            test_status_map((200, 200, 404, 404), 200)
-            test_status_map((200, 200, 500, 404), 200)
-            test_status_map((200, 304, 500, 404), 304)
-            test_status_map((200, 404, 404, 404), 404)
-            test_status_map((200, 404, 404, 500), 404)
-            test_status_map((200, 500, 500, 500), 503)
+                if c_expected:
+                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertEquals(res.environ['swift.container/a/c']['status'],
+                                      c_expected)
+                else:
+                    self.assertTrue('swift.container/a/c' not in res.environ)
+                if a_expected:
+                    self.assertTrue('swift.account/a' in res.environ)
+                    self.assertEquals(res.environ['swift.account/a']['status'],
+                                      a_expected)
+                else:
+                    self.assertTrue('swift.account/a' not in res.environ)
+            # In all the following tests cache 200 for account
+            # return and ache vary for container
+            # return 200 and cache 200 for and container
+            test_status_map((200, 200, 404, 404), 200, 200, 200)
+            test_status_map((200, 200, 500, 404), 200, 200, 200)
+            # return 304 dont cache container
+            test_status_map((200, 304, 500, 404), 304, None, 200)
+            # return 404 and cache 404 for container
+            test_status_map((200, 404, 404, 404), 404, 404, 200)
+            test_status_map((200, 404, 404, 500), 404, 404, 200)
+            # return 503, dont cache container
+            test_status_map((200, 500, 500, 500), 503, None, 200)
             self.assertFalse(self.app.account_autocreate)
-            test_status_map((404, 404, 404), 404)
-            self.app.account_autocreate = True
-            test_status_map((404, 404, 404), 404)
+
+            # In all the following tests cache 404 for account
+            # return 404 (as account is not found) and dont cache container
+            test_status_map((404, 404, 404), 404, None, 404)
+            self.app.account_autocreate = True # This should make no difference
+            test_status_map((404, 404, 404), 404, None, 404)
 
     def test_PUT(self):
         with save_globals():
@@ -4821,14 +4819,20 @@ class TestContainerController(unittest.TestCase):
                 self.assertEquals(resp.status_int, 200)
 
                 set_http_connect(404, 404, 404, 200, 200, 200)
+                # Make sure it is a blank request wthout env caching
+                req = Request.blank('/a/c', environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)
 
                 set_http_connect(503, 404, 404)
+                # Make sure it is a blank request wthout env caching
+                req = Request.blank('/a/c', environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)
 
                 set_http_connect(503, 404, raise_exc=True)
+                # Make sure it is a blank request wthout env caching
+                req = Request.blank('/a/c', environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)
 
@@ -4836,6 +4840,8 @@ class TestContainerController(unittest.TestCase):
                     dev['errors'] = self.app.error_suppression_limit + 1
                     dev['last_error'] = time.time()
                 set_http_connect(200, 200, 200, 200, 200, 200)
+                # Make sure it is a blank request wthout env caching
+                req = Request.blank('/a/c', environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)
 
@@ -5132,6 +5138,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/a/c')
             self.app.update_request(req)
             res = controller.GET(req)
+            self.assertEquals(res.environ['swift.container/a/c']['status'], 204)
             self.assertEquals(res.content_length, 0)
             self.assertTrue('transfer-encoding' not in res.headers)
 
@@ -5149,6 +5156,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             res = controller.GET(req)
+        self.assertEquals(res.environ['swift.container/a/c']['status'], 201)
         self.assert_(called[0])
 
     def test_HEAD_calls_authorize(self):
@@ -5444,18 +5452,24 @@ class TestAccountController(unittest.TestCase):
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing)
 
-    def assert_status_map(self, method, statuses, expected):
+    def assert_status_map(self, method, statuses, expected, env_expected=None):
         with save_globals():
             set_http_connect(*statuses)
             req = Request.blank('/a', {})
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
+            if env_expected:
+                self.assertEquals(res.environ['swift.account/a']['status'],
+                                  env_expected)
             set_http_connect(*statuses)
             req = Request.blank('/a/', {})
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
+            if env_expected:
+                self.assertEquals(res.environ['swift.account/a']['status'],
+                                  env_expected)
 
     def test_OPTIONS(self):
         with save_globals():
@@ -5501,23 +5515,23 @@ class TestAccountController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
             # GET returns after the first successful call to an Account Server
-            self.assert_status_map(controller.GET, (200,), 200)
-            self.assert_status_map(controller.GET, (503, 200), 200)
-            self.assert_status_map(controller.GET, (503, 503, 200), 200)
-            self.assert_status_map(controller.GET, (204,), 204)
-            self.assert_status_map(controller.GET, (503, 204), 204)
-            self.assert_status_map(controller.GET, (503, 503, 204), 204)
-            self.assert_status_map(controller.GET, (404, 200), 200)
-            self.assert_status_map(controller.GET, (404, 404, 200), 200)
-            self.assert_status_map(controller.GET, (404, 503, 204), 204)
+            self.assert_status_map(controller.GET, (200,), 200, 200)
+            self.assert_status_map(controller.GET, (503, 200), 200, 200)
+            self.assert_status_map(controller.GET, (503, 503, 200), 200, 200)
+            self.assert_status_map(controller.GET, (204,), 204, 204)
+            self.assert_status_map(controller.GET, (503, 204), 204, 204)
+            self.assert_status_map(controller.GET, (503, 503, 204), 204, 204)
+            self.assert_status_map(controller.GET, (404, 200), 200, 200)
+            self.assert_status_map(controller.GET, (404, 404, 200), 200, 200)
+            self.assert_status_map(controller.GET, (404, 503, 204), 204, 204)
             # If Account servers fail, if autocreate = False, return majority
             # response
-            self.assert_status_map(controller.GET, (404, 404, 404), 404)
-            self.assert_status_map(controller.GET, (404, 404, 503), 404)
+            self.assert_status_map(controller.GET, (404, 404, 404), 404, 404)
+            self.assert_status_map(controller.GET, (404, 404, 503), 404, 404)
             self.assert_status_map(controller.GET, (404, 503, 503), 503)
 
             self.app.memcache = FakeMemcacheReturnsNone()
-            self.assert_status_map(controller.GET, (404, 404, 404), 404)
+            self.assert_status_map(controller.GET, (404, 404, 404), 404, 404)
 
 
     def test_GET_autocreate(self):
@@ -5548,19 +5562,19 @@ class TestAccountController(unittest.TestCase):
         # Same behaviour as GET
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
-            self.assert_status_map(controller.HEAD, (200,), 200)
-            self.assert_status_map(controller.HEAD, (503, 200), 200)
-            self.assert_status_map(controller.HEAD, (503, 503, 200), 200)
-            self.assert_status_map(controller.HEAD, (204,), 204)
-            self.assert_status_map(controller.HEAD, (503, 204), 204)
-            self.assert_status_map(controller.HEAD, (204, 503, 503), 204)
-            self.assert_status_map(controller.HEAD, (204,), 204)
-            self.assert_status_map(controller.HEAD, (404, 404, 404), 404)
-            self.assert_status_map(controller.HEAD, (404, 404, 200), 200)
-            self.assert_status_map(controller.HEAD, (404, 200), 200)
-            self.assert_status_map(controller.HEAD, (404, 404, 503), 404)
+            self.assert_status_map(controller.HEAD, (200,), 200, 200)
+            self.assert_status_map(controller.HEAD, (503, 200), 200, 200)
+            self.assert_status_map(controller.HEAD, (503, 503, 200), 200, 200)
+            self.assert_status_map(controller.HEAD, (204,), 204, 204)
+            self.assert_status_map(controller.HEAD, (503, 204), 204, 204)
+            self.assert_status_map(controller.HEAD, (204, 503, 503), 204, 204)
+            self.assert_status_map(controller.HEAD, (204,), 204, 204)
+            self.assert_status_map(controller.HEAD, (404, 404, 404), 404, 404)
+            self.assert_status_map(controller.HEAD, (404, 404, 200), 200, 200)
+            self.assert_status_map(controller.HEAD, (404, 200), 200, 200)
+            self.assert_status_map(controller.HEAD, (404, 404, 503), 404, 404)
             self.assert_status_map(controller.HEAD, (404, 503, 503), 503)
-            self.assert_status_map(controller.HEAD, (404, 503, 204), 204)
+            self.assert_status_map(controller.HEAD, (404, 503, 204), 204, 204)
 
     def test_HEAD_autocreate(self):
         # Same behaviour as GET
