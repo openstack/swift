@@ -403,6 +403,11 @@ class ObjectController(Controller):
 
         large_object = None
         if config_true_value(resp.headers.get('x-static-large-object')) and \
+                req.params.get('multipart-manifest') == 'get' and \
+                self.app.allow_static_large_object:
+            resp.content_type = 'application/json'
+
+        if config_true_value(resp.headers.get('x-static-large-object')) and \
                 req.params.get('multipart-manifest') != 'get' and \
                 self.app.allow_static_large_object:
             large_object = 'SLO'
