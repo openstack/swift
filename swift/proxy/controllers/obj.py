@@ -111,7 +111,7 @@ class SegmentedIterable(object):
         self.container = container
         self.listing = segment_listing_iter(listing)
         self.is_slo = is_slo
-        self.segment = 0
+        self.ratelimit_index = 0
         self.segment_dict = None
         self.segment_peek = None
         self.seek = 0
@@ -132,7 +132,7 @@ class SegmentedIterable(object):
                  segment no longer matches SLO manifest specifications.
         """
         try:
-            self.segment += 1
+            self.ratelimit_index += 1
             self.segment_dict = self.segment_peek or self.listing.next()
             self.segment_peek = None
             if self.container is None:
@@ -147,7 +147,7 @@ class SegmentedIterable(object):
             if self.seek:
                 req.range = 'bytes=%s-' % self.seek
                 self.seek = 0
-            if not self.is_slo and self.segment > \
+            if not self.is_slo and self.ratelimit_index > \
                     self.controller.app.rate_limit_after_segment:
                 sleep(max(self.next_get_time - time.time(), 0))
             self.next_get_time = time.time() + \
@@ -246,7 +246,6 @@ class SegmentedIterable(object):
             if start:
                 self.segment_peek = self.listing.next()
                 while start >= self.position + self.segment_peek['bytes']:
-                    self.segment += 1
                     self.position += self.segment_peek['bytes']
                     self.segment_peek = self.listing.next()
                 self.seek = start - self.position

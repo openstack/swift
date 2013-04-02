@@ -5466,10 +5466,51 @@ class TestSegmentedIterable(unittest.TestCase):
         finally:
             swift.proxy.controllers.obj.sleep = orig_sleep
 
+    def test_load_next_segment_range_req_rate_limiting(self):
+        sleep_calls = []
+
+        def _stub_sleep(sleepy_time):
+            sleep_calls.append(sleepy_time)
+        orig_sleep = swift.proxy.controllers.obj.sleep
+        try:
+            swift.proxy.controllers.obj.sleep = _stub_sleep
+            segit = SegmentedIterable(
+                self.controller, 'lc', [
+                    {'name': 'o0', 'bytes': 5}, {'name': 'o1', 'bytes': 5},
+                    {'name': 'o2', 'bytes': 1}, {'name': 'o3'}, {'name': 'o4'},
+                    {'name': 'o5'}, {'name': 'o6'}])
+
+            # this tests for a range request which skips over the whole first
+            # segment, after that 3 segments will be read in because the
+            # rate_limit_after_segment == 3, then sleeping starts
+            segit_iter = segit.app_iter_range(10, None)
+            segit_iter.next()
+            for _ in xrange(2):
+                # this is set to 2 instead of 3 because o2 was loaded after
+                # o0 and o1 were skipped.
+                segit._load_next_segment()
+            self.assertEquals([], sleep_calls)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+                              '/a/lc/o4')
+
+            # Loading of next (5th) segment starts rate-limiting.
+            segit._load_next_segment()
+            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+                              '/a/lc/o5')
+
+            sleep_calls = []
+            segit._load_next_segment()
+            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
+            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+                              '/a/lc/o6')
+        finally:
+            swift.proxy.controllers.obj.sleep = orig_sleep
+
     def test_load_next_segment_with_two_segments_skip_first(self):
         segit = SegmentedIterable(self.controller, 'lc', [{'name':
                                   'o1'}, {'name': 'o2'}])
-        segit.segment = 0
+        segit.ratelimit_index = 0
         segit.listing.next()
         segit._load_next_segment()
         self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
@@ -5479,7 +5520,7 @@ class TestSegmentedIterable(unittest.TestCase):
     def test_load_next_segment_with_seek(self):
         segit = SegmentedIterable(self.controller, 'lc', [{'name':
                                   'o1'}, {'name': 'o2'}])
-        segit.segment = 0
+        segit.ratelimit_index = 0
         segit.listing.next()
         segit.seek = 1
         segit._load_next_segment()
