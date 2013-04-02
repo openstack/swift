@@ -158,7 +158,8 @@ if __name__ == '__main__':
         sys.exit('Termination signal received.')
     signal.signal(signal.SIGTERM, sigterm)
 
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
+    logger.propagate = False
     logger.setLevel({
         'debug': logging.DEBUG,
         'info': logging.INFO,
