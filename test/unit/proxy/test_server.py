@@ -1090,6 +1090,56 @@ class TestObjectController(unittest.TestCase):
                  ['HEAD', '/a/c', {}],
                  ['GET', '/a/c/manifest', {'multipart-manifest': 'get'}]])
 
+    def test_GET_slo_multipart_manifest_from_copy(self):
+        listing = [{"hash": "98568d540134639be4655198a36614a4",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"}]
+        json_listing = simplejson.dumps(listing)
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            json_listing)    # GET manifest
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET listing1
+                headers={"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'},
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+
+            req = Request.blank('/a/c/manifest?multipart-manifest=get',
+                                headers={'x-copy-from': '/a/c/manifest'})
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, json_listing)
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {'multipart-manifest': 'get'}]])
+
     def test_GET_bad_etag_manifest_slo(self):
         listing = [{"hash": "98568d540134639be4655198a36614a4",
                     "last_modified": "2012-11-08T04:05:37.866820",
