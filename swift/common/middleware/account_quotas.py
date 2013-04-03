@@ -13,7 +13,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Account quota middleware for Openstack Swift Proxy """
+"""
+``account_quotas`` is a middleware which blocks write requests (PUT, POST) if a
+given account quota (in bytes) is exceeded while DELETE requests are still
+allowed.
+
+``account_quotas`` uses the ``x-account-meta-quota-bytes`` metadata entry to
+store the quota. Write requests to this metadata entry are only permitted for
+resellers. There is no quota limit if ``x-account-meta-quota-bytes`` is not
+set.
+
+The ``account_quotas`` middleware should be added to the pipeline in your
+``/etc/swift/proxy-server.conf`` file just after any auth middleware.
+For example::
+
+    [pipeline:main]
+    pipeline = catch_errors cache tempauth account_quotas proxy-server
+
+    [filter:account_quotas]
+    use = egg:swift#account_quotas
+
+To set the quota on an account::
+
+    swift -A http://127.0.0.1:8080/auth/v1.0 -U account:reseller -K secret \
+post -m quota-bytes:10000
+
+Remove the quota::
+
+    swift -A http://127.0.0.1:8080/auth/v1.0 -U account:reseller -K secret \
+post -m quota-bytes:
+
+"""
+
 
 from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
     HTTPBadRequest, wsgify
@@ -22,25 +53,11 @@ from swift.proxy.controllers.base import get_account_info
 
 
 class AccountQuotaMiddleware(object):
-    """
-    account_quotas is a middleware which blocks write requests (PUT, POST) if a
-    given quota (in bytes) is exceeded while DELETE requests are still allowed.
+    """ Account quota middleware
 
-    account_quotas uses the x-account-meta-quota-bytes metadata to store the
-    quota. Write requests to this metadata setting are only allowed for
-    resellers. There is no quota limit if x-account-meta-quota-bytes is not
-    set.
-
-    The following shows an example proxy-server.conf:
-
-    [pipeline:main]
-    pipeline = catch_errors cache tempauth account-quotas proxy-server
-
-    [filter:account-quotas]
-    use = egg:swift#account_quotas
+    See above for a full description.
 
     """
-
     def __init__(self, app, *args, **kwargs):
         self.app = app
 

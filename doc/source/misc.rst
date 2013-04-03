@@ -194,6 +194,13 @@ Container Quotas
     :members:
     :show-inheritance:
 
+Account Quotas
+==============
+
+.. automodule:: swift.common.middleware.account_quotas
+    :members:
+    :show-inheritance:
+
 .. _slo-doc:
 
 Static Large Objects
@@ -207,12 +214,5 @@ List Endpoints
 ==============
 
 .. automodule:: swift.common.middleware.list_endpoints
-    :members:
-    :show-inheritance:
-
-Account Quotas
-================
-
-.. automodule:: swift.common.middleware.account_quotas
     :members:
     :show-inheritance:
