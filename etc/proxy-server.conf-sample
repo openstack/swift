@@ -282,6 +282,8 @@ use = egg:swift#staticweb
 # Note: Put tempurl just before your auth filter(s) in the pipeline
 [filter:tempurl]
 use = egg:swift#tempurl
+# The methods allowed with Temp URLs.
+# methods = GET HEAD PUT
 #
 # The headers to remove from incoming requests. Simply a whitespace delimited
 # list of header names and names can optionally end with '*' to indicate a

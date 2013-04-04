@@ -13,8 +13,7 @@ if __name__ == '__main__':
         print 'Syntax: %s <method> <seconds> <path> <key>' % prog
         print
         print 'Where:'
-        print '  <method>   The method to allow, GET or PUT.'
-        print '             Note: HEAD will also be allowed.'
+        print '  <method>   The method to allow; GET for example.'
         print '  <seconds>  The number of seconds from now to allow requests.'
         print '  <path>     The full path to the resource.'
         print '             Example: /v1/AUTH_account/c/o'
@@ -35,9 +34,6 @@ if __name__ == '__main__':
               'temp_url_expires=1323482948'
         exit(1)
     method, seconds, path, key = argv[1:]
-    if method not in ('GET', 'PUT'):
-        print 'Please use either the GET or PUT method.'
-        exit(1)
     try:
         expires = int(time() + int(seconds))
     except ValueError:

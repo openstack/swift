@@ -173,6 +173,9 @@ class TempURL(object):
         #: The filter configuration dict.
         self.conf = conf
 
+        #: The methods allowed with Temp URLs.
+        self.methods = conf.get('methods', 'GET HEAD PUT').split()
+
         headers = DEFAULT_INCOMING_REMOVE_HEADERS
         if 'incoming_remove_headers' in conf:
             headers = conf['incoming_remove_headers']
@@ -290,14 +293,15 @@ class TempURL(object):
 
     def _get_account(self, env):
         """
-        Returns just the account for the request, if it's an object GET, PUT,
-        or HEAD request; otherwise, None is returned.
+        Returns just the account for the request, if it's an object
+        request and one of the configured methods; otherwise, None is
+        returned.
 
         :param env: The WSGI environment for the request.
         :returns: Account str or None.
         """
         account = None
-        if env['REQUEST_METHOD'] in ('GET', 'PUT', 'HEAD'):
+        if env['REQUEST_METHOD'] in self.methods:
             parts = env['PATH_INFO'].split('/', 4)
             # Must be five parts, ['', 'v1', 'a', 'c', 'o'], must be a v1
             # request, have account, container, and object values, and the
