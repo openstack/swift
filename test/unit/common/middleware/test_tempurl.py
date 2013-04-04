@@ -336,6 +336,22 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
 
+    def test_delete_allowed_with_conf(self):
+        self.tempurl.methods.append('DELETE')
+        method = 'DELETE'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path,
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'QUERY_STRING':
+                       'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
+        req.environ['swift.cache'].set('temp-url-key/a', key)
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)
+
     def test_unknown_not_allowed(self):
         method = 'UNKNOWN'
         expires = int(time() + 86400)
