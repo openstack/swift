@@ -242,7 +242,7 @@ def get_account_info(env, app, swift_source=None):
     cache = cache_from_env(env)
     if not cache:
         return None
-    (version, account, container, _) = \
+    (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
     cache_key = get_account_memcache_key(account)
     # Use a unique environment cache key per account.  If you copy this env
@@ -295,15 +295,6 @@ class Controller(object):
                            if k.lower() in self.pass_through_headers or
                            k.lower().startswith(x_meta))
 
-    def error_increment(self, node):
-        """
-        Handles incrementing error counts when talking to nodes.
-
-        :param node: dictionary of node to increment the error count for
-        """
-        node['errors'] = node.get('errors', 0) + 1
-        node['last_error'] = time.time()
-
     def error_occurred(self, node, msg):
         """
         Handle logging, and handling of errors.
@@ -311,10 +302,11 @@ class Controller(object):
         :param node: dictionary of node to handle errors for
         :param msg: error message
         """
-        self.error_increment(node)
-        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s'),
+        node['errors'] = node.get('errors', 0) + 1
+        node['last_error'] = time.time()
+        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
                               {'msg': msg, 'ip': node['ip'],
-                              'port': node['port']})
+                              'port': node['port'], 'device': node['device']})
 
     def exception_occurred(self, node, typ, additional_info):
         """
@@ -352,14 +344,21 @@ class Controller(object):
                 _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
         return limited
 
-    def error_limit(self, node):
+    def error_limit(self, node, msg):
         """
-        Mark a node as error limited.
+        Mark a node as error limited. This immediately pretends the
+        node received enough errors to trigger error suppression. Use
+        this for errors like Insufficient Storage. For other errors
+        use :func:`error_occurred`.
 
         :param node: dictionary of node to error limit
+        :param msg: error message
         """
         node['errors'] = self.app.error_suppression_limit + 1
         node['last_error'] = time.time()
+        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
+                              {'msg': msg, 'ip': node['ip'],
+                              'port': node['port'], 'device': node['device']})
 
     def account_info(self, account, autocreate=False):
         """
@@ -393,16 +392,9 @@ class Controller(object):
             elif result_code == HTTP_NOT_FOUND and not autocreate:
                 return None, None, None
         result_code = 0
-        attempts_left = len(nodes)
         path = '/%s' % account
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
-        iternodes = self.iter_nodes(partition, nodes, self.app.account_ring)
-        while attempts_left > 0:
-            try:
-                node = iternodes.next()
-            except StopIteration:
-                break
-            attempts_left -= 1
+        for node in self.iter_nodes(self.app.account_ring, partition):
             try:
                 start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -412,7 +404,7 @@ class Controller(object):
                 self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    resp.read()
+                    body = resp.read()
                     if is_success(resp.status):
                         result_code = HTTP_OK
                         account_info.update(
@@ -424,10 +416,16 @@ class Controller(object):
                         elif result_code != HTTP_NOT_FOUND:
                             result_code = -1
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.error_limit(node)
+                        self.error_limit(node, _('ERROR Insufficient Storage'))
                         continue
                     else:
                         result_code = -1
+                        if is_server_error(resp.status):
+                            self.error_occurred(
+                                node,
+                                _('ERROR %(status)d %(body)s From Account '
+                                  'Server') %
+                                {'status': resp.status, 'body': body[:1024]})
             except (Exception, Timeout):
                 self.exception_occurred(node, _('Account'),
                                         _('Trying to get account info for %s')
@@ -497,9 +495,8 @@ class Controller(object):
                 return container_info
         if not self.account_info(account, autocreate=account_autocreate)[1]:
             return container_info
-        attempts_left = len(nodes)
         headers = {'x-trans-id': self.trans_id, 'Connection': 'close'}
-        for node in self.iter_nodes(part, nodes, self.app.container_ring):
+        for node in self.iter_nodes(self.app.container_ring, part):
             try:
                 start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -509,7 +506,7 @@ class Controller(object):
                 self.app.set_node_timing(node, time.time() - start_node_timing)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getresponse()
-                    resp.read()
+                    body = resp.read()
                 if is_success(resp.status):
                     container_info.update(
                         headers_to_container_info(resp.getheaders()))
@@ -519,14 +516,16 @@ class Controller(object):
                 else:
                     container_info['status'] = -1
                     if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.error_limit(node)
+                        self.error_limit(node, _('ERROR Insufficient Storage'))
+                    elif is_server_error(resp.status):
+                        self.error_occurred(node, _(
+                            'ERROR %(status)d %(body)s From Container '
+                            'Server') %
+                            {'status': resp.status, 'body': body[:1024]})
             except (Exception, Timeout):
                 self.exception_occurred(
                     node, _('Container'),
                     _('Trying to get container info for %s') % path)
-            attempts_left -= 1
-            if attempts_left <= 0:
-                break
         if self.app.memcache:
             if container_info['status'] == HTTP_OK:
                 self.app.memcache.set(
@@ -541,18 +540,25 @@ class Controller(object):
             container_info['nodes'] = nodes
         return container_info
 
-    def iter_nodes(self, partition, nodes, ring):
+    def iter_nodes(self, ring, partition):
         """
-        Node iterator that will first iterate over the normal nodes for a
-        partition and then the handoff partitions for the node.
+        Yields nodes for a ring partition, skipping over error
+        limited nodes and stopping at the configurable number of
+        nodes. If a node yielded subsequently gets error limited, an
+        extra node will be yielded to take its place.
 
-        :param partition: partition to iterate nodes for
-        :param nodes: list of node dicts from the ring
-        :param ring: ring to get handoff nodes from
+        :param ring: ring to get yield nodes from
+        :param partition: ring partition to yield nodes for
         """
-        for node in nodes:
+        primary_nodes = self.app.sort_nodes(ring.get_part_nodes(partition))
+        nodes_left = self.app.request_node_count(ring)
+        for node in primary_nodes:
             if not self.error_limited(node):
                 yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
         handoffs = 0
         for node in ring.get_more_nodes(partition):
             if not self.error_limited(node):
@@ -561,9 +567,13 @@ class Controller(object):
                     self.app.logger.increment('handoff_count')
                     self.app.logger.warning(
                         'Handoff requested (%d)' % handoffs)
-                    if handoffs == len(nodes):
+                    if handoffs == len(primary_nodes):
                         self.app.logger.increment('handoff_all_count')
                 yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
 
     def _make_request(self, nodes, part, method, path, headers, query,
                       logger_thread_locals):
@@ -583,7 +593,7 @@ class Controller(object):
                             not is_server_error(resp.status):
                         return resp.status, resp.reason, resp.read()
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.error_limit(node)
+                        self.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
                 self.exception_occurred(node, self.server_type,
                                         _('Trying to %(method)s %(path)s') %
@@ -601,7 +611,7 @@ class Controller(object):
         :returns: a swob.Response object
         """
         start_nodes = ring.get_part_nodes(part)
-        nodes = self.iter_nodes(part, start_nodes, ring)
+        nodes = self.iter_nodes(ring, part)
         pile = GreenPile(len(start_nodes))
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
@@ -755,17 +765,15 @@ class Controller(object):
         """
         return is_success(src.status) or is_redirection(src.status)
 
-    def GETorHEAD_base(self, req, server_type, partition, nodes, path,
-                       attempts):
+    def GETorHEAD_base(self, req, server_type, ring, partition, path):
         """
         Base handler for HTTP GET or HEAD requests.
 
         :param req: swob.Request object
         :param server_type: server type
+        :param ring: the ring to obtain nodes from
         :param partition: partition
-        :param nodes: nodes
         :param path: path for the request
-        :param attempts: number of attempts to try
         :returns: swob.Response object
         """
         statuses = []
@@ -773,14 +781,7 @@ class Controller(object):
         bodies = []
         sources = []
         newest = config_true_value(req.headers.get('x-newest', 'f'))
-        nodes = iter(nodes)
-        while len(statuses) < attempts:
-            try:
-                node = nodes.next()
-            except StopIteration:
-                break
-            if self.error_limited(node):
-                continue
+        for node in self.iter_nodes(ring, partition):
             start_node_timing = time.time()
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
@@ -811,7 +812,7 @@ class Controller(object):
                     statuses.append(possible_source.status)
                     reasons.append(possible_source.reason)
                     bodies.append('')
-                    sources.append(possible_source)
+                    sources.append((possible_source, node))
                     if not newest:  # one good source is enough
                         break
             else:
@@ -819,7 +820,7 @@ class Controller(object):
                 reasons.append(possible_source.reason)
                 bodies.append(possible_source.read())
                 if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.error_limit(node)
+                    self.error_limit(node, _('ERROR Insufficient Storage'))
                 elif is_server_error(possible_source.status):
                     self.error_occurred(node, _('ERROR %(status)d %(body)s '
                                                 'From %(type)s Server') %
@@ -827,9 +828,9 @@ class Controller(object):
                                          'body': bodies[-1][:1024],
                                          'type': server_type})
         if sources:
-            sources.sort(key=source_key)
-            source = sources.pop()
-            for src in sources:
+            sources.sort(key=lambda s: source_key(s[0]))
+            source, node = sources.pop()
+            for src, _junk in sources:
                 self.close_swift_conn(src)
             res = Response(request=req, conditional_response=True)
             if req.method == 'GET' and \

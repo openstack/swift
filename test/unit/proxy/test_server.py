@@ -21,7 +21,7 @@ import sys
 import unittest
 import urlparse
 import signal
-from contextlib import contextmanager
+from contextlib import contextmanager, nested
 from gzip import GzipFile
 from shutil import rmtree
 import time
@@ -30,6 +30,7 @@ from hashlib import md5
 from tempfile import mkdtemp
 import random
 
+import mock
 from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
@@ -203,6 +204,13 @@ class FakeRing(object):
     def set_replicas(self, replicas):
         self.replicas = replicas
         self.devs = {}
+
+    @property
+    def replica_count(self):
+        return self.replicas
+
+    def get_part(self, account, container=None, obj=None):
+        return 1
 
     def get_nodes(self, account, container=None, obj=None):
         devs = []
@@ -1872,12 +1880,13 @@ class TestObjectController(unittest.TestCase):
                                                                   'container',
                                                                   'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(partition, nodes,
-                                                  self.app.object_ring):
+                for node in controller.iter_nodes(self.app.object_ring,
+                                                  partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
 
                 self.app.object_ring.max_more_nodes = 20
+                self.app.request_node_count = lambda r: 20
                 controller = proxy_server.ObjectController(self.app, 'account',
                                                            'container',
                                                            'object')
@@ -1885,8 +1894,8 @@ class TestObjectController(unittest.TestCase):
                                                                   'container',
                                                                   'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(partition, nodes,
-                                                  self.app.object_ring):
+                for node in controller.iter_nodes(self.app.object_ring,
+                                                  partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 9)
 
@@ -1900,8 +1909,8 @@ class TestObjectController(unittest.TestCase):
                                                                   'container',
                                                                   'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(partition, nodes,
-                                                  self.app.object_ring):
+                for node in controller.iter_nodes(self.app.object_ring,
+                                                  partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
                 self.assertEquals(
@@ -1919,13 +1928,48 @@ class TestObjectController(unittest.TestCase):
                                                                   'container',
                                                                   'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(partition, nodes,
-                                                  self.app.object_ring):
+                for node in controller.iter_nodes(self.app.object_ring,
+                                                  partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
                 self.assertEquals(self.app.logger.log_dict['warning'], [])
             finally:
                 self.app.object_ring.max_more_nodes = 0
+
+    def test_iter_nodes_calls_sort_nodes(self):
+        with mock.patch.object(self.app, 'sort_nodes') as sort_nodes:
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            for node in controller.iter_nodes(self.app.object_ring, 0):
+                pass
+            sort_nodes.assert_called_once_with(
+                self.app.object_ring.get_part_nodes(0))
+
+    def test_iter_nodes_skips_error_limited(self):
+        with mock.patch.object(self.app, 'sort_nodes', lambda n: n):
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            first_nodes = list(controller.iter_nodes(self.app.object_ring, 0))
+            second_nodes = list(controller.iter_nodes(self.app.object_ring, 0))
+            self.assertTrue(first_nodes[0] in second_nodes)
+
+            controller.error_limit(first_nodes[0], 'test')
+            second_nodes = list(controller.iter_nodes(self.app.object_ring, 0))
+            self.assertTrue(first_nodes[0] not in second_nodes)
+
+    def test_iter_nodes_gives_extra_if_error_limited_inline(self):
+        with nested(
+                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+                mock.patch.object(self.app, 'request_node_count',
+                                  lambda r: 6),
+                mock.patch.object(self.app.object_ring, 'max_more_nodes', 99)):
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            first_nodes = list(controller.iter_nodes(self.app.object_ring, 0))
+            second_nodes = []
+            for node in controller.iter_nodes(self.app.object_ring, 0):
+                if not second_nodes:
+                    controller.error_limit(node, 'test')
+                second_nodes.append(node)
+            self.assertEquals(len(first_nodes), 6)
+            self.assertEquals(len(second_nodes), 7)
 
     def test_best_response_sets_etag(self):
         controller = proxy_server.ObjectController(self.app, 'account',
@@ -5425,8 +5469,8 @@ class FakeObjectController(object):
         resp = Response(app_iter=iter(body))
         return resp
 
-    def iter_nodes(self, partition, nodes, ring):
-        for node in nodes:
+    def iter_nodes(self, ring, partition):
+        for node in ring.get_part_nodes(partition):
             yield node
         for node in ring.get_more_nodes(partition):
             yield node

@@ -201,6 +201,13 @@ class TestRing(unittest.TestCase):
         self.assertEquals(len(self.ring.devs), 9)
         self.assertNotEquals(self.ring._mtime, orig_mtime)
 
+    def test_get_part(self):
+        part1 = self.ring.get_part('a')
+        nodes1 = self.ring.get_part_nodes(part1)
+        part2, nodes2 = self.ring.get_nodes('a')
+        self.assertEquals(part1, part2)
+        self.assertEquals(nodes1, nodes2)
+
     def test_get_part_nodes(self):
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(nodes, self.ring.get_part_nodes(part))

@@ -48,10 +48,9 @@ class AccountController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
-        nodes = self.app.sort_nodes(nodes)
         resp = self.GETorHEAD_base(
-            req, _('Account'), partition, nodes, req.path_info.rstrip('/'),
-            len(nodes))
+            req, _('Account'), self.app.account_ring, partition,
+            req.path_info.rstrip('/'))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
                 resp = HTTPBadRequest(request=req)
@@ -70,8 +69,8 @@ class AccountController(Controller):
                                         self.account_name)
                 return resp
             resp = self.GETorHEAD_base(
-                req, _('Account'), partition, nodes, req.path_info.rstrip('/'),
-                len(nodes))
+                req, _('Account'), self.app.account_ring, partition,
+                req.path_info.rstrip('/'))
         return resp
 
     @public
