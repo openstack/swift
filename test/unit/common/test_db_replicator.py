@@ -18,6 +18,8 @@ from contextlib import contextmanager
 import os
 import logging
 import errno
+import math
+from mock import patch
 from shutil import rmtree
 from tempfile import mkdtemp, NamedTemporaryFile
 
@@ -80,8 +82,13 @@ class FakeRingWithNodes:
 class FakeProcess:
     def __init__(self, *codes):
         self.codes = iter(codes)
+        self.args = None
+        self.kwargs = None
 
     def __call__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
         class Failure:
             def communicate(innerself):
                 next = self.codes.next()
@@ -96,7 +103,7 @@ class FakeProcess:
 def _mock_process(*args):
     orig_process = db_replicator.subprocess.Popen
     db_replicator.subprocess.Popen = FakeProcess(*args)
-    yield
+    yield db_replicator.subprocess.Popen
     db_replicator.subprocess.Popen = orig_process
 
 
@@ -121,10 +128,8 @@ class ReplHttp:
 class ChangingMtimesOs:
     def __init__(self):
         self.mtime = 0
-        self.path = self
-        self.basename = os.path.basename
 
-    def getmtime(self, file):
+    def __call__(self, *args, **kwargs):
         self.mtime += 1
         return self.mtime
 
@@ -136,11 +141,14 @@ class FakeBroker:
     db_type = 'container'
 
     def __init__(self, *args, **kwargs):
+        self.locked = False
         return None
 
     @contextmanager
     def lock(self):
+        self.locked = True
         yield True
+        self.locked = False
 
     def get_sync(self, *args, **kwargs):
         return 5
@@ -220,11 +228,122 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEquals(True,
                     replicator._rsync_file('/some/file', 'remote:/some/file'))
 
+    def test_rsync_file_popen_args(self):
+        replicator = TestReplicator({})
+        with _mock_process(0) as process:
+            replicator._rsync_file('/some/file', 'remote:/some_file')
+            exp_args = ([
+                'rsync', '--quiet', '--no-motd',
+                '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
+                '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
+                '--whole-file', '/some/file', 'remote:/some_file'],)
+            self.assertEqual(exp_args, process.args)
+
+    def test_rsync_file_popen_args_whole_file_false(self):
+        replicator = TestReplicator({})
+        with _mock_process(0) as process:
+            replicator._rsync_file('/some/file', 'remote:/some_file', False)
+            exp_args = ([
+                'rsync', '--quiet', '--no-motd',
+                '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
+                '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
+                '/some/file', 'remote:/some_file'],)
+            self.assertEqual(exp_args, process.args)
+
     def test_rsync_db(self):
         replicator = TestReplicator({})
         replicator._rsync_file = lambda *args: True
         fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
         replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
+
+    def test_rsync_db_rsync_file_call(self):
+        fake_device = {'ip': '127.0.0.1', 'port': '0', 'device': 'sda1'}
+
+        def mock_rsync_ip(ip):
+            self.assertEquals(fake_device['ip'], ip)
+            return 'rsync_ip(%s)' % ip
+
+        class MyTestReplicator(TestReplicator):
+            def __init__(self, db_file, remote_file):
+                super(MyTestReplicator, self).__init__({})
+                self.db_file = db_file
+                self.remote_file = remote_file
+
+            def _rsync_file(self_, db_file, remote_file, whole_file=True):
+                self.assertEqual(self_.db_file, db_file)
+                self.assertEqual(self_.remote_file, remote_file)
+                self_._rsync_file_called = True
+                return False
+
+        with patch('swift.common.db_replicator.rsync_ip', mock_rsync_ip):
+            broker = FakeBroker()
+            remote_file = 'rsync_ip(127.0.0.1)::container/sda1/tmp/abcd'
+            replicator = MyTestReplicator(broker.db_file, remote_file)
+            replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
+            self.assert_(replicator._rsync_file_called)
+
+        with patch('swift.common.db_replicator.rsync_ip', mock_rsync_ip):
+            broker = FakeBroker()
+            remote_file = 'rsync_ip(127.0.0.1)::container0/sda1/tmp/abcd'
+            replicator = MyTestReplicator(broker.db_file, remote_file)
+            replicator.vm_test_mode = True
+            replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
+            self.assert_(replicator._rsync_file_called)
+
+    def test_rsync_db_rsync_file_failure(self):
+        class MyTestReplicator(TestReplicator):
+            def __init__(self):
+                super(MyTestReplicator, self).__init__({})
+                self._rsync_file_called = False
+
+            def _rsync_file(self_, *args, **kwargs):
+                self.assertEqual(
+                    False, self_._rsync_file_called,
+                    '_sync_file() should only be called once')
+                self_._rsync_file_called = True
+                return False
+
+        with patch('os.path.exists', lambda *args: True):
+            replicator = MyTestReplicator()
+            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+            replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
+            self.assertEqual(True, replicator._rsync_file_called)
+
+    def test_rsync_db_change_after_sync(self):
+        class MyTestReplicator(TestReplicator):
+            def __init__(self, broker):
+                super(MyTestReplicator, self).__init__({})
+                self.broker = broker
+                self._rsync_file_call_count = 0
+
+            def _rsync_file(self_, db_file, remote_file, whole_file=True):
+                self_._rsync_file_call_count += 1
+                if self_._rsync_file_call_count == 1:
+                    self.assertEquals(True, whole_file)
+                    self.assertEquals(False, self_.broker.locked)
+                elif self_._rsync_file_call_count == 2:
+                    self.assertEquals(False, whole_file)
+                    self.assertEquals(True, self_.broker.locked)
+                else:
+                    raise RuntimeError('_rsync_file() called too many times')
+                return True
+
+        # with journal file
+        with patch('os.path.exists', lambda *args: True):
+            broker = FakeBroker()
+            replicator = MyTestReplicator(broker)
+            fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+            replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
+            self.assertEquals(2, replicator._rsync_file_call_count)
+
+        # with new mtime
+        with patch('os.path.exists', lambda *args: False):
+            with patch('os.path.getmtime', ChangingMtimesOs()):
+                broker = FakeBroker()
+                replicator = MyTestReplicator(broker)
+                fake_device = {'ip': '127.0.0.1', 'device': 'sda1'}
+                replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
+                self.assertEquals(2, replicator._rsync_file_call_count)
 
     def test_in_sync(self):
         replicator = TestReplicator({})
