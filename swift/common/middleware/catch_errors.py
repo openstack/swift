@@ -23,12 +23,13 @@ from swift.common.wsgi import WSGIContext
 
 class CatchErrorsContext(WSGIContext):
 
-    def __init__(self, app, logger):
+    def __init__(self, app, logger, trans_id_suffix=''):
         super(CatchErrorsContext, self).__init__(app)
         self.logger = logger
+        self.trans_id_suffix = trans_id_suffix
 
     def handle_request(self, env, start_response):
-        trans_id = 'tx' + uuid.uuid4().hex
+        trans_id = 'tx' + uuid.uuid4().hex + self.trans_id_suffix
         env['swift.trans_id'] = trans_id
         self.logger.txn_id = trans_id
         try:
@@ -60,12 +61,15 @@ class CatchErrorMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route='catch-errors')
+        self.trans_id_suffix = conf.get('trans_id_suffix', '')
 
     def __call__(self, env, start_response):
         """
         If used, this should be the first middleware in pipeline.
         """
-        context = CatchErrorsContext(self.app, self.logger)
+        context = CatchErrorsContext(self.app,
+                                     self.logger,
+                                     self.trans_id_suffix)
         return context.handle_request(env, start_response)
 
 

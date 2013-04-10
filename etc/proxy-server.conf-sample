@@ -16,6 +16,11 @@
 # log_level = INFO
 # log_headers = False
 # log_address = /dev/log
+# This optional suffix (default is empty) that would be appended to the swift transaction
+# id allows one to easily figure out from which cluster that X-Trans-Id belongs to.
+# This is very useful when one is managing more than one swift cluster.
+# trans_id_suffix =
+#
 # comma separated list of functions to call to setup custom log handlers.
 # functions get passed: conf, name, log_to_console, log_route, fmt, logger,
 # adapted_logger
@@ -342,6 +347,7 @@ use = egg:swift#proxy_logging
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 # log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
+#
 # Note: The double proxy-logging in the pipeline is not a mistake. The
 # left-most proxy-logging is there to log requests that were handled in
 # middleware and never made it through to the right-most middleware (and
