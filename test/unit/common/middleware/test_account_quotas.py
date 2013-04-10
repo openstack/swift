@@ -29,6 +29,15 @@ class FakeCache(object):
         pass
 
 
+class FakeBadApp(object):
+    def __init__(self, headers=[]):
+        self.headers = headers
+
+    def __call__(self, env, start_response):
+        start_response('404 NotFound', self.headers)
+        return []
+
+
 class FakeApp(object):
     def __init__(self, headers=[]):
         self.headers = headers
@@ -85,6 +94,26 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache,
                                      'reseller_request': True})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_bad_application_quota(self):
+        headers = []
+        app = account_quotas.AccountQuotaMiddleware(FakeBadApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 404)
+
+    def test_no_info_quota(self):
+        headers = []
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
