@@ -117,7 +117,7 @@ swift-ring-builder <builder_file>
                 else:
                     balance = 100.0 * dev['parts'] / \
                         (dev['weight'] * weighted_parts) - 100.0
-                print('         %5d %5d %5d %15s %5d %9s %6.02f %10s'
+                print('         %5d %7d %5d %15s %5d %9s %6.02f %10s'
                       '%7.02f %s' %
                       (dev['id'], dev['region'], dev['zone'], dev['ip'],
                        dev['port'], dev['device'], dev['weight'], dev['parts'],
@@ -151,7 +151,7 @@ swift-ring-builder <builder_file> search <search-value>
             else:
                 balance = 100.0 * dev['parts'] / \
                     (dev['weight'] * weighted_parts) - 100.0
-            print('         %5d %5d %5d %15s %5d %9s %6.02f %10s %7.02f %s' %
+            print('         %5d %7d %5d %15s %5d %9s %6.02f %10s %7.02f %s' %
                   (dev['id'], dev['region'], dev['zone'], dev['ip'],
                    dev['port'], dev['device'], dev['weight'], dev['parts'],
                    balance, dev['meta']))
