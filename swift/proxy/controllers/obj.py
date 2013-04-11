@@ -173,6 +173,9 @@ class SegmentedIterable(object):
                         '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
                         {'path': path, 'r_etag': resp.etag,
                          's_etag': self.segment_dict['hash']}))
+                if 'X-Static-Large-Object' in resp.headers:
+                    raise SloSegmentError(_(
+                        'SLO can not be made of other SLOs: %s' % path))
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)

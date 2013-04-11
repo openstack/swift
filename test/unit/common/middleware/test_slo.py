@@ -36,10 +36,11 @@ class FakeApp(object):
             cont_len = 100
             if obj == 'small_object':
                 cont_len = 10
-            return Response(
-                status=200,
-                headers={'etag': 'etagoftheobjectsegment',
-                         'Content-Length': cont_len})(env, start_response)
+            headers = {'etag': 'etagoftheobjectsegment',
+                       'Content-Length': cont_len}
+            if obj == 'slob':
+                headers['X-Static-Large-Object'] = 'true'
+            return Response(status=200, headers=headers)(env, start_response)
         if env['PATH_INFO'].startswith('/test_good_check/'):
             j, v, a, cont, obj = env['PATH_INFO'].split('/')
             etag, size = obj.split('_')
@@ -307,7 +308,8 @@ class TestStaticLargeObject(unittest.TestCase):
         bad_data = json.dumps(
             [{'path': '/c/a_1', 'etag': 'a', 'size_bytes': '1'},
              {'path': '/c/a_2', 'etag': 'a', 'size_bytes': '1'},
-             {'path': '/d/b_2', 'etag': 'b', 'size_bytes': '2'}])
+             {'path': '/d/b_2', 'etag': 'b', 'size_bytes': '2'},
+             {'path': '/d/slob', 'etag': 'b', 'size_bytes': '2'}])
         req = Request.blank(
             '/test_good/A/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -316,14 +318,17 @@ class TestStaticLargeObject(unittest.TestCase):
         try:
             self.slo.handle_multipart_put(req)
         except HTTPException, e:
-            self.assertEquals(self.app.calls, 3)
+            self.assertEquals(self.app.calls, 4)
             data = json.loads(e.body)
             errors = data['Errors']
             self.assertEquals(errors[0][0], '/test_good/A/c/a_1')
             self.assertEquals(errors[0][1], 'Size Mismatch')
             self.assertEquals(errors[2][1], '400 Bad Request')
-            self.assertEquals(errors[-1][0], '/test_good/A/d/b_2')
-            self.assertEquals(errors[-1][1], 'Etag Mismatch')
+            self.assertEquals(errors[4][0], '/test_good/A/d/b_2')
+            self.assertEquals(errors[4][1], 'Etag Mismatch')
+            self.assertEquals(errors[-1][0], '/test_good/A/d/slob')
+            self.assertEquals(errors[-1][1],
+                              'Segments cannot be Large Objects')
         else:
             self.assert_(False)
 
