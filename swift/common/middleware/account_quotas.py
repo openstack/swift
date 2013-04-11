@@ -84,6 +84,8 @@ class AccountQuotaMiddleware(object):
             return HTTPForbidden()
 
         account_info = get_account_info(request.environ, self.app)
+        if not account_info or not account_info['bytes']:
+            return self.app
         new_size = int(account_info['bytes']) + (request.content_length or 0)
         quota = int(account_info['meta'].get('quota-bytes', -1))
 
