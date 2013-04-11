@@ -40,12 +40,11 @@ def format_device(dev):
     """
     Format a device for display.
     """
-    if ':' in dev['ip']:
-        return ('d%(id)sr%(region)sz%(zone)s-'
-                '[%(ip)s]:%(port)s/%(device)s_"%(meta)s"') % dev
-    else:
-        return ('d%(id)sr%(region)sz%(zone)s-'
-                '%(ip)s:%(port)s/%(device)s_"%(meta)s"') % dev
+    copy_dev = dev.copy()
+    if ':' in copy_dev['ip']:
+        copy_dev['ip'] = '[' + copy_dev['ip'] + ']'
+    return ('d%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)s/%(device)s_'
+            '"%(meta)s"' % copy_dev)
 
 
 class Commands:
@@ -299,16 +298,9 @@ swift-ring-builder <builder_file> add
                              'weight': weight, 'meta': meta})
             new_dev = builder.search_devs(
                 'r%dz%d-%s:%s/%s' %
-                (region, zone, ip, port, device_name))[0]['id']
-            if ':' in ip:
-                print(
-                    'Device r%dz%d-[%s]:%s/%s_"%s" with %s weight got id %s' %
-                    (region, zone, ip, port,
-                     device_name, meta, weight, new_dev))
-            else:
-                print('Device r%dz%d-%s:%s/%s_"%s" with %s weight got id %s' %
-                      (region, zone, ip, port,
-                       device_name, meta, weight, new_dev))
+                (region, zone, ip, port, device_name))[0]
+            print('Device %s with %s weight got id %s' %
+                  (format_device(new_dev), weight, new_dev['id']))
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 
@@ -340,16 +332,15 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
             if len(devs) > 1:
                 print 'Matched more than one device:'
                 for dev in devs:
-                    print '    d%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_' \
-                          '"%(meta)s"' % dev
+                    print '    %s' % format_device(dev)
                 if raw_input('Are you sure you want to update the weight for '
                              'these %s devices? (y/N) ' % len(devs)) != 'y':
                     print 'Aborting device modifications'
                     exit(EXIT_ERROR)
             for dev in devs:
                 builder.set_dev_weight(dev['id'], weight)
-                print 'd%(id)sz%(zone)s-%(ip)s:%(port)s/%(device)s_' \
-                      '"%(meta)s" weight set to %(weight)s' % dev
+                print '%s weight set to %s' % (format_device(dev),
+                                               dev['weight'])
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 
@@ -471,8 +462,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
             if len(devs) > 1:
                 print 'Matched more than one device:'
                 for dev in devs:
-                    print '    d%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)s/' \
-                          '%(device)s_"%(meta)s"' % dev
+                    print '    %s' % format_device(dev)
                 if raw_input('Are you sure you want to remove these %s '
                              'devices? (y/N) ' % len(devs)) != 'y':
                     print 'Aborting device removals'
@@ -494,9 +484,8 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
                     print '-' * 79
                     exit(EXIT_ERROR)
 
-                print 'd%(id)sr%(region)sz%(zone)s-%(ip)s:%(port)s/' \
-                      '%(device)s_"%(meta)s" marked for removal and will ' \
-                      'be removed next rebalance.' % dev
+                print '%s marked for removal and will ' \
+                      'be removed next rebalance.' % format_device(dev)
         pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
         exit(EXIT_SUCCESS)
 
