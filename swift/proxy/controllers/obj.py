@@ -140,7 +140,7 @@ class SegmentedIterable(object):
                     self.segment_dict['name'].lstrip('/').split('/', 1)
             else:
                 container, obj = self.container, self.segment_dict['name']
-            partition, nodes = self.controller.app.object_ring.get_nodes(
+            partition = self.controller.app.object_ring.get_part(
                 self.controller.account_name, container, obj)
             path = '/%s/%s/%s' % (self.controller.account_name, container, obj)
             req = Request.blank(path)
@@ -152,12 +152,9 @@ class SegmentedIterable(object):
                 sleep(max(self.next_get_time - time.time(), 0))
             self.next_get_time = time.time() + \
                 1.0 / self.controller.app.rate_limit_segments_per_sec
-            nodes = self.controller.app.sort_nodes(nodes)
             resp = self.controller.GETorHEAD_base(
-                req, _('Object'), partition,
-                self.controller.iter_nodes(partition, nodes,
-                                           self.controller.app.object_ring),
-                path, len(nodes))
+                req, _('Object'), self.controller.app.object_ring, partition,
+                path)
             if self.is_slo and resp.status_int == HTTP_NOT_FOUND:
                 raise SloSegmentError(_(
                     'Could not load object segment %(path)s:'
@@ -309,7 +306,7 @@ class ObjectController(Controller):
                 yield item
 
     def _listing_pages_iter(self, lcontainer, lprefix, env):
-        lpartition, lnodes = self.app.container_ring.get_nodes(
+        lpartition = self.app.container_ring.get_part(
             self.account_name, lcontainer)
         marker = ''
         while True:
@@ -321,10 +318,9 @@ class ObjectController(Controller):
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
-            lnodes = self.app.sort_nodes(lnodes)
             lresp = self.GETorHEAD_base(
-                lreq, _('Container'), lpartition, lnodes, lreq.path_info,
-                len(lnodes))
+                lreq, _('Container'), self.app.container_ring, lpartition,
+                lreq.path_info)
             if 'swift.authorize' in env:
                 lreq.acl = lresp.headers.get('x-container-read')
                 aresp = env['swift.authorize'](lreq)
@@ -385,13 +381,10 @@ class ObjectController(Controller):
             if aresp:
                 return aresp
 
-        partition, nodes = self.app.object_ring.get_nodes(
+        partition = self.app.object_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        nodes = self.app.sort_nodes(nodes)
         resp = self.GETorHEAD_base(
-            req, _('Object'), partition,
-            self.iter_nodes(partition, nodes, self.app.object_ring),
-            req.path_info, len(nodes))
+            req, _('Object'), self.app.object_ring, partition, req.path_info)
 
         if ';' in resp.headers.get('content-type', ''):
             # strip off swift_bytes from content-type
@@ -425,11 +418,9 @@ class ObjectController(Controller):
                 new_req = req.copy_get()
                 new_req.method = 'GET'
                 new_req.range = None
-                nodes = self.app.sort_nodes(nodes)
                 new_resp = self.GETorHEAD_base(
-                    new_req, _('Object'), partition,
-                    self.iter_nodes(partition, nodes, self.app.object_ring),
-                    req.path_info, len(nodes))
+                    new_req, _('Object'), self.app.object_ring, partition,
+                    req.path_info)
                 if new_resp.status_int // 100 == 2:
                     try:
                         listing = json.loads(new_resp.body)
@@ -686,7 +677,7 @@ class ObjectController(Controller):
                     conn.node = node
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.error_limit(node)
+                    self.error_limit(node, _('ERROR Insufficient Storage'))
             except:
                 self.exception_occurred(node, _('Object'),
                                         _('Expect: 100-continue on %s') % path)
@@ -745,8 +736,9 @@ class ObjectController(Controller):
                  req.environ.get('swift_versioned_copy')):
             hreq = Request.blank(req.path_info, headers={'X-Newest': 'True'},
                                  environ={'REQUEST_METHOD': 'HEAD'})
-            hresp = self.GETorHEAD_base(hreq, _('Object'), partition, nodes,
-                                        hreq.path_info, len(nodes))
+            hresp = self.GETorHEAD_base(
+                hreq, _('Object'), self.app.object_ring, partition,
+                hreq.path_info)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
@@ -868,7 +860,7 @@ class ObjectController(Controller):
                     source_resp.headers['X-Static-Large-Object']
 
             req = new_req
-        node_iter = self.iter_nodes(partition, nodes, self.app.object_ring)
+        node_iter = self.iter_nodes(self.app.object_ring, partition)
         pile = GreenPile(len(nodes))
         chunked = req.headers.get('transfer-encoding')
 

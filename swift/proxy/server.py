@@ -116,6 +116,16 @@ class Application(object):
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
         self.allow_static_large_object = config_true_value(
             conf.get('allow_static_large_object', 'true'))
+        value = conf.get('request_node_count', '2 * replicas').lower().split()
+        if len(value) == 1:
+            value = int(value[0])
+            self.request_node_count = lambda r: value
+        elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
+            value = int(value[0])
+            self.request_node_count = lambda r: value * r.replica_count
+        else:
+            raise ValueError(
+                'Invalid request_node_count value: %r' % ''.join(value))
 
     def get_controller(self, path):
         """

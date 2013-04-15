@@ -103,6 +103,10 @@ use = egg:swift#proxy
 # as a regular object on GETs, i.e. will return that object's contents. Should
 # be set to false if slo is not used in pipeline.
 # allow_static_large_object = true
+# Set to the number of nodes to contact for a normal request. You can use
+# '* replicas' at the end to have it use the number given times the number of
+# replicas for the ring being used for the request.
+# request_node_count = 2 * replicas
 
 [filter:tempauth]
 use = egg:swift#tempauth

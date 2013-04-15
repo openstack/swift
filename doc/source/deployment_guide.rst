@@ -669,6 +669,13 @@ rate_limit_after_segment      10               Rate limit the download of
                                                this segment is downloaded.
 rate_limit_segments_per_sec   1                Rate limit large object
                                                downloads at this rate.
+request_node_count            2 * replicas     Set to the number of nodes to
+                                               contact for a normal request.
+                                               You can use '* replicas' at the
+                                               end to have it use the number
+                                               given times the number of
+                                               replicas for the ring being used
+                                               for the request.
 ============================  ===============  =============================
 
 [tempauth]

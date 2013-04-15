@@ -66,11 +66,10 @@ class ContainerController(Controller):
         """Handler for HTTP GET/HEAD requests."""
         if not self.account_info(self.account_name)[1]:
             return HTTPNotFound(request=req)
-        part, nodes = self.app.container_ring.get_nodes(
+        part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
-        nodes = self.app.sort_nodes(nodes)
         resp = self.GETorHEAD_base(
-            req, _('Container'), part, nodes, req.path_info, len(nodes))
+            req, _('Container'), self.app.container_ring, part, req.path_info)
         if self.app.memcache:
             # set the memcache container size for ratelimiting
             cache_key = get_container_memcache_key(self.account_name,
