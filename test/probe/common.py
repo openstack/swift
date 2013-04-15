@@ -56,7 +56,9 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 conn = HTTPConnection('127.0.0.1', port)
                 conn.request('GET', path)
                 resp = conn.getresponse()
-                if resp.status != 404:
+                # 404 because it's a nonsense path (and mount_check is false)
+                # 507 in case the test target is a VM using mount_check
+                if resp.status not in (404, 507):
                     raise Exception(
                         'Unexpected status %s' % resp.status)
                 break
