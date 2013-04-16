@@ -34,7 +34,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_request
 from swift.common.utils import normalize_timestamp, config_true_value, \
-    public, split_path, cache_from_env
+    public, split_path, cache_from_env, list_from_csv
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
@@ -129,8 +129,6 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'cors': {
             'allow_origin': headers.get(
                 'x-container-meta-access-control-allow-origin'),
-            'allow_headers': headers.get(
-                'x-container-meta-access-control-allow-headers'),
             'expose_headers': headers.get(
                 'x-container-meta-access-control-expose-headers'),
             'max_age': headers.get(
@@ -906,15 +904,15 @@ class Controller(object):
             resp.status = HTTP_UNAUTHORIZED
             return resp
 
-        # Always allow the x-auth-token header. This ensures
-        # clients can always make a request to the resource.
+        # Allow all headers requested in the request. The CORS
+        # specification does leave the door open for this, as mentioned in
+        # http://www.w3.org/TR/cors/#resource-preflight-requests
+        # Note: Since the list of headers can be unbounded
+        # simply returning headers can be enough.
         allow_headers = set()
-        if cors.get('allow_headers'):
+        if req.headers.get('Access-Control-Request-Headers'):
             allow_headers.update(
-                [a.strip()
-                 for a in cors['allow_headers'].split(' ')
-                 if a.strip()])
-        allow_headers.add('x-auth-token')
+                list_from_csv(req.headers['Access-Control-Request-Headers']))
 
         # Populate the response with the CORS preflight headers
         headers['access-control-allow-origin'] = req_origin_value
@@ -922,7 +920,8 @@ class Controller(object):
             headers['access-control-max-age'] = cors.get('max_age')
         headers['access-control-allow-methods'] = \
             ', '.join(self.allowed_methods)
-        headers['access-control-allow-headers'] = ', '.join(allow_headers)
+        if allow_headers:
+            headers['access-control-allow-headers'] = ', '.join(allow_headers)
         resp.headers = headers
 
         return resp
