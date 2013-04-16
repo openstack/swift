@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import urllib
 from time import time
 from unittest import main, TestCase
 from test.unit import FakeLogger
+
+import mock
 
 from swift.common import internal_client
 from swift.obj import expirer
@@ -511,6 +514,17 @@ class TestObjectExpirer(TestCase):
         finally:
             pass
         self.assertEquals(503, exc.resp.status_int)
+
+    def test_delete_actual_object_quotes(self):
+        name = 'this name should get quoted'
+        timestamp = '1366063156.863045'
+        x = expirer.ObjectExpirer({})
+        x.swift.make_request = mock.MagicMock()
+        x.delete_actual_object(name, timestamp)
+        x.swift.make_request.assert_called_once()
+        self.assertEquals(x.swift.make_request.call_args[0][1],
+                          '/v1/' + urllib.quote(name))
+
 
 if __name__ == '__main__':
     main()
