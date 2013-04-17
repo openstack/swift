@@ -276,17 +276,18 @@ class Controller(object):
             if getattr(m, 'publicly_accessible', False):
                 self.allowed_methods.add(name)
 
+    def _x_remove_headers(self):
+        return []
+
     def transfer_headers(self, src_headers, dst_headers):
 
         st = self.server_type.lower()
         x_remove = 'x-remove-%s-meta-' % st
-        x_remove_read = 'x-remove-%s-read' % st
-        x_remove_write = 'x-remove-%s-write' % st
         x_meta = 'x-%s-meta-' % st
         dst_headers.update((k.lower().replace('-remove', '', 1), '')
                            for k in src_headers
                            if k.lower().startswith(x_remove) or
-                           k.lower() in (x_remove_read, x_remove_write))
+                           k.lower() in self._x_remove_headers())
 
         dst_headers.update((k.lower(), v)
                            for k, v in src_headers.iteritems()

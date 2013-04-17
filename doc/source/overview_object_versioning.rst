@@ -15,7 +15,7 @@ container where the versions are stored. It is recommended to use a different
 When data is ``PUT`` into a versioned container (a container with the
 versioning flag turned on), the existing data in the file is redirected to a
 new object and the data in the ``PUT`` request is saved as the data for the
-versioned object. The new object name (for the previous version) is 
+versioned object. The new object name (for the previous version) is
 ``<versions_container>/<length><object_name>/<timestamp>``, where ``length``
 is the 3-character zero-padded hexidecimal length of the ``<object_name>`` and
 ``<timestamp>`` is the timestamp of when the previous version was created.
@@ -75,3 +75,15 @@ gone::
         http://<storage_url>/container/myobject
     curl -i -H "X-Auth-Token: <token>" \
         http://<storage_url>/versions?prefix=008myobject/
+
+---------------------------------------------------
+How to Disable Object Versioning in a Swift Cluster
+---------------------------------------------------
+
+If you want to disable all functionality, set ``allow_versions`` back to
+``False`` in the container server config.
+
+Disable versioning a versioned container (x is any value except empty)::
+
+    curl -i -HPOST -H "X-Auth-Token: <token>" \
+        -H "X-Remove-Versions-Location: x" http://<storage_url>/container
