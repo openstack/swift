@@ -110,8 +110,9 @@ Direct API
 
 SLO support centers around the user generated manifest file. After the user
 has uploaded the segments into their account a manifest file needs to be
-built and uploaded. All object segments must be above 1 MB (by default) in
-size. Please see the SLO docs for :ref:`slo-doc` further details.
+built and uploaded. All object segments, except the last, must be above 1 MB
+(by default) in size. Please see the SLO docs for :ref:`slo-doc` further
+details.
 
 ----------------
 Additional Notes
