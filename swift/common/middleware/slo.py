@@ -258,6 +258,10 @@ class StaticLargeObject(object):
                     problem_segments.append([quote(obj_path), 'Size Mismatch'])
                 if seg_dict['etag'] != head_seg_resp.etag:
                     problem_segments.append([quote(obj_path), 'Etag Mismatch'])
+                if 'X-Static-Large-Object' in head_seg_resp.headers or \
+                        'X-Object-Manifest' in head_seg_resp.headers:
+                    problem_segments.append(
+                        [quote(obj_path), 'Segments cannot be Large Objects'])
                 if head_seg_resp.last_modified:
                     last_modified = head_seg_resp.last_modified
                 else:

@@ -1040,8 +1040,8 @@ class TestObjectController(unittest.TestCase):
                 200,    # GET listing1
                 200,    # GET seg01
                 200,    # GET seg02
-                headers={"X-Static-Large-Object": "True",
-                         'content-type': 'text/html; swift_bytes=4'},
+                headers=[{}, {}, {"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'}, {}, {}],
                 body_iter=response_bodies,
                 give_connect=capture_requested_paths)
 
@@ -1195,8 +1195,64 @@ class TestObjectController(unittest.TestCase):
                 200,    # GET listing1
                 200,    # GET seg01
                 200,    # GET seg02
-                headers={"X-Static-Large-Object": "True",
-                         'content-type': 'text/html; swift_bytes=4'},
+                headers=[{}, {}, {"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'}, {}, {}],
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+            req = Request.blank('/a/c/manifest')
+            resp = controller.GET(req)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, 'Aa')  # dropped connection
+            self.assertEqual(resp.content_length, 4)  # content incomplete
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d1/seg01', {}],
+                 ['GET', '/a/d2/seg02', {}]])
+
+    def test_GET_nested_slo(self):
+        listing = [{"hash": "98568d540134639be4655198a36614a4",
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                    "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 2,
+                    "name": "/d2/seg02",
+                    "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                           # HEAD /a
+            '',                           # HEAD /a/c
+            simplejson.dumps(listing),    # GET manifest
+            'Aa',                         # GET seg01
+            'Bb')                         # GET seg02
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            slob_headers = {"X-Static-Large-Object": "True",
+                            'content-type': 'text/html; swift_bytes=4'}
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                200,    # GET listing1
+                200,    # GET seg01
+                200,    # GET seg02
+                headers=[{}, {}, slob_headers, {}, slob_headers],
                 body_iter=response_bodies,
                 give_connect=capture_requested_paths)
             req = Request.blank('/a/c/manifest')
@@ -1255,8 +1311,8 @@ class TestObjectController(unittest.TestCase):
                 200,    # GET listing1
                 200,    # GET seg01
                 404,    # GET seg02
-                headers={"X-Static-Large-Object": "True",
-                         'content-type': 'text/html; swift_bytes=4'},
+                headers=[{}, {}, {"X-Static-Large-Object": "True",
+                         'content-type': 'text/html; swift_bytes=4'}, {}, {}],
                 body_iter=response_bodies,
                 give_connect=capture_requested_paths)
             req = Request.blank('/a/c/manifest')
