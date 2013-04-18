@@ -315,11 +315,21 @@ class DiskFile(object):
         assert self.tmppath is not None
         metadata['name'] = self.name
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
+        # Write the metadata before calling fsync() so that both data and
+        # metadata are flushed to disk.
         write_metadata(fd, metadata)
-        if 'Content-Length' in metadata:
-            self.drop_cache(fd, 0, int(metadata['Content-Length']))
+        # We call fsync() before calling drop_cache() to lower the amount of
+        # redundant work the drop cache code will perform on the pages (now
+        # that after fsync the pages will be all clean).
         tpool.execute(fsync, fd)
+        if 'Content-Length' in metadata:
+            # From the Department of the Redundancy Department, make sure we
+            # call drop_cache() after fsync() to avoid redundant work (pages
+            # all clean).
+            self.drop_cache(fd, 0, int(metadata['Content-Length']))
         invalidate_hash(os.path.dirname(self.datadir))
+        # After the rename completes, this object will be available for other
+        # requests to reference.
         renamer(self.tmppath,
                 os.path.join(self.datadir, timestamp + extension))
         self.metadata = metadata
