@@ -50,6 +50,10 @@ class DiskFileNotExist(SwiftException):
     pass
 
 
+class DiskFileNoSpace(SwiftException):
+    pass
+
+
 class PathNotDir(OSError):
     pass
 

@@ -72,7 +72,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 1024, metadata)
             pre_quarantines = self.auditor.quarantines
 
             self.auditor.object_audit(
@@ -100,7 +100,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 1024, metadata)
             pre_quarantines = self.auditor.quarantines
             # remake so it will have metadata
             self.disk_file = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
@@ -161,7 +161,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 1024, metadata)
             self.disk_file.close()
         self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.quarantines, pre_quarantines)
@@ -181,7 +181,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 1024, metadata)
             self.disk_file.close()
             os.write(fd, 'extra_data')
         self.auditor.audit_all_objects()
@@ -202,7 +202,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 10, metadata)
             self.disk_file.close()
         self.auditor.audit_all_objects()
         self.disk_file = DiskFile(self.devices, 'sdb', '0', 'a', 'c',
@@ -218,7 +218,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 10, metadata)
             self.disk_file.close()
             os.write(fd, 'extra_data')
         self.auditor.audit_all_objects()
@@ -238,7 +238,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': str(normalize_timestamp(time.time())),
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 1024, metadata)
             etag = md5()
             etag.update('1' + '0' * 1023)
             etag = etag.hexdigest()
@@ -275,7 +275,7 @@ class TestAuditor(unittest.TestCase):
                 'X-Timestamp': str(normalize_timestamp(time.time())),
                 'Content-Length': 10,
             }
-            self.disk_file.put(fd, metadata)
+            self.disk_file.put(fd, 10, metadata)
             etag = md5()
             etag = etag.hexdigest()
             metadata['ETag'] = etag
