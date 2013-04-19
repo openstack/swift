@@ -145,7 +145,7 @@ class TestDiskFile(unittest.TestCase):
         tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
         os.rmdir(tmpdir)
         with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    'o', FakeLogger()).mkstemp():
+                                    'o', FakeLogger()).writer() as writer:
             self.assert_(os.path.exists(tmpdir))
 
     def test_iter_hook(self):
@@ -153,7 +153,7 @@ class TestDiskFile(unittest.TestCase):
         def hook():
             hook_call_count[0] += 1
 
-        df = self._get_data_file(fsize=65, csize=8, iter_hook=hook)
+        df = self._get_disk_file(fsize=65, csize=8, iter_hook=hook)
         for _ in df:
             pass
 
@@ -204,7 +204,7 @@ class TestDiskFile(unittest.TestCase):
         self.assert_(os.path.isdir(double_uuid_path))
         self.assert_('-' in os.path.basename(double_uuid_path))
 
-    def _get_data_file(self, invalid_type=None, obj_name='o',
+    def _get_disk_file(self, invalid_type=None, obj_name='o',
                        fsize=1024, csize=8, extension='.data', ts=None,
                        iter_hook=None):
         '''returns a DiskFile'''
@@ -216,25 +216,25 @@ class TestDiskFile(unittest.TestCase):
             timestamp = ts
         else:
             timestamp = str(normalize_timestamp(time()))
-        with df.mkstemp() as fd:
-            os.write(fd, data)
+        with df.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            df.put(fd, fsize, metadata, extension=extension)
+            writer.put(metadata, extension=extension)
             if invalid_type == 'ETag':
                 etag = md5()
                 etag.update('1' + '0' * (fsize - 1))
                 etag = etag.hexdigest()
                 metadata['ETag'] = etag
-                object_server.write_metadata(fd, metadata)
+                object_server.write_metadata(writer.fd, metadata)
             if invalid_type == 'Content-Length':
                 metadata['Content-Length'] = fsize - 1
-                object_server.write_metadata(fd, metadata)
+                object_server.write_metadata(writer.fd, metadata)
 
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
                                     obj_name, FakeLogger(),
@@ -248,43 +248,43 @@ class TestDiskFile(unittest.TestCase):
         return df
 
     def test_quarantine_valids(self):
-        df = self._get_data_file(obj_name='1')
+        df = self._get_disk_file(obj_name='1')
         for chunk in df:
             pass
         self.assertFalse(df.quarantined_dir)
 
-        df = self._get_data_file(obj_name='2', csize=1)
+        df = self._get_disk_file(obj_name='2', csize=1)
         for chunk in df:
             pass
         self.assertFalse(df.quarantined_dir)
 
-        df = self._get_data_file(obj_name='3', csize=100000)
+        df = self._get_disk_file(obj_name='3', csize=100000)
         for chunk in df:
             pass
         self.assertFalse(df.quarantined_dir)
 
     def run_quarantine_invalids(self, invalid_type):
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='1')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='1')
         for chunk in df:
             pass
         self.assertTrue(df.quarantined_dir)
-        df = self._get_data_file(invalid_type=invalid_type,
+        df = self._get_disk_file(invalid_type=invalid_type,
                                  obj_name='2', csize=1)
         for chunk in df:
             pass
         self.assertTrue(df.quarantined_dir)
-        df = self._get_data_file(invalid_type=invalid_type,
+        df = self._get_disk_file(invalid_type=invalid_type,
                                  obj_name='3', csize=100000)
         for chunk in df:
             pass
         self.assertTrue(df.quarantined_dir)
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='4')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='4')
         self.assertFalse(df.quarantined_dir)
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='5')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='5')
         for chunk in df.app_iter_range(0, df.unit_test_len):
             pass
         self.assertTrue(df.quarantined_dir)
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='6')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='6')
         for chunk in df.app_iter_range(0, df.unit_test_len + 100):
             pass
         self.assertTrue(df.quarantined_dir)
@@ -293,15 +293,15 @@ class TestDiskFile(unittest.TestCase):
         # in a quarantine, even if the whole file isn't check-summed
         if invalid_type in ('Zero-Byte', 'Content-Length'):
             expected_quar = True
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='7')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='7')
         for chunk in df.app_iter_range(1, df.unit_test_len):
             pass
         self.assertEquals(bool(df.quarantined_dir), expected_quar)
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='8')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='8')
         for chunk in df.app_iter_range(0, df.unit_test_len - 1):
             pass
         self.assertEquals(bool(df.quarantined_dir), expected_quar)
-        df = self._get_data_file(invalid_type=invalid_type, obj_name='8')
+        df = self._get_disk_file(invalid_type=invalid_type, obj_name='8')
         for chunk in df.app_iter_range(1, df.unit_test_len + 1):
             pass
         self.assertEquals(bool(df.quarantined_dir), expected_quar)
@@ -312,20 +312,20 @@ class TestDiskFile(unittest.TestCase):
         self.run_quarantine_invalids('Zero-Byte')
 
     def test_quarantine_deleted_files(self):
-        df = self._get_data_file(invalid_type='Content-Length',
+        df = self._get_disk_file(invalid_type='Content-Length',
                                  extension='.data')
         df.close()
         self.assertTrue(df.quarantined_dir)
-        df = self._get_data_file(invalid_type='Content-Length',
+        df = self._get_disk_file(invalid_type='Content-Length',
                                  extension='.ts')
         df.close()
         self.assertFalse(df.quarantined_dir)
-        df = self._get_data_file(invalid_type='Content-Length',
+        df = self._get_disk_file(invalid_type='Content-Length',
                                  extension='.ts')
         self.assertRaises(DiskFileNotExist, df.get_data_file_size)
 
     def test_put_metadata(self):
-        df = self._get_data_file()
+        df = self._get_disk_file()
         ts = time()
         metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
         df.put_metadata(metadata)
@@ -335,7 +335,7 @@ class TestDiskFile(unittest.TestCase):
         self.assertTrue(exp_name in set(dl))
 
     def test_put_metadata_ts(self):
-        df = self._get_data_file()
+        df = self._get_disk_file()
         ts = time()
         metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
         df.put_metadata(metadata, tombstone=True)
@@ -345,9 +345,9 @@ class TestDiskFile(unittest.TestCase):
         self.assertTrue(exp_name in set(dl))
 
     def test_unlinkold(self):
-        df1 = self._get_data_file()
+        df1 = self._get_disk_file()
         future_time = str(normalize_timestamp(time() + 100))
-        df2 = self._get_data_file(ts=future_time)
+        df2 = self._get_disk_file(ts=future_time)
         self.assertEquals(len(os.listdir(df1.datadir)), 2)
         df1.unlinkold(future_time)
         self.assertEquals(len(os.listdir(df1.datadir)), 1)
@@ -358,7 +358,7 @@ class TestDiskFile(unittest.TestCase):
         def err():
             raise Exception("bad")
 
-        df = self._get_data_file(fsize=1024 * 1024 * 2)
+        df = self._get_disk_file(fsize=1024 * 1024 * 2)
         df._handle_close_quarantine = err
         for chunk in df:
             pass
@@ -367,7 +367,7 @@ class TestDiskFile(unittest.TestCase):
         self.assertEquals(len(df.logger.log_dict['error']), 1)
 
     def test_quarantine_twice(self):
-        df = self._get_data_file(invalid_type='Content-Length',
+        df = self._get_disk_file(invalid_type='Content-Length',
                                  extension='.data')
         self.assert_(os.path.isfile(df.data_file))
         quar_dir = df.quarantine()

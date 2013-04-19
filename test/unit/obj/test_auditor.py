@@ -62,17 +62,17 @@ class TestAuditor(unittest.TestCase):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             timestamp = str(normalize_timestamp(time.time()))
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 1024, metadata)
+            writer.put(metadata)
             pre_quarantines = self.auditor.quarantines
 
             self.auditor.object_audit(
@@ -80,7 +80,7 @@ class TestAuditor(unittest.TestCase):
                 'sda', '0')
             self.assertEquals(self.auditor.quarantines, pre_quarantines)
 
-            os.write(fd, 'extra_data')
+            os.write(writer.fd, 'extra_data')
             self.auditor.object_audit(
                 os.path.join(self.disk_file.datadir, timestamp + '.data'),
                 'sda', '0')
@@ -91,35 +91,39 @@ class TestAuditor(unittest.TestCase):
         data = '0' * 1024
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 1024, metadata)
+            writer.put(metadata)
             pre_quarantines = self.auditor.quarantines
-            # remake so it will have metadata
-            self.disk_file = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
-                                      self.logger)
 
-            self.auditor.object_audit(
-                os.path.join(self.disk_file.datadir, timestamp + '.data'),
-                'sda', '0')
-            self.assertEquals(self.auditor.quarantines, pre_quarantines)
-            etag = md5()
-            etag.update('1' + '0' * 1023)
-            etag = etag.hexdigest()
-            metadata['ETag'] = etag
-            write_metadata(fd, metadata)
+        # remake so it will have metadata
+        self.disk_file = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
+                                  self.logger)
 
-            self.auditor.object_audit(
-                os.path.join(self.disk_file.datadir, timestamp + '.data'),
-                'sda', '0')
-            self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
+        self.auditor.object_audit(
+            os.path.join(self.disk_file.datadir, timestamp + '.data'),
+            'sda', '0')
+        self.assertEquals(self.auditor.quarantines, pre_quarantines)
+        etag = md5()
+        etag.update('1' + '0' * 1023)
+        etag = etag.hexdigest()
+        metadata['ETag'] = etag
+
+        with self.disk_file.writer() as writer:
+            writer.write(data)
+            writer.put(metadata)
+
+        self.auditor.object_audit(
+            os.path.join(self.disk_file.datadir, timestamp + '.data'),
+            'sda', '0')
+        self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
         timestamp = str(normalize_timestamp(time.time()))
@@ -152,17 +156,16 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 1024, metadata)
-            self.disk_file.close()
+            writer.put(metadata)
         self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.quarantines, pre_quarantines)
 
@@ -172,18 +175,17 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 1024, metadata)
-            self.disk_file.close()
-            os.write(fd, 'extra_data')
+            writer.put(metadata)
+            os.write(writer.fd, 'extra_data')
         self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
@@ -193,34 +195,32 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 10
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 10, metadata)
-            self.disk_file.close()
+            writer.put(metadata)
         self.auditor.audit_all_objects()
         self.disk_file = DiskFile(self.devices, 'sdb', '0', 'a', 'c',
                                   'ob', self.logger)
         data = '1' * 10
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 10, metadata)
-            self.disk_file.close()
-            os.write(fd, 'extra_data')
+            writer.put(metadata)
+            os.write(writer.fd, 'extra_data')
         self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
@@ -229,21 +229,21 @@ class TestAuditor(unittest.TestCase):
         self.auditor.log_time = 0
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
-            os.write(fd, data)
+        with self.disk_file.writer() as writer:
+            writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': str(normalize_timestamp(time.time())),
-                'Content-Length': str(os.fstat(fd).st_size),
+                'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            self.disk_file.put(fd, 1024, metadata)
+            writer.put(metadata)
             etag = md5()
             etag.update('1' + '0' * 1023)
             etag = etag.hexdigest()
             metadata['ETag'] = etag
-            write_metadata(fd, metadata)
+            write_metadata(writer.fd, metadata)
 
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
@@ -268,18 +268,18 @@ class TestAuditor(unittest.TestCase):
             fp.close()
 
         etag = md5()
-        with self.disk_file.mkstemp() as fd:
+        with self.disk_file.writer() as writer:
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': str(normalize_timestamp(time.time())),
                 'Content-Length': 10,
             }
-            self.disk_file.put(fd, 10, metadata)
+            writer.put(metadata)
             etag = md5()
             etag = etag.hexdigest()
             metadata['ETag'] = etag
-            write_metadata(fd, metadata)
+            write_metadata(writer.fd, metadata)
         if self.disk_file.data_file:
             return self.disk_file.data_file
         return ts_file_path
