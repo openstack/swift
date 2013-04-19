@@ -163,7 +163,7 @@ def _header_property(header):
     (Used by both request and response)
     If a value of None is given, the header is deleted.
 
-    :param header: name of the header, e.g. "Content-Length"
+    :param header: name of the header, e.g. "Transfer-Encoding"
     """
     def getter(self):
         return self.headers.get(header, None)
@@ -905,6 +905,46 @@ class Request(object):
             self.environ.get('SCRIPT_NAME', '') + self.environ['PATH_INFO'],
             minsegs, maxsegs, rest_with_last)
 
+    def message_length(self):
+        """
+        Properly determine the message length for this request. It will return
+        an integer if the headers explicitly contain the message length, or
+        None if the headers don't contain a length. The ValueError exception
+        will be raised if the headers are invalid.
+
+        :raises ValueError: if either transfer-encoding or content-length
+            headers have bad values
+        :raises AttributeError: if the last value of the transfer-encoding
+            header is not "chunked"
+        """
+        te = self.headers.get('transfer-encoding')
+        if te:
+            encodings = te.split(',')
+            if len(encodings) > 1:
+                raise AttributeError('Unsupported Transfer-Coding header'
+                                     ' value specified in Transfer-Encoding'
+                                     ' header')
+            # If there are more than one transfer encoding value, the last
+            # one must be chunked, see RFC 2616 Sec. 3.6
+            if encodings[-1].lower() == 'chunked':
+                chunked = True
+            else:
+                raise ValueError('Invalid Transfer-Encoding header value')
+        else:
+            chunked = False
+        if not chunked:
+            # Because we are not using chunked transfer encoding we can pay
+            # attention to the content-length header.
+            fsize = self.headers.get('content-length', None)
+            if fsize is not None:
+                try:
+                    fsize = int(fsize)
+                except ValueError:
+                    raise ValueError('Invalid Content-Length header value')
+        else:
+            fsize = None
+        return fsize
+
 
 def content_range_header_value(start, stop, size):
     return 'bytes %s-%s/%s' % (start, (stop - 1), size)
@@ -1139,6 +1179,7 @@ HTTPUnprocessableEntity = status_map[422]
 HTTPClientDisconnect = status_map[499]
 HTTPServerError = status_map[500]
 HTTPInternalServerError = status_map[500]
+HTTPNotImplemented = status_map[501]
 HTTPBadGateway = status_map[502]
 HTTPServiceUnavailable = status_map[503]
 HTTPInsufficientStorage = status_map[507]

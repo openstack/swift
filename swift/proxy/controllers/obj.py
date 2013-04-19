@@ -53,7 +53,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
-    HTTPClientDisconnect
+    HTTPClientDisconnect, HTTPNotImplemented
 
 
 def segment_listing_iter(listing):
@@ -703,6 +703,16 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
+        try:
+            ml = req.message_length()
+        except ValueError as e:
+            return HTTPBadRequest(request=req, content_type='text/plain',
+                                  body=e.message)
+        except AttributeError as e:
+            return HTTPNotImplemented(request=req, content_type='text/plain',
+                                      body=e.message)
+        if ml is not None and ml > MAX_FILE_SIZE:
+            return HTTPRequestEntityTooLarge(request=req)
         if 'x-delete-after' in req.headers:
             try:
                 x_delete_after = int(req.headers['x-delete-after'])
@@ -867,7 +877,8 @@ class ObjectController(Controller):
         node_iter = GreenthreadSafeIterator(
             self.iter_nodes(self.app.object_ring, partition))
         pile = GreenPile(len(nodes))
-        chunked = req.headers.get('transfer-encoding')
+        te = req.headers.get('transfer-encoding', '')
+        chunked = ('chunked' in te)
 
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, containers,

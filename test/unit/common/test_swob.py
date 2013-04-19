@@ -276,6 +276,9 @@ class TestAccept(unittest.TestCase):
                                    'text/xml'])
             self.assertEquals(match, None)
 
+    def test_repr(self):
+        acc = swift.common.swob.Accept("application/json")
+        self.assertEquals(repr(acc), "application/json")
 
 class TestRequest(unittest.TestCase):
     def test_blank(self):
@@ -437,6 +440,11 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': 'hello=equal&acl'})
         self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')
 
+    def test_url(self):
+        req = swift.common.swob.Request.blank('/hi/there?hello=equal&acl')
+        self.assertEqual(req.url,
+                         'http://localhost/hi/there?hello=equal&acl')
+
     def test_wsgify(self):
         used_req = []
 
@@ -565,6 +573,60 @@ class TestRequest(unittest.TestCase):
                                          'wsgi.url_scheme': sche})
         exp_url = '%(sche)s://%(host)s%(pi)s?%(qs)s' % locals()
         self.assertEqual(req.as_referer(), 'POST ' + exp_url)
+
+    def test_message_length_just_content_length(self):
+        req = swift.common.swob.Request.blank(
+            u'/',
+            environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'})
+        self.assertEquals(req.message_length(), None)
+
+        req = swift.common.swob.Request.blank(
+            u'/',
+            environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'},
+            body='x'*42)
+        self.assertEquals(req.message_length(), 42)
+
+        req.headers['Content-Length'] = 'abc'
+        try:
+            l = req.message_length()
+        except ValueError as e:
+            self.assertEquals(e.message, "Invalid Content-Length header value")
+        else:
+            self.fail("Expected a ValueError raised for 'abc'")
+
+    def test_message_length_transfer_encoding(self):
+        req = swift.common.swob.Request.blank(
+            u'/',
+            environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'},
+            headers={'transfer-encoding': 'chunked'},
+            body='x'*42)
+        self.assertEquals(req.message_length(), None)
+
+        req.headers['Transfer-Encoding'] = 'gzip,chunked'
+        try:
+            l = req.message_length()
+        except AttributeError as e:
+            self.assertEquals(e.message, "Unsupported Transfer-Coding header"
+                              " value specified in Transfer-Encoding header")
+        else:
+            self.fail("Expected an AttributeError raised for 'gzip'")
+
+        req.headers['Transfer-Encoding'] = 'gzip'
+        try:
+            l = req.message_length()
+        except ValueError as e:
+            self.assertEquals(e.message, "Invalid Transfer-Encoding header value")
+        else:
+            self.fail("Expected a ValueError raised for 'gzip'")
+
+        req.headers['Transfer-Encoding'] = 'gzip,identity'
+        try:
+            l = req.message_length()
+        except AttributeError as e:
+            self.assertEquals(e.message, "Unsupported Transfer-Coding header"
+                              " value specified in Transfer-Encoding header")
+        else:
+            self.fail("Expected an AttributeError raised for 'gzip,identity'")
 
 
 class TestStatusMap(unittest.TestCase):
