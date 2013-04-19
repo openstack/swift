@@ -47,6 +47,7 @@ use = egg:swift#account
 # set log_requests = True
 # set log_address = /dev/log
 # auto_create_account_prefix = .
+# max_clients = 1024
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

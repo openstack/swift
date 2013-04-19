@@ -62,6 +62,7 @@ use = egg:swift#object
 # Content-Type, etag, Content-Length, or deleted
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object
 # auto_create_account_prefix = .
+# max_clients = 1024
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

@@ -120,6 +120,12 @@ Logging address. The default is /dev/log.
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR
 Connection timeout to external services. The default is 0.5 seconds.
+.IP \fBmax_clients\fR
+Maximum number of clients one worker can process simultaneously (it will
+actually accept(2) N + 1). Setting this to one (1) will only handle one request
+at a time, without accepting another request concurrently. By increasing the
+number of workers to a much higher value, one can reduce the impact of slow file system
+operations in one request from negatively impacting other requests. The default is 1024.
 .RE
 .PD
 
@@ -270,5 +276,3 @@ and
 
 .SH "SEE ALSO"
 .BR swift-object-server(1),
-
-

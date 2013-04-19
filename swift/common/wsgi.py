@@ -105,6 +105,22 @@ def get_socket(conf, default_port=8080):
     return sock
 
 
+class RestrictedGreenPool(GreenPool):
+    """
+    Works the same as GreenPool, but if the size is specified as one, then the
+    spawn_n() method will invoke waitall() before returning to prevent the
+    caller from doing any other work (like calling accept()).
+    """
+    def __init__(self, size=1024):
+        super(RestrictedGreenPool, self).__init__(size=size)
+        self._rgp_do_wait = (size == 1)
+
+    def spawn_n(self, *args, **kwargs):
+        super(RestrictedGreenPool, self).spawn_n(*args, **kwargs)
+        if self._rgp_do_wait:
+            self.waitall()
+
+
 # TODO: pull pieces of this out to test
 def run_wsgi(conf_file, app_section, *args, **kwargs):
     """
@@ -132,7 +148,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
-    def run_server():
+    def run_server(max_clients):
         wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
         # Turn off logging requests by the underlying WSGI software.
         wsgi.HttpProtocol.log_request = lambda *a: None
@@ -147,7 +163,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
         eventlet.debug.hub_exceptions(eventlet_debug)
         app = loadapp('config:%s' % conf_file,
                       global_conf={'log_name': log_name})
-        pool = GreenPool(size=1024)
+        pool = RestrictedGreenPool(size=max_clients)
         try:
             wsgi.server(sock, app, NullLogger(), custom_pool=pool)
         except socket.error, err:
@@ -155,10 +171,11 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
                 raise
         pool.waitall()
 
+    max_clients = int(conf.get('max_clients', '1024'))
     worker_count = int(conf.get('workers', '1'))
     # Useful for profiling [no forks].
     if worker_count == 0:
-        run_server()
+        run_server(max_clients)
         return
 
     def kill_children(*args):
@@ -184,7 +201,7 @@ def run_wsgi(conf_file, app_section, *args, **kwargs):
             if pid == 0:
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                run_server()
+                run_server(max_clients)
                 logger.notice('Child %d exiting normally' % os.getpid())
                 return
             else:

@@ -57,7 +57,7 @@ Web Front End Options
 ---------------------
 
 Swift comes with an integral web front end. However, it can also be deployed
-as a request processor of an Apache2 using mod_wsgi as described in 
+as a request processor of an Apache2 using mod_wsgi as described in
 :doc:`Apache Deployment Guide <apache_deployment_guide>`.
 
 .. _ring-preparing:
@@ -241,6 +241,16 @@ bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6000        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
+max_clients          1024        Maximum number of clients one worker can
+                                 process simultaneously (it will actually
+                                 accept(2) N + 1). Setting this to one (1)
+                                 will only handle one request at a time,
+                                 without accepting another request
+                                 concurrently. By increasing the number of
+                                 workers to a much higher value, one can
+                                 reduce the impact of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests.
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
 log_custom_handlers  None        Comma-separated list of functions to call
@@ -358,6 +368,16 @@ bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6001        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
+max_clients          1024        Maximum number of clients one worker can
+                                 process simultaneously (it will actually
+                                 accept(2) N + 1). Setting this to one (1)
+                                 will only handle one request at a time,
+                                 without accepting another request
+                                 concurrently. By increasing the number of
+                                 workers to a much higher value, one can
+                                 reduce the impact of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests.
 user                 swift       User to run as
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
@@ -440,7 +460,7 @@ log_name               container-auditor  Label used when logging
 log_facility           LOG_LOCAL0         Syslog log facility
 log_level              INFO               Logging level
 interval               1800               Minimum time for a pass to take
-containers_per_second  200                Maximum containers audited per second. 
+containers_per_second  200                Maximum containers audited per second.
                                           Should be tuned according to individual
                                           system specs. 0 is unlimited.
 =====================  =================  =======================================
@@ -468,6 +488,16 @@ bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6002        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
 workers              1           Number of workers to fork
+max_clients          1024        Maximum number of clients one worker can
+                                 process simultaneously (it will actually
+                                 accept(2) N + 1). Setting this to one (1)
+                                 will only handle one request at a time,
+                                 without accepting another request
+                                 concurrently. By increasing the number of
+                                 workers to a much higher value, one can
+                                 reduce the impact of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests.
 user                 swift       User to run as
 db_preallocation     off         If you don't mind the extra disk space usage in
                                  overhead, you can turn this on to preallocate
@@ -527,9 +557,9 @@ log_name              account-auditor  Label used when logging
 log_facility          LOG_LOCAL0       Syslog log facility
 log_level             INFO             Logging level
 interval              1800             Minimum time for a pass to take
-accounts_per_second   200              Maximum accounts audited per second. 
+accounts_per_second   200              Maximum accounts audited per second.
                                        Should be tuned according to individual
-                                       system specs. 0 is unlimited. 
+                                       system specs. 0 is unlimited.
 ====================  ===============  =======================================
 
 [account-reaper]
@@ -572,6 +602,21 @@ bind_timeout                  30               Seconds to attempt bind before
                                                giving up
 swift_dir                     /etc/swift       Swift configuration directory
 workers                       1                Number of workers to fork
+max_clients                   1024             Maximum number of clients one
+                                               worker can process
+                                               simultaneously (it will
+                                               actually accept(2) N +
+                                               1). Setting this to one (1)
+                                               will only handle one request at
+                                               a time, without accepting
+                                               another request
+                                               concurrently. By increasing the
+                                               number of workers to a much
+                                               higher value, one can reduce
+                                               the impact of slow file system
+                                               operations in one request from
+                                               negatively impacting other
+                                               requests.
 user                          swift            User to run as
 cert_file                                      Path to the ssl .crt. This
                                                should be enabled for testing
@@ -580,9 +625,9 @@ key_file                                       Path to the ssl .key. This
                                                should be enabled for testing
                                                purposes only.
 cors_allow_origin                              This is a list of hosts that
-                                               are included with any CORS 
-                                               request by default and 
-                                               returned with the 
+                                               are included with any CORS
+                                               request by default and
+                                               returned with the
                                                Access-Control-Allow-Origin
                                                header in addition to what
                                                the container has set.
@@ -785,12 +830,12 @@ should also be monitored to ensure that the times do not vary too much.
 General Service Tuning
 ----------------------
 
-Most services support either a worker or concurrency value in the settings.
-This allows the services to make effective use of the cores available. A good
-starting point to set the concurrency level for the proxy and storage services
-to 2 times the number of cores available. If more than one service is
-sharing a server, then some experimentation may be needed to find the best
-balance.
+Most services support either a `worker` or `concurrency` value in the
+settings.  This allows the services to make effective use of the cores
+available. A good starting point to set the concurrency level for the proxy
+and storage services to 2 times the number of cores available. If more than
+one service is sharing a server, then some experimentation may be needed to
+find the best balance.
 
 At Rackspace, our Proxy servers have dual quad core processors, giving us 8
 cores. Our testing has shown 16 workers to be a pretty good balance when
@@ -798,9 +843,21 @@ saturating a 10g network and gives good CPU utilization.
 
 Our Storage servers all run together on the same servers. These servers have
 dual quad core processors, for 8 cores total. We run the Account, Container,
-and Object servers with 8 workers each. Most of the background jobs are run
-at a concurrency of 1, with the exception of the replicators which are run at
-a concurrency of 2.
+and Object servers with 8 workers each. Most of the background jobs are run at
+a concurrency of 1, with the exception of the replicators which are run at a
+concurrency of 2.
+
+The `max_clients` parameter can be used to adjust the number of client
+requests an individual worker accepts for processing. The fewer requests being
+processed at one time, the less likely a request that consumes the worker's
+CPU time, or blocks in the OS, will negatively impact other requests. The more
+requests being processed at one time, the more likely one worker can utilize
+network and disk capacity.
+
+On systems that have more cores, and more memory, where one can afford to run
+more workers, raising the number of workers and lowering the maximum number of
+clients serviced per worker can lessen the impact of CPU intensive or stalled
+requests.
 
 The above configuration setting should be taken as suggestions and testing
 of configuration settings should be done to ensure best utilization of CPU,
