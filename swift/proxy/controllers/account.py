@@ -139,6 +139,11 @@ class AccountController(Controller):
     @public
     def DELETE(self, req):
         """HTTP DELETE request handler."""
+        # Extra safety in case someone typos a query string for an
+        # account-level DELETE request that was really meant to be caught by
+        # some middleware.
+        if req.query_string:
+            return HTTPBadRequest(request=req)
         if not self.app.allow_account_management:
             return HTTPMethodNotAllowed(
                 request=req,

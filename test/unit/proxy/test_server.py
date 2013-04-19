@@ -5564,6 +5564,29 @@ class TestAccountController(unittest.TestCase):
             test_status_map((201, 500, 500), 503)
             test_status_map((204, 500, 404), 503)
 
+    def test_DELETE_with_query_string(self):
+        # Extra safety in case someone typos a query string for an
+        # account-level DELETE request that was really meant to be caught by
+        # some middleware.
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+
+            def test_status_map(statuses, expected, **kwargs):
+                set_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/a?whoops', {'REQUEST_METHOD': 'DELETE'})
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.DELETE(req)
+                expected = str(expected)
+                self.assertEquals(res.status[:len(expected)], expected)
+            test_status_map((201, 201, 201), 400)
+            self.app.allow_account_management = True
+            test_status_map((201, 201, 201), 400)
+            test_status_map((201, 201, 500), 400)
+            test_status_map((201, 500, 500), 400)
+            test_status_map((204, 500, 404), 400)
+
 
 class FakeObjectController(object):
 
