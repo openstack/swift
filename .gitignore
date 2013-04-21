@@ -8,3 +8,4 @@ swift.egg-info
 .DS_Store
 .tox
 pycscope.*
+.idea
