@@ -66,6 +66,8 @@ from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, config_true_value,
                                 InputProxy)
 
+QUOTE_SAFE = '/:'
+
 
 class ProxyLoggingMiddleware(object):
     """
@@ -122,7 +124,7 @@ class ProxyLoggingMiddleware(object):
         if self.req_already_logged(req):
             return
         req_path = get_valid_utf8_str(req.path)
-        the_request = quote(unquote(req_path))
+        the_request = quote(unquote(req_path), QUOTE_SAFE)
         if req.query_string:
             the_request = the_request + '?' + req.query_string
         logged_headers = None
@@ -131,7 +133,7 @@ class ProxyLoggingMiddleware(object):
                                        for k, v in req.headers.items())
         method = self.method_from_req(req)
         self.access_logger.info(' '.join(
-            quote(str(x) if x else '-')
+            quote(str(x) if x else '-', QUOTE_SAFE)
             for x in (
                 get_remote_client(req),
                 req.remote_addr,

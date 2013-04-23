@@ -519,6 +519,24 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(resp_body, 'FAKE APP')
         self.assertEquals(log_parts[11], str(len(resp_body)))
 
+    def test_ipv6(self):
+        ipv6addr = '2001:db8:85a3:8d3:1319:8a2e:370:7348'
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        req.remote_addr = ipv6addr
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[0], ipv6addr)
+        self.assertEquals(log_parts[1], ipv6addr)
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(resp_body, 'FAKE APP')
+        self.assertEquals(log_parts[11], str(len(resp_body)))
+
 
 if __name__ == '__main__':
     unittest.main()
