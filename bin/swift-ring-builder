@@ -27,6 +27,7 @@ from time import time
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder
+from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
 
 MAJOR_VERSION = 1
@@ -110,7 +111,7 @@ swift-ring-builder <builder_file>
                     continue
                 if not dev['weight']:
                     if dev['parts']:
-                        balance = 999.99
+                        balance = MAX_BALANCE
                     else:
                         balance = 0
                 else:
@@ -144,7 +145,7 @@ swift-ring-builder <builder_file> search <search-value>
         for dev in devs:
             if not dev['weight']:
                 if dev['parts']:
-                    balance = 999.99
+                    balance = MAX_BALANCE
                 else:
                     balance = 0
             else:
@@ -519,7 +520,12 @@ swift-ring-builder <builder_file> rebalance <seed>
             print 'Either none need to be or none can be due to ' \
                   'min_part_hours [%s].' % builder.min_part_hours
             exit(EXIT_WARNING)
-        if not devs_changed and abs(last_balance - balance) < 1:
+        # If we set device's weight to zero, currently balance will be set
+        # special value(MAX_BALANCE) until zero weighted device return all
+        # its partitions. So we cannot check balance has changed.
+        # Thus we need to check balance or last_balance is special value.
+        if not devs_changed and abs(last_balance - balance) < 1 and \
+                not (last_balance == MAX_BALANCE and balance == MAX_BALANCE):
             print 'Cowardly refusing to save rebalance as it did not change ' \
                   'at least 1%.'
             exit(EXIT_WARNING)

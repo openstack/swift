@@ -23,6 +23,7 @@ from mock import Mock, call as mock_call
 
 from swift.common import exceptions
 from swift.common import ring
+from swift.common.ring.builder import MAX_BALANCE
 
 
 class TestRingBuilder(unittest.TestCase):
@@ -763,7 +764,7 @@ class TestRingBuilder(unittest.TestCase):
 
         rb.set_dev_weight(2, 0)
         rb.rebalance()
-        self.assertEquals(rb.validate(stats=True)[1], 999.99)
+        self.assertEquals(rb.validate(stats=True)[1], MAX_BALANCE)
 
         # Test not all partitions doubly accounted for
         rb.devs[1]['parts'] -= 1
@@ -799,12 +800,12 @@ class TestRingBuilder(unittest.TestCase):
 
         # Validate that zero weight devices with no partitions don't count on
         # the 'worst' value.
-        self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
+        self.assertNotEquals(rb.validate(stats=True)[1], MAX_BALANCE)
         rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 0,
                     'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
-        self.assertNotEquals(rb.validate(stats=True)[1], 999.99)
+        self.assertNotEquals(rb.validate(stats=True)[1], MAX_BALANCE)
 
     def test_get_part_devices(self):
         rb = ring.RingBuilder(8, 3, 1)
