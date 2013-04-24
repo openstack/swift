@@ -528,18 +528,23 @@ class TestUtils(unittest.TestCase):
             self.assert_('my error message' in log_msg)
 
             # test eventlet.Timeout
-            log_exception(ConnectionTimeout(42, 'my error message'))
+            connection_timeout = ConnectionTimeout(42, 'my error message')
+            log_exception(connection_timeout)
             log_msg = strip_value(sio)
             self.assert_('Traceback' not in log_msg)
             self.assert_('ConnectionTimeout' in log_msg)
             self.assert_('(42s)' in log_msg)
             self.assert_('my error message' not in log_msg)
-            log_exception(MessageTimeout(42, 'my error message'))
+            connection_timeout.cancel()
+
+            message_timeout = MessageTimeout(42, 'my error message')
+            log_exception(message_timeout)
             log_msg = strip_value(sio)
             self.assert_('Traceback' not in log_msg)
             self.assert_('MessageTimeout' in log_msg)
             self.assert_('(42s)' in log_msg)
             self.assert_('my error message' in log_msg)
+            message_timeout.cancel()
 
             # test unhandled
             log_exception(Exception('my error message'))

@@ -267,7 +267,11 @@ class AccountController(object):
             account_list = '\n'.join(output_list)
         else:
             if not account_list:
-                return HTTPNoContent(request=req, headers=resp_headers)
+                resp_headers['Content-Type'] = req.accept.best_match(
+                    ['text/plain', 'application/json',
+                     'application/xml', 'text/xml'])
+                return HTTPNoContent(request=req, headers=resp_headers,
+                                     charset='utf-8')
             account_list = '\n'.join(r[0] for r in account_list) + '\n'
         ret = Response(body=account_list, request=req, headers=resp_headers)
         ret.content_type = out_content_type

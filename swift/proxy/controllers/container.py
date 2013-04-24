@@ -124,8 +124,13 @@ class ContainerController(Controller):
                         (len(self.container_name), MAX_CONTAINER_NAME_LENGTH)
             return resp
         account_partition, accounts, container_count = \
-            self.account_info(self.account_name, req,
-                              autocreate=self.app.account_autocreate)
+            self.account_info(self.account_name)
+        if not accounts and self.app.account_autocreate:
+            self.autocreate_account(self.account_name)
+            account_partition, accounts, container_count = \
+                self.account_info(self.account_name)
+        if not accounts:
+            return HTTPNotFound(request=req)
         if self.app.max_containers_per_account > 0 and \
                 container_count >= self.app.max_containers_per_account and \
                 self.account_name not in self.app.max_containers_whitelist:
@@ -133,8 +138,6 @@ class ContainerController(Controller):
             resp.body = 'Reached container limit of %s' % \
                         self.app.max_containers_per_account
             return resp
-        if not accounts:
-            return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = self._backend_requests(req, len(containers),
@@ -157,8 +160,7 @@ class ContainerController(Controller):
         if error_response:
             return error_response
         account_partition, accounts, container_count = \
-            self.account_info(self.account_name, req,
-                              autocreate=self.app.account_autocreate)
+            self.account_info(self.account_name)
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
