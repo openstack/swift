@@ -36,6 +36,8 @@ def start_response(*args):
     pass
 
 
+original_lookup = cname_lookup.lookup_cname
+
 class TestCNAMELookup(unittest.TestCase):
 
     def setUp(self):
@@ -43,6 +45,15 @@ class TestCNAMELookup(unittest.TestCase):
             raise SkipTest
         self.app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
                                                       {'lookup_depth': 2})
+
+    def test_pass_ip_addresses(self):
+
+        cname_lookup.lookup_cname = original_lookup
+
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': '10.134.23.198'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, 'FAKE APP')
 
     def test_passthrough(self):
 
