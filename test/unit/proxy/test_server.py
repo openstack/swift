@@ -2510,6 +2510,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-test'),
                               'testing')
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
+            self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
             # copy-from object is too large to fit in target object
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -2641,6 +2642,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.headers.get('x-object-meta-test'),
                               'testing')
             self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
+            self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': '/c/o'})
@@ -2677,6 +2679,29 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             self.assertEquals(resp.headers['x-copied-from-last-modified'],
                               '3')
+
+    def test_COPY_delete_at(self):
+        with save_globals():
+            given_headers = {}
+
+            def fake_connect_put_node(nodes, part, path, headers,
+                                      logger_thread_locals):
+                given_headers.update(headers)
+
+            controller = proxy_server.ObjectController(self.app, 'a',
+                                                       'c', 'o')
+            controller._connect_put_node = fake_connect_put_node
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
+            self.app.memcache.store = {}
+            req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
+                                headers={'Destination': '/c/o'})
+
+            self.app.update_request(req)
+            controller.COPY(req)
+            self.assertEquals(given_headers.get('X-Delete-At'), '9876543210')
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
 
     def test_chunked_put(self):
 
