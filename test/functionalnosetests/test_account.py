@@ -62,6 +62,45 @@ class TestAccount(unittest.TestCase):
         self.assert_(resp.status in (200, 204), resp.status)
         self.assertEquals(resp.getheader('x-account-meta-test'), 'Value')
 
+    def test_unicode_metadata(self):
+        if skip:
+            raise SkipTest
+
+        def post(url, token, parsed, conn, name, value):
+            conn.request('POST', parsed.path, '',
+                         {'X-Auth-Token': token, name: value})
+            return check_response(conn)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        uni_key = u'X-Account-Meta-uni\u0E12'
+        uni_value = u'uni\u0E12'
+        resp = retry(post, uni_key, '1')
+        resp.read()
+        self.assertTrue(resp.status in (201, 204))
+        resp = retry(head)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEquals(resp.getheader(uni_key.encode('utf-8')), '1')
+        resp = retry(post, 'X-Account-Meta-uni', uni_value)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(head)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEquals(resp.getheader('X-Account-Meta-uni'),
+                          uni_value.encode('utf-8'))
+        resp = retry(post, uni_key, uni_value)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(head)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEquals(resp.getheader(uni_key.encode('utf-8')),
+                          uni_value.encode('utf-8'))
+
     def test_multi_metadata(self):
         if skip:
             raise SkipTest

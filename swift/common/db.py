@@ -49,6 +49,14 @@ def utf8encode(*args):
     return [(s.encode('utf8') if isinstance(s, unicode) else s) for s in args]
 
 
+def utf8encodekeys(metadata):
+    uni_keys = [k for k in metadata.keys() if isinstance(k, unicode)]
+    for k in uni_keys:
+        sv = metadata[k]
+        del metadata[k]
+        metadata[k.encode('utf-8')] = sv
+
+
 class DatabaseConnectionError(sqlite3.DatabaseError):
     """More friendly error messages for DB Errors."""
 
@@ -550,6 +558,7 @@ class DatabaseBroker(object):
                 metadata = ''
         if metadata:
             metadata = json.loads(metadata)
+            utf8encodekeys(metadata)
         else:
             metadata = {}
         return metadata
@@ -575,6 +584,7 @@ class DatabaseBroker(object):
                 md = conn.execute('SELECT metadata FROM %s_stat' %
                                   self.db_type).fetchone()[0]
                 md = md and json.loads(md) or {}
+                utf8encodekeys(md)
             except sqlite3.OperationalError, err:
                 if 'no such column: metadata' not in str(err):
                     raise
