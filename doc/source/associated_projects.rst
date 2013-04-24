@@ -34,6 +34,7 @@ Command Line Access
 -------------------
 
 * `Swiftly <https://github.com/gholt/swiftly>`_ - Alternate command line access to Swift with direct (no proxy) access capabilities as well.
+* `Bakthat <https://github.com/tsileo/bakthat>`_ - Backup framework and command line tool.
 
 
 Log Processing
