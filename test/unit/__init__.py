@@ -318,6 +318,7 @@ def fake_http_connect(*code_iter, **kwargs):
                        'x-timestamp': self.timestamp,
                        'last-modified': self.timestamp,
                        'x-object-meta-test': 'testing',
+                       'x-delete-at': '9876543210',
                        'etag': etag,
                        'x-works': 'yes',
                        'x-account-container-count': kwargs.get('count', 12345)}

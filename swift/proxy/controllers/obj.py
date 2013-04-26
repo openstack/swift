@@ -71,8 +71,9 @@ def copy_headers_into(from_r, to_r):
     :params from_r: a swob Request or Response
     :params to_r: a swob Request or Response
     """
+    pass_headers = ['x-delete-at']
     for k, v in from_r.headers.items():
-        if k.lower().startswith('x-object-meta-'):
+        if k.lower().startswith('x-object-meta-') or k.lower() in pass_headers:
             to_r.headers[k] = v
 
 
@@ -712,25 +713,6 @@ class ObjectController(Controller):
                                           content_type='text/plain',
                                           body='Non-integer X-Delete-After')
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
-        if 'x-delete-at' in req.headers:
-            try:
-                x_delete_at = int(req.headers['x-delete-at'])
-                if x_delete_at < time.time():
-                    return HTTPBadRequest(
-                        body='X-Delete-At in past', request=req,
-                        content_type='text/plain')
-            except ValueError:
-                return HTTPBadRequest(request=req, content_type='text/plain',
-                                      body='Non-integer X-Delete-At')
-            delete_at_container = str(
-                x_delete_at /
-                self.app.expiring_objects_container_divisor *
-                self.app.expiring_objects_container_divisor)
-            delete_at_part, delete_at_nodes = \
-                self.app.container_ring.get_nodes(
-                    self.app.expiring_objects_account, delete_at_container)
-        else:
-            delete_at_part = delete_at_nodes = None
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # do a HEAD request for container sync and checking object versions
@@ -863,6 +845,27 @@ class ObjectController(Controller):
                     source_resp.headers['X-Static-Large-Object']
 
             req = new_req
+
+        if 'x-delete-at' in req.headers:
+            try:
+                x_delete_at = int(req.headers['x-delete-at'])
+                if x_delete_at < time.time():
+                    return HTTPBadRequest(
+                        body='X-Delete-At in past', request=req,
+                        content_type='text/plain')
+            except ValueError:
+                return HTTPBadRequest(request=req, content_type='text/plain',
+                                      body='Non-integer X-Delete-At')
+            delete_at_container = str(
+                x_delete_at /
+                self.app.expiring_objects_container_divisor *
+                self.app.expiring_objects_container_divisor)
+            delete_at_part, delete_at_nodes = \
+                self.app.container_ring.get_nodes(
+                    self.app.expiring_objects_account, delete_at_container)
+        else:
+            delete_at_part = delete_at_nodes = None
+
         node_iter = self.iter_nodes(self.app.object_ring, partition)
         pile = GreenPile(len(nodes))
         chunked = req.headers.get('transfer-encoding')
