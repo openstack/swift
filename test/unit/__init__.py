@@ -24,6 +24,8 @@ def readuntil2crlfs(fd):
     crlfs = 0
     while crlfs < 2:
         c = fd.read(1)
+        if not c:
+            raise ValueError("didn't get two CRLFs; just got %r" % rv)
         rv = rv + c
         if c == '\r' and lc != '\n':
             crlfs = 0
