@@ -224,7 +224,7 @@ class TestDiskFile(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(fd).st_size),
             }
-            df.put(fd, metadata, extension=extension)
+            df.put(fd, fsize, metadata, extension=extension)
             if invalid_type == 'ETag':
                 etag = md5()
                 etag.update('1' + '0' * (fsize - 1))
