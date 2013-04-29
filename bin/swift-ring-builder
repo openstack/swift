@@ -91,8 +91,8 @@ swift-ring-builder <builder_file>
                               if d is not None))
             zones = len(set((d['region'], d['zone']) for d in builder.devs
                             if d is not None))
-            dev_count = len([d for d in builder.devs
-                             if d is not None])
+            dev_count = len([dev for dev in builder.devs
+                             if dev is not None])
             balance = builder.get_balance()
         print '%d partitions, %.6f replicas, %d regions, %d zones, ' \
               '%d devices, %.02f balance' % (builder.parts, builder.replicas,
