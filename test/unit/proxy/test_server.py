@@ -438,14 +438,16 @@ class TestController(unittest.TestCase):
     def test_account_info_account_autocreate(self):
         with save_globals():
             self.memcache.store = {}
-            set_http_connect(404, 404, 404, 201, 201, 201)
+            # account_info returns after 3 non 2xx responses unless autocreate
+            # is True
+            set_http_connect(404, 404, 404)
             partition, nodes, count = \
                 self.controller.account_info(self.account, autocreate=False)
             self.check_account_info_return(partition, nodes, is_none=True)
             self.assertEquals(count, None)
 
             self.memcache.store = {}
-            set_http_connect(404, 404, 404, 201, 201, 201)
+            set_http_connect(404, 404, 404)
             partition, nodes, count = \
                 self.controller.account_info(self.account)
             self.check_account_info_return(partition, nodes, is_none=True)
@@ -4489,7 +4491,7 @@ class TestContainerController(unittest.TestCase):
             res = method(req)
             self.assertEquals(res.status_int, expected)
 
-    def test_HEAD(self):
+    def test_HEAD_GET(self):
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
@@ -4505,14 +4507,29 @@ class TestContainerController(unittest.TestCase):
                 if expected < 400:
                     self.assert_('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
+
+                set_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/c', {})
+                self.app.update_request(req)
+                res = controller.GET(req)
+                self.assertEquals(res.status[:len(str(expected))],
+                                  str(expected))
+                if expected < 400:
+                    self.assert_('x-works' in res.headers)
+                    self.assertEquals(res.headers['x-works'], 'yes')
             test_status_map((200, 200, 404, 404), 200)
             test_status_map((200, 200, 500, 404), 200)
             test_status_map((200, 304, 500, 404), 304)
             test_status_map((200, 404, 404, 404), 404)
             test_status_map((200, 404, 404, 500), 404)
             test_status_map((200, 500, 500, 500), 503)
+            self.assertFalse(self.app.account_autocreate)
+            test_status_map((404, 404, 404), 404)
+            self.app.account_autocreate = True
+            test_status_map((404, 404, 404), 404)
 
-    def test_PUT(self):
+    def test_PUT_POST(self):
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
@@ -4526,10 +4543,28 @@ class TestContainerController(unittest.TestCase):
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
+
+                set_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/c', {})
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.POST(req)
+                expected = str(expected)
+                self.assertEquals(res.status[:len(expected)], expected)
             test_status_map((200, 201, 201, 201), 201, missing_container=True)
             test_status_map((200, 201, 201, 500), 201, missing_container=True)
             test_status_map((200, 204, 404, 404), 404, missing_container=True)
             test_status_map((200, 204, 500, 404), 503, missing_container=True)
+            self.assertFalse(self.app.account_autocreate)
+            test_status_map((404, 404, 404), 404, missing_container=True)
+            self.app.account_autocreate = True
+            test_status_map((404, 404, 404, 201, 201, 201, 200, 200, 200), 200,
+                            missing_container=True)
+            test_status_map((404, 404, 404, 403, 403, 403), 404,
+                            missing_container=True)
+            test_status_map((404, 404, 404, 403, 201, 201, 403, 201, 201), 201,
+                            missing_container=True)
 
     def test_PUT_max_containers_per_account(self):
         with save_globals():
@@ -4686,6 +4721,12 @@ class TestContainerController(unittest.TestCase):
                                    (200, 404, 404, 404), 404)
             self.assert_status_map(controller.DELETE,
                                    (200, 204, 503, 404), 503)
+            self.assertFalse(self.app.account_autocreate)
+            self.assert_status_map(controller.DELETE,
+                                   (404, 404, 404), 404)
+            self.app.account_autocreate = True
+            self.assert_status_map(controller.DELETE,
+                                   (404, 404, 404), 404)
 
             self.app.memcache = FakeMemcacheReturnsNone()
             # 200: Account check, 404x3: Container check
@@ -5279,20 +5320,21 @@ class TestAccountController(unittest.TestCase):
     def test_GET(self):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
-            self.assert_status_map(controller.GET, (200, 200, 200), 200)
-            self.assert_status_map(controller.GET, (200, 200, 503), 200)
-            self.assert_status_map(controller.GET, (200, 503, 503), 200)
-            self.assert_status_map(controller.GET, (204, 204, 204), 204)
-            self.assert_status_map(controller.GET, (204, 204, 503), 204)
-            self.assert_status_map(controller.GET, (204, 503, 503), 204)
-            self.assert_status_map(controller.GET, (204, 204, 200), 204)
-            self.assert_status_map(controller.GET, (204, 200, 200), 204)
-            self.assert_status_map(controller.GET, (404, 404, 404), 404)
+            # GET returns after the first successful call to an Account Server
+            self.assert_status_map(controller.GET, (200,), 200)
+            self.assert_status_map(controller.GET, (503, 200), 200)
+            self.assert_status_map(controller.GET, (503, 503, 200), 200)
+            self.assert_status_map(controller.GET, (204,), 204)
+            self.assert_status_map(controller.GET, (503, 204), 204)
+            self.assert_status_map(controller.GET, (503, 503, 204), 204)
+            self.assert_status_map(controller.GET, (404, 200), 200)
             self.assert_status_map(controller.GET, (404, 404, 200), 200)
-            self.assert_status_map(controller.GET, (404, 200, 200), 200)
+            self.assert_status_map(controller.GET, (404, 503, 204), 204)
+            # If Account servers fail, if autocreate = False, return majority
+            # response
+            self.assert_status_map(controller.GET, (404, 404, 404), 404)
             self.assert_status_map(controller.GET, (404, 404, 503), 404)
             self.assert_status_map(controller.GET, (404, 503, 503), 503)
-            self.assert_status_map(controller.GET, (404, 204, 503), 204)
 
             self.app.memcache = FakeMemcacheReturnsNone()
             self.assert_status_map(controller.GET, (404, 404, 404), 404)
@@ -5301,35 +5343,49 @@ class TestAccountController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
             self.app.memcache = FakeMemcacheReturnsNone()
+            # Repeat the test for autocreate = False and 404 by all
             self.assert_status_map(controller.GET,
                                    (404, 404, 404, 201, 201, 201, 204), 404)
+            self.assert_status_map(controller.GET,
+                                   (404, 503, 404, 201, 201, 201, 204), 404)
+            # When autocreate is True, if none of the nodes respond 2xx
+            # And quorum of the nodes responded 404,
+            # ALL nodes are asked to create the account
+            # If successful, the GET request is repeated.
             controller.app.account_autocreate = True
             self.assert_status_map(controller.GET,
                                    (404, 404, 404, 201, 201, 201, 204), 204)
             self.assert_status_map(controller.GET,
-                                   (404, 404, 404, 403, 403, 403, 403), 403)
+                                   (404, 503, 404, 201, 503, 201, 204), 204)
+            # Test a case when less than quorum responded 2xx during
+            # account create
             self.assert_status_map(controller.GET,
-                                   (404, 404, 404, 409, 409, 409, 409), 409)
+                                   (404, 404, 404, 201, 409, 409), 409)
+            self.assert_status_map(controller.GET,
+                                   (404, 404, 404, 403, 403, 403), 403)
+            self.assert_status_map(controller.GET,
+                                   (404, 503, 404, 403, 503, 403), 403)
 
     def test_HEAD(self):
+        # Same behaviour as GET
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
-            self.assert_status_map(controller.HEAD, (200, 200, 200), 200)
-            self.assert_status_map(controller.HEAD, (200, 200, 503), 200)
-            self.assert_status_map(controller.HEAD, (200, 503, 503), 200)
-            self.assert_status_map(controller.HEAD, (204, 204, 204), 204)
-            self.assert_status_map(controller.HEAD, (204, 204, 503), 204)
+            self.assert_status_map(controller.HEAD, (200,), 200)
+            self.assert_status_map(controller.HEAD, (503, 200), 200)
+            self.assert_status_map(controller.HEAD, (503, 503, 200), 200)
+            self.assert_status_map(controller.HEAD, (204,), 204)
+            self.assert_status_map(controller.HEAD, (503, 204), 204)
             self.assert_status_map(controller.HEAD, (204, 503, 503), 204)
-            self.assert_status_map(controller.HEAD, (204, 204, 200), 204)
-            self.assert_status_map(controller.HEAD, (204, 200, 200), 204)
+            self.assert_status_map(controller.HEAD, (204,), 204)
             self.assert_status_map(controller.HEAD, (404, 404, 404), 404)
             self.assert_status_map(controller.HEAD, (404, 404, 200), 200)
-            self.assert_status_map(controller.HEAD, (404, 200, 200), 200)
+            self.assert_status_map(controller.HEAD, (404, 200), 200)
             self.assert_status_map(controller.HEAD, (404, 404, 503), 404)
             self.assert_status_map(controller.HEAD, (404, 503, 503), 503)
-            self.assert_status_map(controller.HEAD, (404, 204, 503), 204)
+            self.assert_status_map(controller.HEAD, (404, 503, 204), 204)
 
     def test_HEAD_autocreate(self):
+        # Same behaviour as GET
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
             self.app.memcache = FakeMemcacheReturnsNone()
@@ -5339,9 +5395,9 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.HEAD,
                                    (404, 404, 404, 201, 201, 201, 204), 204)
             self.assert_status_map(controller.HEAD,
-                                   (404, 404, 404, 403, 403, 403, 403), 403)
+                                   (404, 404, 404, 201, 409, 409), 409)
             self.assert_status_map(controller.HEAD,
-                                   (404, 404, 404, 409, 409, 409, 409), 409)
+                                   (404, 404, 404, 201, 403, 201, 204), 204)
 
     def test_POST_autocreate(self):
         with save_globals():
@@ -5353,9 +5409,13 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.POST,
                                    (404, 404, 404, 201, 201, 201), 201)
             self.assert_status_map(controller.POST,
-                                   (404, 404, 404, 403, 403, 403, 403), 403)
+                                   (404, 404, 404, 403, 403, 403), 403)
             self.assert_status_map(controller.POST,
-                                   (404, 404, 404, 409, 409, 409, 409), 409)
+                                   (404, 404, 404, 409, 409, 409), 409)
+            self.assert_status_map(controller.POST,
+                                   (404, 404, 404, 201, 409, 409), 409)
+            self.assert_status_map(controller.POST,
+                                   (404, 404, 404, 201, 201, 409), 201)
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')
