@@ -21,6 +21,7 @@ import os
 import pwd
 import sys
 import time
+import uuid
 import functools
 from hashlib import md5
 from random import random, shuffle
@@ -176,6 +177,20 @@ def get_param(req, name, default=None):
     if value and not isinstance(value, unicode):
         value.decode('utf8')    # Ensure UTF8ness
     return value
+
+
+def generate_trans_id(trans_id_suffix):
+    return 'tx%s-%010x%s' % (
+        uuid.uuid4().hex[:21], time.time(), trans_id_suffix)
+
+
+def get_trans_id_time(trans_id):
+    if len(trans_id) >= 34 and trans_id[:2] == 'tx' and trans_id[23] == '-':
+        try:
+            return int(trans_id[24:34], 16)
+        except ValueError:
+            pass
+    return None
 
 
 class FallocateWrapper(object):

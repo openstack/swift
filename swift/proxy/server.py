@@ -27,7 +27,6 @@
 import mimetypes
 import os
 from ConfigParser import ConfigParser
-import uuid
 from random import shuffle
 from time import time
 
@@ -35,7 +34,7 @@ from eventlet import Timeout
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
-    get_remote_client, split_path, config_true_value
+    get_remote_client, split_path, config_true_value, generate_trans_id
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController
@@ -221,7 +220,7 @@ class Application(object):
             controller = controller(self, **path_parts)
             if 'swift.trans_id' not in req.environ:
                 # if this wasn't set by an earlier middleware, set it now
-                trans_id = 'tx' + uuid.uuid4().hex + self.trans_id_suffix
+                trans_id = generate_trans_id(self.trans_id_suffix)
                 req.environ['swift.trans_id'] = trans_id
                 self.logger.txn_id = trans_id
             req.headers['x-trans-id'] = req.environ['swift.trans_id']

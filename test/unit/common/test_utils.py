@@ -1172,6 +1172,43 @@ log_name = %(yarr)s'''
         finally:
             utils._sys_fallocate = orig__sys_fallocate
 
+    def test_generate_trans_id(self):
+        fake_time = 1366428370.5163341
+        with patch.object(utils.time, 'time', return_value=fake_time):
+            trans_id = utils.generate_trans_id('')
+            self.assertEquals(len(trans_id), 34)
+            self.assertEquals(trans_id[:2], 'tx')
+            self.assertEquals(trans_id[23], '-')
+            self.assertEquals(int(trans_id[24:], 16), int(fake_time))
+        with patch.object(utils.time, 'time', return_value=fake_time):
+            trans_id = utils.generate_trans_id('-suffix')
+            self.assertEquals(len(trans_id), 41)
+            self.assertEquals(trans_id[:2], 'tx')
+            self.assertEquals(trans_id[34:], '-suffix')
+            self.assertEquals(trans_id[23], '-')
+            self.assertEquals(int(trans_id[24:34], 16), int(fake_time))
+
+    def test_get_trans_id_time(self):
+        ts = utils.get_trans_id_time('tx8c8bc884cdaf499bb29429aa9c46946e')
+        self.assertEquals(ts, None)
+        ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-0051720c06')
+        self.assertEquals(ts, 1366428678)
+        self.assertEquals(
+            time.asctime(time.gmtime(ts)) + ' UTC',
+            'Sat Apr 20 03:31:18 2013 UTC')
+        ts = utils.get_trans_id_time(
+            'tx1df4ff4f55ea45f7b2ec2-0051720c06-suffix')
+        self.assertEquals(ts, 1366428678)
+        self.assertEquals(
+            time.asctime(time.gmtime(ts)) + ' UTC',
+            'Sat Apr 20 03:31:18 2013 UTC')
+        ts = utils.get_trans_id_time('')
+        self.assertEquals(ts, None)
+        ts = utils.get_trans_id_time('garbage')
+        self.assertEquals(ts, None)
+        ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-almostright')
+        self.assertEquals(ts, None)
+
 
 class TestStatsdLogging(unittest.TestCase):
     def test_get_logger_statsd_client_not_specified(self):

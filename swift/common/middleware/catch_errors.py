@@ -14,10 +14,9 @@
 # limitations under the License.
 
 from eventlet import Timeout
-import uuid
 
 from swift.common.swob import Request, HTTPServerError
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, generate_trans_id
 from swift.common.wsgi import WSGIContext
 
 
@@ -29,7 +28,7 @@ class CatchErrorsContext(WSGIContext):
         self.trans_id_suffix = trans_id_suffix
 
     def handle_request(self, env, start_response):
-        trans_id = 'tx' + uuid.uuid4().hex + self.trans_id_suffix
+        trans_id = generate_trans_id(self.trans_id_suffix)
         env['swift.trans_id'] = trans_id
         self.logger.txn_id = trans_id
         try:
