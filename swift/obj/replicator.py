@@ -158,7 +158,7 @@ def invalidate_hash(suffix_dir):
         write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
 
 
-def get_hashes(partition_dir, recalculate=[], do_listdir=False,
+def get_hashes(partition_dir, recalculate=None, do_listdir=False,
                reclaim_age=ONE_WEEK):
     """
     Get a list of hashes for the suffix dir.  do_listdir causes it to mistrust
@@ -179,6 +179,10 @@ def get_hashes(partition_dir, recalculate=[], do_listdir=False,
     force_rewrite = False
     hashes = {}
     mtime = -1
+
+    if recalculate is None:
+        recalculate = []
+
     try:
         with open(hashes_file, 'rb') as fp:
             hashes = pickle.load(fp)
@@ -595,7 +599,7 @@ class ObjectReplicator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self, override_devices=[], override_partitions=[]):
+    def replicate(self, override_devices=None, override_partitions=None):
         """Run a replication pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -604,9 +608,16 @@ class ObjectReplicator(Daemon):
         self.replication_count = 0
         self.last_replication_count = -1
         self.partition_times = []
+
+        if override_devices is None:
+            override_devices = []
+        if override_partitions is None:
+            override_partitions = []
+
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
         eventlet.sleep()  # Give spawns a cycle
+
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs()
