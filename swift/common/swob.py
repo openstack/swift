@@ -925,7 +925,7 @@ class Response(object):
     charset = _resp_charset_property()
     app_iter = _resp_app_iter_property()
 
-    def __init__(self, body=None, status=200, headers={}, app_iter=None,
+    def __init__(self, body=None, status=200, headers=None, app_iter=None,
                  request=None, conditional_response=False, **kw):
         self.headers = HeaderKeyDict(
             [('Content-Type', 'text/html; charset=UTF-8')])
@@ -939,7 +939,8 @@ class Response(object):
             self.environ = request.environ
         else:
             self.environ = {}
-        self.headers.update(headers)
+        if headers:
+            self.headers.update(headers)
         for key, value in kw.iteritems():
             setattr(self, key, value)
 
