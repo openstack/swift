@@ -53,6 +53,7 @@ use = egg:swift#container
 # conn_timeout = 0.5
 # allow_versions = False
 # auto_create_account_prefix = .
+# max_clients = 1024
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

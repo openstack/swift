@@ -537,6 +537,12 @@ object.  The default is 10 segments.
 .IP \fBrate_limit_segments_per_sec\fR
 Once segment rate-limiting kicks in for an object, limit segments served to N
 per second.  The default is 1.
+.IP \fBmax_clients\fR
+Maximum number of clients one worker can process simultaneously (it will
+actually accept(2) N + 1). Setting this to one (1) will only handle one request
+at a time, without accepting another request concurrently. By increasing the
+number of workers to a much higher value, one can reduce the impact of slow file system
+operations in one request from negatively impacting other requests. The default is 1024.
 .RE
 .PD
 

@@ -37,6 +37,7 @@
 # Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
 # cors_allow_origin =
 # eventlet_debug = false
+# max_clients = 1024
 
 [pipeline:main]
 pipeline = catch_errors healthcheck proxy-logging cache slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
