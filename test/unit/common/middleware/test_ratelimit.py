@@ -21,7 +21,8 @@ from threading import Thread
 
 from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
-from swift.proxy.controllers.base import get_container_memcache_key
+from swift.proxy.controllers.base import get_container_memcache_key, \
+    headers_to_container_info
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request
 
@@ -184,7 +185,7 @@ class TestRateLimit(unittest.TestCase):
                      'container_ratelimit_3': 200}
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_container_memcache_key('a', 'c')] = \
-            {'count': 5}
+            {'object_count': '5'}
         the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
                                                 logger=FakeLogger())
         the_app.memcache_client = fake_memcache
@@ -198,6 +199,10 @@ class TestRateLimit(unittest.TestCase):
                     'GET', 'a', 'c', 'o')), 0)
         self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                     'PUT', 'a', 'c', 'o')), 1)
+
+    def test_memcached_container_info_dict(self):
+        mdict = headers_to_container_info({'x-container-object-count': '45'})
+        self.assertEquals(mdict['object_count'], '45')
 
     def test_ratelimit_old_memcache_format(self):
         current_rate = 13

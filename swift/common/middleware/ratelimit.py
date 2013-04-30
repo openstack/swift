@@ -121,7 +121,7 @@ class RateLimitMiddleware(object):
             container_info = self.memcache_client.get(memcache_key)
             if isinstance(container_info, dict):
                 container_size = container_info.get(
-                    'count', container_info.get('container_size', 0))
+                    'object_count', container_info.get('container_size', 0))
                 container_rate = self.get_container_maxrate(container_size)
                 if container_rate:
                     keys.append(("ratelimit/%s/%s" % (account_name,
