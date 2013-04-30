@@ -189,7 +189,7 @@ class SegmentedIterable(object):
                      'obj': self.controller.object_name, 'err': err})
                 err.swift_logged = True
                 self.response.status_int = HTTP_CONFLICT
-            raise StopIteration('Invalid manifiest segment')
+            raise
         except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(

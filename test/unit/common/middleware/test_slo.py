@@ -351,7 +351,8 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank(
             '/test_delete/A/c/man?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE'})
-        self.slo(req.environ, fake_start_response)
+        app_iter = self.slo(req.environ, fake_start_response)
+        list(app_iter)  # iterate through whole response
         self.assertEquals(self.app.calls, 4)
         self.assertEquals(self.app.req_method_paths,
                           [('GET', '/test_delete/A/c/man'),
@@ -383,7 +384,8 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank(
             '/test_delete_bad/A/c/man?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE'})
-        self.slo(req.environ, fake_start_response)
+        app_iter = self.slo(req.environ, fake_start_response)
+        list(app_iter)  # iterate through whole response
         self.assertEquals(self.app.calls, 2)
         self.assertEquals(self.app.req_method_paths,
                           [('GET', '/test_delete_bad/A/c/man'),
