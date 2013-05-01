@@ -49,9 +49,11 @@ class CompressingFileReader(object):
 
     :param file_obj: File object to wrap.
     :param compresslevel:  Compression level, defaults to 9.
+    :param chunk_size:  Size of chunks read when iterating using object,
+                        defaults to 4096.
     """
 
-    def __init__(self, file_obj, compresslevel=9):
+    def __init__(self, file_obj, compresslevel=9, chunk_size=4096):
         self._f = file_obj
         self._compressor = compressobj(
             compresslevel, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL,
@@ -60,6 +62,7 @@ class CompressingFileReader(object):
         self.first = True
         self.crc32 = 0
         self.total_size = 0
+        self.chunk_size = chunk_size
 
     def read(self, *a, **kw):
         """
@@ -96,7 +99,7 @@ class CompressingFileReader(object):
         return self
 
     def next(self):
-        chunk = self.read()
+        chunk = self.read(self.chunk_size)
         if chunk:
             return chunk
         raise StopIteration
