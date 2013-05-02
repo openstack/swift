@@ -48,6 +48,14 @@ def start_response(*args):
 
 class TestContainerQuotas(unittest.TestCase):
 
+    def test_split_path_empty_container_path_segment(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        req = Request.blank('/v1/a//something/something_else',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': {'key':'value'}})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
     def test_not_handled(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'PUT'})

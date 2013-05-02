@@ -64,12 +64,12 @@ class ContainerQuotaMiddleware(object):
     @wsgify
     def __call__(self, req):
         try:
-            (version, account, container, obj) = req.split_path(2, 4, True)
+            (version, account, container, obj) = req.split_path(3, 4, True)
         except ValueError:
             return self.app
 
         # verify new quota headers are properly formatted
-        if container and not obj and req.method in ('PUT', 'POST'):
+        if not obj and req.method in ('PUT', 'POST'):
             val = req.headers.get('X-Container-Meta-Quota-Bytes')
             if val and not val.isdigit():
                 return HTTPBadRequest(body='Invalid bytes quota.')
