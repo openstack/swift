@@ -183,9 +183,9 @@ def cors_validation(func):
                     expose_headers.append(header.lower())
             if cors_info.get('expose_headers'):
                 expose_headers.extend(
-                    [a.strip()
-                     for a in cors_info['expose_headers'].split(' ')
-                     if a.strip()])
+                    [header_line.strip()
+                     for header_line in cors_info['expose_headers'].split(' ')
+                     if header_line.strip()])
             resp.headers['Access-Control-Expose-Headers'] = \
                 ', '.join(expose_headers)
 

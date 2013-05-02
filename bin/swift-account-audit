@@ -161,7 +161,6 @@ class Auditor(object):
             marker = ''
             results = True
             while results:
-                node_id = node['id']
                 try:
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, 'GET',
@@ -310,34 +309,39 @@ class Auditor(object):
         self.pool.waitall()
 
     def print_stats(self):
+
+        def _print_stat(name, stat):
+            # Right align stat name in a field of 18 characters
+            print "{0:>18}: {1}".format(name, stat)
+
         print
-        print     "  Accounts checked: %d" % self.accounts_checked
+        _print_stat("Accounts checked", self.accounts_checked)
         if self.account_not_found:
-            print "  Missing Replicas: %d" % self.account_not_found
+            _print_stat("Missing Replicas", self.account_not_found)
         if self.account_exceptions:
-            print "        Exceptions: %d" % self.account_exceptions
+            _print_stat("Exceptions", self.account_exceptions)
         if self.account_container_mismatch:
-            print "Container mismatch: %d" % self.account_container_mismatch
+            _print_stat("Container mismatch", self.account_container_mismatch)
         if self.account_object_mismatch:
-            print "   Object mismatch: %d" % self.account_object_mismatch
+            _print_stat("Object mismatch", self.account_object_mismatch)
         print
-        print     "Containers checked: %d" % self.containers_checked
+        _print_stat("Containers checked", self.containers_checked)
         if self.container_not_found:
-            print "  Missing Replicas: %d" % self.container_not_found
+            _print_stat("Missing Replicas", self.container_not_found)
         if self.container_exceptions:
-            print "        Exceptions: %d" % self.container_exceptions
+            _print_stat("Exceptions", self.container_exceptions)
         if self.container_count_mismatch:
-            print "    Count mismatch: %d" % self.container_count_mismatch
+            _print_stat("Count mismatch", self.container_count_mismatch)
         if self.container_obj_mismatch:
-            print "   Object mismatch: %d" % self.container_obj_mismatch
+            _print_stat("Object mismatch", self.container_obj_mismatch)
         print
-        print     "   Objects checked: %d" % self.objects_checked
+        _print_stat("Objects checked", self.objects_checked)
         if self.object_not_found:
-            print "  Missing Replicas: %d" % self.object_not_found
+            _print_stat("Missing Replicas", self.object_not_found)
         if self.object_exceptions:
-            print "        Exceptions: %d" % self.object_exceptions
+            _print_stat("Exceptions", self.object_exceptions)
         if self.object_checksum_mismatch:
-            print "      MD5 Mismatch: %d" % self.object_checksum_mismatch
+            _print_stat("MD5 Mismatch", self.object_checksum_mismatch)
 
 
 if __name__ == '__main__':

@@ -44,7 +44,7 @@ def get_devices(device_dir, logger):
             device['block_device'] = block_device
             try:
                 device_num = os.stat(block_device).st_rdev
-            except OSError, e:
+            except OSError:
                 # If we can't stat the device, then something weird is going on
                 logger.error("Error: Could not stat %s!" %
                              block_device)
