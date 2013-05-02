@@ -1215,19 +1215,53 @@ class TestContainerBroker(unittest.TestCase):
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('c', normalize_timestamp(time()), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        listing = broker.list_objects_iter(15, None, None, None, None)
+        broker.put_object('a/0', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('00', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/0', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/00', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/1', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/1/', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('0/1/0', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('1', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('1/', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object('1/0', normalize_timestamp(time()), 0,
+                          'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        listing = broker.list_objects_iter(25, None, None, None, None)
+        self.assertEquals(len(listing), 22)
+        self.assertEquals([row[0] for row in listing],
+        ['0', '0/', '0/0', '0/00', '0/1', '0/1/', '0/1/0', '00', '1', '1/',
+         '1/0', 'a', 'a/', 'a/0', 'a/a', 'a/a/a', 'a/a/b', 'a/b', 'b', 'b/a',
+         'b/b', 'c'])
+        listing = broker.list_objects_iter(25, None, None, '', '/')
         self.assertEquals(len(listing), 10)
         self.assertEquals([row[0] for row in listing],
-        ['a', 'a/', 'a/a', 'a/a/a', 'a/a/b', 'a/b', 'b', 'b/a', 'b/b', 'c'])
-        listing = broker.list_objects_iter(15, None, None, '', '/')
+        ['0', '0/', '00', '1', '1/', 'a', 'a/', 'b', 'b/', 'c'])
+        listing = broker.list_objects_iter(25, None, None, 'a/', '/')
         self.assertEquals(len(listing), 5)
         self.assertEquals([row[0] for row in listing],
-        ['a', 'a/', 'b', 'b/', 'c'])
-        listing = broker.list_objects_iter(15, None, None, 'a/', '/')
-        self.assertEquals(len(listing), 4)
+        ['a/', 'a/0', 'a/a', 'a/a/', 'a/b'])
+        listing = broker.list_objects_iter(25, None, None, '0/', '/')
+        self.assertEquals(len(listing), 5)
         self.assertEquals([row[0] for row in listing],
-        ['a/', 'a/a', 'a/a/', 'a/b'])
-        listing = broker.list_objects_iter(15, None, None, 'b/', '/')
+        ['0/', '0/0', '0/00', '0/1', '0/1/'])
+        listing = broker.list_objects_iter(25, None, None, '0/1/', '/')
+        self.assertEquals(len(listing), 2)
+        self.assertEquals([row[0] for row in listing],
+        ['0/1/', '0/1/0'])
+        listing = broker.list_objects_iter(25, None, None, 'b/', '/')
         self.assertEquals(len(listing), 2)
         self.assertEquals([row[0] for row in listing], ['b/a', 'b/b'])
 
