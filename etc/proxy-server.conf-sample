@@ -36,6 +36,7 @@
 # log_statsd_metric_prefix =
 # Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
 # cors_allow_origin =
+# client_timeout = 60
 # eventlet_debug = false
 # max_clients = 1024
 
@@ -55,7 +56,6 @@ use = egg:swift#proxy
 # object_chunk_size = 8192
 # client_chunk_size = 8192
 # node_timeout = 10
-# client_timeout = 60
 # conn_timeout = 0.5
 # How long without an error before a node's error count is reset. This will
 # also be how long before a node is reenabled after suppression is triggered.

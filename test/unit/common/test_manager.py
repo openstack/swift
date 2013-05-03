@@ -453,6 +453,47 @@ class TestServer(unittest.TestCase):
             conf = self.join_swift_dir(server_name + '.conf')
             self.assertEquals(conf_file, conf)
 
+    def test_proxy_conf_dir(self):
+        conf_files = (
+            'proxy-server.conf.d/00.conf',
+            'proxy-server.conf.d/01.conf',
+        )
+        with temptree(conf_files) as t:
+            manager.SWIFT_DIR = t
+            server = manager.Server('proxy')
+            conf_dirs = server.conf_files()
+            self.assertEquals(len(conf_dirs), 1)
+            conf_dir = conf_dirs[0]
+            proxy_conf_dir = self.join_swift_dir('proxy-server.conf.d')
+            self.assertEquals(proxy_conf_dir, conf_dir)
+
+    def test_conf_dir(self):
+        conf_files = (
+            'object-server/object-server.conf-base',
+            'object-server/1.conf.d/base.conf',
+            'object-server/1.conf.d/1.conf',
+            'object-server/2.conf.d/base.conf',
+            'object-server/2.conf.d/2.conf',
+            'object-server/3.conf.d/base.conf',
+            'object-server/3.conf.d/3.conf',
+            'object-server/4.conf.d/base.conf',
+            'object-server/4.conf.d/4.conf',
+        )
+        with temptree(conf_files) as t:
+            manager.SWIFT_DIR = t
+            server = manager.Server('object-replicator')
+            conf_dirs = server.conf_files()
+            self.assertEquals(len(conf_dirs), 4)
+            c1 = self.join_swift_dir('object-server/1.conf.d')
+            c2 = self.join_swift_dir('object-server/2.conf.d')
+            c3 = self.join_swift_dir('object-server/3.conf.d')
+            c4 = self.join_swift_dir('object-server/4.conf.d')
+            for c in [c1, c2, c3, c4]:
+                self.assert_(c in conf_dirs)
+            # test configs returned sorted
+            sorted_confs = sorted([c1, c2, c3, c4])
+            self.assertEquals(conf_dirs, sorted_confs)
+
     def test_iter_pid_files(self):
         """
         Server.iter_pid_files is kinda boring, test the

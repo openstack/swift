@@ -350,8 +350,8 @@ class Server():
         """
         return conf_file.replace(
             os.path.normpath(SWIFT_DIR), self.run_dir, 1).replace(
-                '%s-server' % self.type, self.server, 1).rsplit(
-                    '.conf', 1)[0] + '.pid'
+                '%s-server' % self.type, self.server, 1).replace(
+                    '.conf', '.pid', 1)
 
     def get_conf_file_name(self, pid_file):
         """Translate pid_file to a corresponding conf_file
@@ -363,13 +363,13 @@ class Server():
         """
         if self.server in STANDALONE_SERVERS:
             return pid_file.replace(
-                os.path.normpath(self.run_dir), SWIFT_DIR, 1)\
-                .rsplit('.pid', 1)[0] + '.conf'
+                os.path.normpath(self.run_dir), SWIFT_DIR, 1).replace(
+                    '.pid', '.conf', 1)
         else:
             return pid_file.replace(
                 os.path.normpath(self.run_dir), SWIFT_DIR, 1).replace(
-                    self.server, '%s-server' % self.type, 1).rsplit(
-                        '.pid', 1)[0] + '.conf'
+                    self.server, '%s-server' % self.type, 1).replace(
+                        '.pid', '.conf', 1)
 
     def conf_files(self, **kwargs):
         """Get conf files for this server
@@ -380,10 +380,10 @@ class Server():
         """
         if self.server in STANDALONE_SERVERS:
             found_conf_files = search_tree(SWIFT_DIR, self.server + '*',
-                                           '.conf')
+                                           '.conf', dir_ext='.conf.d')
         else:
             found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
-                                           '.conf')
+                                           '.conf', dir_ext='.conf.d')
         number = kwargs.get('number')
         if number:
             try:
@@ -412,7 +412,7 @@ class Server():
 
         :returns: list of pid files
         """
-        pid_files = search_tree(self.run_dir, '%s*' % self.server, '.pid')
+        pid_files = search_tree(self.run_dir, '%s*' % self.server)
         if kwargs.get('number', 0):
             conf_files = self.conf_files(**kwargs)
             # filter pid_files to match the index of numbered conf_file

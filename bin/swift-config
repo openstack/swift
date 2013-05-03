@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+
+import optparse
+import os
+import sys
+
+from swift.common.manager import Server
+from swift.common.utils import readconf
+from swift.common.wsgi import appconfig
+
+parser = optparse.OptionParser('%prog [options] SERVER')
+parser.add_option('-c', '--config-num', metavar="N", type="int",
+                  dest="number", default=0,
+                  help="parse config for the Nth server only")
+parser.add_option('-s', '--section', help="only display matching sections")
+parser.add_option('-w', '--wsgi', action='store_true',
+                  help="use wsgi/paste parser instead of readconf")
+
+
+def main():
+    options, args = parser.parse_args()
+    options = dict(vars(options))
+
+    if not args:
+        return 'ERROR: specify type of server or conf_path'
+    conf_files = []
+    for arg in args:
+        if os.path.exists(arg):
+            conf_files.append(arg)
+        else:
+            conf_files += Server(arg).conf_files(**options)
+    for conf_file in conf_files:
+        print '# %s' % conf_file
+        if options['wsgi']:
+            app_config = appconfig(conf_file)
+            context = app_config.context
+            conf = dict([(c.name, c.config()) for c in getattr(
+                context, 'filter_contexts', [])])
+            conf[context.name] = app_config
+        else:
+            conf = readconf(conf_file)
+        flat_vars = {}
+        for k, v in conf.items():
+            if options['section'] and k != options['section']:
+                continue
+            if not isinstance(v, dict):
+                flat_vars[k] = v
+                continue
+            print '[%s]' % k
+            for opt, value in v.items():
+                print '%s = %s' % (opt, value)
+            print
+        for k, v in flat_vars.items():
+            print '# %s = %s' % (k, v)
+        print
+
+if __name__ == "__main__":
+    sys.exit(main())

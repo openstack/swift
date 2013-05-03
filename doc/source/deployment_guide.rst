@@ -139,15 +139,102 @@ swift-ring-builder with no options will display help text with available
 commands and options. More information on how the ring works internally
 can be found in the :doc:`Ring Overview <overview_ring>`.
 
+.. _general-service-configuration:
+
+-----------------------------
+General Service Configuration
+-----------------------------
+
+Most Swift services fall into two categories.  Swift's wsgi servers and
+background daemons.  
+
+For more information specific to the configuration of Swift's wsgi servers
+with paste deploy see :ref:`general-server-configuration`
+
+Configuration for servers and daemons can be expressed together in the same
+file for each type of server, or separately.  If a required section for the
+service trying to start is missing there will be an error.  The sections not
+used by the service are ignored.
+
+Consider the example of an object storage node.  By convention configuration
+for the object-server, object-updater, object-replicator, and object-auditor
+exist in a single file ``/etc/swift/object-server.conf``::
+
+    [DEFAULT]
+
+    [pipeline:main]
+    pipeline = object-server
+
+    [app:object-server]
+    use = egg:swift#object
+
+    [object-replicator]
+    reclaim_age = 259200
+
+    [object-updater]
+
+    [object-auditor]
+
+Swift services expect a configuration path as the first argument::
+
+    $ swift-object-auditor 
+    Usage: swift-object-auditor CONFIG [options]
+
+    Error: missing config path argument
+
+If you omit the object-auditor section this file could not be used as the
+configuration path when starting the ``swift-object-auditor`` daemon::
+
+    $ swift-object-auditor /etc/swift/object-server.conf 
+    Unable to find object-auditor config section in /etc/swift/object-server.conf
+
+If the configuration path is a directory instead of a file all of the files in
+the directory with the file extension ".conf" will be combined to generate the
+configuration object which is delivered to the Swift service.  This is
+referred to generally as "directory based configuration".
+
+Directory based configuration leverages ConfigParser's native multi-file
+support.  Files ending in ".conf" in the given directory are parsed in
+lexicographical order.  Filenames starting with '.' are ignored.  A mixture of
+file and directory configuration paths is not supported - if the configuration
+path is a file only that file will be parsed.
+
+The swift service management tool ``swift-init`` has adopted the convention of
+looking for ``/etc/swift/{type}-server.conf.d/`` if the file
+``/etc/swift/{type}-server.conf`` file does not exist.
+
+When using directory based configuration, if the same option under the same
+section appears more than once in different files, the last value parsed is
+said to override previous occurrences.  You can ensure proper override
+precedence by prefixing the files in the configuration directory with
+numerical values.::
+
+    /etc/swift/
+        default.base
+        object-server.conf.d/
+            000_default.conf -> ../default.base
+            001_default-override.conf
+            010_server.conf
+            020_replicator.conf
+            030_updater.conf
+            040_auditor.conf
+
+You can inspect the resulting combined configuration object using the
+``swift-config`` command line tool
+
+.. _general-server-configuration:
+
 ----------------------------
 General Server Configuration
 ----------------------------
 
 Swift uses paste.deploy (http://pythonpaste.org/deploy/) to manage server
-configurations. Default configuration options are set in the `[DEFAULT]`
-section, and any options specified there can be overridden in any of the other
-sections BUT ONLY BY USING THE SYNTAX ``set option_name = value``. This is the
-unfortunate way paste.deploy works and I'll try to explain it in full.
+configurations.
+
+Default configuration options are set in the `[DEFAULT]` section, and any
+options specified there can be overridden in any of the other sections BUT
+ONLY BY USING THE SYNTAX ``set option_name = value``. This is the unfortunate
+way paste.deploy works and I'll try to explain it in full.
 
 First, here's an example paste.deploy configuration file::
 
@@ -216,6 +303,7 @@ The main rule to remember when working with Swift configuration files is:
     also set in the ``[DEFAULT]`` section. Don't get in the habit of always
     using the ``set`` syntax or you'll probably mess up your non-paste.deploy
     configuration files.
+
 
 
 ---------------------------
