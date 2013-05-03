@@ -47,11 +47,15 @@ class TestCNAMELookup(unittest.TestCase):
                                                       {'lookup_depth': 2})
 
     def test_pass_ip_addresses(self):
-
         cname_lookup.lookup_cname = original_lookup
 
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': '10.134.23.198'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, 'FAKE APP')
+
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'fc00:7ea1:f155::6321:8841'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
 
