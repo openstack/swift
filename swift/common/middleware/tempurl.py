@@ -236,6 +236,8 @@ class TempURL(object):
         :param start_response: The WSGI start_response hook.
         :returns: Response as per WSGI.
         """
+        if env['REQUEST_METHOD'] == 'OPTIONS':
+            return self.app(env, start_response)
         temp_url_sig, temp_url_expires, filename = self._get_temp_url_info(env)
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)

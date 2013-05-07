@@ -80,6 +80,7 @@ class TestTempURL(unittest.TestCase):
     def setUp(self):
         self.app = FakeApp()
         self.auth = tempauth.filter_factory({})(self.app)
+        self.auth.reseller_prefix = 'a'
         self.tempurl = tempurl.filter_factory({})(self.auth)
 
     def _make_request(self, path, **kwargs):
@@ -91,6 +92,13 @@ class TestTempURL(unittest.TestCase):
         resp = self._make_request('/v1/a/c/o').get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' not in resp.body)
+
+    def test_allow_options(self):
+        self.app.status_headers_body_iter = iter([('200 Ok', {}, '')])
+        resp = self._make_request(
+            '/v1/a/c/o?temp_url_sig=abcde&temp_url_expires=12345',
+            environ={'REQUEST_METHOD': 'OPTIONS'}).get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
 
     def test_get_valid(self):
         method = 'GET'
