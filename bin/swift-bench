@@ -147,7 +147,8 @@ if __name__ == '__main__':
         options.del_concurrency = options.concurrency
     options.containers = ['%s_%d' % (options.container_name, i)
                           for i in xrange(int(options.num_containers))]
-    # check boolean options vs config parameter values
+
+    # Normalize boolean option to a config parameter value
     if config_true_value(str(options.delete).lower()):
         options.delete = 'yes'
     else:
@@ -181,5 +182,5 @@ if __name__ == '__main__':
     controller = controller_class(logger, options)
     controller.run()
 
-    if config_true_value(options.delete.lower()):
+    if options.use_proxy and options.delete == 'yes':
         delete_containers(logger, options)
