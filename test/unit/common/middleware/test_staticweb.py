@@ -137,7 +137,8 @@ class FakeApp(object):
                            'x-container-meta-web-index': 'index.html',
                            'x-container-meta-web-error': 'error.html',
                            'x-container-meta-web-listings': 't',
-                           'x-container-meta-web-listings-css': 'listing.css'})
+                           'x-container-meta-web-listings-css': 'listing.css',
+                           'x-container-meta-web-directory-type': 'text/dir'})
         elif env['PATH_INFO'] == '/v1/a/c4/one.txt':
             return Response(status='200 Ok',
                 headers={'x-object-meta-test': 'value'},
@@ -160,8 +161,8 @@ class FakeApp(object):
 <html>
     <body style="background: #000000; color: #ffaaaa">
         <p>Chrome's 404 fancy-page sucks.</p>
-    <body>
-<html>
+    </body>
+</html>
             '''.strip())(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c5':
             return self.listing(env, start_response,
@@ -215,6 +216,47 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c10/\xe2\x98\x83/':
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] in ('/v1/a/c11', '/v1/a/c11/'):
+            return self.listing(env, start_response,
+                          {'x-container-read': '.r:*',
+                           'x-container-meta-web-index': 'index.html'})
+        elif env['PATH_INFO'] == '/v1/a/c11/subdir/':
+            return Response(status='200 Ok', headers={'Content-Type':\
+                            'application/directory'})(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11/subdir/index.html':
+            return Response(status='200 Ok', body='''
+<html>
+    <body>
+        <h2>c11 subdir index</h2>
+    </body>
+</html>
+            '''.strip())(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11/subdir2/':
+            return Response(status='200 Ok', headers={'Content-Type':\
+                            'application/directory'})(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11/subdir2/index.html':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] in ('/v1/a/c11a', '/v1/a/c11a/'):
+            return self.listing(env, start_response,
+                          {'x-container-read': '.r:*',
+                           'x-container-meta-web-index': 'index.html',
+                           'x-container-meta-web-directory-type': \
+                                'text/directory'})
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir/':
+            return Response(status='200 Ok', headers={'Content-Type':\
+                            'text/directory'})(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir/index.html':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir2/':
+            return Response(status='200 Ok', headers={'Content-Type':\
+                            'application/directory'})(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir2/index.html':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir3/':
+            return Response(status='200 Ok', headers={'Content-Type':\
+                            'not_a/directory'})(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c11a/subdir3/index.html':
             return Response(status='404 Not Found')(env, start_response)
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
@@ -535,8 +577,8 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4':
-                ('index.html', 'error.html', 't', 'listing.css')})
+           {'/staticweb2/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css', 'text/dir')})
         self.assert_(self.test_staticweb.app.get_c4_called)
         self.test_staticweb.app.get_c4_called = False
         resp = Request.blank('/v1/a/c4',
@@ -545,8 +587,8 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.status_int, 301)
         self.assert_(not self.test_staticweb.app.get_c4_called)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4':
-                ('index.html', 'error.html', 't', 'listing.css')})
+           {'/staticweb2/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css', 'text/dir')})
         resp = Request.blank('/v1/a/c4',
             environ={'swift.cache': fake_memcache, 'REQUEST_METHOD': 'PUT'}
         ).get_response(self.test_staticweb)
@@ -557,8 +599,8 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 301)
         self.assertEquals(fake_memcache.store,
-           {'/staticweb/v1/a/c4':
-                ('index.html', 'error.html', 't', 'listing.css')})
+           {'/staticweb2/v1/a/c4':
+                ('index.html', 'error.html', 't', 'listing.css', 'text/dir')})
         resp = Request.blank('/v1/a/c4',
             environ={'swift.cache': fake_memcache, 'REQUEST_METHOD': 'POST'}
         ).get_response(self.test_staticweb)
@@ -655,13 +697,34 @@ class TestStaticWeb(unittest.TestCase):
         self.assert_(
                 'Listing of /v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/' in resp.body)
 
+    def test_container11subdirmarkerobjectindex(self):
+        resp = Request.blank('/v1/a/c11/subdir/').get_response(
+                self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+        self.assert_('<h2>c11 subdir index</h2>' in resp.body)
+
+    def test_container11subdirmarkermatchdirtype(self):
+        resp = Request.blank('/v1/a/c11a/subdir/').get_response(
+                self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_container11subdirmarkeraltdirtype(self):
+        resp = Request.blank('/v1/a/c11a/subdir2/').get_response(
+                self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_container11subdirmarkerinvaliddirtype(self):
+        resp = Request.blank('/v1/a/c11a/subdir3/').get_response(
+                self.test_staticweb)
+        self.assertEquals(resp.status_int, 200)
+
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(
                 '/v1/a/c4/one.txt').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.headers['x-object-meta-test'], 'value')
         self.assertEquals(resp.body, '1')
-        self.assertEquals(self.app.calls, 1)
+        self.assertEquals(self.app.calls, 2)
 
 
 if __name__ == '__main__':
