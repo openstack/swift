@@ -41,9 +41,11 @@ To execute the unit tests:
   - `tox`
 
   Remarks:
-  if you installed using: `cd ~/swift; sudo python setup.py develop`,
+  If you installed using: `cd ~/swift; sudo python setup.py develop`,
   you may need to do: `cd ~/swift; sudo chown -R swift:swift swift.egg-info`
-  prior to running tox
+  prior to running tox.
+  If you ever encounter DistributionNotFound, try to use `tox --recreate`
+  or removing .tox directory to force tox to recreate the dependency list
 
 * Optionally, run only specific tox builds:
 

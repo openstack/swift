@@ -20,7 +20,10 @@ And the following python libraries:
 * Xattr
 * Nose
 * Sphinx
-* netifaces
+* Netifaces
+* Dnspython
+* Pastedeploy
+
 
 -------------
 Getting Swift
