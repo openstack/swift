@@ -36,7 +36,7 @@ from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile
 
-from mock import patch
+from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout)
@@ -1307,6 +1307,16 @@ log_name = %(yarr)s'''
         self.assertEquals(ts, None)
         ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-almostright')
         self.assertEquals(ts, None)
+
+    def test_tpool_reraise(self):
+        with patch.object(utils.tpool, 'execute', lambda f: f()):
+            self.assertTrue(
+                utils.tpool_reraise(MagicMock(return_value='test1')), 'test1')
+            self.assertRaises(Exception,
+                utils.tpool_reraise, MagicMock(side_effect=Exception('test2')))
+            self.assertRaises(BaseException,
+                utils.tpool_reraise,
+                MagicMock(side_effect=BaseException('test3')))
 
 
 class TestStatsdLogging(unittest.TestCase):
