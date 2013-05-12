@@ -66,9 +66,15 @@ Using this in combination with browser form post translation
 middleware could also allow direct-from-browser uploads to specific
 locations in Swift.
 
-Note that changing the X-Account-Meta-Temp-URL-Key will invalidate
-any previously generated temporary URLs within 60 seconds (the
-memcache time for the key).
+TempURL supports up to two keys, specified by X-Account-Meta-Temp-URL-Key and
+X-Account-Meta-Temp-URL-Key-2. Signatures are checked against both keys, if
+present. This is to allow for key rotation without invalidating all existing
+temporary URLs.
+
+Note that changing either X-Account-Meta-Temp-URL-Key or
+X-Account-Meta-Temp-URL-Key-2 will invalidate any previously generated
+temporary URLs signed with that key within 60 seconds (the memcache lifetime
+for the key). It is not instantaneous.
 
 With GET TempURLs, a Content-Disposition header will be set on the
 response so that browsers will interpret this as a file attachment to
@@ -246,20 +252,20 @@ class TempURL(object):
         account = self._get_account(env)
         if not account:
             return self._invalid(env, start_response)
-        key = self._get_key(env, account)
-        if not key:
+        keys = self._get_keys(env, account)
+        if not keys:
             return self._invalid(env, start_response)
         if env['REQUEST_METHOD'] == 'HEAD':
-            hmac_val = self._get_hmac(env, temp_url_expires, key,
-                                      request_method='GET')
-            if temp_url_sig != hmac_val:
-                hmac_val = self._get_hmac(env, temp_url_expires, key,
-                                          request_method='PUT')
-                if temp_url_sig != hmac_val:
+            hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
+                                        request_method='GET')
+            if temp_url_sig not in hmac_vals:
+                hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
+                                            request_method='PUT')
+                if temp_url_sig not in hmac_vals:
                     return self._invalid(env, start_response)
         else:
-            hmac_val = self._get_hmac(env, temp_url_expires, key)
-            if temp_url_sig != hmac_val:
+            hmac_vals = self._get_hmacs(env, temp_url_expires, keys)
+            if temp_url_sig not in hmac_vals:
                 return self._invalid(env, start_response)
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
@@ -339,40 +345,57 @@ class TempURL(object):
             filename = qs['filename'][0]
         return temp_url_sig, temp_url_expires, filename
 
-    def _get_key(self, env, account):
+    def _get_keys(self, env, account):
         """
-        Returns the X-Account-Meta-Temp-URL-Key header value for the
-        account, or None if none is set.
+        Returns the X-Account-Meta-Temp-URL-Key[-2] header values for the
+        account, or an empty list if none is set.
+
+        Returns 0, 1, or 2 elements depending on how many keys are set
+        in the account's metadata.
 
         :param env: The WSGI environment for the request.
         :param account: Account str.
-        :returns: X-Account-Meta-Temp-URL-Key str value, or None.
+        :returns: [X-Account-Meta-Temp-URL-Key str value if set,
+                   X-Account-Meta-Temp-URL-Key-2 str value if set]
         """
-        key = None
+        keys = None
         memcache = env.get('swift.cache')
+        memcache_hash_key = 'temp-url-keys/%s' % account
         if memcache:
-            key = memcache.get('temp-url-key/%s' % account)
-        if not key:
+            keys = memcache.get(memcache_hash_key)
+        if keys is None:
             newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
                                          self.agent, swift_source='TU')
             newenv['CONTENT_LENGTH'] = '0'
             newenv['wsgi.input'] = StringIO('')
-            key = [None]
+            keys = []
 
             def _start_response(status, response_headers, exc_info=None):
                 for h, v in response_headers:
                     if h.lower() == 'x-account-meta-temp-url-key':
-                        key[0] = v
+                        keys.append(v)
+                    elif h.lower() == 'x-account-meta-temp-url-key-2':
+                        keys.append(v)
 
             i = iter(self.app(newenv, _start_response))
             try:
                 i.next()
             except StopIteration:
                 pass
-            key = key[0]
-            if key and memcache:
-                memcache.set('temp-url-key/%s' % account, key, time=60)
-        return key
+            if memcache:
+                memcache.set(memcache_hash_key, keys, time=60)
+        return keys
+
+    def _get_hmacs(self, env, expires, keys, request_method=None):
+        """
+        :param env: The WSGI environment for the request.
+        :param expires: Unix timestamp as an int for when the URL
+                        expires.
+        :param keys: Key strings, from the X-Account-Meta-Temp-URL-Key[-2] of
+                     the account.
+        """
+        return [self._get_hmac(env, expires, key, request_method)
+                for key in keys]
 
     def _get_hmac(self, env, expires, key, request_method=None):
         """
