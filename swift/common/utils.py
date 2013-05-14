@@ -43,6 +43,7 @@ from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
 
 import eventlet
+import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
 import netifaces
@@ -407,6 +408,29 @@ def validate_device_partition(device, partition):
         raise ValueError('Invalid device: %s' % quote(device or ''))
     elif invalid_partition:
         raise ValueError('Invalid partition: %s' % quote(partition or ''))
+
+
+class GreenthreadSafeIterator(object):
+    """
+    Wrap an iterator to ensure that only one greenthread is inside its next()
+    method at a time.
+
+    This is useful if an iterator's next() method may perform network IO, as
+    that may trigger a greenthread context switch (aka trampoline), which can
+    give another greenthread a chance to call next(). At that point, you get
+    an error like "ValueError: generator already executing". By wrapping calls
+    to next() with a mutex, we avoid that error.
+    """
+    def __init__(self, unsafe_iterable):
+        self.unsafe_iter = iter(unsafe_iterable)
+        self.semaphore = eventlet.semaphore.Semaphore(value=1)
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        with self.semaphore:
+            return self.unsafe_iter.next()
 
 
 class NullLogger():

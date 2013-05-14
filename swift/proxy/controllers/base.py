@@ -35,7 +35,8 @@ from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_request
 from swift.common.utils import normalize_timestamp, config_true_value, \
-    public, split_path, cache_from_env, list_from_csv
+    public, split_path, cache_from_env, list_from_csv, \
+    GreenthreadSafeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
@@ -557,6 +558,13 @@ class Controller(object):
         nodes. If a node yielded subsequently gets error limited, an
         extra node will be yielded to take its place.
 
+        Note that if you're going to iterate over this concurrently from
+        multiple greenthreads, you'll want to use a
+        swift.common.utils.GreenthreadSafeIterator to serialize access.
+        Otherwise, you may get ValueErrors from concurrent access. (You also
+        may not, depending on how logging is configured, the vagaries of
+        socket IO and eventlet, and the phase of the moon.)
+
         :param ring: ring to get yield nodes from
         :param partition: ring partition to yield nodes for
         """
@@ -621,7 +629,7 @@ class Controller(object):
         :returns: a swob.Response object
         """
         start_nodes = ring.get_part_nodes(part)
-        nodes = self.iter_nodes(ring, part)
+        nodes = GreenthreadSafeIterator(self.iter_nodes(ring, part))
         pile = GreenPile(len(start_nodes))
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,

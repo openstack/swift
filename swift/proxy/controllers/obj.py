@@ -37,7 +37,7 @@ from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
 from swift.common.utils import ContextPool, normalize_timestamp, \
-    config_true_value, public, json, csv_append
+    config_true_value, public, json, csv_append, GreenthreadSafeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -864,7 +864,8 @@ class ObjectController(Controller):
         else:
             delete_at_part = delete_at_nodes = None
 
-        node_iter = self.iter_nodes(self.app.object_ring, partition)
+        node_iter = GreenthreadSafeIterator(
+            self.iter_nodes(self.app.object_ring, partition))
         pile = GreenPile(len(nodes))
         chunked = req.headers.get('transfer-encoding')
 

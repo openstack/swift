@@ -19,6 +19,7 @@ from __future__ import with_statement
 from test.unit import temptree
 import ctypes
 import errno
+import eventlet
 import logging
 import os
 import random
@@ -1462,6 +1463,66 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(mock_controller.args[0], 'METHOD.errors.timing')
         self.assert_(mock_controller.args[1] > 0)
+
+
+class UnsafeXrange(object):
+    """
+    Like xrange(limit), but with extra context switching to screw things up.
+    """
+    def __init__(self, upper_bound):
+        self.current = 0
+        self.concurrent_calls = 0
+        self.upper_bound = upper_bound
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.concurrent_calls > 0:
+            raise ValueError("concurrent access is bad, mmmkay? (%r)")
+
+        self.concurrent_calls += 1
+        try:
+            if self.current >= self.upper_bound:
+                raise StopIteration
+            else:
+                val = self.current
+                self.current += 1
+                eventlet.sleep()   # yield control
+                return val
+        finally:
+            self.concurrent_calls -= 1
+
+
+class TestGreenthreadSafeIterator(unittest.TestCase):
+    def increment(self, iterable):
+        plus_ones = []
+        for n in iterable:
+            plus_ones.append(n + 1)
+        return plus_ones
+
+    def test_setup_works(self):
+        # it should work without concurrent access
+        self.assertEquals([0, 1, 2, 3], list(UnsafeXrange(4)))
+
+        iterable = UnsafeXrange(10)
+        pile = eventlet.GreenPile(2)
+        for _ in xrange(2):
+            pile.spawn(self.increment, iterable)
+
+        try:
+            response = sorted([resp for resp in pile])
+            self.assertTrue(False, "test setup is insufficiently crazy")
+        except ValueError:
+            pass
+
+    def test_access_is_serialized(self):
+        pile = eventlet.GreenPile(2)
+        iterable = utils.GreenthreadSafeIterator(UnsafeXrange(10))
+        for _ in xrange(2):
+            pile.spawn(self.increment, iterable)
+        response = sorted(sum([resp for resp in pile], []))
+        self.assertEquals(range(1, 11), response)
 
 
 class TestStatsdLoggingDelegation(unittest.TestCase):
