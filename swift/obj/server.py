@@ -661,8 +661,6 @@ class ObjectController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), request=request,
                                   content_type='text/plain')
-        if self.mount_check and not check_mount(self.devices, device):
-            return HTTPInsufficientStorage(drive=device, request=request)
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -674,6 +672,8 @@ class ObjectController(object):
         if new_delete_at and new_delete_at < time.time():
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
+        if self.mount_check and not check_mount(self.devices, device):
+            return HTTPInsufficientStorage(drive=device, request=request)
         disk_file = DiskFile(self.devices, device, partition, account,
                              container, obj, self.logger,
                              disk_chunk_size=self.disk_chunk_size)
