@@ -932,7 +932,7 @@ class ContainerBroker(DatabaseBroker):
             return (row['object_count'] in (None, '', 0, '0')) and \
                 (float(row['delete_timestamp']) > float(row['put_timestamp']))
 
-    def get_info(self, include_metadata=False):
+    def get_info(self):
         """
         Get global data for the container.
 
@@ -941,8 +941,6 @@ class ContainerBroker(DatabaseBroker):
                   reported_put_timestamp, reported_delete_timestamp,
                   reported_object_count, reported_bytes_used, hash, id,
                   x_container_sync_point1, and x_container_sync_point2.
-                  If include_metadata is set, metadata is included as a key
-                  pointing to a dict of tuples of the metadata
         """
         try:
             self._commit_puts()
@@ -951,8 +949,7 @@ class ContainerBroker(DatabaseBroker):
                 raise
         with self.get() as conn:
             data = None
-            trailing1 = 'metadata'
-            trailing2 = 'x_container_sync_point1, x_container_sync_point2'
+            trailing = 'x_container_sync_point1, x_container_sync_point2'
             while not data:
                 try:
                     data = conn.execute('''
@@ -960,25 +957,16 @@ class ContainerBroker(DatabaseBroker):
                             delete_timestamp, object_count, bytes_used,
                             reported_put_timestamp, reported_delete_timestamp,
                             reported_object_count, reported_bytes_used, hash,
-                            id, %s, %s
+                            id, %s
                         FROM container_stat
-                    ''' % (trailing1, trailing2)).fetchone()
+                    ''' % (trailing,)).fetchone()
                 except sqlite3.OperationalError, err:
-                    if 'no such column: metadata' in str(err):
-                        trailing1 = "'' as metadata"
-                    elif 'no such column: x_container_sync_point' in str(err):
-                        trailing2 = '-1 AS x_container_sync_point1, ' \
-                                    '-1 AS x_container_sync_point2'
+                    if 'no such column: x_container_sync_point' in str(err):
+                        trailing = '-1 AS x_container_sync_point1, ' \
+                                   '-1 AS x_container_sync_point2'
                     else:
                         raise
             data = dict(data)
-            if include_metadata:
-                try:
-                    data['metadata'] = json.loads(data.get('metadata', ''))
-                except ValueError:
-                    data['metadata'] = {}
-            elif 'metadata' in data:
-                del data['metadata']
             return data
 
     def set_x_container_sync_points(self, sync_point1, sync_point2):
