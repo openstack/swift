@@ -138,8 +138,10 @@ from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
-    HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, wsgify
+    HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
+    HTTPOk, HTTPPreconditionFailed, wsgify
 from swift.common.utils import json, get_logger, config_true_value
+from swift.common.constraints import check_utf8
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -303,8 +305,15 @@ class StaticLargeObject(object):
         successful, will delete the manifest file.
         :params req: a swob.Request with an obj in path
         :raises HTTPServerError: on invalid manifest
-        :returns: swob.Response on failure, otherwise self.app
+        :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
+        if not check_utf8(req.path_info):
+            raise HTTPPreconditionFailed(
+                request=req, body='Invalid UTF8 or contains NULL')
+        try:
+            vrs, account, container, obj = req.split_path(4, 4, True)
+        except ValueError:
+            raise HTTPBadRequest('Not an SLO manifest')
         new_env = req.environ.copy()
         new_env['REQUEST_METHOD'] = 'GET'
         del(new_env['wsgi.input'])
@@ -321,17 +330,17 @@ class StaticLargeObject(object):
                 raise HTTPBadRequest('Not an SLO manifest')
             try:
                 manifest = json.loads(get_man_resp.body)
+                # append the manifest file for deletion at the end
+                manifest.append(
+                    {'name': '/'.join(['', container, obj]).decode('utf-8')})
             except ValueError:
                 raise HTTPServerError('Invalid manifest file')
-            delete_resp = self.bulk_deleter.handle_delete(
+            resp = HTTPOk(request=req)
+            resp.app_iter = self.bulk_deleter.handle_delete_iter(
                 req,
                 objs_to_delete=[o['name'].encode('utf-8') for o in manifest],
                 user_agent='MultipartDELETE', swift_source='SLO')
-            if delete_resp.status_int // 100 == 2:
-                # delete the manifest file itself
-                return self.app
-            else:
-                return delete_resp
+            return resp
         return get_man_resp
 
     @wsgify

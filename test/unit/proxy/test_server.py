@@ -40,7 +40,7 @@ from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
-from swift.common.exceptions import ChunkReadTimeout
+from swift.common.exceptions import ChunkReadTimeout, SloSegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
@@ -1214,9 +1214,11 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/a/c/manifest')
             resp = controller.GET(req)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.body, 'Aa')  # dropped connection
             self.assertEqual(resp.content_length, 4)  # content incomplete
             self.assertEqual(resp.content_type, 'text/html')
+            self.assertRaises(SloSegmentError, lambda: resp.body)
+            # dropped connection, exception is caught by eventlet as it is
+            # iterating over response
 
             self.assertEqual(
                 requested,
@@ -1270,9 +1272,11 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/a/c/manifest')
             resp = controller.GET(req)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.body, 'Aa')  # dropped connection
             self.assertEqual(resp.content_length, 4)  # content incomplete
             self.assertEqual(resp.content_type, 'text/html')
+            self.assertRaises(SloSegmentError, lambda: resp.body)
+            # dropped connection, exception is caught by eventlet as it is
+            # iterating over response
 
             self.assertEqual(
                 requested,
@@ -1330,9 +1334,11 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/a/c/manifest')
             resp = controller.GET(req)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.body, 'Aa')  # dropped connection
             self.assertEqual(resp.content_length, 6)  # content incomplete
             self.assertEqual(resp.content_type, 'text/html')
+            self.assertRaises(SloSegmentError, lambda: resp.body)
+            # dropped connection, exception is caught by eventlet as it is
+            # iterating over response
 
             self.assertEqual(
                 requested,
