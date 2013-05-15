@@ -205,6 +205,14 @@ class KeystoneAuth(object):
             req.environ['swift_owner'] = True
             return
 
+        # If we are not reseller admin and user is trying to delete its own
+        # account then deny it.
+        if not container and not obj and req.method == 'DELETE':
+            # User is not allowed to issue a DELETE on its own account
+            msg = 'User %s:%s is not allowed to delete its own account'
+            self.logger.debug(msg % (tenant_name, user_name))
+            return self.denied_response(req)
+
         # cross-tenant authorization
         matched_acl = self._authorize_cross_tenant(user_id, user_name,
                                                    tenant_id, tenant_name,
