@@ -124,17 +124,20 @@ class TestRingBuilder(unittest.TestCase):
         rb = ring.RingBuilder(8, 3, 1)
         dev = {'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                'ip': '127.0.0.1', 'port': 10000}
-        rb.add_dev(dev)
+        dev_id = rb.add_dev(dev)
         self.assertRaises(exceptions.DuplicateDeviceError, rb.add_dev, dev)
+        self.assertEqual(dev_id, 0)
         rb = ring.RingBuilder(8, 3, 1)
         #test add new dev with no id
-        rb.add_dev({'zone': 0, 'region': 1, 'weight': 1,
-                    'ip': '127.0.0.1', 'port': 6000})
+        dev_id = rb.add_dev({'zone': 0, 'region': 1, 'weight': 1,
+                             'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[0]['id'], 0)
+        self.assertEqual(dev_id, 0)
         #test add another dev with no id
-        rb.add_dev({'zone': 3, 'region': 2, 'weight': 1,
-                    'ip': '127.0.0.1', 'port': 6000})
+        dev_id = rb.add_dev({'zone': 3, 'region': 2, 'weight': 1,
+                             'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[1]['id'], 1)
+        self.assertEqual(dev_id, 1)
 
     def test_set_dev_weight(self):
         rb = ring.RingBuilder(8, 3, 1)

@@ -257,6 +257,8 @@ class RingBuilder(object):
             make multiple changes for a single rebalance.
 
         :param dev: device dict
+
+        :returns: id of device
         """
         if 'id' not in dev:
             dev['id'] = 0
@@ -274,6 +276,7 @@ class RingBuilder(object):
         self._set_parts_wanted()
         self.devs_changed = True
         self.version += 1
+        return dev['id']
 
     def set_dev_weight(self, dev_id, weight):
         """
