@@ -28,6 +28,7 @@ from swift.common import exceptions
 from swift.common.ring import RingBuilder
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
+from swift.common.ring.utils import parse_search_value
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -134,9 +135,9 @@ swift-ring-builder <builder_file> search <search-value>
         if len(argv) < 4:
             print Commands.search.__doc__.strip()
             print
-            print builder.search_devs.__doc__.strip()
+            print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
-        devs = builder.search_devs(argv[3])
+        devs = builder.search_devs(parse_search_value(argv[3]))
         if not devs:
             print 'No matching devices found'
             exit(EXIT_ERROR)
@@ -175,11 +176,11 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
         if len(argv) < 4:
             print Commands.list_parts.__doc__.strip()
             print
-            print builder.search_devs.__doc__.strip()
+            print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
         devs = []
         for arg in argv[3:]:
-            devs.extend(builder.search_devs(arg) or [])
+            devs.extend(builder.search_devs(parse_search_value(arg)) or [])
         if not devs:
             print 'No matching devices found'
             exit(EXIT_ERROR)
@@ -329,15 +330,13 @@ swift-ring-builder <builder_file> add
                           (dev['id'], dev['ip'], dev['port'], dev['device'])
                     print "The on-disk ring builder is unchanged.\n"
                     exit(EXIT_ERROR)
-
-            builder.add_dev({'region': region, 'zone': zone, 'ip': ip,
-                             'port': port, 'replication_ip': replication_ip,
-                             'replication_port': replication_port,
-                             'device': device_name, 'weight': weight,
-                             'meta': meta})
-            new_dev = builder.search_devs(
-                'r%dz%d-%s:%s/%s' %
-                (region, zone, ip, port, device_name))[0]
+            dev_params = {'region': region, 'zone': zone, 'ip': ip,
+                          'port': port, 'replication_ip': replication_ip,
+                          'replication_port': replication_port,
+                          'device': device_name, 'weight': weight,
+                          'meta': meta}
+            builder.add_dev(dev_params)
+            new_dev = builder.search_devs(dev_params)[0]
             print('Device %s with %s weight got id %s' %
                   (format_device(new_dev), weight, new_dev['id']))
         builder.save(argv[1])
@@ -355,13 +354,13 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
         if len(argv) < 5 or len(argv) % 2 != 1:
             print Commands.set_weight.__doc__.strip()
             print
-            print builder.search_devs.__doc__.strip()
+            print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
         devs_and_weights = izip(islice(argv, 3, len(argv), 2),
                                 islice(argv, 4, len(argv), 2))
         for devstr, weightstr in devs_and_weights:
-            devs = builder.search_devs(devstr)
+            devs = builder.search_devs(parse_search_value(devstr))
             weight = float(weightstr)
             if not devs:
                 print("Search value \"%s\" matched 0 devices.\n"
@@ -402,14 +401,14 @@ swift-ring-builder <builder_file> set_info
         if len(argv) < 5 or len(argv) % 2 != 1:
             print Commands.set_info.__doc__.strip()
             print
-            print builder.search_devs.__doc__.strip()
+            print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
         searches_and_changes = izip(islice(argv, 3, len(argv), 2),
                                     islice(argv, 4, len(argv), 2))
 
         for search_value, change_value in searches_and_changes:
-            devs = builder.search_devs(search_value)
+            devs = builder.search_devs(parse_search_value(search_value))
             change = []
             if len(change_value) and change_value[0].isdigit():
                 i = 1
@@ -514,11 +513,11 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
         if len(argv) < 4:
             print Commands.remove.__doc__.strip()
             print
-            print builder.search_devs.__doc__.strip()
+            print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
         for search_value in argv[3:]:
-            devs = builder.search_devs(search_value)
+            devs = builder.search_devs(parse_search_value(search_value))
             if not devs:
                 print("Search value \"%s\" matched 0 devices.\n"
                       "The on-disk ring builder is unchanged." % search_value)
@@ -716,7 +715,7 @@ if __name__ == '__main__':
         for cmd in cmds:
             print Commands.__dict__[cmd].__doc__.strip()
             print
-        print RingBuilder.search_devs.__doc__.strip()
+        print parse_search_value.__doc__.strip()
         print
         for line in wrap(' '.join(cmds), 79, initial_indent='Quick list: ',
                          subsequent_indent='            '):

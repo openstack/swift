@@ -15,7 +15,8 @@
 
 import unittest
 
-from swift.common.ring.utils import build_tier_tree, tiers_for_dev
+from swift.common.ring.utils import (build_tier_tree, tiers_for_dev,
+                                     parse_search_value)
 
 
 class TestUtils(unittest.TestCase):
@@ -88,6 +89,35 @@ class TestUtils(unittest.TestCase):
                          set([(1, 2, '192.168.2.2:6000', 9),
                               (1, 2, '192.168.2.2:6000', 10),
                               (1, 2, '192.168.2.2:6000', 11)]))
+
+    def test_parse_search_value(self):
+        res = parse_search_value('r0')
+        self.assertEqual(res, {'region': 0})
+        res = parse_search_value('r1')
+        self.assertEqual(res, {'region': 1})
+        res = parse_search_value('r1z2')
+        self.assertEqual(res, {'region': 1, 'zone': 2})
+        res = parse_search_value('d1')
+        self.assertEqual(res, {'id': 1})
+        res = parse_search_value('z1')
+        self.assertEqual(res, {'zone': 1})
+        res = parse_search_value('-127.0.0.1')
+        self.assertEqual(res, {'ip': '127.0.0.1'})
+        res = parse_search_value('-[127.0.0.1]:10001')
+        self.assertEqual(res, {'ip': '127.0.0.1', 'port': 10001})
+        res = parse_search_value(':10001')
+        self.assertEqual(res, {'port': 10001})
+        res = parse_search_value('R127.0.0.10')
+        self.assertEqual(res, {'replication_ip': '127.0.0.10'})
+        res = parse_search_value('R[127.0.0.10]:20000')
+        self.assertEqual(res, {'replication_ip': '127.0.0.10', 'replication_port': 20000})
+        res = parse_search_value('R:20000')
+        self.assertEqual(res, {'replication_port': 20000})
+        res = parse_search_value('/sdb1')
+        self.assertEqual(res, {'device': 'sdb1'})
+        res = parse_search_value('_meta1')
+        self.assertEqual(res, {'meta': 'meta1'})
+        self.assertRaises(ValueError, parse_search_value, 'OMGPONIES')
 
 
 if __name__ == '__main__':

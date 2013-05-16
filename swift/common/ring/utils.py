@@ -1,3 +1,17 @@
+# Copyright (c) 2010-2013 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from collections import defaultdict
 
 
@@ -109,3 +123,120 @@ def build_tier_tree(devices):
             else:
                 tier2children[()].add(tier)
     return tier2children
+
+
+def parse_search_value(search_value):
+    """The <search-value> can be of the form::
+
+        d<device_id>r<region>z<zone>-<ip>:<port>[R<r_ip>:<r_port>]/
+         <device_name>_<meta>
+
+    Where <r_ip> and <r_port> are replication ip and port.
+
+    Any part is optional, but you must include at least one part.
+
+    Examples::
+
+        d74              Matches the device id 74
+        r4               Matches devices in region 4
+        z1               Matches devices in zone 1
+        z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4
+        1.2.3.4          Matches devices in any zone with the ip 1.2.3.4
+        z1:5678          Matches devices in zone 1 using port 5678
+        :5678            Matches devices that use port 5678
+        R5.6.7.8         Matches devices that use replication ip 5.6.7.8
+        R:5678           Matches devices that use replication port 5678
+        1.2.3.4R5.6.7.8  Matches devices that use ip 1.2.3.4 and replication ip
+                         5.6.7.8
+        /sdb1            Matches devices with the device name sdb1
+        _shiny           Matches devices with shiny in the meta data
+        _"snet: 5.6.7.8" Matches devices with snet: 5.6.7.8 in the meta data
+        [::1]            Matches devices in any zone with the ip ::1
+        z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678
+
+    Most specific example::
+
+        d74r4z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
+
+    Nerd explanation:
+
+        All items require their single character prefix except the ip, in which
+        case the - is optional unless the device id or zone is also included.
+    """
+    orig_search_value = search_value
+    match = {}
+    if search_value.startswith('d'):
+        i = 1
+        while i < len(search_value) and search_value[i].isdigit():
+            i += 1
+        match['id'] = int(search_value[1:i])
+        search_value = search_value[i:]
+    if search_value.startswith('r'):
+        i = 1
+        while i < len(search_value) and search_value[i].isdigit():
+            i += 1
+        match['region'] = int(search_value[1:i])
+        search_value = search_value[i:]
+    if search_value.startswith('z'):
+        i = 1
+        while i < len(search_value) and search_value[i].isdigit():
+            i += 1
+        match['zone'] = int(search_value[1:i])
+        search_value = search_value[i:]
+    if search_value.startswith('-'):
+        search_value = search_value[1:]
+    if len(search_value) and search_value[0].isdigit():
+        i = 1
+        while i < len(search_value) and search_value[i] in '0123456789.':
+            i += 1
+        match['ip'] = search_value[:i]
+        search_value = search_value[i:]
+    elif len(search_value) and search_value[0] == '[':
+        i = 1
+        while i < len(search_value) and search_value[i] != ']':
+            i += 1
+        i += 1
+        match['ip'] = search_value[:i].lstrip('[').rstrip(']')
+        search_value = search_value[i:]
+    if search_value.startswith(':'):
+        i = 1
+        while i < len(search_value) and search_value[i].isdigit():
+            i += 1
+        match['port'] = int(search_value[1:i])
+        search_value = search_value[i:]
+    # replication parameters
+    if search_value.startswith('R'):
+        search_value = search_value[1:]
+        if len(search_value) and search_value[0].isdigit():
+            i = 1
+            while (i < len(search_value) and
+                   search_value[i] in '0123456789.'):
+                i += 1
+            match['replication_ip'] = search_value[:i]
+            search_value = search_value[i:]
+        elif len(search_value) and search_value[0] == '[':
+            i = 1
+            while i < len(search_value) and search_value[i] != ']':
+                i += 1
+            i += 1
+            match['replication_ip'] = search_value[:i].lstrip('[').rstrip(']')
+            search_value = search_value[i:]
+        if search_value.startswith(':'):
+            i = 1
+            while i < len(search_value) and search_value[i].isdigit():
+                i += 1
+            match['replication_port'] = int(search_value[1:i])
+            search_value = search_value[i:]
+    if search_value.startswith('/'):
+        i = 1
+        while i < len(search_value) and search_value[i] != '_':
+            i += 1
+        match['device'] = search_value[1:i]
+        search_value = search_value[i:]
+    if search_value.startswith('_'):
+        match['meta'] = search_value[1:]
+        search_value = ''
+    if search_value:
+        raise ValueError('Invalid <search-value>: %s' %
+                         repr(orig_search_value))
+    return match
