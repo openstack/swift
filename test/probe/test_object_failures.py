@@ -38,7 +38,7 @@ class TestObjectFailures(TestCase):
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
          self.object_ring, self.url, self.token,
-         self.account) = reset_environment()
+         self.account, self.configs) = reset_environment()
 
     def tearDown(self):
         kill_servers(self.port2server, self.pids)
@@ -54,8 +54,7 @@ class TestObjectFailures(TestCase):
         node_id = (onode['port'] - 6000) / 10
         device = onode['device']
         hash_str = hash_path(self.account, container, obj)
-        obj_server_conf = readconf('/etc/swift/object-server/%s.conf' %
-                                   node_id)
+        obj_server_conf = readconf(self.configs['object'] % node_id)
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s/objects/%s/%s/%s/' % (devices,
                                                device, opart,

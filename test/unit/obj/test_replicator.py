@@ -17,6 +17,7 @@ from __future__ import with_statement
 
 import unittest
 import os
+import mock
 from gzip import GzipFile
 from shutil import rmtree
 import cPickle as pickle
@@ -25,7 +26,7 @@ import tempfile
 from contextlib import contextmanager
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
-from test.unit import FakeLogger, mock
+from test.unit import FakeLogger, mock as unit_mock
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
@@ -232,7 +233,7 @@ class TestObjectReplicator(unittest.TestCase):
         def getmtime(filename):
             i[0] += 1
             return 1
-        with mock({'os.path.getmtime': getmtime}):
+        with unit_mock({'os.path.getmtime': getmtime}):
             hashed, hashes = object_replicator.get_hashes(
                 part, recalculate=['a83'])
         self.assertEquals(i[0], 2)
@@ -247,7 +248,7 @@ class TestObjectReplicator(unittest.TestCase):
         def getmtime(filename):
             i[0] += 1
             return 1
-        with mock({'os.path.getmtime': getmtime}):
+        with unit_mock({'os.path.getmtime': getmtime}):
             hashed, hashes = object_replicator.get_hashes(
                 part, recalculate=[])
         # getmtime will actually not get called.  Initially, the pickle.load
@@ -270,7 +271,7 @@ class TestObjectReplicator(unittest.TestCase):
             if i[0] < 3:
                 i[0] += 1
             return i[0]
-        with mock({'os.path.getmtime': getmtime}):
+        with unit_mock({'os.path.getmtime': getmtime}):
             hashed, hashes = object_replicator.get_hashes(
                 part, recalculate=['a83'])
         self.assertEquals(i[0], 3)
@@ -611,6 +612,130 @@ class TestObjectReplicator(unittest.TestCase):
     def test_run_withlog(self):
         with _mock_process([(0, "stuff in log")] * 100):
             self.replicator.replicate()
+
+    @mock.patch('swift.obj.replicator.tpool_reraise', autospec=True)
+    @mock.patch('swift.obj.replicator.http_connect', autospec=True)
+    def test_update(self, mock_http, mock_tpool_reraise):
+
+        def set_default(self):
+            self.replicator.suffix_count = 0
+            self.replicator.suffix_sync = 0
+            self.replicator.suffix_hash = 0
+            self.replicator.replication_count = 0
+            self.replicator.partition_times = []
+
+        self.headers = {'Content-Length': '0',
+                        'user-agent': 'obj-replicator %s' % os.getpid()}
+        self.replicator.logger = mock_logger = mock.MagicMock()
+        mock_tpool_reraise.return_value = (0, {})
+
+        all_jobs = self.replicator.collect_jobs()
+        jobs = [job for job in all_jobs if not job['delete']]
+
+        mock_http.return_value = answer = mock.MagicMock()
+        answer.getresponse.return_value = resp = mock.MagicMock()
+        # Check uncorrect http_connect with status 507 and
+        # count of attempts and call args
+        resp.status = 507
+        error = '%(ip)s/%(device)s responded as unmounted'
+        expect = 'Error syncing partition'
+        for job in jobs:
+            set_default(self)
+            self.replicator.update(job)
+            self.assertTrue(error in mock_logger.error.call_args[0][0])
+            self.assertTrue(expect in mock_logger.exception.call_args[0][0])
+            self.assertEquals(len(self.replicator.partition_times), 1)
+            self.assertEquals(mock_http.call_count, len(self.ring._devs) - 1)
+            reqs = []
+            for node in job['nodes']:
+               reqs.append(mock.call(node['ip'], node['port'], node['device'],
+                                     job['partition'], 'REPLICATE', '',
+                                     headers=self.headers))
+            if job['partition'] == '0':
+                self.assertEquals(self.replicator.suffix_hash, 0)
+            mock_http.assert_has_calls(reqs, any_order=True)
+            mock_http.reset_mock()
+            mock_logger.reset_mock()
+
+        # Check uncorrect http_connect with status 400 != HTTP_OK
+        resp.status = 400
+        error = 'Invalid response %(resp)s from %(ip)s'
+        for job in jobs:
+            set_default(self)
+            self.replicator.update(job)
+            self.assertTrue(error in mock_logger.error.call_args[0][0])
+            self.assertEquals(len(self.replicator.partition_times), 1)
+            mock_logger.reset_mock()
+
+        # Check successful http_connection and exception with
+        # uncorrect pickle.loads(resp.read())
+        resp.status = 200
+        expect = 'Error syncing with node:'
+        for job in jobs:
+            set_default(self)
+            self.replicator.update(job)
+            self.assertTrue(expect in mock_logger.exception.call_args[0][0])
+            self.assertEquals(len(self.replicator.partition_times), 1)
+            mock_logger.reset_mock()
+
+        # Check successful http_connection and correct
+        # pickle.loads(resp.read()) for non local node
+        resp.status = 200
+        local_job = None
+        resp.read.return_value = pickle.dumps({})
+        for job in jobs:
+            set_default(self)
+            if job['partition'] == '0':
+                local_job = job.copy()
+                continue
+            self.replicator.update(job)
+            self.assertEquals(mock_logger.exception.call_count, 0)
+            self.assertEquals(mock_logger.error.call_count, 0)
+            self.assertEquals(len(self.replicator.partition_times), 1)
+            self.assertEquals(self.replicator.suffix_hash, 0)
+            self.assertEquals(self.replicator.suffix_sync, 0)
+            self.assertEquals(self.replicator.suffix_count, 0)
+            mock_logger.reset_mock()
+
+        # Check seccesfull http_connect and rsync for local node
+        mock_tpool_reraise.return_value = (1, {'a83': 'ba47fd314242ec8c'
+                                                      '7efb91f5d57336e4'})
+        resp.read.return_value = pickle.dumps({'a83': 'c130a2c17ed45102a'
+                                                      'ada0f4eee69494ff'})
+        set_default(self)
+        self.replicator.rsync = fake_func = mock.MagicMock()
+        self.replicator.update(local_job)
+        reqs = []
+        for node in local_job['nodes']:
+           reqs.append(mock.call(node, local_job, ['a83']))
+        fake_func.assert_has_calls(reqs, any_order=True)
+        self.assertEquals(fake_func.call_count, 2)
+        self.assertEquals(self.replicator.replication_count, 1)
+        self.assertEquals(self.replicator.suffix_sync, 2)
+        self.assertEquals(self.replicator.suffix_hash, 1)
+        self.assertEquals(self.replicator.suffix_count, 1)
+        mock_http.reset_mock()
+        mock_logger.reset_mock()
+
+        # test for replication params
+        repl_job = local_job.copy()
+        for node in repl_job['nodes']:
+            node['replication_ip'] =  '127.0.0.11'
+            node['replication_port'] =  '6011'
+        set_default(self)
+        self.replicator.update(repl_job)
+        reqs = []
+        for node in repl_job['nodes']:
+           reqs.append(mock.call(node['replication_ip'],
+                                 node['replication_port'], node['device'],
+                                 repl_job['partition'], 'REPLICATE',
+                                 '', headers=self.headers))
+           reqs.append(mock.call(node['replication_ip'],
+                                 node['replication_port'], node['device'],
+                                 repl_job['partition'], 'REPLICATE',
+                                 '/a83', headers=self.headers))
+        mock_http.assert_has_calls(reqs, any_order=True)
+
 
 if __name__ == '__main__':
     unittest.main()

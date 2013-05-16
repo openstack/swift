@@ -30,7 +30,7 @@ class TestObjectAsyncUpdate(TestCase):
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
          self.object_ring, self.url, self.token,
-         self.account) = reset_environment()
+         self.account, self.configs) = reset_environment()
 
     def tearDown(self):
         kill_servers(self.port2server, self.pids)
@@ -57,7 +57,7 @@ class TestObjectAsyncUpdate(TestCase):
         processes = []
         for node in xrange(1, 5):
             processes.append(Popen(['swift-object-updater',
-                                    '/etc/swift/object-server/%d.conf' % node,
+                                    self.configs['object'] % node,
                                     'once']))
         for process in processes:
             process.wait()

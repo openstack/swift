@@ -710,8 +710,20 @@ class TestRingBuilder(unittest.TestCase):
                  'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc1',
                  'meta': 'meta2'},
                 {'id': 3, 'region': 1, 'zone': 3, 'weight': 2,
-                 'ip': '127.0.0.3', 'port': 10003, 'device': 'sdffd1',
-                 'meta': 'meta3'}]
+                 'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1',
+                 'meta': 'meta3'},
+                {'id': 4, 'region': 2, 'zone': 4, 'weight': 1,
+                 'ip': '127.0.0.4', 'port': 10004, 'device': 'sde1',
+                 'meta': 'meta4', 'replication_ip': '127.0.0.10',
+                 'replication_port': 20000},
+                {'id': 5, 'region': 2, 'zone': 5, 'weight': 2,
+                 'ip': '127.0.0.5', 'port': 10005, 'device': 'sdf1',
+                 'meta': 'meta5', 'replication_ip': '127.0.0.11',
+                 'replication_port': 20001},
+                {'id': 6, 'region': 2, 'zone': 6, 'weight': 2,
+                 'ip': '127.0.0.6', 'port': 10006, 'device': 'sdg1',
+                 'meta': 'meta6', 'replication_ip': '127.0.0.12',
+                 'replication_port': 20002}]
         for d in devs:
             rb.add_dev(d)
         rb.rebalance()
@@ -731,6 +743,12 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(res, [devs[1]])
         res = rb.search_devs(':10001')
         self.assertEquals(res, [devs[1]])
+        res = rb.search_devs('R127.0.0.10')
+        self.assertEquals(res, [devs[4]])
+        res = rb.search_devs('R[127.0.0.10]:20000')
+        self.assertEquals(res, [devs[4]])
+        res = rb.search_devs('R:20000')
+        self.assertEquals(res, [devs[4]])
         res = rb.search_devs('/sdb1')
         self.assertEquals(res, [devs[1]])
         res = rb.search_devs('_meta1')
