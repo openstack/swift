@@ -62,10 +62,14 @@ def lookup_cname(domain):  # pragma: no cover
 
 def is_ip(domain):
     try:
-        socket.inet_aton(domain)
+        socket.inet_pton(socket.AF_INET, domain)
         return True
     except socket.error:
-        return False
+        try:
+            socket.inet_pton(socket.AF_INET6, domain)
+            return True
+        except socket.error:
+            return False
 
 
 class CNAMELookupMiddleware(object):
