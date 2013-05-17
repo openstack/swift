@@ -26,7 +26,7 @@ from swift.obj import server as object_server
 from swift.obj.server import DiskFile, write_metadata, DATADIR
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
-from swift.obj.replicator import invalidate_hash
+from swift.obj.base import invalidate_hash
 
 
 class TestAuditor(unittest.TestCase):

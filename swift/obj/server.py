@@ -33,13 +33,14 @@ from eventlet import sleep, Timeout, tpool
 from swift.common.utils import mkdirs, normalize_timestamp, public, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
     split_path, drop_buffer_cache, get_logger, write_pickle, \
-    config_true_value, validate_device_partition, timing_stats
+    config_true_value, validate_device_partition, timing_stats, \
+    tpool_reraise
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace
-from swift.obj.replicator import tpool_reraise, invalidate_hash, \
+from swift.obj.base import invalidate_hash, \
     quarantine_renamer, get_hashes
 from swift.common.http import is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \

@@ -43,7 +43,7 @@ from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
 
 import eventlet
-from eventlet import GreenPool, sleep, Timeout
+from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
 import netifaces
 import codecs
@@ -1716,3 +1716,18 @@ class InputProxy(object):
             raise
         self.bytes_received += len(line)
         return line
+
+
+def tpool_reraise(func, *args, **kwargs):
+    """
+    Hack to work around Eventlet's tpool not catching and reraising Timeouts.
+    """
+    def inner():
+        try:
+            return func(*args, **kwargs)
+        except BaseException, err:
+            return err
+    resp = tpool.execute(inner)
+    if isinstance(resp, BaseException):
+        raise resp
+    return resp

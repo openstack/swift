@@ -30,7 +30,7 @@ from test.unit import FakeLogger, mock as unit_mock
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
-from swift.obj import replicator as object_replicator
+from swift.obj import base as object_base, replicator as object_replicator
 from swift.obj.server import DiskFile
 
 
@@ -242,7 +242,7 @@ class TestObjectReplicator(unittest.TestCase):
         df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
         mkdirs(df.datadir)
         part = os.path.join(self.objects, '0')
-        open(os.path.join(part, object_replicator.HASH_FILE), 'w')
+        open(os.path.join(part, object_base.HASH_FILE), 'w')
         # Now the hash file is zero bytes.
         i = [0]
         def getmtime(filename):
@@ -283,7 +283,7 @@ class TestObjectReplicator(unittest.TestCase):
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, '0', data_dir)
-        orig_quarantine_renamer = object_replicator.quarantine_renamer
+        orig_quarantine_renamer = object_base.quarantine_renamer
         called = [False]
 
         def wrapped(*args, **kwargs):
@@ -291,10 +291,10 @@ class TestObjectReplicator(unittest.TestCase):
             return orig_quarantine_renamer(*args, **kwargs)
 
         try:
-            object_replicator.quarantine_renamer = wrapped
-            object_replicator.hash_suffix(whole_path_from, 101)
+            object_base.quarantine_renamer = wrapped
+            object_base.hash_suffix(whole_path_from, 101)
         finally:
-            object_replicator.quarantine_renamer = orig_quarantine_renamer
+            object_base.quarantine_renamer = orig_quarantine_renamer
         self.assertTrue(called[0])
 
     def test_hash_suffix_one_file(self):
@@ -308,10 +308,10 @@ class TestObjectReplicator(unittest.TestCase):
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, '0', data_dir)
-        object_replicator.hash_suffix(whole_path_from, 101)
+        object_base.hash_suffix(whole_path_from, 101)
         self.assertEquals(len(os.listdir(self.parts['0'])), 1)
 
-        object_replicator.hash_suffix(whole_path_from, 99)
+        object_base.hash_suffix(whole_path_from, 99)
         self.assertEquals(len(os.listdir(self.parts['0'])), 0)
 
     def test_hash_suffix_multi_file_one(self):
@@ -331,7 +331,7 @@ class TestObjectReplicator(unittest.TestCase):
         hsh_path = os.listdir(whole_path_from)[0]
         whole_hsh_path = os.path.join(whole_path_from, hsh_path)
 
-        object_replicator.hash_suffix(whole_path_from, 99)
+        object_base.hash_suffix(whole_path_from, 99)
         # only the tombstone should be left
         self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
 
@@ -355,7 +355,7 @@ class TestObjectReplicator(unittest.TestCase):
         hsh_path = os.listdir(whole_path_from)[0]
         whole_hsh_path = os.path.join(whole_path_from, hsh_path)
 
-        object_replicator.hash_suffix(whole_path_from, 99)
+        object_base.hash_suffix(whole_path_from, 99)
         # only the meta and data should be left
         self.assertEquals(len(os.listdir(whole_hsh_path)), 2)
 
@@ -372,17 +372,17 @@ class TestObjectReplicator(unittest.TestCase):
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, '0', data_dir)
         hashes_file = os.path.join(self.objects, '0',
-                                   object_replicator.HASH_FILE)
+                                   object_base.HASH_FILE)
         # test that non existent file except caught
-        self.assertEquals(object_replicator.invalidate_hash(whole_path_from),
+        self.assertEquals(object_base.invalidate_hash(whole_path_from),
                           None)
         # test that hashes get cleared
         check_pickle_data = pickle.dumps({data_dir: None},
-                                         object_replicator.PICKLE_PROTOCOL)
+                                         object_base.PICKLE_PROTOCOL)
         for data_hash in [{data_dir: None}, {data_dir: 'abcdefg'}]:
             with open(hashes_file, 'wb') as fp:
-                pickle.dump(data_hash, fp, object_replicator.PICKLE_PROTOCOL)
-            object_replicator.invalidate_hash(whole_path_from)
+                pickle.dump(data_hash, fp, object_base.PICKLE_PROTOCOL)
+            object_base.invalidate_hash(whole_path_from)
             assertFileData(hashes_file, check_pickle_data)
 
     def test_check_ring(self):
@@ -539,7 +539,7 @@ class TestObjectReplicator(unittest.TestCase):
                               ('2', True), ('3', True)]:
                 self.assertEquals(os.access(
                         os.path.join(self.objects,
-                                     i, object_replicator.HASH_FILE),
+                                     i, object_base.HASH_FILE),
                         os.F_OK), result)
         finally:
             object_replicator.http_connect = was_connector
