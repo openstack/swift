@@ -56,6 +56,8 @@ MAX_ACCOUNT_NAME_LENGTH = constraints_conf_int('max_account_name_length', 256)
 #: Max container name length
 MAX_CONTAINER_NAME_LENGTH = constraints_conf_int('max_container_name_length',
                                                  256)
+# Maximum slo segments in buffer
+MAX_BUFFERED_SLO_SEGMENTS = 10000
 
 
 #: Query string format= values to their corresponding content-type values

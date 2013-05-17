@@ -40,10 +40,10 @@ from swift.common.utils import ContextPool, normalize_timestamp, \
     config_true_value, public, json, csv_append, GreenthreadSafeIterator
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
+    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
-    ListingIterNotAuthorized, ListingIterError, SloSegmentError
+    ListingIterNotAuthorized, ListingIterError, SegmentError
 from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
     HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
@@ -56,13 +56,31 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect, HTTPNotImplemented
 
 
-def segment_listing_iter(listing):
-    listing = iter(listing)
-    while True:
-        seg_dict = listing.next()
-        if isinstance(seg_dict['name'], unicode):
-            seg_dict['name'] = seg_dict['name'].encode('utf-8')
-        yield seg_dict
+class SegmentListing(object):
+
+    def __init__(self, listing):
+        self.listing = iter(listing)
+        self._prepended_segments = []
+
+    def prepend_segments(self, new_segs):
+        """
+        Will prepend given segments to listing when iterating.
+        :raises SegmentError: when # segments > MAX_BUFFERED_SLO_SEGMENTS
+        """
+        new_segs.extend(self._prepended_segments)
+        if len(new_segs) > MAX_BUFFERED_SLO_SEGMENTS:
+            raise SegmentError('Too many unread slo segments in buffer')
+        self._prepended_segments = new_segs
+
+    def listing_iter(self):
+        while True:
+            if self._prepended_segments:
+                seg_dict = self._prepended_segments.pop(0)
+            else:
+                seg_dict = self.listing.next()
+            if isinstance(seg_dict['name'], unicode):
+                seg_dict['name'] = seg_dict['name'].encode('utf-8')
+            yield seg_dict
 
 
 def copy_headers_into(from_r, to_r):
@@ -104,14 +122,20 @@ class SegmentedIterable(object):
                     'bytes' keys.
     :param response: The swob.Response this iterable is associated with, if
                      any (default: None)
+    :param is_slo: A boolean, defaults to False, as to whether this references
+                   a SLO object.
+    :param max_lo_time: Defaults to 86400. The connection for the
+                        SegmentedIterable will drop after that many seconds.
     """
 
     def __init__(self, controller, container, listing, response=None,
-                 is_slo=False):
+                 is_slo=False, max_lo_time=86400):
         self.controller = controller
         self.container = container
-        self.listing = segment_listing_iter(listing)
+        self.segment_listing = SegmentListing(listing)
+        self.listing = self.segment_listing.listing_iter()
         self.is_slo = is_slo
+        self.max_lo_time = max_lo_time
         self.ratelimit_index = 0
         self.segment_dict = None
         self.segment_peek = None
@@ -121,10 +145,12 @@ class SegmentedIterable(object):
         # See NOTE: swift_conn at top of file about this.
         self.segment_iter_swift_conn = None
         self.position = 0
+        self.have_yielded_data = False
         self.response = response
         if not self.response:
             self.response = Response()
         self.next_get_time = 0
+        self.start_time = time.time()
 
     def _load_next_segment(self):
         """
@@ -135,6 +161,9 @@ class SegmentedIterable(object):
         """
         try:
             self.ratelimit_index += 1
+            if time.time() - self.start_time > self.max_lo_time:
+                raise SegmentError(
+                    _('Max LO GET time of %s exceeded.') % self.max_lo_time)
             self.segment_dict = self.segment_peek or self.listing.next()
             self.segment_peek = None
             if self.container is None:
@@ -167,7 +196,7 @@ class SegmentedIterable(object):
                 req, _('Object'), self.controller.app.object_ring, partition,
                 path)
             if self.is_slo and resp.status_int == HTTP_NOT_FOUND:
-                raise SloSegmentError(_(
+                raise SegmentError(_(
                     'Could not load object segment %(path)s:'
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             if not is_success(resp.status_int):
@@ -175,21 +204,41 @@ class SegmentedIterable(object):
                     'Could not load object segment %(path)s:'
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             if self.is_slo:
-                if resp.etag != self.segment_dict['hash']:
-                    raise SloSegmentError(_(
-                        'Object segment no longer valid: '
-                        '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
-                        {'path': path, 'r_etag': resp.etag,
-                         's_etag': self.segment_dict['hash']}))
                 if 'X-Static-Large-Object' in resp.headers:
-                    raise SloSegmentError(_(
-                        'SLO can not be made of other SLOs: %s' % path))
+                    # this segment is a nested slo object. read in the body
+                    # and add its segments into this slo.
+                    try:
+                        sub_manifest = json.loads(resp.body)
+                        self.segment_listing.prepend_segments(sub_manifest)
+                        sub_etag = md5(''.join(
+                            o['hash'] for o in sub_manifest)).hexdigest()
+                        if sub_etag != self.segment_dict['hash']:
+                            raise SegmentError(_(
+                                'Object segment does not match sub-slo: '
+                                '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
+                                {'path': path, 'r_etag': sub_etag,
+                                 's_etag': self.segment_dict['hash']}))
+                        return self._load_next_segment()
+                    except ValueError:
+                        raise SegmentError(_(
+                            'Sub SLO has invalid manifest: %s' % path))
+
+                elif resp.etag != self.segment_dict['hash'] or \
+                        resp.content_length != self.segment_dict['bytes']:
+                    raise SegmentError(_(
+                        'Object segment no longer valid: '
+                        '%(path)s etag: %(r_etag)s != %(s_etag)s or '
+                        '%(r_size)s != %(s_size)s.' %
+                        {'path': path, 'r_etag': resp.etag,
+                         'r_size': resp.content_length,
+                         's_etag': self.segment_dict['hash'],
+                         's_size': self.segment_dict['bytes']}))
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
         except StopIteration:
             raise
-        except SloSegmentError, err:
+        except SegmentError, err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.error(_(
                     'ERROR: While processing manifest '
@@ -232,8 +281,20 @@ class SegmentedIterable(object):
                             else:
                                 return
                 self.position += len(chunk)
+                self.have_yielded_data = True
                 yield chunk
         except StopIteration:
+            raise
+        except SegmentError:
+            if not self.have_yielded_data:
+                # Normally, exceptions before any data has been yielded will
+                # cause Eventlet to send a 5xx response. In this particular
+                # case of SegmentError we don't want that and we'd rather
+                # just send the normal 2xx response and then hang up early
+                # since 5xx codes are often used to judge Service Level
+                # Agreements and this SegmentError indicates the user has
+                # created an invalid condition.
+                yield ' '
             raise
         except (Exception, Timeout), err:
             if not getattr(err, 'swift_logged', False):
@@ -532,7 +593,8 @@ class ObjectController(Controller):
                 else:
                     resp.app_iter = SegmentedIterable(
                         self, lcontainer, listing, resp,
-                        is_slo=(large_object == 'SLO'))
+                        is_slo=(large_object == 'SLO'),
+                        max_lo_time=self.app.max_large_object_get_time)
 
             else:
                 # For objects with a reasonable number of segments, we'll serve
@@ -559,7 +621,8 @@ class ObjectController(Controller):
                                 conditional_response=True)
                 resp.app_iter = SegmentedIterable(
                     self, lcontainer, listing, resp,
-                    is_slo=(large_object == 'SLO'))
+                    is_slo=(large_object == 'SLO'),
+                    max_lo_time=self.app.max_large_object_get_time)
                 resp.content_length = content_length
                 resp.last_modified = last_modified
                 resp.etag = etag

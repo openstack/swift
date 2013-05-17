@@ -94,6 +94,26 @@ class FakeApp(object):
                             headers={'X-Static-Large-Object': 'True'},
                             body=good_data)(env, start_response)
 
+        if env['PATH_INFO'].startswith('/test_delete_nested/'):
+            nested_data = json.dumps(
+                [{'name': '/b/b_2', 'hash': 'a', 'bytes': '1'},
+                 {'name': '/c/c_3', 'hash': 'b', 'bytes': '2'}])
+            good_data = json.dumps(
+                [{'name': '/a/a_1', 'hash': 'a', 'bytes': '1'},
+                 {'name': '/a/sub_nest', 'hash': 'a', 'sub_slo': True,
+                  'bytes': len(nested_data)},
+                 {'name': '/d/d_3', 'hash': 'b', 'bytes': '2'}])
+            self.req_method_paths.append((env['REQUEST_METHOD'],
+                                          env['PATH_INFO']))
+            if 'sub_nest' in env['PATH_INFO']:
+                return Response(status=200,
+                                headers={'X-Static-Large-Object': 'True'},
+                                body=nested_data)(env, start_response)
+            else:
+                return Response(status=200,
+                                headers={'X-Static-Large-Object': 'True'},
+                                body=good_data)(env, start_response)
+
         if env['PATH_INFO'].startswith('/test_delete_bad_json/'):
             self.req_method_paths.append((env['REQUEST_METHOD'],
                                           env['PATH_INFO']))
@@ -309,7 +329,7 @@ class TestStaticLargeObject(unittest.TestCase):
             [{'path': '/c/a_1', 'etag': 'a', 'size_bytes': '1'},
              {'path': '/c/a_2', 'etag': 'a', 'size_bytes': '1'},
              {'path': '/d/b_2', 'etag': 'b', 'size_bytes': '2'},
-             {'path': '/d/slob', 'etag': 'b', 'size_bytes': '2'}])
+             {'path': '/d/slob', 'etag': 'a', 'size_bytes': '2'}])
         req = Request.blank(
             '/test_good/A/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -327,8 +347,7 @@ class TestStaticLargeObject(unittest.TestCase):
             self.assertEquals(errors[4][0], '/test_good/A/d/b_2')
             self.assertEquals(errors[4][1], 'Etag Mismatch')
             self.assertEquals(errors[-1][0], '/test_good/A/d/slob')
-            self.assertEquals(errors[-1][1],
-                              'Segments cannot be Large Objects')
+            self.assertEquals(errors[-1][1], 'Etag Mismatch')
         else:
             self.assert_(False)
 
@@ -342,7 +361,8 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank(
             '/test_delete_404/A/c/man?multipart-manifest=delete',
             environ={'REQUEST_METHOD': 'DELETE'})
-        self.slo(req.environ, fake_start_response)
+        app_iter = self.slo(req.environ, fake_start_response)
+        list(app_iter)  # iterate through whole response
         self.assertEquals(self.app.calls, 1)
         self.assertEquals(self.app.req_method_paths,
                           [('GET', '/test_delete_404/A/c/man')])
@@ -360,25 +380,52 @@ class TestStaticLargeObject(unittest.TestCase):
                            ('DELETE', '/test_delete/A/d/b_2'),
                            ('DELETE', '/test_delete/A/c/man')])
 
-    def test_handle_multipart_delete_bad_manifest(self):
+    def test_handle_multipart_delete_nested(self):
+        req = Request.blank(
+            '/test_delete_nested/A/c/man?multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        app_iter = self.slo(req.environ, fake_start_response)
+        list(app_iter)  # iterate through whole response
+        self.assertEquals(self.app.calls, 8)
+        self.assertEquals(
+            set(self.app.req_method_paths),
+            set([('GET', '/test_delete_nested/A/c/man'),
+                 ('GET', '/test_delete_nested/A/a/sub_nest'),
+                 ('DELETE', '/test_delete_nested/A/a/a_1'),
+                 ('DELETE', '/test_delete_nested/A/b/b_2'),
+                 ('DELETE', '/test_delete_nested/A/c/c_3'),
+                 ('DELETE', '/test_delete_nested/A/a/sub_nest'),
+                 ('DELETE', '/test_delete_nested/A/d/d_3'),
+                 ('DELETE', '/test_delete_nested/A/c/man')]))
+
+    def test_handle_multipart_delete_not_a_manifest(self):
+        # when trying to delete a SLO and its not an SLO, just go ahead
+        # and delete it
         req = Request.blank(
             '/test_delete_bad_man/A/c/man?multipart-manifest=delete',
-            environ={'REQUEST_METHOD': 'DELETE'})
-        resp = self.slo(req.environ, fake_start_response)
-        self.assertEquals(self.app.calls, 1)
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'HTTP_ACCEPT': 'application/json'})
+        app_iter = self.slo(req.environ, fake_start_response)
+        app_iter = list(app_iter)  # iterate through whole response
+        resp_data = json.loads(app_iter[0])
+        self.assertEquals(self.app.calls, 2)
         self.assertEquals(self.app.req_method_paths,
-                          [('GET', '/test_delete_bad_man/A/c/man')])
-        self.assertEquals(resp, ['Not an SLO manifest'])
+                          [('GET', '/test_delete_bad_man/A/c/man'),
+                           ('DELETE', '/test_delete_bad_man/A/c/man')])
+        self.assertEquals(resp_data['Response Status'], '200 OK')
 
     def test_handle_multipart_delete_bad_json(self):
         req = Request.blank(
             '/test_delete_bad_json/A/c/man?multipart-manifest=delete',
-            environ={'REQUEST_METHOD': 'DELETE'})
-        resp = self.slo(req.environ, fake_start_response)
+            environ={'REQUEST_METHOD': 'DELETE',
+                     'HTTP_ACCEPT': 'application/json'})
+        app_iter = self.slo(req.environ, fake_start_response)
+        app_iter = list(app_iter)  # iterate through whole response
+        resp_data = json.loads(app_iter[0])
         self.assertEquals(self.app.calls, 1)
         self.assertEquals(self.app.req_method_paths,
                           [('GET', '/test_delete_bad_json/A/c/man')])
-        self.assertEquals(resp, ['Invalid manifest file'])
+        self.assertEquals(resp_data["Response Status"], "500 Internal Error")
 
     def test_handle_multipart_delete_whole_bad(self):
         req = Request.blank(
