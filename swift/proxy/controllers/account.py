@@ -24,13 +24,15 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
+import time
 from urllib import unquote
 
-from swift.common.utils import public
+from swift.common.utils import normalize_timestamp, public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
-from swift.common.http import is_success, HTTP_NOT_FOUND
+from swift.common.http import HTTP_NOT_FOUND
 from swift.proxy.controllers.base import Controller, get_account_memcache_key
-from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed, Request
+from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed, \
+    HTTPNoContent
 
 
 class AccountController(Controller):
@@ -46,28 +48,26 @@ class AccountController(Controller):
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
+        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+            resp = HTTPBadRequest(request=req)
+            resp.body = 'Account name length of %d longer than %d' % \
+                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+            return resp
+
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         resp = self.GETorHEAD_base(
             req, _('Account'), self.app.account_ring, partition,
             req.path_info.rstrip('/'))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
-                resp = HTTPBadRequest(request=req)
-                resp.body = 'Account name length of %d longer than %d' % \
-                            (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
-                return resp
-            headers = self.generate_request_headers(req)
-            resp = self.make_requests(
-                Request.blank('/v1/' + self.account_name),
-                self.app.account_ring, partition, 'PUT',
-                '/' + self.account_name, [headers] * len(nodes))
-            if not is_success(resp.status_int):
-                self.app.logger.warning('Could not autocreate account %r' %
-                                        self.account_name)
-                return resp
-            resp = self.GETorHEAD_base(
-                req, _('Account'), self.app.account_ring, partition,
-                req.path_info.rstrip('/'))
+            # Fake a response
+            headers = {'Content-Length': '0',
+                       'Accept-Ranges': 'bytes',
+                       'Content-Type': 'text/plain; charset=utf-8',
+                       'X-Timestamp': normalize_timestamp(time.time()),
+                       'X-Account-Bytes-Used': '0',
+                       'X-Account-Container-Count': '0',
+                       'X-Account-Object-Count': '0'}
+            resp = HTTPNoContent(request=req, headers=headers)
         return resp
 
     @public
@@ -99,6 +99,11 @@ class AccountController(Controller):
     @public
     def POST(self, req):
         """HTTP POST request handler."""
+        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+            resp = HTTPBadRequest(request=req)
+            resp.body = 'Account name length of %d longer than %d' % \
+                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+            return resp
         error_response = check_metadata(req, 'account')
         if error_response:
             return error_response
@@ -112,19 +117,10 @@ class AccountController(Controller):
             req, self.app.account_ring, account_partition, 'POST',
             req.path_info, [headers] * len(accounts))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
-                resp = HTTPBadRequest(request=req)
-                resp.body = 'Account name length of %d longer than %d' % \
-                            (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
-                return resp
+            self.autocreate_account(self.account_name)
             resp = self.make_requests(
-                Request.blank('/v1/' + self.account_name),
-                self.app.account_ring, account_partition, 'PUT',
-                '/' + self.account_name, [headers] * len(accounts))
-            if not is_success(resp.status_int):
-                self.app.logger.warning('Could not autocreate account %r' %
-                                        self.account_name)
-                return resp
+                req, self.app.account_ring, account_partition, 'POST',
+                req.path_info, [headers] * len(accounts))
         return resp
 
     @public

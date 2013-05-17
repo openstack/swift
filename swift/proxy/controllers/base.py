@@ -37,7 +37,6 @@ from swift.common.wsgi import make_pre_authed_request
 from swift.common.utils import normalize_timestamp, config_true_value, \
     public, split_path, cache_from_env, list_from_csv
 from swift.common.bufferedhttp import http_connect
-from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
@@ -379,7 +378,7 @@ class Controller(object):
                               {'msg': msg, 'ip': node['ip'],
                               'port': node['port'], 'device': node['device']})
 
-    def account_info(self, account, req=None, autocreate=False):
+    def account_info(self, account, req=None):
         """
         Get account information, and also verify that the account exists.
 
@@ -411,7 +410,7 @@ class Controller(object):
                     container_count = 0
             if result_code == HTTP_OK:
                 return partition, nodes, container_count
-            elif result_code == HTTP_NOT_FOUND and not autocreate:
+            elif result_code == HTTP_NOT_FOUND:
                 return None, None, None
         result_code = 0
         path = '/%s' % account
@@ -452,18 +451,6 @@ class Controller(object):
                 self.exception_occurred(node, _('Account'),
                                         _('Trying to get account info for %s')
                                         % path)
-        if result_code == HTTP_NOT_FOUND and autocreate:
-            if len(account) > MAX_ACCOUNT_NAME_LENGTH:
-                return None, None, None
-            headers = self.generate_request_headers(req)
-            resp = self.make_requests(Request.blank('/v1' + path),
-                                      self.app.account_ring, partition, 'PUT',
-                                      path, [headers] * len(nodes))
-            if not is_success(resp.status_int):
-                self.app.logger.warning('Could not autocreate account %r' %
-                                        path)
-                return None, None, None
-            result_code = HTTP_OK
         if self.app.memcache and result_code in (HTTP_OK, HTTP_NOT_FOUND):
             if result_code == HTTP_OK:
                 cache_timeout = self.app.recheck_account_existence
@@ -481,8 +468,7 @@ class Controller(object):
             return partition, nodes, container_count
         return None, None, None
 
-    def container_info(self, account, container, req=None,
-                       account_autocreate=False):
+    def container_info(self, account, container, req=None):
         """
         Get container information and thusly verify container existence.
         This will also make a call to account_info to verify that the
@@ -517,8 +503,7 @@ class Controller(object):
                     container_info['partition'] = part
                     container_info['nodes'] = nodes
                 return container_info
-        if not self.account_info(account, req,
-                                 autocreate=account_autocreate)[1]:
+        if not self.account_info(account, req)[1]:
             return container_info
         headers = self.generate_request_headers(req)
         for node in self.iter_nodes(self.app.container_ring, part):
@@ -789,6 +774,23 @@ class Controller(object):
         what it was looking for.
         """
         return is_success(src.status) or is_redirection(src.status)
+
+    def autocreate_account(self, account):
+        partition, nodes = self.app.account_ring.get_nodes(account)
+        path = '/%s' % account
+        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+                   'X-Trans-Id': self.trans_id,
+                   'Connection': 'close'}
+        resp = self.make_requests(Request.blank('/v1' + path),
+                                  self.app.account_ring, partition, 'PUT',
+                                  path, [headers] * len(nodes))
+        if is_success(resp.status_int):
+            self.app.logger.info('autocreate account %r' % path)
+            if self.app.memcache:
+                self.app.memcache.delete(
+                    get_account_memcache_key(account))
+        else:
+            self.app.logger.warning('Could not autocreate account %r' % path)
 
     def GETorHEAD_base(self, req, server_type, ring, partition, path):
         """
