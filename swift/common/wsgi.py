@@ -245,6 +245,12 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
+    # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
+    # some platforms. This locks in reported times to the timezone in which
+    # the server first starts running in locations that periodically change
+    # timezones.
+    os.environ['TZ'] = time.strftime("%z", time.gmtime())
+
     worker_count = int(conf.get('workers', '1'))
     # Useful for profiling [no forks].
     if worker_count == 0:
