@@ -46,6 +46,15 @@ class TestReaper(unittest.TestCase):
         self.assertRaises(ValueError, reaper.AccountReaper,
                           {'delay_reaping': 'abc'})
 
+    def test_reap_warn_after_conf_set(self):
+        conf = {'delay_reaping': '2', 'reap_warn_after': '3'}
+        r = reaper.AccountReaper(conf)
+        self.assertEquals(r.reap_not_done_after, 5)
+
+    def test_reap_warn_after_conf_bad_value(self):
+        self.assertRaises(ValueError, reaper.AccountReaper,
+                          {'reap_warn_after': 'abc'})
+
     def test_reap_delay(self):
         time_value = [100]
 
