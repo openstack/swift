@@ -75,6 +75,7 @@ Administrator Documentation
     
     howto_installmultinode
     deployment_guide
+    apache_deployment_guide
     admin_guide
     replication_network
 
