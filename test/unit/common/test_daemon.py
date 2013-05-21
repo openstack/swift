@@ -15,11 +15,13 @@
 
 # TODO: Test kill_children signal handlers
 
+import os
 import unittest
 from getpass import getuser
 import logging
 from StringIO import StringIO
 from test.unit import tmpfile
+from mock import patch
 
 from swift.common import daemon, utils
 
@@ -85,8 +87,10 @@ class TestRunDaemon(unittest.TestCase):
 user = %s
 """ % getuser()
         with tmpfile(sample_conf) as conf_file:
-            daemon.run_daemon(MyDaemon, conf_file)
-            self.assertEquals(MyDaemon.forever_called, True)
+            with patch.dict('os.environ', {'TZ': ''}):
+                daemon.run_daemon(MyDaemon, conf_file)
+                self.assertEquals(MyDaemon.forever_called, True)
+                self.assert_(os.environ['TZ'] is not '')
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEquals(MyDaemon.once_called, True)
 

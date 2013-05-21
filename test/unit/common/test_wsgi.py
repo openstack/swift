@@ -360,10 +360,12 @@ class TestWSGI(unittest.TestCase):
             _fake_rings(conf_root)
             with patch('swift.common.wsgi.wsgi') as _wsgi:
                 with patch('swift.common.wsgi.eventlet') as _eventlet:
-                    conf = wsgi.appconfig(conf_dir)
-                    logger = logging.getLogger('test')
-                    sock = listen(('localhost', 0))
-                    wsgi.run_server(conf, logger, sock)
+                    with patch.dict('os.environ', {'TZ': ''}):
+                        conf = wsgi.appconfig(conf_dir)
+                        logger = logging.getLogger('test')
+                        sock = listen(('localhost', 0))
+                        wsgi.run_server(conf, logger, sock)
+                        self.assert_(os.environ['TZ'] is not '')
 
         self.assertEquals('HTTP/1.0',
                           _wsgi.HttpProtocol.default_request_version)
