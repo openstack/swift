@@ -100,17 +100,11 @@ class TestTempURL(unittest.TestCase):
             environ={'REQUEST_METHOD': 'OPTIONS'}).get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
 
-    def test_get_valid(self):
-        method = 'GET'
-        expires = int(time() + 86400)
-        path = '/v1/a/c/o'
-        key = 'abc'
-        hmac_body = '%s\n%s\n%s' % (method, expires, path)
-        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+    def assert_valid_sig(self, expires, path, keys, sig):
         req = self._make_request(path,
             environ={'QUERY_STRING':
                        'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
-        req.environ['swift.cache'].set('temp-url-keys/a', [key])
+        req.environ['swift.cache'].set('temp-url-keys/a', keys)
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
@@ -118,6 +112,15 @@ class TestTempURL(unittest.TestCase):
                           'attachment; filename="o"')
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        self.assert_valid_sig(expires, path, [key], sig)
 
     def test_get_valid_key2(self):
         method = 'GET'
@@ -129,17 +132,7 @@ class TestTempURL(unittest.TestCase):
         sig1 = hmac.new(key1, hmac_body, sha1).hexdigest()
         sig2 = hmac.new(key2, hmac_body, sha1).hexdigest()
         for sig in (sig1, sig2):
-            req = self._make_request(path,
-                environ={'QUERY_STRING':
-                           'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
-            req.environ['swift.cache'].set('temp-url-keys/a', [key1, key2])
-            self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
-            resp = req.get_response(self.tempurl)
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.headers['content-disposition'],
-                              'attachment; filename="o"')
-            self.assertEquals(req.environ['swift.authorize_override'], True)
-            self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+            self.assert_valid_sig(expires, path, [key1, key2], sig)
 
     def test_get_valid_with_filename(self):
         method = 'GET'
