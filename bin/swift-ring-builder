@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
 from array import array
 from errno import EEXIST
 from itertools import islice, izip
@@ -74,9 +73,8 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         except OSError, err:
             if err.errno != EEXIST:
                 raise
-        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
-                    '%d.' % time() + basename(argv[1])), 'wb'), protocol=2)
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(pathjoin(backup_dir, '%d.' % time() + basename(argv[1])))
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def default():
@@ -342,7 +340,7 @@ swift-ring-builder <builder_file> add
                 (region, zone, ip, port, device_name))[0]
             print('Device %s with %s weight got id %s' %
                   (format_device(new_dev), weight, new_dev['id']))
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def set_weight():
@@ -382,7 +380,7 @@ swift-ring-builder <builder_file> set_weight <search-value> <weight>
                 builder.set_dev_weight(dev['id'], weight)
                 print '%s weight set to %s' % (format_device(dev),
                                                dev['weight'])
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def set_info():
@@ -500,7 +498,7 @@ swift-ring-builder <builder_file> set_info
                     dev[key] = value
                 print 'Device %s is now %s' % (orig_dev_string,
                                                format_device(dev))
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def remove():
@@ -552,7 +550,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
                 print '%s marked for removal and will ' \
                       'be removed next rebalance.' % format_device(dev)
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def rebalance():
@@ -619,10 +617,9 @@ swift-ring-builder <builder_file> rebalance <seed>
         ts = time()
         builder.get_ring().save(
             pathjoin(backup_dir, '%d.' % ts + basename(ring_file)))
-        pickle.dump(builder.to_dict(), open(pathjoin(backup_dir,
-                    '%d.' % ts + basename(argv[1])), 'wb'), protocol=2)
+        builder.save(pathjoin(backup_dir, '%d.' % ts + basename(argv[1])))
         builder.get_ring().save(ring_file)
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(status)
 
     def validate():
@@ -656,7 +653,7 @@ swift-ring-builder <builder_file> write_ring
 
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def set_min_part_hours():
@@ -672,7 +669,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         builder.change_min_part_hours(int(argv[3]))
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is now set to %s' % argv[3]
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def set_replicas():
@@ -704,7 +701,7 @@ swift-ring-builder <builder_file> set_replicas <replicas>
         builder.set_replicas(new_replicas)
         print 'The replica count is now %.6f.' % builder.replicas
         print 'The change will take effect after the next rebalance.'
-        pickle.dump(builder.to_dict(), open(argv[1], 'wb'), protocol=2)
+        builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
 if __name__ == '__main__':

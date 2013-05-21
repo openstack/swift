@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
 import operator
 import os
 import unittest
 import cPickle as pickle
 from collections import defaultdict
 from shutil import rmtree
-from mock import Mock, call as mock_call
 
 from swift.common import exceptions
 from swift.common import ring
@@ -666,12 +666,12 @@ class TestRingBuilder(unittest.TestCase):
         real_pickle = pickle.load
         try:
             #test a legit builder
-            fake_pickle = Mock(return_value=rb)
-            fake_open = Mock(return_value=None)
+            fake_pickle = mock.Mock(return_value=rb)
+            fake_open = mock.Mock(return_value=None)
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             self.assertEquals(fake_pickle.call_count, 1)
-            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder, rb)
             fake_pickle.reset_mock()
             fake_open.reset_mock()
@@ -680,7 +680,7 @@ class TestRingBuilder(unittest.TestCase):
             fake_pickle.return_value = rb.to_dict()
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
-            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
             fake_open.reset_mock()
@@ -692,11 +692,62 @@ class TestRingBuilder(unittest.TestCase):
             fake_pickle.return_value = no_meta_builder
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
-            fake_open.assert_has_calls([mock_call('fake.builder', 'rb')])
+            fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
         finally:
             pickle.load = real_pickle
+
+    def test_save_load(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                 'ip': '127.0.0.0', 'port': 10000,
+                 'replication_ip': '127.0.0.0', 'replication_port': 10000,
+                 'device': 'sda1', 'meta': 'meta0'},
+                {'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                 'ip': '127.0.0.1', 'port': 10001,
+                 'replication_ip': '127.0.0.1', 'replication_port': 10001,
+                 'device': 'sdb1', 'meta': 'meta1'},
+                {'id': 2, 'region': 0, 'zone': 2, 'weight': 2,
+                 'ip': '127.0.0.2', 'port': 10002,
+                 'replication_ip': '127.0.0.2', 'replication_port': 10002,
+                 'device': 'sdc1', 'meta': 'meta2'},
+                {'id': 3, 'region': 0, 'zone': 3, 'weight': 2,
+                 'ip': '127.0.0.3', 'port': 10003,
+                 'replication_ip': '127.0.0.3', 'replication_port': 10003,
+                 'device': 'sdd1', 'meta': ''}]
+        for d in devs:
+            rb.add_dev(d)
+        rb.rebalance()
+        builder_file = os.path.join(self.testdir, 'test_save.builder')
+        rb.save(builder_file)
+        loaded_rb = ring.RingBuilder.load(builder_file)
+        self.maxDiff = None
+        self.assertEquals(loaded_rb.to_dict(), rb.to_dict())
+
+    @mock.patch('__builtin__.open', autospec=True)
+    @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
+    def test_save(self, mock_pickle_dump, mock_open):
+        mock_open.return_value = mock_fh = mock.Mock()
+        rb = ring.RingBuilder(8, 3, 1)
+        devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                 'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1',
+                 'meta': 'meta0'},
+                {'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                 'ip': '127.0.0.1', 'port': 10001, 'device': 'sdb1',
+                 'meta': 'meta1'},
+                {'id': 2, 'region': 0, 'zone': 2, 'weight': 2,
+                 'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc1',
+                 'meta': 'meta2'},
+                {'id': 3, 'region': 0, 'zone': 3, 'weight': 2,
+                 'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1'}]
+        for d in devs:
+            rb.add_dev(d)
+        rb.rebalance()
+        rb.save('some.builder')
+        mock_open.assert_called_once_with('some.builder', 'wb')
+        mock_pickle_dump.assert_called_once_with(rb.to_dict(), mock_fh,
+                                                 protocol=2)
 
     def test_search_devs(self):
         rb = ring.RingBuilder(8, 3, 1)

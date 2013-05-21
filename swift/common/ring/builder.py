@@ -1000,6 +1000,13 @@ class RingBuilder(object):
                     dev.setdefault('replication_port', dev['port'])
         return builder
 
+    def save(self, builder_file):
+        """Serialize this RingBuilder instance to disk.
+
+        :param builder_file: path to builder file to save
+        """
+        pickle.dump(self.to_dict(), open(builder_file, 'wb'), protocol=2)
+
     def search_devs(self, search_value):
         """
     The <search-value> can be of the form::
