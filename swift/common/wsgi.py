@@ -190,6 +190,12 @@ class RestrictedGreenPool(GreenPool):
 
 
 def run_server(conf, logger, sock):
+    # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
+    # some platforms. This locks in reported times to the timezone in which
+    # the server first starts running in locations that periodically change
+    # timezones.
+    os.environ['TZ'] = time.strftime("%z", time.gmtime())
+
     wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
     # Turn off logging requests by the underlying WSGI software.
     wsgi.HttpProtocol.log_request = lambda *a: None
@@ -244,12 +250,6 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         utils.FALLOCATE_RESERVE = reserve
     # redirect errors to logger and close stdio
     capture_stdio(logger)
-
-    # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
-    # some platforms. This locks in reported times to the timezone in which
-    # the server first starts running in locations that periodically change
-    # timezones.
-    os.environ['TZ'] = time.strftime("%z", time.gmtime())
 
     worker_count = int(conf.get('workers', '1'))
     # Useful for profiling [no forks].
