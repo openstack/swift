@@ -193,6 +193,17 @@ class TestDBReplicator(unittest.TestCase):
     def setUp(self):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
+        self._patchers = []
+
+    def tearDown(self):
+        for patcher in self._patchers:
+            patcher.stop()
+
+    def _patch(self, patching_fn, *args, **kwargs):
+        patcher = patching_fn(*args, **kwargs)
+        patched_thing = patcher.start()
+        self._patchers.append(patcher)
+        return patched_thing
 
     def stub_delete_db(self, object_file):
         self.delete_db_calls.append(object_file)
@@ -403,32 +414,27 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_replicate_object_quarantine(self):
         replicator = TestReplicator({})
-        was_db_file = replicator.brokerclass.db_file
-        try:
+        self._patch(patch.object, replicator.brokerclass, 'db_file',
+                    '/a/b/c/d/e/hey')
+        self._patch(patch.object, replicator.brokerclass,
+                    'get_repl_missing_table', True)
+        def mock_renamer(was, new, cause_colision=False):
+            if cause_colision and '-' not in new:
+                raise OSError(errno.EEXIST, "File already exists")
+            self.assertEquals('/a/b/c/d/e', was)
+            if '-' in new:
+                self.assert_(
+                    new.startswith('/a/quarantined/containers/e-'))
+            else:
+                self.assertEquals('/a/quarantined/containers/e', new)
 
-            def mock_renamer(was, new, cause_colision=False):
-                if cause_colision and '-' not in new:
-                    raise OSError(errno.EEXIST, "File already exists")
-                self.assertEquals('/a/b/c/d/e', was)
-                if '-' in new:
-                    self.assert_(
-                        new.startswith('/a/quarantined/containers/e-'))
-                else:
-                    self.assertEquals('/a/quarantined/containers/e', new)
-
-            def mock_renamer_error(was, new):
-                return mock_renamer(was, new, cause_colision=True)
-            was_renamer = db_replicator.renamer
-            db_replicator.renamer = mock_renamer
-            replicator.brokerclass.get_repl_missing_table = True
-            replicator.brokerclass.db_file = '/a/b/c/d/e/hey'
+        def mock_renamer_error(was, new):
+            return mock_renamer(was, new, cause_colision=True)
+        with patch.object(db_replicator, 'renamer', mock_renamer):
             replicator._replicate_object('0', 'file', 'node_id')
-            # try the double quarantine
-            db_replicator.renamer = mock_renamer_error
+        # try the double quarantine
+        with patch.object(db_replicator, 'renamer', mock_renamer_error):
             replicator._replicate_object('0', 'file', 'node_id')
-        finally:
-            replicator.brokerclass.db_file = was_db_file
-            db_replicator.renamer = was_renamer
 
     def test_replicate_object_delete_because_deleted(self):
         replicator = TestReplicator({})
