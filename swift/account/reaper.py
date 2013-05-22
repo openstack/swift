@@ -17,7 +17,7 @@ import os
 import random
 from logging import DEBUG
 from math import sqrt
-from time import time
+from time import time, ctime
 
 from eventlet import GreenPool, sleep, Timeout
 
@@ -72,6 +72,8 @@ class AccountReaper(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.delay_reaping = int(conf.get('delay_reaping') or 0)
+        reap_warn_after = float(conf.get('reap_warn_after') or 86400 * 30)
+        self.reap_not_done_after = reap_warn_after + self.delay_reaping
 
     def get_account_ring(self):
         """ The account :class:`swift.common.ring.Ring` for the cluster. """
@@ -240,6 +242,8 @@ class AccountReaper(Daemon):
                     self.logger.exception(
                         _('Exception with containers for account %s'), account)
                 marker = containers[-1][0]
+                if marker == '':
+                    break
             log = 'Completed pass on account %s' % account
         except (Exception, Timeout):
             self.logger.exception(
@@ -268,6 +272,10 @@ class AccountReaper(Daemon):
         log += _(', elapsed: %.02fs') % (time() - begin)
         self.logger.info(log)
         self.logger.timing_since('timing', self.start_time)
+        if self.stats_containers_remaining and \
+           begin - float(info['delete_timestamp']) >= self.reap_not_done_after:
+            self.logger.warn(_('Account %s has not been reaped since %s') %
+                             (account, ctime(float(info['delete_timestamp']))))
         return True
 
     def reap_container(self, account, account_partition, account_nodes,
@@ -346,6 +354,8 @@ class AccountReaper(Daemon):
                                       {'container': container,
                                        'account': account})
             marker = objects[-1]['name']
+            if marker == '':
+                break
         successes = 0
         failures = 0
         for node in nodes:
