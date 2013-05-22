@@ -42,6 +42,8 @@ class ExplodingMockMemcached(object):
         self.exploded = True
         raise socket.error()
 
+    def close(self):
+        pass
 
 class MockMemcached(object):
 
@@ -52,6 +54,7 @@ class MockMemcached(object):
         self.down = False
         self.exc_on_delete = False
         self.read_return_none = False
+        self.close_called = False
 
     def sendall(self, string):
         if self.down:
@@ -130,6 +133,10 @@ class MockMemcached(object):
             self.outbuf = self.outbuf[size:]
             return response
 
+    def close(self):
+        self.close_called = True
+        pass
+
 
 class TestMemcached(unittest.TestCase):
     """ Tests for swift.common.memcached"""
@@ -206,6 +213,7 @@ class TestMemcached(unittest.TestCase):
         mock.read_return_none = True
         self.assertRaises(memcached.MemcacheConnectionError,
                           memcache_client.incr, 'some_key', delta=-15)
+        self.assertTrue(mock.close_called)
 
     def test_incr_w_timeout(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
