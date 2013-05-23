@@ -35,7 +35,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, public, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
     split_path, drop_buffer_cache, get_logger, write_pickle, \
     config_true_value, validate_device_partition, timing_stats, \
-    ThreadPool
+    ThreadPool, replication
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8
@@ -496,17 +496,9 @@ class ObjectController(object):
         self.slow = int(conf.get('slow', 0))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         replication_server = conf.get('replication_server', None)
-        if replication_server is None:
-            allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                               'POST']
-        else:
+        if replication_server is not None:
             replication_server = config_true_value(replication_server)
-            if replication_server:
-                allowed_methods = ['REPLICATE']
-            else:
-                allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         self.replication_server = replication_server
-        self.allowed_methods = allowed_methods
         self.threads_per_disk = int(conf.get('threads_per_disk', '0'))
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=self.threads_per_disk))
@@ -1006,6 +998,7 @@ class ObjectController(object):
         return resp
 
     @public
+    @replication
     @timing_stats(sample_rate=0.1)
     def REPLICATE(self, request):
         """
@@ -1043,7 +1036,9 @@ class ObjectController(object):
                 try:
                     method = getattr(self, req.method)
                     getattr(method, 'publicly_accessible')
-                    if req.method not in self.allowed_methods:
+                    replication_method = getattr(method, 'replication', False)
+                    if (self.replication_server is not None and
+                            self.replication_server != replication_method):
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()

@@ -27,7 +27,7 @@ from swift.account.utils import account_listing_response, \
 from swift.common.db import AccountBroker, DatabaseConnectionError
 from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
-    validate_device_partition, json, timing_stats
+    validate_device_partition, json, timing_stats, replication
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.db_replicator import ReplicatorRpc
@@ -49,17 +49,9 @@ class AccountController(object):
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         replication_server = conf.get('replication_server', None)
-        if replication_server is None:
-            allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                               'POST']
-        else:
+        if replication_server is not None:
             replication_server = config_true_value(replication_server)
-            if replication_server:
-                allowed_methods = ['REPLICATE']
-            else:
-                allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         self.replication_server = replication_server
-        self.allowed_methods = allowed_methods
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
                                             self.mount_check,
                                             logger=self.logger)
@@ -259,6 +251,7 @@ class AccountController(object):
                                         delimiter)
 
     @public
+    @replication
     @timing_stats()
     def REPLICATE(self, req):
         """
@@ -323,7 +316,9 @@ class AccountController(object):
                 try:
                     method = getattr(self, req.method)
                     getattr(method, 'publicly_accessible')
-                    if req.method not in self.allowed_methods:
+                    replication_method = getattr(method, 'replication', False)
+                    if (self.replication_server is not None and
+                            self.replication_server != replication_method):
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()

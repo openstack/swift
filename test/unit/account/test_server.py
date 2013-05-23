@@ -25,7 +25,7 @@ import xml.dom.minidom
 
 from swift.common.swob import Request
 from swift.account.server import AccountController, ACCOUNT_LISTING_LIMIT
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import normalize_timestamp, replication, public
 
 
 class TestAccountController(unittest.TestCase):
@@ -1347,24 +1347,14 @@ class TestAccountController(unittest.TestCase):
 
     def test_list_allowed_methods(self):
         """ Test list of allowed_methods """
-        methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE', 'POST']
-        self.assertEquals(self.controller.allowed_methods, methods)
-
-    def test_allowed_methods_from_configuration_file(self):
-        """
-        Test list of allowed_methods which
-        were set from configuration file.
-        """
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEquals(AccountController(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                           'POST'])
-        conf['replication_server'] = 'True'
-        self.assertEquals(AccountController(conf).allowed_methods,
-                          ['REPLICATE'])
-        conf['replication_server'] = 'False'
-        self.assertEquals(AccountController(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'POST'])
+        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
+        repl_methods = ['REPLICATE']
+        for method_name in obj_methods:
+            method = getattr(self.controller, method_name)
+            self.assertFalse(hasattr(method, 'replication'))
+        for method_name in repl_methods:
+            method = getattr(self.controller, method_name)
+            self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
         """
@@ -1374,13 +1364,15 @@ class TestAccountController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.controller = AccountController(
+                {'devices': self.testdir, 'mount_check': 'false',
+                 'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.controller.allowed_methods[0]
-
+        method = 'PUT'
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
                'PATH_INFO': '/sda1/p/a/c',
@@ -1396,14 +1388,13 @@ class TestAccountController(unittest.TestCase):
                'wsgi.multiprocess': False,
                'wsgi.run_once': False}
 
-        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
-                  'allowed for this resource.</p></html>']
-
+        method_res = mock.MagicMock()
+        mock_method = public(lambda x: mock.MagicMock(return_value=method_res))
         with mock.patch.object(self.controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
+                               new=mock_method):
+            mock_method.replication = False
             response = self.controller.__call__(env, start_response)
-            self.assertNotEqual(response, answer)
-            self.assertEqual(mock_method.call_count, 1)
+            self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
         """
@@ -1413,13 +1404,15 @@ class TestAccountController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.controller = AccountController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.controller.allowed_methods[0]
-
+        method = 'PUT'
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
                'PATH_INFO': '/sda1/p/a/c',
@@ -1437,14 +1430,12 @@ class TestAccountController(unittest.TestCase):
 
         answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
                   'allowed for this resource.</p></html>']
-
+        mock_method = replication(public(lambda x: mock.MagicMock()))
         with mock.patch.object(self.controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
-            self.controller.allowed_methods.remove(method)
+                               new=mock_method):
+            mock_method.replication = True
             response = self.controller.__call__(env, start_response)
-            self.assertEqual(mock_method.call_count, 0)
             self.assertEqual(response, answer)
-            self.controller.allowed_methods.append(method)
 
 if __name__ == '__main__':
     unittest.main()
