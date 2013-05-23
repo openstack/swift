@@ -14,6 +14,30 @@
 # limitations under the License.
 
 """
+Why our own memcache client?
+By Michael Barton
+
+python-memcached doesn't use consistent hashing, so adding or
+removing a memcache server from the pool invalidates a huge
+percentage of cached items.
+
+If you keep a pool of python-memcached client objects, each client
+object has its own connection to every memcached server, only one of
+which is ever in use.  So you wind up with n * m open sockets and
+almost all of them idle. This client effectively has a pool for each
+server, so the number of backend connections is hopefully greatly
+reduced.
+
+python-memcache uses pickle to store things, and there was already a
+huge stink about Swift using pickles in memcache
+(http://osvdb.org/show/osvdb/86581).  That seemed sort of unfair,
+since nova and keystone and everyone else use pickles for memcache
+too, but it's hidden behind a "standard" library. But changing would
+be a security regression at this point.
+
+Also, pylibmc wouldn't work for us because it needs to use python
+sockets in order to play nice with eventlet.
+
 Lucid comes with memcached: v1.4.2.  Protocol documentation for that
 version is at:
 

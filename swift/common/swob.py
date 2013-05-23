@@ -19,6 +19,20 @@ Implementation of WSGI Request and Response objects.
 This library has a very similar API to Webob.  It wraps WSGI request
 environments and response values into objects that are more friendly to
 interact with.
+
+Why Swob and not just use WebOb?
+By Michael Barton
+
+We used webob for years. The main problem was that the interface
+wasn't stable. For a while, each of our several test suites required
+a slightly different version of webob to run, and none of them worked
+with the then-current version. It was a huge headache, so we just
+scrapped it.
+
+This is kind of a ton of code, but it's also been a huge relief to
+not have to scramble to add a bunch of code branches all over the
+place to keep Swift working every time webob decides some interface
+needs to change.
 """
 
 from collections import defaultdict
