@@ -20,6 +20,7 @@ from unittest import main, TestCase
 from uuid import uuid4
 
 from eventlet import GreenPool, Timeout
+import eventlet
 from sqlite3 import connect
 from swiftclient import client
 
@@ -28,6 +29,7 @@ from swift.common.utils import hash_path, readconf
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
     kill_server, kill_servers, reset_environment, start_server
 
+eventlet.monkey_patch(all=False, socket=True)
 
 def get_db_file_path(obj_dir):
     files = sorted(listdir(obj_dir), reverse=True)

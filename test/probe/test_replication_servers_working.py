@@ -23,9 +23,9 @@ import shutil
 
 from swiftclient import client
 
-#from swift.common import direct_client
 from test.probe.common import kill_server, kill_servers, reset_environment, \
     start_server
+from swift.common.utils import readconf
 
 
 def collect_info(path_list):
@@ -58,10 +58,10 @@ def find_max_occupancy_node(dir_list):
     """
     count = 0
     number = 0
-    lenght = 0
+    length = 0
     for dirs in dir_list:
-        if lenght < len(dirs):
-            lenght = len(dirs)
+        if length < len(dirs):
+            length = len(dirs)
             number = count
         count += 1
     return number
@@ -100,8 +100,15 @@ class TestReplicatorFunctions(TestCase):
         # Check, that files not replicated.
         # Delete file "hashes.pkl".
         # Check, that all files were replicated.
-        path_list = ['/srv/1/node/sdb1/', '/srv/2/node/sdb2/',
-                     '/srv/3/node/sdb3/', '/srv/4/node/sdb4/']
+        path_list = []
+        # Figure out where the devices are
+        for node_id in range(1,5):
+            conf = readconf(self.configs['object'] % node_id)
+            device_path = conf['app:object-server']['devices']
+            for dev in self.object_ring.devs:
+                if dev['port'] == int(conf['app:object-server']['bind_port']):
+                    device = dev['device']
+            path_list.append(os.path.join(device_path, device))
 
         # Put data to storage nodes
         container = 'container-%s' % uuid4()
@@ -111,96 +118,102 @@ class TestReplicatorFunctions(TestCase):
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
 
         # Get all data file information
-        (files_list, dirs_list) = collect_info(path_list)
-        num = find_max_occupancy_node(dirs_list)
+        (files_list, dir_list) = collect_info(path_list)
+        num = find_max_occupancy_node(dir_list)
         test_node = path_list[num]
         test_node_files_list = []
         for files in files_list[num]:
             if not files.endswith('.pending'):
                 test_node_files_list.append(files)
-        test_node_dirs_list = dirs_list[num]
+        test_node_dir_list = dir_list[num]
         # Run all replicators
         processes = []
 
-        for num in xrange(1, 9):
-            for server in ['object-replicator',
-                           'container-replicator',
-                           'account-replicator']:
-                if not os.path.exists(self.configs[server] % (num)):
-                    continue
-                processes.append(Popen(['swift-%s' % (server),
-                                        self.configs[server] % (num),
-                                        'forever']))
+        try:
+            for num in xrange(1, 9):
+                for server in ['object-replicator',
+                               'container-replicator',
+                               'account-replicator']:
+                    if not os.path.exists(self.configs[server] % (num)):
+                        continue
+                    processes.append(Popen(['swift-%s' % (server),
+                                            self.configs[server] % (num),
+                                            'forever']))
 
-        # Delete some files
-        for dirs in os.listdir(test_node):
-            shutil.rmtree(test_node+dirs)
+            # Delete some files
+            for directory in os.listdir(test_node):
+                shutil.rmtree(os.path.join(test_node, directory))
 
-        self.assertFalse(os.listdir(test_node))
+            self.assertFalse(os.listdir(test_node))
 
-        # We will keep trying these tests until they pass for up to 60s
-        begin = time.time()
-        while True:
-            (new_files_list, new_dirs_list) = collect_info([test_node])
+            # We will keep trying these tests until they pass for up to 60s
+            begin = time.time()
+            while True:
+                (new_files_list, new_dir_list) = collect_info([test_node])
 
-            try:
-                # Check replicate files and dirs
-                for files in test_node_files_list:
-                    self.assertTrue(files in new_files_list[0])
+                try:
+                    # Check replicate files and dir
+                    for files in test_node_files_list:
+                        self.assertTrue(files in new_files_list[0])
 
-                for dirs in test_node_dirs_list:
-                    self.assertTrue(dirs in new_dirs_list[0])
-                break
-            except Exception:
-                if time.time() - begin > 60:
-                    raise
-                time.sleep(1)
+                    for dir in test_node_dir_list:
+                        self.assertTrue(dir in new_dir_list[0])
+                    break
+                except Exception:
+                    if time.time() - begin > 60:
+                        raise
+                    time.sleep(1)
 
-        # Check behavior by deleting hashes.pkl file
-        for dirs in os.listdir(test_node + 'objects/'):
-            for input_dirs in os.listdir(test_node + 'objects/' + dirs):
-                eval_dirs = '/' + input_dirs
-                if os.path.isdir(test_node + 'objects/' + dirs + eval_dirs):
-                    shutil.rmtree(test_node + 'objects/' + dirs + eval_dirs)
+            # Check behavior by deleting hashes.pkl file
+            for directory in os.listdir(os.path.join(test_node, 'objects')):
+                for input_dir in os.listdir(os.path.join(
+                        test_node, 'objects',  directory)):
+                    if os.path.isdir(os.path.join(
+                            test_node, 'objects', directory, input_dir)):
+                        shutil.rmtree(os.path.join(
+                            test_node, 'objects', directory, input_dir))
 
-        # We will keep trying these tests until they pass for up to 60s
-        begin = time.time()
-        while True:
-            try:
-                for dirs in os.listdir(test_node + 'objects/'):
-                    for input_dirs in os.listdir(
-                            test_node + 'objects/' + dirs):
-                        self.assertFalse(os.path.isdir(test_node + 'objects/' +
-                                         dirs + '/' + input_dirs))
-                break
-            except Exception:
-                if time.time() - begin > 60:
-                    raise
-                time.sleep(1)
+            # We will keep trying these tests until they pass for up to 60s
+            begin = time.time()
+            while True:
+                try:
+                    for directory in os.listdir(os.path.join(
+                            test_node, 'objects')):
+                        for input_dir in os.listdir(os.path.join(
+                                test_node, 'objects', directory)):
+                            self.assertFalse(os.path.isdir(
+                                os.path.join(test_node, 'objects',
+                                             directory, '/', input_dir)))
+                    break
+                except Exception:
+                    if time.time() - begin > 60:
+                        raise
+                    time.sleep(1)
 
-        for dirs in os.listdir(test_node + 'objects/'):
-            os.remove(test_node + 'objects/' + dirs + '/hashes.pkl')
+            for directory in os.listdir(os.path.join(test_node, 'objects')):
+                os.remove(os.path.join(
+                    test_node, 'objects', directory, 'hashes.pkl'))
 
-        # We will keep trying these tests until they pass for up to 60s
-        begin = time.time()
-        while True:
-            try:
-                (new_files_list, new_dirs_list) = collect_info([test_node])
+            # We will keep trying these tests until they pass for up to 60s
+            begin = time.time()
+            while True:
+                try:
+                    (new_files_list, new_dir_list) = collect_info([test_node])
 
-                # Check replicate files and dirs
-                for files in test_node_files_list:
-                    self.assertTrue(files in new_files_list[0])
+                    # Check replicate files and dirs
+                    for files in test_node_files_list:
+                        self.assertTrue(files in new_files_list[0])
 
-                for dirs in test_node_dirs_list:
-                    self.assertTrue(dirs in new_dirs_list[0])
-                break
-            except Exception:
-                if time.time() - begin > 60:
-                    raise
-                time.sleep(1)
-
-        for process in processes:
-            process.kill()
+                    for directory in test_node_dir_list:
+                        self.assertTrue(directory in new_dir_list[0])
+                    break
+                except Exception:
+                    if time.time() - begin > 60:
+                        raise
+                    time.sleep(1)
+        finally:
+            for process in processes:
+                process.kill()
 
 
 if __name__ == '__main__':
