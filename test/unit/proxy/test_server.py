@@ -5683,6 +5683,69 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 400)
 
 
+class TestAccountControllerFakeGetResponse(unittest.TestCase):
+    """
+    Test all the faked-out GET responses for accounts that don't exist. They
+    have to match the responses for empty accounts that really exist.
+    """
+    def setUp(self):
+        self.app = proxy_server.Application(None, FakeMemcache(),
+                                            account_ring=FakeRing(),
+                                            container_ring=FakeRing(),
+                                            object_ring=FakeRing)
+        self.app.memcache = FakeMemcacheReturnsNone()
+        self.controller = proxy_server.AccountController(self.app, 'acc')
+        self.controller.app.account_autocreate = True
+
+    def test_GET_autocreate_accept_json(self):
+        with save_globals():
+            set_http_connect(404)  # however many backends we ask, they all 404
+            req = Request.blank('/a', headers={'Accept': 'application/json'})
+
+            resp = self.controller.GET(req)
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('application/json; charset=utf-8',
+                             resp.headers['Content-Type'])
+            self.assertEqual("[]", resp.body)
+
+    def test_GET_autocreate_format_json(self):
+        with save_globals():
+            set_http_connect(404)  # however many backends we ask, they all 404
+            req = Request.blank('/a?format=json')
+
+            resp = self.controller.GET(req)
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('application/json; charset=utf-8',
+                             resp.headers['Content-Type'])
+            self.assertEqual("[]", resp.body)
+
+    def test_GET_autocreate_accept_xml(self):
+        with save_globals():
+            set_http_connect(404)  # however many backends we ask, they all 404
+            req = Request.blank('/a', headers={"Accept": "text/xml"})
+
+            resp = self.controller.GET(req)
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('text/xml; charset=utf-8',
+                             resp.headers['Content-Type'])
+            empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                 '<account name="acc">\n</account>')
+            self.assertEqual(empty_xml_listing, resp.body)
+
+    def test_GET_autocreate_format_xml(self):
+        with save_globals():
+            set_http_connect(404)  # however many backends we ask, they all 404
+            req = Request.blank('/a?format=xml')
+
+            resp = self.controller.GET(req)
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('application/xml; charset=utf-8',
+                             resp.headers['Content-Type'])
+            empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                 '<account name="acc">\n</account>')
+            self.assertEqual(empty_xml_listing, resp.body)
+
+
 class FakeObjectController(object):
 
     def __init__(self):

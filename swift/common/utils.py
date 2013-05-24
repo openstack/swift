@@ -1021,7 +1021,7 @@ def storage_directory(datadir, partition, hash):
 
 def hash_path(account, container=None, object=None, raw_digest=False):
     """
-    Get the connonical hash for an account/container/object
+    Get the canonical hash for an account/container/object
 
     :param account: Account
     :param container: Container

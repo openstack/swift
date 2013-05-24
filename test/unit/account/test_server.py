@@ -406,6 +406,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers['Content-Type'],
+                          'text/plain; charset=utf-8')
 
     def test_GET_empty_account_json(self):
         req = Request.blank('/sda1/p/a?format=json',
@@ -415,6 +417,8 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['Content-Type'],
+                          'application/json; charset=utf-8')
 
     def test_GET_empty_account_xml(self):
         req = Request.blank('/sda1/p/a?format=xml',
@@ -424,6 +428,8 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['Content-Type'],
+                          'application/xml; charset=utf-8')
 
     def test_GET_over_limit(self):
         req = Request.blank('/sda1/p/a?limit=%d' %
