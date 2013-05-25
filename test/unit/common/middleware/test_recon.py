@@ -20,8 +20,10 @@ from posix import stat_result, statvfs_result
 import os
 
 import swift.common.constraints
+from swift import __version__ as swiftver
 from swift.common.swob import Request
 from swift.common.middleware import recon
+from swift.common.utils import json
 
 
 class FakeApp(object):
@@ -651,6 +653,11 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/mem', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_mem_resp)
+
+    def test_recon_get_version(self):
+        req = Request.blank('/recon/version', environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, [json.dumps({'version': swiftver})])
 
     def test_recon_get_load(self):
         get_load_resp = ['{"loadtest": "1"}']

@@ -16,6 +16,7 @@
 import errno
 import os
 
+from swift import __version__ as swiftver
 from swift.common.swob import Request, Response
 from swift.common.utils import get_logger, config_true_value, json
 from swift.common.constraints import check_mount
@@ -76,6 +77,11 @@ class ReconMiddleware(object):
         except Exception:
             self.logger.exception(_('Error retrieving recon data'))
         return dict((key, None) for key in cache_keys)
+
+    def get_version(self):
+        """get swift version"""
+        verinfo = {'version': swiftver}
+        return verinfo
 
     def get_mounted(self, openr=open):
         """get ALL mounted fs from /proc/mounts"""
@@ -305,6 +311,8 @@ class ReconMiddleware(object):
             content = self.get_quarantine_count()
         elif rcheck == "sockstat":
             content = self.get_socket_info()
+        elif rcheck == "version":
+            content = self.get_version()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",
