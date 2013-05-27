@@ -146,7 +146,7 @@ class MemcacheRing(object):
         Retrieves a server conn from the pool, or connects a new one.
         Chooses the server based on a consistent hash of "key".
         """
-        pos = bisect(self._sorted, key)
+        pos = bisect(self._sorted, md5hash(key))
         served = []
         while len(served) < self._tries:
             pos = (pos + 1) % len(self._sorted)
