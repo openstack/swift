@@ -722,7 +722,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(eval(resp.body), [])
+        self.assertEquals(simplejson.loads(resp.body), [])
         # fill the container
         for i in range(3):
             req = Request.blank('/sda1/p/a/jsonc/%s' % i, environ={
@@ -754,7 +754,7 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(eval(resp.body), json_body)
+        self.assertEquals(simplejson.loads(resp.body), json_body)
         self.assertEquals(resp.charset, 'utf-8')
 
         resp = self.controller.HEAD(req)
@@ -766,7 +766,7 @@ class TestContainerController(unittest.TestCase):
                     environ={'REQUEST_METHOD': 'GET'})
             req.accept = accept
             resp = self.controller.GET(req)
-            self.assertEquals(eval(resp.body), json_body,
+            self.assertEquals(simplejson.loads(resp.body), json_body,
                 'Invalid body for Accept: %s' % accept)
             self.assertEquals(resp.content_type, 'application/json',
                 'Invalid content_type for Accept: %s' % accept)
@@ -871,7 +871,7 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(eval(resp.body), json_body)
+        self.assertEquals(simplejson.loads(resp.body), json_body)
         self.assertEquals(resp.charset, 'utf-8')
 
     def test_GET_xml(self):
