@@ -335,10 +335,9 @@ swift-ring-builder <builder_file> add
                           'replication_port': replication_port,
                           'device': device_name, 'weight': weight,
                           'meta': meta}
-            builder.add_dev(dev_params)
-            new_dev = builder.search_devs(dev_params)[0]
+            dev_id = builder.add_dev(dev_params)
             print('Device %s with %s weight got id %s' %
-                  (format_device(new_dev), weight, new_dev['id']))
+                  (format_device(dev_params), weight, dev_id))
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
