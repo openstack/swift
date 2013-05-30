@@ -160,6 +160,13 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
+        if get_param(req, 'format'):
+            req.accept = FORMAT2CONTENT_TYPE.get(
+                get_param(req, 'format').lower(), FORMAT2CONTENT_TYPE['plain'])
+        out_content_type = req.accept.best_match(
+            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+        if not out_content_type:
+            return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
@@ -177,13 +184,7 @@ class AccountController(object):
         headers.update((key, value)
                        for key, (value, timestamp) in
                        broker.metadata.iteritems() if value != '')
-        if get_param(req, 'format'):
-            req.accept = FORMAT2CONTENT_TYPE.get(
-                get_param(req, 'format').lower(), FORMAT2CONTENT_TYPE['plain'])
-        headers['Content-Type'] = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not headers['Content-Type']:
-            return HTTPNotAcceptable(request=req)
+        headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
@@ -196,23 +197,6 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        if self.mount_check and not check_mount(self.root, drive):
-            return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account)
-        broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        info = broker.get_info()
-        resp_headers = {
-            'X-Account-Container-Count': info['container_count'],
-            'X-Account-Object-Count': info['object_count'],
-            'X-Account-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp']}
-        resp_headers.update((key, value)
-                            for key, (value, timestamp) in
-                            broker.metadata.iteritems() if value != '')
         try:
             prefix = get_param(req, 'prefix')
             delimiter = get_param(req, 'delimiter')
@@ -240,6 +224,23 @@ class AccountController(object):
             ['text/plain', 'application/json', 'application/xml', 'text/xml'])
         if not out_content_type:
             return HTTPNotAcceptable(request=req)
+        if self.mount_check and not check_mount(self.root, drive):
+            return HTTPInsufficientStorage(drive=drive, request=req)
+        broker = self._get_account_broker(drive, part, account)
+        broker.pending_timeout = 0.1
+        broker.stale_reads_ok = True
+        if broker.is_deleted():
+            return HTTPNotFound(request=req)
+        info = broker.get_info()
+        resp_headers = {
+            'X-Account-Container-Count': info['container_count'],
+            'X-Account-Object-Count': info['object_count'],
+            'X-Account-Bytes-Used': info['bytes_used'],
+            'X-Timestamp': info['created_at'],
+            'X-PUT-Timestamp': info['put_timestamp']}
+        resp_headers.update((key, value)
+                            for key, (value, timestamp) in
+                            broker.metadata.iteritems() if value != '')
         account_list = broker.list_containers_iter(limit, marker, end_marker,
                                                    prefix, delimiter)
         if out_content_type == 'application/json':

@@ -138,9 +138,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.status_int, 507)
 
     def test_HEAD_invalid_content_type(self):
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-                                                  'HTTP_X_TIMESTAMP': '0'})
-        self.controller.PUT(req)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'Accept': 'application/plain'})
         resp = self.controller.HEAD(req)
@@ -702,10 +699,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.status_int, 507)
 
     def test_GET_over_limit(self):
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': '0'})
-        resp = self.controller.PUT(req)
-        self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c?limit=%d' %
             (container_server.CONTAINER_LISTING_LIMIT + 1),
             environ={'REQUEST_METHOD': 'GET'})
@@ -1029,6 +1022,13 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(resp.body.split(), ['a1', 'a2', 'a3'])
 
+    def test_GET_delimiter_too_long(self):
+        req = Request.blank('/sda1/p/a/c?delimiter=xx',
+                            environ={'REQUEST_METHOD': 'GET',
+                                     'HTTP_X_TIMESTAMP': '0'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 412)
+
     def test_GET_delimiter(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})
@@ -1213,18 +1213,31 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(resp.status_int, 200)
 
     def test_params_utf8(self):
-        self.controller.PUT(Request.blank('/sda1/p/a/c',
-                            headers={'X-Timestamp': normalize_timestamp(1)},
-                            environ={'REQUEST_METHOD': 'PUT'}))
-        for param in ('delimiter', 'limit', 'marker', 'path', 'prefix'):
+        # Bad UTF8 sequence, all parameters should cause 400 error
+        for param in ('delimiter', 'limit', 'marker', 'path', 'prefix',
+                      'end_marker', 'format'):
             req = Request.blank('/sda1/p/a/c?%s=\xce' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = self.controller.GET(req)
-            self.assertEquals(resp.status_int, 400)
+            self.assertEquals(resp.status_int, 400,
+                              "%d on param %s" % (resp.status_int, param))
+        # Good UTF8 sequence for delimiter, too long (1 byte delimiters only)
+        req = Request.blank('/sda1/p/a/c?delimiter=\xce\xa9',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 412,
+                          "%d on param delimiter" % (resp.status_int))
+        self.controller.PUT(Request.blank('/sda1/p/a/c',
+                            headers={'X-Timestamp': normalize_timestamp(1)},
+                            environ={'REQUEST_METHOD': 'PUT'}))
+        # Good UTF8 sequence, ignored for limit, doesn't affect other queries
+        for param in ('limit', 'marker', 'path', 'prefix', 'end_marker',
+                      'format'):
             req = Request.blank('/sda1/p/a/c?%s=\xce\xa9' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = self.controller.GET(req)
-            self.assert_(resp.status_int in (204, 412), resp.status_int)
+            self.assertEquals(resp.status_int, 204,
+                              "%d on param %s" % (resp.status_int, param))
 
     def test_put_auto_create(self):
         headers = {'x-timestamp': normalize_timestamp(1),
