@@ -291,11 +291,11 @@ class TempURL(object):
                                    if h.lower() != 'content-disposition')
                     already = False
                 if not already:
+                    name = filename or basename(env['PATH_INFO'].rstrip('/'))
                     headers.append((
                         'Content-Disposition',
                         'attachment; filename="%s"' % (
-                            filename or
-                            basename(env['PATH_INFO'])).replace('"', '\\"')))
+                            name.replace('"', '\\"'))))
             return start_response(status, headers, exc_info)
 
         return self.app(env, _start_response)
