@@ -25,6 +25,7 @@ from uuid import uuid4
 
 import simplejson
 import sqlite3
+from mock import patch
 
 import swift.common.db
 from swift.common.db import AccountBroker, chexor, ContainerBroker, \
@@ -99,6 +100,7 @@ class TestDatabaseBroker(unittest.TestCase):
     def test_DB_PREALLOCATION_setting(self):
         u = uuid4().hex
         b = DatabaseBroker(u)
+        swift.common.db.DB_PREALLOCATION = False
         b._preallocate()
         swift.common.db.DB_PREALLOCATION = True
         self.assertRaises(OSError, b._preallocate)
@@ -146,6 +148,15 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
+
+        def my_exists(*a, **kw):
+            return True
+
+        with patch('os.path.exists', my_exists):
+            broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+            broker._initialize = stub
+            self.assertRaises(swift.common.db.DatabaseAlreadyExists,
+                broker.initialize, normalize_timestamp('1'))
 
     def test_delete_db(self):
         def init_stub(conn, put_timestamp):

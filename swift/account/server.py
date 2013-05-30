@@ -113,8 +113,11 @@ class AccountController(object):
                 broker.pending_timeout = 3
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
-                broker.initialize(normalize_timestamp(
-                    req.headers.get('x-timestamp') or time.time()))
+                try:
+                    broker.initialize(normalize_timestamp(
+                        req.headers.get('x-timestamp') or time.time()))
+                except swift.common.db.DatabaseAlreadyExists:
+                    pass
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
                 return HTTPNotFound(request=req)
@@ -130,8 +133,11 @@ class AccountController(object):
         else:   # put account
             timestamp = normalize_timestamp(req.headers['x-timestamp'])
             if not os.path.exists(broker.db_file):
-                broker.initialize(timestamp)
-                created = True
+                try:
+                    broker.initialize(timestamp)
+                    created = True
+                except swift.common.db.DatabaseAlreadyExists:
+                    pass
             elif broker.is_status_deleted():
                 return HTTPForbidden(request=req, body='Recently deleted')
             else:

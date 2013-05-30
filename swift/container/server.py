@@ -198,8 +198,11 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container)
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
-            broker.initialize(normalize_timestamp(
-                req.headers.get('x-timestamp') or time.time()))
+            try:
+                broker.initialize(normalize_timestamp(
+                    req.headers.get('x-timestamp') or time.time()))
+            except swift.common.db.DatabaseAlreadyExists:
+                pass
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
@@ -247,7 +250,10 @@ class ContainerController(object):
         if obj:     # put container object
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
-                broker.initialize(timestamp)
+                try:
+                    broker.initialize(timestamp)
+                except swift.common.db.DatabaseAlreadyExists:
+                    pass
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
             broker.put_object(obj, timestamp, int(req.headers['x-size']),
@@ -256,8 +262,11 @@ class ContainerController(object):
             return HTTPCreated(request=req)
         else:   # put container
             if not os.path.exists(broker.db_file):
-                broker.initialize(timestamp)
-                created = True
+                try:
+                    broker.initialize(timestamp)
+                    created = True
+                except swift.common.db.DatabaseAlreadyExists:
+                    pass
             else:
                 created = broker.is_deleted()
                 broker.update_put_timestamp(timestamp)

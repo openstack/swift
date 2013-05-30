@@ -70,6 +70,16 @@ class DatabaseConnectionError(sqlite3.DatabaseError):
             self.path, self.timeout, self.msg)
 
 
+class DatabaseAlreadyExists(sqlite3.DatabaseError):
+    """More friendly error messages for DB Errors."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def __str__(self):
+        return 'DB %s already exists' % self.path
+
+
 class GreenDBConnection(sqlite3.Connection):
     """SQLite DB Connection handler that plays well with eventlet."""
 
@@ -247,9 +257,7 @@ class DatabaseBroker(object):
                 if os.path.exists(self.db_file):
                     # It's as if there was a "condition" where different parts
                     # of the system were "racing" each other.
-                    raise DatabaseConnectionError(
-                        self.db_file,
-                        'DB created by someone else while working?')
+                    raise DatabaseAlreadyExists(self.db_file)
                 renamer(tmp_db_file, self.db_file)
             self.conn = get_db_connection(self.db_file, self.timeout)
         else:
