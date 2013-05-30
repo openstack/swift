@@ -27,17 +27,24 @@ class FakeMemcache(object):
 
     def __init__(self):
         self.store = {}
+        self.times = {}
 
     def get(self, key):
         return self.store.get(key)
 
     def set(self, key, value, time=0):
         self.store[key] = value
+        self.times[key] = time
         return True
 
     def incr(self, key, time=0):
         self.store[key] = self.store.setdefault(key, 0) + 1
+        if time:
+            self.times[key] = time
         return self.store[key]
+
+    def time_for_key(self, key):
+        return self.times.get(key)
 
     @contextmanager
     def soft_lock(self, key, timeout=0, retries=5):
@@ -217,6 +224,40 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+
+    def test_cache_miss_with_keys(self):
+        self.app.status_headers_body_iter = iter(
+            [('200 OK', {'X-Account-Meta-Temp-Url-Key': 'some-key'}, '')])
+        # doesn't have to be valid, just has to trigger a check
+        req = self._make_request('/v1/a/c/o',
+            environ={'QUERY_STRING':
+                     'temp_url_sig=abcd&temp_url_expires=%d' %
+                     int(time() + 1000)})
+        resp = req.get_response(self.tempurl)
+
+        self.assertEquals(resp.status_int, 401)
+        self.assertEquals(
+            ['some-key'],
+            req.environ['swift.cache'].get('temp-url-keys/a'))
+        self.assertEquals(
+            60,
+            req.environ['swift.cache'].time_for_key('temp-url-keys/a'))
+
+    def test_cache_miss_without_keys(self):
+        self.app.status_headers_body_iter = iter([('200 OK', {}, '')])
+        req = self._make_request('/v1/a/c/o',
+            environ={'QUERY_STRING':
+                     'temp_url_sig=abcd&temp_url_expires=%d' %
+                     int(time() + 1000)})
+        resp = req.get_response(self.tempurl)
+
+        self.assertEquals(resp.status_int, 401)
+        self.assertEquals(
+            [],
+            req.environ['swift.cache'].get('temp-url-keys/a'))
+        self.assertEquals(
+            6,
+            req.environ['swift.cache'].time_for_key('temp-url-keys/a'))
 
     def test_missing_sig(self):
         method = 'GET'

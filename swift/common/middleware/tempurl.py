@@ -384,7 +384,8 @@ class TempURL(object):
             except StopIteration:
                 pass
             if memcache:
-                memcache.set(memcache_hash_key, keys, time=60)
+                timeout = 60 if keys else 6
+                memcache.set(memcache_hash_key, keys, time=timeout)
         return keys
 
     def _get_hmacs(self, env, expires, keys, request_method=None):
