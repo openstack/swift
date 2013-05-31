@@ -77,7 +77,9 @@ def request_del(self):
 def setup():
     utils.HASH_PATH_SUFFIX = 'endcap'
     global _testdir, _test_servers, _test_sockets, \
-        _orig_container_listing_limit, _test_coros
+        _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
+    _orig_SysLogHandler = utils.SysLogHandler
+    utils.SysLogHandler = mock.MagicMock()
     Request._orig_init = Request.__init__
     Request.__init__ = request_init
     Request._orig_del = getattr(Request, '__del__', None)
@@ -179,6 +181,7 @@ def teardown():
     Request.__init__ = Request._orig_init
     if Request._orig_del:
         Request.__del__ = Request._orig_del
+    utils.SysLogHandler = _orig_SysLogHandler
 
 
 def sortHeaderNames(headerNames):
