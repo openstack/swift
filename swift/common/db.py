@@ -1540,9 +1540,9 @@ class AccountBroker(DatabaseBroker):
     def list_containers_iter(self, limit, marker, end_marker, prefix,
                              delimiter):
         """
-        Get a list of containerss sorted by name starting at marker onward, up
-        to limit entries.  Entries will begin with the prefix and will not
-        have the delimiter after the prefix.
+        Get a list of containers sorted by name starting at marker onward, up
+        to limit entries. Entries will begin with the prefix and will not have
+        the delimiter after the prefix.
 
         :param limit: maximum number of entries to get
         :param marker: marker query
