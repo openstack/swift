@@ -590,7 +590,7 @@ class TestRequest(unittest.TestCase):
         try:
             l = req.message_length()
         except ValueError as e:
-            self.assertEquals(e.message, "Invalid Content-Length header value")
+            self.assertEquals(str(e), "Invalid Content-Length header value")
         else:
             self.fail("Expected a ValueError raised for 'abc'")
 
@@ -606,7 +606,7 @@ class TestRequest(unittest.TestCase):
         try:
             l = req.message_length()
         except AttributeError as e:
-            self.assertEquals(e.message, "Unsupported Transfer-Coding header"
+            self.assertEquals(str(e), "Unsupported Transfer-Coding header"
                               " value specified in Transfer-Encoding header")
         else:
             self.fail("Expected an AttributeError raised for 'gzip'")
@@ -615,7 +615,7 @@ class TestRequest(unittest.TestCase):
         try:
             l = req.message_length()
         except ValueError as e:
-            self.assertEquals(e.message, "Invalid Transfer-Encoding header value")
+            self.assertEquals(str(e), "Invalid Transfer-Encoding header value")
         else:
             self.fail("Expected a ValueError raised for 'gzip'")
 
@@ -623,7 +623,7 @@ class TestRequest(unittest.TestCase):
         try:
             l = req.message_length()
         except AttributeError as e:
-            self.assertEquals(e.message, "Unsupported Transfer-Coding header"
+            self.assertEquals(str(e), "Unsupported Transfer-Coding header"
                               " value specified in Transfer-Encoding header")
         else:
             self.fail("Expected an AttributeError raised for 'gzip,identity'")

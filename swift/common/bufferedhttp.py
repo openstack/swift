@@ -130,7 +130,7 @@ def http_connect(ipaddr, port, device, partition, method, path,
         try:
             path = path.encode("utf-8")
         except UnicodeError, e:
-            logging.exception(_('Error encoding to UTF-8: %s'), e.message)
+            logging.exception(_('Error encoding to UTF-8: %s'), str(e))
     path = quote('/' + device + '/' + str(partition) + path)
     return http_connect_raw(
         ipaddr, port, method, path, headers, query_string, ssl)

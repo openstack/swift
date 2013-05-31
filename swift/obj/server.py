@@ -719,7 +719,7 @@ class ObjectController(object):
         try:
             fsize = request.message_length()
         except ValueError as e:
-            return HTTPBadRequest(body=e.message, request=request,
+            return HTTPBadRequest(body=str(e), request=request,
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)

@@ -707,10 +707,10 @@ class ObjectController(Controller):
             ml = req.message_length()
         except ValueError as e:
             return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body=e.message)
+                                  body=str(e))
         except AttributeError as e:
             return HTTPNotImplemented(request=req, content_type='text/plain',
-                                      body=e.message)
+                                      body=str(e))
         if ml is not None and ml > MAX_FILE_SIZE:
             return HTTPRequestEntityTooLarge(request=req)
         if 'x-delete-after' in req.headers:
