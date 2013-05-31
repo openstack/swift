@@ -716,6 +716,11 @@ class ObjectController(object):
         if new_delete_at and new_delete_at < time.time():
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
+        try:
+            fsize = request.message_length()
+        except ValueError as e:
+            return HTTPBadRequest(body=e.message, request=request,
+                                  content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
         disk_file = DiskFile(self.devices, device, partition, account,
@@ -726,9 +731,6 @@ class ObjectController(object):
         orig_timestamp = disk_file.metadata.get('X-Timestamp')
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
-        fsize = request.headers.get('content-length', None)
-        if fsize is not None:
-            fsize = int(fsize)
         elapsed_time = 0
         try:
             with disk_file.writer(size=fsize) as writer:

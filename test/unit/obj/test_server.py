@@ -671,15 +671,6 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
 
-    def test_PUT_zero_content_length_mismatched(self):
-        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': normalize_timestamp(time()),
-                         'Content-Type': 'application/octet-stream'})
-        req.body = 'VERIFY'
-        req.headers['Content-Length'] = '0'
-        resp = self.object_controller.PUT(req)
-        self.assertEquals(resp.status_int, 499)
-
     def test_PUT_common(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1528,13 +1519,46 @@ class TestObjectController(unittest.TestCase):
                  'Transfer-Encoding: chunked\r\n\r\n'
                  '2\r\noh\r\n4\r\n hai\r\n0\r\n\r\n')
         fd.flush()
-        readuntil2crlfs(fd)
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile()
         fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
                  'Connection: close\r\n\r\n')
         fd.flush()
-        readuntil2crlfs(fd)
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
+        response = fd.read()
+        self.assertEquals(response, 'oh hai')
+        killer.kill()
+
+    def test_chunked_content_length_mismatch_zero(self):
+        listener = listen(('localhost', 0))
+        port = listener.getsockname()[1]
+        killer = spawn(wsgi.server, listener, self.object_controller,
+                       NullLogger())
+        sock = connect_tcp(('localhost', port))
+        fd = sock.makefile()
+        fd.write('PUT /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
+                 'Content-Type: text/plain\r\n'
+                 'Connection: close\r\nX-Timestamp: 1.0\r\n'
+                 'Content-Length: 0\r\n'
+                 'Transfer-Encoding: chunked\r\n\r\n'
+                 '2\r\noh\r\n4\r\n hai\r\n0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEquals(headers[:len(exp)], exp)
+        sock = connect_tcp(('localhost', port))
+        fd = sock.makefile()
+        fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEquals(headers[:len(exp)], exp)
         response = fd.read()
         self.assertEquals(response, 'oh hai')
         killer.kill()

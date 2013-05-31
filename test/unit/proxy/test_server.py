@@ -805,6 +805,174 @@ class TestObjectController(unittest.TestCase):
             res = controller.PUT(req)
             self.assertTrue(res.status.startswith('201 '))
 
+    def test_PUT_message_length_using_content_length(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = 'j' * 20
+        fd.write('PUT /v1/a/c/o.content-length HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    def test_PUT_message_length_using_transfer_encoding(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 'Transfer-Encoding: chunked\r\n\r\n'
+                 '2\r\n'
+                 'oh\r\n'
+                 '4\r\n'
+                 ' say\r\n'
+                 '4\r\n'
+                 ' can\r\n'
+                 '4\r\n'
+                 ' you\r\n'
+                 '4\r\n'
+                 ' see\r\n'
+                 '3\r\n'
+                 ' by\r\n'
+                 '4\r\n'
+                 ' the\r\n'
+                 '8\r\n'
+                 ' dawns\'\n\r\n'
+                 '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    def test_PUT_message_length_using_both(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 'Content-Length: 33\r\n'
+                 'Transfer-Encoding: chunked\r\n\r\n'
+                 '2\r\n'
+                 'oh\r\n'
+                 '4\r\n'
+                 ' say\r\n'
+                 '4\r\n'
+                 ' can\r\n'
+                 '4\r\n'
+                 ' you\r\n'
+                 '4\r\n'
+                 ' see\r\n'
+                 '3\r\n'
+                 ' by\r\n'
+                 '4\r\n'
+                 ' the\r\n'
+                 '8\r\n'
+                 ' dawns\'\n\r\n'
+                 '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    def test_PUT_bad_message_length(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 'Content-Length: 33\r\n'
+                 'Transfer-Encoding: gzip\r\n\r\n'
+                 '2\r\n'
+                 'oh\r\n'
+                 '4\r\n'
+                 ' say\r\n'
+                 '4\r\n'
+                 ' can\r\n'
+                 '4\r\n'
+                 ' you\r\n'
+                 '4\r\n'
+                 ' see\r\n'
+                 '3\r\n'
+                 ' by\r\n'
+                 '4\r\n'
+                 ' the\r\n'
+                 '8\r\n'
+                 ' dawns\'\n\r\n'
+                 '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 400'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    def test_PUT_message_length_unsup_xfr_encoding(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 'Content-Length: 33\r\n'
+                 'Transfer-Encoding: gzip,chunked\r\n\r\n'
+                 '2\r\n'
+                 'oh\r\n'
+                 '4\r\n'
+                 ' say\r\n'
+                 '4\r\n'
+                 ' can\r\n'
+                 '4\r\n'
+                 ' you\r\n'
+                 '4\r\n'
+                 ' see\r\n'
+                 '3\r\n'
+                 ' by\r\n'
+                 '4\r\n'
+                 ' the\r\n'
+                 '8\r\n'
+                 ' dawns\'\n\r\n'
+                 '0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 501'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    def test_PUT_message_length_too_large(self):
+        swift.proxy.controllers.obj.MAX_FILE_SIZE = 10
+        try:
+            prolis = _test_sockets[0]
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/c/o.chunked HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     'Content-Length: 33\r\n\r\n'
+                     'oh say can you see by the dawns\'\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 413'
+            self.assertEqual(headers[:len(exp)], exp)
+        finally:
+            swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
+
     def test_expirer_DELETE_on_versioned_object(self):
         test_errors = []
 
