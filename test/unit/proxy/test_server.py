@@ -58,6 +58,7 @@ from swift.common.swob import Request, Response, HTTPNotFound, \
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
+STATIC_TIME = time.time()
 _request_instances = 0
 
 
@@ -2844,6 +2845,7 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
 
     def test_chunked_put(self):
 
@@ -4102,6 +4104,7 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
 
             t = str(int(time.time() + 100)) + '.1'
             req = Request.blank('/a/c/o', {},
@@ -4197,6 +4200,7 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
 
             t = str(int(time.time() + 100)) + '.1'
             req = Request.blank('/a/c/o', {},
@@ -4537,54 +4541,72 @@ class TestObjectController(unittest.TestCase):
                  'X-Container-Partition': '1',
                  'X-Container-Device': 'sdc'}])
 
+    @mock.patch('time.time', new=lambda: STATIC_TIME)
     def test_PUT_x_delete_at_with_fewer_container_replicas(self):
         self.app.container_ring.set_replicas(2)
 
+        delete_at_timestamp = int(time.time()) + 100000
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.app.expiring_objects_container_divisor *
+            self.app.expiring_objects_container_divisor)
         req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
-                                     'X-Delete-At': int(time.time()) + 100000})
+                                     'X-Delete-At': str(delete_at_timestamp)})
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
-                         'X-Delete-At-Partition'))
+                         'X-Delete-At-Partition', 'X-Delete-At-Container'))
 
         self.assertEqual(seen_headers, [
                 {'X-Delete-At-Host': '10.0.0.0:1000',
+                 'X-Delete-At-Container': delete_at_container,
                  'X-Delete-At-Partition': '1',
                  'X-Delete-At-Device': 'sda'},
                 {'X-Delete-At-Host': '10.0.0.1:1001',
+                 'X-Delete-At-Container': delete_at_container,
                  'X-Delete-At-Partition': '1',
                  'X-Delete-At-Device': 'sdb'},
                 {'X-Delete-At-Host': None,
+                 'X-Delete-At-Container': None,
                  'X-Delete-At-Partition': None,
                  'X-Delete-At-Device': None}])
 
+    @mock.patch('time.time', new=lambda: STATIC_TIME)
     def test_PUT_x_delete_at_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)
         self.app.expiring_objects_account = 'expires'
         self.app.expiring_objects_container_divisor = 60
 
+        delete_at_timestamp = int(time.time()) + 100000
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.app.expiring_objects_container_divisor *
+            self.app.expiring_objects_container_divisor)
         req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
-                                     'X-Delete-At': int(time.time()) + 100000})
+                                     'X-Delete-At': str(delete_at_timestamp)})
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
-                         'X-Delete-At-Partition'))
+                         'X-Delete-At-Partition', 'X-Delete-At-Container'))
         self.assertEqual(seen_headers, [
                 {'X-Delete-At-Host': '10.0.0.0:1000,10.0.0.3:1003',
+                 'X-Delete-At-Container': delete_at_container,
                  'X-Delete-At-Partition': '1',
                  'X-Delete-At-Device': 'sda,sdd'},
                 {'X-Delete-At-Host': '10.0.0.1:1001',
+                 'X-Delete-At-Container': delete_at_container,
                  'X-Delete-At-Partition': '1',
                  'X-Delete-At-Device': 'sdb'},
                 {'X-Delete-At-Host': '10.0.0.2:1002',
+                 'X-Delete-At-Container': delete_at_container,
                  'X-Delete-At-Partition': '1',
                  'X-Delete-At-Device': 'sdc'}])
 

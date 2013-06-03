@@ -30,6 +30,10 @@ from swift.container import server as container_server
 from test.unit import FakeLogger
 
 
+TEST_ACCOUNT_NAME = 'a c t'
+TEST_CONTAINER_NAME = 'c o n'
+
+
 def teardown_module():
     "clean up my monkey patching"
     reload(db_replicator)
@@ -46,6 +50,9 @@ class FakeRing:
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
+
+        def get_part(self, account, container=None, obj=None):
+            return 0
 
         def get_part_nodes(self, part):
             return []
@@ -71,6 +78,9 @@ class FakeRingWithNodes:
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
+
+        def get_part(self, account, container=None, obj=None):
+            return 0
 
         def get_part_nodes(self, part):
             return self.devs[:3]
@@ -139,6 +149,7 @@ class FakeBroker:
     get_repl_missing_table = False
     stub_replication_info = None
     db_type = 'container'
+    info = {'account': TEST_ACCOUNT_NAME, 'container': TEST_CONTAINER_NAME}
 
     def __init__(self, *args, **kwargs):
         self.locked = False
@@ -178,7 +189,12 @@ class FakeBroker:
         pass
 
     def get_info(self):
-        pass
+        return self.info
+
+
+class FakeAccountBroker(FakeBroker):
+    db_type = 'account'
+    info = {'account': TEST_ACCOUNT_NAME}
 
 
 class TestReplicator(db_replicator.Replicator):
@@ -452,6 +468,40 @@ class TestDBReplicator(unittest.TestCase):
         replicator.delete_db = self.stub_delete_db
         replicator._replicate_object('0', '/path/to/file', 'node_id')
         self.assertEquals(['/path/to/file'], self.delete_db_calls)
+
+    def test_replicate_account_out_of_place(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator.brokerclass = FakeAccountBroker
+        replicator._repl_to_node = lambda *args: True
+        replicator.delete_db = self.stub_delete_db
+        replicator.logger = FakeLogger()
+        # Correct node_id, wrong part
+        part = replicator.ring.get_part(TEST_ACCOUNT_NAME) + 1
+        node_id = replicator.ring.get_part_nodes(part)[0]['id']
+        replicator._replicate_object(str(part), '/path/to/file', node_id)
+        self.assertEqual(['/path/to/file'], self.delete_db_calls)
+        self.assertEqual(
+            replicator.logger.log_dict['error'],
+            [(('Found /path/to/file for /a%20c%20t when it should be on '
+               'partition 0; will replicate out and remove.',), {})])
+
+    def test_replicate_container_out_of_place(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator._repl_to_node = lambda *args: True
+        replicator.delete_db = self.stub_delete_db
+        replicator.logger = FakeLogger()
+        # Correct node_id, wrong part
+        part = replicator.ring.get_part(
+            TEST_ACCOUNT_NAME, TEST_CONTAINER_NAME) + 1
+        node_id = replicator.ring.get_part_nodes(part)[0]['id']
+        replicator._replicate_object(str(part), '/path/to/file', node_id)
+        self.assertEqual(['/path/to/file'], self.delete_db_calls)
+        self.assertEqual(
+            replicator.logger.log_dict['error'],
+            [(('Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
+               'be on partition 0; will replicate out and remove.',), {})])
 
     def test_delete_db(self):
         db_replicator.lock_parent_directory = lock_parent_directory

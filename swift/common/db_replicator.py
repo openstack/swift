@@ -28,6 +28,7 @@ from eventlet.green import subprocess
 import simplejson
 
 import swift.common.db
+from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_ip
@@ -408,12 +409,26 @@ class Replicator(Daemon):
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         self.logger.increment('attempts')
+        shouldbehere = True
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
             broker.reclaim(time.time() - self.reclaim_age,
                            time.time() - (self.reclaim_age * 2))
             info = broker.get_replication_info()
             full_info = broker.get_info()
+            bpart = self.ring.get_part(
+                full_info['account'], full_info.get('container'))
+            if bpart != int(partition):
+                partition = bpart
+                # Important to set this false here since the later check only
+                # checks if it's on the proper device, not partition.
+                shouldbehere = False
+                name = '/' + quote(full_info['account'])
+                if 'container' in full_info:
+                    name += '/' + quote(full_info['container'])
+                self.logger.error(
+                    'Found %s for %s when it should be on partition %s; will '
+                    'replicate out and remove.' % (object_file, name, bpart))
         except (Exception, Timeout), e:
             if 'no such table' in str(e):
                 self.logger.error(_('Quarantining DB %s'), object_file)
@@ -444,7 +459,8 @@ class Replicator(Daemon):
             return
         responses = []
         nodes = self.ring.get_part_nodes(int(partition))
-        shouldbehere = bool([n for n in nodes if n['id'] == node_id])
+        if shouldbehere:
+            shouldbehere = bool([n for n in nodes if n['id'] == node_id])
         # See Footnote [1] for an explanation of the repl_nodes assignment.
         i = 0
         while i < len(nodes) and nodes[i]['id'] != node_id:
