@@ -1,7 +1,13 @@
 #!/bin/bash
 
+python -c 'from distutils.version import LooseVersion as Ver; import nose, sys; sys.exit(0 if Ver(nose.__version__) >= Ver("1.2.0") else 1)'
+if [ $? != 0 ]; then
+    cover_branches=""
+else
+    cover_branches="--cover-branches"
+fi
 cd $(dirname $0)/test/unit
-nosetests --exe --with-coverage --cover-package swift. --cover-erase $@
+nosetests --exe --with-coverage --cover-package swift. --cover-erase $cover_branches $@
 rvalue=$?
 rm -f .coverage
 cd -
