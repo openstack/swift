@@ -18,11 +18,12 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-from xml.sax import saxutils
 
 from eventlet import Timeout
 
 import swift.common.db
+from swift.account.utils import account_listing_response, \
+    account_listing_content_type
 from swift.common.db import AccountBroker
 from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
@@ -33,7 +34,7 @@ from swift.common.db_replicator import ReplicatorRpc
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
-    HTTPPreconditionFailed, HTTPConflict, Request, Response, \
+    HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPNotAcceptable
 
 
@@ -219,17 +220,13 @@ class AccountController(object):
                                                   ACCOUNT_LISTING_LIMIT)
             marker = get_param(req, 'marker', '')
             end_marker = get_param(req, 'end_marker')
-            query_format = get_param(req, 'format')
         except UnicodeDecodeError, err:
             return HTTPBadRequest(body='parameters not utf8',
                                   content_type='text/plain', request=req)
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
-                                                 FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        out_content_type, error = account_listing_content_type(req)
+        if error:
+            return error
+
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
@@ -237,53 +234,9 @@ class AccountController(object):
         broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
-        info = broker.get_info()
-        resp_headers = {
-            'X-Account-Container-Count': info['container_count'],
-            'X-Account-Object-Count': info['object_count'],
-            'X-Account-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp']}
-        resp_headers.update((key, value)
-                            for key, (value, timestamp) in
-                            broker.metadata.iteritems() if value != '')
-        account_list = broker.list_containers_iter(limit, marker, end_marker,
-                                                   prefix, delimiter)
-        if out_content_type == 'application/json':
-            data = []
-            for (name, object_count, bytes_used, is_subdir) in account_list:
-                if is_subdir:
-                    data.append({'subdir': name})
-                else:
-                    data.append({'name': name, 'count': object_count,
-                                'bytes': bytes_used})
-            account_list = json.dumps(data)
-        elif out_content_type.endswith('/xml'):
-            output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
-                           '<account name="%s">' % account]
-            for (name, object_count, bytes_used, is_subdir) in account_list:
-                name = saxutils.escape(name)
-                if is_subdir:
-                    output_list.append('<subdir name="%s" />' % name)
-                else:
-                    item = '<container><name>%s</name><count>%s</count>' \
-                           '<bytes>%s</bytes></container>' % \
-                           (name, object_count, bytes_used)
-                    output_list.append(item)
-            output_list.append('</account>')
-            account_list = '\n'.join(output_list)
-        else:
-            if not account_list:
-                resp_headers['Content-Type'] = req.accept.best_match(
-                    ['text/plain', 'application/json',
-                     'application/xml', 'text/xml'])
-                return HTTPNoContent(request=req, headers=resp_headers,
-                                     charset='utf-8')
-            account_list = '\n'.join(r[0] for r in account_list) + '\n'
-        ret = Response(body=account_list, request=req, headers=resp_headers)
-        ret.content_type = out_content_type
-        ret.charset = 'utf-8'
-        return ret
+        return account_listing_response(account, req, out_content_type, broker,
+                                        limit, marker, end_marker, prefix,
+                                        delimiter)
 
     @public
     @timing_stats()
