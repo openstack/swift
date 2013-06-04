@@ -71,6 +71,7 @@ class ObjectReplicator(Daemon):
         self.run_pause = int(conf.get('run_pause', 30))
         self.rsync_timeout = int(conf.get('rsync_timeout', 900))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
+        self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -145,6 +146,7 @@ class ObjectReplicator(Daemon):
             '--ignore-existing',
             '--timeout=%s' % self.rsync_io_timeout,
             '--contimeout=%s' % self.rsync_io_timeout,
+            '--bwlimit=%s' % self.rsync_bwlimit,
         ]
         node_ip = rsync_ip(node['replication_ip'])
         if self.vm_test_mode:
