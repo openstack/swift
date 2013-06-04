@@ -1116,9 +1116,20 @@ class ContainerBroker(DatabaseBroker):
                 curs.row_factory = None
 
                 if prefix is None:
+                    # A delimiter without a specified prefix is ignored
                     return [r for r in curs]
                 if not delimiter:
-                    return [r for r in curs if r[0].startswith(prefix)]
+                    if not prefix:
+                        # It is possible to have a delimiter but no prefix
+                        # specified. As above, the prefix will be set to the
+                        # empty string, so avoid performing the extra work to
+                        # check against an empty prefix.
+                        return [r for r in curs]
+                    else:
+                        return [r for r in curs if r[0].startswith(prefix)]
+
+                # We have a delimiter and a prefix (possibly empty string) to
+                # handle
                 rowcount = 0
                 for row in curs:
                     rowcount += 1
@@ -1589,9 +1600,20 @@ class AccountBroker(DatabaseBroker):
                 curs.row_factory = None
 
                 if prefix is None:
+                    # A delimiter without a specified prefix is ignored
                     return [r for r in curs]
                 if not delimiter:
-                    return [r for r in curs if r[0].startswith(prefix)]
+                    if not prefix:
+                        # It is possible to have a delimiter but no prefix
+                        # specified. As above, the prefix will be set to the
+                        # empty string, so avoid performing the extra work to
+                        # check against an empty prefix.
+                        return [r for r in curs]
+                    else:
+                        return [r for r in curs if r[0].startswith(prefix)]
+
+                # We have a delimiter and a prefix (possibly empty string) to
+                # handle
                 rowcount = 0
                 for row in curs:
                     rowcount += 1
