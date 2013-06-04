@@ -1849,97 +1849,97 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(normalize_timestamp('1'))
         for cont1 in xrange(4):
             for cont2 in xrange(125):
-                broker.put_container('%d/%04d' % (cont1, cont2),
+                broker.put_container('%d-%04d' % (cont1, cont2),
                                      normalize_timestamp(time()), 0, 0, 0)
         for cont in xrange(125):
-            broker.put_container('2/0051/%04d' % cont,
+            broker.put_container('2-0051-%04d' % cont,
                                  normalize_timestamp(time()), 0, 0, 0)
 
         for cont in xrange(125):
-            broker.put_container('3/%04d/0049' % cont,
+            broker.put_container('3-%04d-0049' % cont,
                                  normalize_timestamp(time()), 0, 0, 0)
 
         listing = broker.list_containers_iter(100, '', None, None, '')
         self.assertEquals(len(listing), 100)
-        self.assertEquals(listing[0][0], '0/0000')
-        self.assertEquals(listing[-1][0], '0/0099')
+        self.assertEquals(listing[0][0], '0-0000')
+        self.assertEquals(listing[-1][0], '0-0099')
 
-        listing = broker.list_containers_iter(100, '', '0/0050', None, '')
+        listing = broker.list_containers_iter(100, '', '0-0050', None, '')
         self.assertEquals(len(listing), 50)
-        self.assertEquals(listing[0][0], '0/0000')
-        self.assertEquals(listing[-1][0], '0/0049')
+        self.assertEquals(listing[0][0], '0-0000')
+        self.assertEquals(listing[-1][0], '0-0049')
 
-        listing = broker.list_containers_iter(100, '0/0099', None, None, '')
+        listing = broker.list_containers_iter(100, '0-0099', None, None, '')
         self.assertEquals(len(listing), 100)
-        self.assertEquals(listing[0][0], '0/0100')
-        self.assertEquals(listing[-1][0], '1/0074')
+        self.assertEquals(listing[0][0], '0-0100')
+        self.assertEquals(listing[-1][0], '1-0074')
 
-        listing = broker.list_containers_iter(55, '1/0074', None, None, '')
+        listing = broker.list_containers_iter(55, '1-0074', None, None, '')
         self.assertEquals(len(listing), 55)
-        self.assertEquals(listing[0][0], '1/0075')
-        self.assertEquals(listing[-1][0], '2/0004')
+        self.assertEquals(listing[0][0], '1-0075')
+        self.assertEquals(listing[-1][0], '2-0004')
 
-        listing = broker.list_containers_iter(10, '', None, '0/01', '')
+        listing = broker.list_containers_iter(10, '', None, '0-01', '')
         self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0/0100')
-        self.assertEquals(listing[-1][0], '0/0109')
+        self.assertEquals(listing[0][0], '0-0100')
+        self.assertEquals(listing[-1][0], '0-0109')
 
-        listing = broker.list_containers_iter(10, '', None, '0/01', '/')
+        listing = broker.list_containers_iter(10, '', None, '0-01', '-')
         self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0/0100')
-        self.assertEquals(listing[-1][0], '0/0109')
+        self.assertEquals(listing[0][0], '0-0100')
+        self.assertEquals(listing[-1][0], '0-0109')
 
-        listing = broker.list_containers_iter(10, '', None, '0/', '/')
+        listing = broker.list_containers_iter(10, '', None, '0-', '-')
         self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0/0000')
-        self.assertEquals(listing[-1][0], '0/0009')
+        self.assertEquals(listing[0][0], '0-0000')
+        self.assertEquals(listing[-1][0], '0-0009')
 
-        listing = broker.list_containers_iter(10, '', None, '', '/')
+        listing = broker.list_containers_iter(10, '', None, '', '-')
         self.assertEquals(len(listing), 4)
         self.assertEquals([row[0] for row in listing],
-                          ['0/', '1/', '2/', '3/'])
+                          ['0-', '1-', '2-', '3-'])
 
-        listing = broker.list_containers_iter(10, '2/', None, None, '/')
+        listing = broker.list_containers_iter(10, '2-', None, None, '-')
         self.assertEquals(len(listing), 1)
-        self.assertEquals([row[0] for row in listing], ['3/'])
+        self.assertEquals([row[0] for row in listing], ['3-'])
 
-        listing = broker.list_containers_iter(10, '', None, '2', '/')
+        listing = broker.list_containers_iter(10, '', None, '2', '-')
         self.assertEquals(len(listing), 1)
-        self.assertEquals([row[0] for row in listing], ['2/'])
+        self.assertEquals([row[0] for row in listing], ['2-'])
 
-        listing = broker.list_containers_iter(10, '2/0050', None, '2/', '/')
+        listing = broker.list_containers_iter(10, '2-0050', None, '2-', '-')
         self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '2/0051')
-        self.assertEquals(listing[1][0], '2/0051/')
-        self.assertEquals(listing[2][0], '2/0052')
-        self.assertEquals(listing[-1][0], '2/0059')
+        self.assertEquals(listing[0][0], '2-0051')
+        self.assertEquals(listing[1][0], '2-0051-')
+        self.assertEquals(listing[2][0], '2-0052')
+        self.assertEquals(listing[-1][0], '2-0059')
 
-        listing = broker.list_containers_iter(10, '3/0045', None, '3/', '/')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals([row[0] for row in listing],
-                           ['3/0045/', '3/0046', '3/0046/', '3/0047',
-                            '3/0047/', '3/0048', '3/0048/', '3/0049',
-                            '3/0049/', '3/0050'])
-
-        broker.put_container('3/0049/', normalize_timestamp(time()), 0, 0, 0)
-        listing = broker.list_containers_iter(10, '3/0048', None, None, None)
+        listing = broker.list_containers_iter(10, '3-0045', None, '3-', '-')
         self.assertEquals(len(listing), 10)
         self.assertEquals([row[0] for row in listing],
-                           ['3/0048/0049', '3/0049', '3/0049/', '3/0049/0049',
-                            '3/0050', '3/0050/0049', '3/0051', '3/0051/0049',
-                            '3/0052', '3/0052/0049'])
+                           ['3-0045-', '3-0046', '3-0046-', '3-0047',
+                            '3-0047-', '3-0048', '3-0048-', '3-0049',
+                            '3-0049-', '3-0050'])
 
-        listing = broker.list_containers_iter(10, '3/0048', None, '3/', '/')
+        broker.put_container('3-0049-', normalize_timestamp(time()), 0, 0, 0)
+        listing = broker.list_containers_iter(10, '3-0048', None, None, None)
         self.assertEquals(len(listing), 10)
         self.assertEquals([row[0] for row in listing],
-                           ['3/0048/', '3/0049', '3/0049/', '3/0050',
-                            '3/0050/', '3/0051', '3/0051/', '3/0052',
-                            '3/0052/', '3/0053'])
+                           ['3-0048-0049', '3-0049', '3-0049-', '3-0049-0049',
+                            '3-0050', '3-0050-0049', '3-0051', '3-0051-0049',
+                            '3-0052', '3-0052-0049'])
 
-        listing = broker.list_containers_iter(10, None, None, '3/0049/', '/')
+        listing = broker.list_containers_iter(10, '3-0048', None, '3-', '-')
+        self.assertEquals(len(listing), 10)
+        self.assertEquals([row[0] for row in listing],
+                           ['3-0048-', '3-0049', '3-0049-', '3-0050',
+                            '3-0050-', '3-0051', '3-0051-', '3-0052',
+                            '3-0052-', '3-0053'])
+
+        listing = broker.list_containers_iter(10, None, None, '3-0049-', '-')
         self.assertEquals(len(listing), 2)
         self.assertEquals([row[0] for row in listing],
-                          ['3/0049/', '3/0049/0049'])
+                          ['3-0049-', '3-0049-0049'])
 
     def test_double_check_trailing_delimiter(self):
         """ Test swift.common.db.AccountBroker.list_containers_iter for an
@@ -1947,31 +1947,31 @@ class TestAccountBroker(unittest.TestCase):
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(normalize_timestamp('1'))
         broker.put_container('a', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('a/', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('a/a', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('a/a/a', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('a/a/b', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('a/b', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('a-', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('a-a', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('a-a-a', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('a-a-b', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('a-b', normalize_timestamp(time()), 0, 0, 0)
         broker.put_container('b', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('b/a', normalize_timestamp(time()), 0, 0, 0)
-        broker.put_container('b/b', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('b-a', normalize_timestamp(time()), 0, 0, 0)
+        broker.put_container('b-b', normalize_timestamp(time()), 0, 0, 0)
         broker.put_container('c', normalize_timestamp(time()), 0, 0, 0)
         listing = broker.list_containers_iter(15, None, None, None, None)
         self.assertEquals(len(listing), 10)
         self.assertEquals([row[0] for row in listing],
-                           ['a', 'a/', 'a/a', 'a/a/a', 'a/a/b', 'a/b', 'b',
-                            'b/a', 'b/b', 'c'])
-        listing = broker.list_containers_iter(15, None, None, '', '/')
+                           ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
+                            'b-a', 'b-b', 'c'])
+        listing = broker.list_containers_iter(15, None, None, '', '-')
         self.assertEquals(len(listing), 5)
         self.assertEquals([row[0] for row in listing],
-                          ['a', 'a/', 'b', 'b/', 'c'])
-        listing = broker.list_containers_iter(15, None, None, 'a/', '/')
+                          ['a', 'a-', 'b', 'b-', 'c'])
+        listing = broker.list_containers_iter(15, None, None, 'a-', '-')
         self.assertEquals(len(listing), 4)
         self.assertEquals([row[0] for row in listing],
-                          ['a/', 'a/a', 'a/a/', 'a/b'])
-        listing = broker.list_containers_iter(15, None, None, 'b/', '/')
+                          ['a-', 'a-a', 'a-a-', 'a-b'])
+        listing = broker.list_containers_iter(15, None, None, 'b-', '-')
         self.assertEquals(len(listing), 2)
-        self.assertEquals([row[0] for row in listing], ['b/a', 'b/b'])
+        self.assertEquals([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
         broker = AccountBroker(':memory:', account='a')
