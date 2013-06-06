@@ -979,7 +979,7 @@ class ObjectController(Controller):
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
-        etag = len(etags) and etags.pop() or None
+        etag = etags.pop() if len(etags) else None
         while len(statuses) < len(nodes):
             statuses.append(HTTP_SERVICE_UNAVAILABLE)
             reasons.append('')

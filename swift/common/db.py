@@ -86,7 +86,7 @@ class GreenDBConnection(sqlite3.Connection):
     def __init__(self, *args, **kwargs):
         self.timeout = kwargs.get('timeout', BROKER_TIMEOUT)
         kwargs['timeout'] = 0
-        self.db_file = args and args[0] or '-'
+        self.db_file = args[0] if args else'-'
         sqlite3.Connection.__init__(self, *args, **kwargs)
 
     def _timeout(self, call):
@@ -591,7 +591,7 @@ class DatabaseBroker(object):
             try:
                 md = conn.execute('SELECT metadata FROM %s_stat' %
                                   self.db_type).fetchone()[0]
-                md = md and json.loads(md) or {}
+                md = json.loads(md) if md else {}
                 utf8encodekeys(md)
             except sqlite3.OperationalError, err:
                 if 'no such column: metadata' not in str(err):

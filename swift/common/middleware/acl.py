@@ -110,7 +110,7 @@ def clean_acl(name, value):
                         raise ValueError('No host/domain value after referrer '
                                          'designation in ACL: %s' %
                                          repr(raw_value))
-                    values.append('.r:%s%s' % (negate and '-' or '', second))
+                    values.append('.r:%s%s' % ('-' if negate else '', second))
                 else:
                     raise ValueError('Unknown designator %s in ACL: %s' %
                                      (repr(first), repr(raw_value)))
