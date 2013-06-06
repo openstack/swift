@@ -6,16 +6,20 @@
 # swift_dir = /etc/swift
 # workers = 1
 # user = swift
+#
 # Set the following two lines to enable SSL. This is for testing only.
 # cert_file = /etc/swift/proxy.crt
 # key_file = /etc/swift/proxy.key
+#
 # expiring_objects_container_divisor = 86400
+#
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_headers = False
 # log_address = /dev/log
+#
 # This optional suffix (default is empty) that would be appended to the swift transaction
 # id allows one to easily figure out from which cluster that X-Trans-Id belongs to.
 # This is very useful when one is managing more than one swift cluster.
@@ -25,17 +29,21 @@
 # functions get passed: conf, name, log_to_console, log_route, fmt, logger,
 # adapted_logger
 # log_custom_handlers =
+#
 # If set, log_udp_host will override log_address
 # log_udp_host =
 # log_udp_port = 514
+#
 # You can enable StatsD logging here:
 # log_statsd_host = localhost
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
+#
 # Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
 # cors_allow_origin =
+#
 # client_timeout = 60
 # eventlet_debug = false
 # max_clients = 1024
@@ -50,6 +58,7 @@ use = egg:swift#proxy
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
 # set log_address = /dev/log
+#
 # log_handoffs = True
 # recheck_account_existence = 60
 # recheck_container_existence = 60
@@ -57,53 +66,69 @@ use = egg:swift#proxy
 # client_chunk_size = 8192
 # node_timeout = 10
 # conn_timeout = 0.5
+#
 # How long without an error before a node's error count is reset. This will
 # also be how long before a node is reenabled after suppression is triggered.
 # error_suppression_interval = 60
+#
 # How many errors can accumulate before a node is temporarily ignored.
 # error_suppression_limit = 10
+#
 # If set to 'true' any authorized user may create and delete accounts; if
 # 'false' no one, even authorized, can.
 # allow_account_management = false
+#
 # Set object_post_as_copy = false to turn on fast posts where only the metadata
 # changes are stored anew and the original data file is kept in place. This
 # makes for quicker posts; but since the container metadata isn't updated in
 # this mode, features like container sync won't be able to sync posts.
 # object_post_as_copy = true
+#
 # If set to 'true' authorized accounts that do not yet exist within the Swift
 # cluster will be automatically created.
 # account_autocreate = false
+#
 # If set to a positive value, trying to create a container when the account
 # already has at least this maximum containers will result in a 403 Forbidden.
 # Note: This is a soft limit, meaning a user might exceed the cap for
 # recheck_account_existence before the 403s kick in.
 # max_containers_per_account = 0
+#
 # This is a comma separated list of account hashes that ignore the
 # max_containers_per_account cap.
 # max_containers_whitelist =
+#
 # Comma separated list of Host headers to which the proxy will deny requests.
 # deny_host_headers =
+#
 # Prefix used when automatically creating accounts.
 # auto_create_account_prefix = .
+#
 # Depth of the proxy put queue.
 # put_queue_depth = 10
+#
 # Start rate-limiting object segment serving after the Nth segment of a
 # segmented object.
 # rate_limit_after_segment = 10
+#
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second.
 # rate_limit_segments_per_sec = 1
+#
 # Storage nodes can be chosen at random (shuffle) or by using timing
 # measurements. Using timing measurements may allow for lower overall latency.
 # The valid values for sorting_method are "shuffle" and "timing"
 # sorting_method = shuffle
+#
 # If the timing sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
+#
 # If set to false will treat objects with X-Static-Large-Object header set
 # as a regular object on GETs, i.e. will return that object's contents. Should
 # be set to false if slo is not used in pipeline.
 # allow_static_large_object = true
+#
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
 # replicas for the ring being used for the request.
@@ -117,24 +142,29 @@ use = egg:swift#tempauth
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
+#
 # The reseller prefix will verify a token begins with this prefix before even
 # attempting to validate it. Also, with authorization, only Swift storage
 # accounts with this prefix will be authorized by this middleware. Useful if
 # multiple auth systems are in use for one Swift cluster.
 # reseller_prefix = AUTH
+#
 # The auth prefix will cause requests beginning with this prefix to be routed
 # to the auth subsystem, for granting tokens, etc.
 # auth_prefix = /auth/
 # token_life = 86400
+#
 # This allows middleware higher in the WSGI pipeline to override auth
 # processing, useful for middleware such as tempurl and formpost. If you know
 # you're not going to use such middleware and you want a bit of extra security,
 # you can set this to false.
 # allow_overrides = true
+#
 # This specifies what scheme to return with storage urls:
 # http, https, or default (chooses based on what the server is running as)
 # This can be useful with an SSL load balancer in front of a non-SSL server.
 # storage_url_scheme = default
+#
 # Lastly, you need to list all the accounts/users you want here. The format is:
 #   user_<account>_<user> = <key> [group] [group] [...] [storage_url]
 # or if you want underscores in <account> or <user>, you can base64 encode them
@@ -199,6 +229,7 @@ use = egg:swift#memcache
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
+#
 # If not set here, the value for memcache_servers will be read from
 # memcache.conf (see memcache.conf-sample) or lacking that file, it will
 # default to the value below. You can specify multiple servers separated with
@@ -225,16 +256,21 @@ use = egg:swift#ratelimit
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
+#
 # clock_accuracy should represent how accurate the proxy servers' system clocks
 # are with each other. 1000 means that all the proxies' clock are accurate to
 # each other within 1 millisecond.  No ratelimit should be higher than the
 # clock accuracy.
 # clock_accuracy = 1000
+#
 # max_sleep_time_seconds = 60
+#
 # log_sleep_time_seconds of 0 means disabled
 # log_sleep_time_seconds = 0
+#
 # allows for slow rates (e.g. running up to 5 sec's behind) to catch up.
 # rate_buffer_seconds = 5
+#
 # account_ratelimit of 0 means disabled
 # account_ratelimit = 0
 
@@ -258,6 +294,7 @@ use = egg:swift#domain_remap
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
+#
 # storage_domain = example.com
 # path_root = v1
 # reseller_prefixes = AUTH
@@ -280,6 +317,7 @@ use = egg:swift#cname_lookup
 # set log_level = INFO
 # set log_headers = False
 # set log_address = /dev/log
+#
 # storage_domain = example.com
 # lookup_depth = 1
 
@@ -339,9 +377,11 @@ use = egg:swift#proxy_logging
 # access_log_facility = LOG_LOCAL0
 # access_log_level = INFO
 # access_log_address = /dev/log
+#
 # If set, access_log_udp_host will override access_log_address
 # access_log_udp_host =
 # access_log_udp_port = 514
+#
 # You can use log_statsd_* from [DEFAULT] or override them here:
 # access_log_statsd_host = localhost
 # access_log_statsd_port = 8125
@@ -349,6 +389,7 @@ use = egg:swift#proxy_logging
 # access_log_statsd_sample_rate_factor = 1.0
 # access_log_statsd_metric_prefix =
 # access_log_headers = False
+#
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 # log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
