@@ -1494,6 +1494,57 @@ class UnsafeXrange(object):
             self.concurrent_calls -= 1
 
 
+class TestAffinityKeyFunction(unittest.TestCase):
+    def setUp(self):
+        self.nodes = [dict(id=0, region=1, zone=1),
+                      dict(id=1, region=1, zone=2),
+                      dict(id=2, region=2, zone=1),
+                      dict(id=3, region=2, zone=2),
+                      dict(id=4, region=3, zone=1),
+                      dict(id=5, region=3, zone=2),
+                      dict(id=6, region=4, zone=0),
+                      dict(id=7, region=4, zone=1)]
+
+    def test_single_region(self):
+        keyfn = utils.affinity_key_function("r3=1")
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([4, 5, 0, 1, 2, 3, 6, 7], ids)
+
+    def test_bogus_value(self):
+        self.assertRaises(ValueError,
+                          utils.affinity_key_function, "r3")
+        self.assertRaises(ValueError,
+                          utils.affinity_key_function, "r3=elephant")
+
+    def test_empty_value(self):
+        # Empty's okay, it just means no preference
+        keyfn = utils.affinity_key_function("")
+        self.assert_(callable(keyfn))
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([0, 1, 2, 3, 4, 5, 6, 7], ids)
+
+    def test_all_whitespace_value(self):
+        # Empty's okay, it just means no preference
+        keyfn = utils.affinity_key_function("  \n")
+        self.assert_(callable(keyfn))
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([0, 1, 2, 3, 4, 5, 6, 7], ids)
+
+    def test_with_zone_zero(self):
+        keyfn = utils.affinity_key_function("r4z0=1")
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([6, 0, 1, 2, 3, 4, 5, 7], ids)
+
+    def test_multiple(self):
+        keyfn = utils.affinity_key_function("r1=100, r4=200, r3z1=1")
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([4, 0, 1, 6, 7, 2, 3, 5], ids)
+
+    def test_more_specific_after_less_specific(self):
+        keyfn = utils.affinity_key_function("r2=100, r2z2=50")
+        ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
+        self.assertEqual([3, 2, 0, 1, 4, 5, 6, 7], ids)
+
 class TestGreenthreadSafeIterator(unittest.TestCase):
     def increment(self, iterable):
         plus_ones = []

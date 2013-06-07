@@ -17,8 +17,10 @@
 
 import errno
 import fcntl
+import operator
 import os
 import pwd
+import re
 import sys
 import time
 import uuid
@@ -1521,6 +1523,63 @@ def validate_sync_to(value, allowed_sync_hosts):
     if p.hostname not in allowed_sync_hosts:
         return _('Invalid host %r in X-Container-Sync-To') % p.hostname
     return None
+
+
+def affinity_key_function(affinity_str):
+    """Turns an affinity config value into a function suitable for passing to
+    sort(). After doing so, the array will be sorted with respect to the given
+    ordering.
+
+    For example, if affinity_str is "r1=1, r2z7=2, r2z8=2", then the array
+    will be sorted with all nodes from region 1 (r1=1) first, then all the
+    nodes from region 2 zones 7 and 8 (r2z7=2 and r2z8=2), then everything
+    else.
+
+    Note that the order of the pieces of affinity_str is irrelevant; the
+    priority values are what comes after the equals sign.
+
+    If affinity_str is empty or all whitespace, then the resulting function
+    will not alter the ordering of the nodes. However, if affinity_str
+    contains an invalid value, then None is returned.
+
+    :param affinity_str: affinity config value, e.g. "r1z2=3"
+                         or "r1=1, r2z1=2, r2z2=2"
+    :returns: single-argument function, or None if argument invalid
+
+    """
+    affinity_str = affinity_str.strip()
+
+    if not affinity_str:
+        return lambda x: 0
+
+    priority_matchers = []
+    pieces = [s.strip() for s in affinity_str.split(',')]
+    for piece in pieces:
+        # matches r<number>=<number> or r<number>z<number>=<number>
+        match = re.match("r(\d+)(?:z(\d+))?=(\d+)$", piece)
+        if match:
+            region, zone, priority = match.groups()
+            region = int(region)
+            priority = int(priority)
+            zone = int(zone) if zone else None
+
+            matcher = {'region': region, 'priority': priority}
+            if zone is not None:
+                matcher['zone'] = zone
+            priority_matchers.append(matcher)
+        else:
+            raise ValueError("Invalid affinity value: %r" % affinity_str)
+
+    priority_matchers.sort(key=operator.itemgetter('priority'))
+
+    def keyfn(ring_node):
+        for matcher in priority_matchers:
+            if (matcher['region'] == ring_node['region']
+                and ('zone' not in matcher
+                     or matcher['zone'] == ring_node['zone'])):
+                return matcher['priority']
+        return 4294967296  # 2^32, i.e. "a big number"
+    return keyfn
 
 
 def get_remote_client(req):

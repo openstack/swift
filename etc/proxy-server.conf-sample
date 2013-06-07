@@ -115,12 +115,16 @@ use = egg:swift#proxy
 # to N per second.
 # rate_limit_segments_per_sec = 1
 #
-# Storage nodes can be chosen at random (shuffle) or by using timing
-# measurements. Using timing measurements may allow for lower overall latency.
-# The valid values for sorting_method are "shuffle" and "timing"
+# Storage nodes can be chosen at random (shuffle), by using timing
+# measurements (timing), or by using an explicit match (affinity).
+# Using timing measurements may allow for lower overall latency, while
+# using affinity allows for finer control. In both the timing and
+# affinity cases, equally-sorting nodes are still randomly chosen to
+# spread load.
+# The valid values for sorting_method are "affinity", "shuffle", and "timing".
 # sorting_method = shuffle
 #
-# If the timing sorting_method is used, the timings will only be valid for
+# If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
 #
@@ -133,6 +137,16 @@ use = egg:swift#proxy
 # '* replicas' at the end to have it use the number given times the number of
 # replicas for the ring being used for the request.
 # request_node_count = 2 * replicas
+#
+# Which backend servers to prefer on reads. Format is r<N> for region
+# N or r<N>z<M> for region N, zone M. The value after the equals is
+# the priority; lower numbers are higher priority.
+#
+# Example: first read from region 1 zone 1, then region 1 zone 2, then
+# anything in region 2, then everything else:
+# read_affinity = r1z1=100, r1z2=200, r2=300
+# Default is empty, meaning no preference.
+# read_affinity =
 
 [filter:tempauth]
 use = egg:swift#tempauth
