@@ -153,12 +153,15 @@ Configure the Proxy node
         user = swift
 
         [pipeline:main]
-        pipeline = healthcheck cache tempauth proxy-server
+        pipeline = healthcheck proxy-logging cache tempauth proxy-logging proxy-server
 
         [app:proxy-server]
         use = egg:swift#proxy
         allow_account_management = true
         account_autocreate = true
+
+        [filter:proxy-logging]
+        use = egg:swift#proxy_logging
 
         [filter:tempauth]
         use = egg:swift#tempauth
