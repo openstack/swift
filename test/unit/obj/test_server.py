@@ -1,3 +1,4 @@
+#-*- coding:utf-8 -*-
 # Copyright (c) 2010-2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -393,6 +394,53 @@ class TestObjectController(unittest.TestCase):
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
         rmtree(os.path.dirname(self.testdir))
+
+    def test_REQUEST_SPECIAL_CHARS(self):
+        obj = 'special昆%20/%'
+        path = '/sda1/p/a/c/%s' % obj
+        body = 'SPECIAL_STRING'
+
+        # create one
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',})
+        req.body = body
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        # check it
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'GET'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',})
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, body)
+
+        # update it
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 202)
+
+        # head it
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',})
+        resp = self.object_controller.HEAD(req)
+        self.assertEquals(resp.status_int, 200)
+
+        #delete it
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 204)
 
     def test_POST_update_meta(self):
         """ Test swift.object_server.ObjectController.POST """
