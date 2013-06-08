@@ -162,7 +162,7 @@ user_test_tester3 = testing3
 #
 # You'll need to have as well the keystoneauth middleware enabled
 # and have it in your main pipeline so instead of having tempauth in
-# there you can change it to: authtoken keystone
+# there you can change it to: authtoken keystoneauth
 #
 # [filter:authtoken]
 # paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
