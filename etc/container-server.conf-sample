@@ -9,31 +9,39 @@
 # devices = /srv/node
 # mount_check = true
 # disable_fallocate = false
+#
 # This is a comma separated list of hosts allowed in the X-Container-Sync-To
 # field for containers.
 # allowed_sync_hosts = 127.0.0.1
+#
 # You can specify default log routing here if you want:
 # log_name = swift
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
 # comma separated list of functions to call to setup custom log handlers.
 # functions get passed: conf, name, log_to_console, log_route, fmt, logger,
 # adapted_logger
 # log_custom_handlers =
+#
 # If set, log_udp_host will override log_address
 # log_udp_host =
 # log_udp_port = 514
+#
 # You can enable StatsD logging here:
 # log_statsd_host = localhost
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
+#
 # If you don't mind the extra disk space usage in overhead, you can turn this
 # on to preallocate disk space with SQLite databases to decrease fragmentation.
 # db_preallocation = off
+#
 # eventlet_debug = false
+#
 # You can set fallocate_reserve to the number of bytes you'd like fallocate to
 # reserve, whether there is space for the given file size or not.
 # fallocate_reserve = 0
@@ -49,11 +57,13 @@ use = egg:swift#container
 # set log_level = INFO
 # set log_requests = True
 # set log_address = /dev/log
+#
 # node_timeout = 3
 # conn_timeout = 0.5
 # allow_versions = False
 # auto_create_account_prefix = .
 # max_clients = 1024
+#
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify
 # "replication_server" (this is the default). To only handle replication,
@@ -78,6 +88,7 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
 # vm_test_mode = no
 # per_diff = 1000
 # max_diffs = 100
@@ -85,10 +96,13 @@ use = egg:swift#recon
 # interval = 30
 # node_timeout = 10
 # conn_timeout = 0.5
+#
 # The replicator also performs reclamation
 # reclaim_age = 604800
+#
 # Time in seconds to wait between replication passes
 # run_pause = 30
+#
 # recon_cache_path = /var/cache/swift
 
 [container-updater]
@@ -97,14 +111,18 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
 # interval = 300
 # concurrency = 4
 # node_timeout = 3
 # conn_timeout = 0.5
+#
 # slowdown will sleep that amount between containers
 # slowdown = 0.01
+#
 # Seconds to suppress updating an account that has generated an error
 # account_suppression_time = 60
+#
 # recon_cache_path = /var/cache/swift
 
 [container-auditor]
@@ -113,8 +131,10 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
 # Will audit each container at most once per interval
 # interval = 1800
+#
 # containers_per_second = 200
 # recon_cache_path = /var/cache/swift
 
@@ -124,9 +144,12 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
 # If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 # sync_proxy = http://127.0.0.1:8888
+#
 # Will sync each container at most once per interval
 # interval = 300
+#
 # Maximum amount of time to spend syncing each container per pass
 # container_time = 60
