@@ -623,6 +623,17 @@ class ObjectController(object):
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
         if op != 'DELETE':
+            delete_at_container = headers_in.get('X-Delete-At-Container', None)
+            if not delete_at_container:
+                self.logger.warning(
+                    'X-Delete-At-Container header must be specified for '
+                    'expiring objects background %s to work properly. Making '
+                    'best guess as to the container name for now.' % op)
+                # TODO(gholt): In a future release, change the above warning to
+                # a raised exception and remove the guess code below.
+                delete_at_container = str(
+                    delete_at / self.expiring_objects_container_divisor *
+                    self.expiring_objects_container_divisor)
             partition = headers_in.get('X-Delete-At-Partition', None)
             hosts = headers_in.get('X-Delete-At-Host', '')
             contdevices = headers_in.get('X-Delete-At-Device', '')
@@ -635,12 +646,21 @@ class ObjectController(object):
             headers_out['x-size'] = '0'
             headers_out['x-content-type'] = 'text/plain'
             headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
+        else:
+            # DELETEs of old expiration data have no way of knowing what the
+            # old X-Delete-At-Container was at the time of the initial setting
+            # of the data, so a best guess is made here.
+            # Worst case is a DELETE is issued now for something that doesn't
+            # exist there and the original data is left where it is, where
+            # it will be ignored when the expirer eventually tries to issue the
+            # object DELETE later since the X-Delete-At value won't match up.
+            delete_at_container = str(
+                delete_at / self.expiring_objects_container_divisor *
+                self.expiring_objects_container_divisor)
 
         for host, contdevice in updates:
             self.async_update(
-                op, self.expiring_objects_account,
-                str(delete_at / self.expiring_objects_container_divisor *
-                    self.expiring_objects_container_divisor),
+                op, self.expiring_objects_account, delete_at_container,
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice)
 
