@@ -17,8 +17,17 @@
 from swift.common.daemon import run_daemon
 from swift.common.utils import parse_options
 from swift.obj.expirer import ObjectExpirer
-
+from optparse import OptionParser
 
 if __name__ == '__main__':
-    conf_file, options = parse_options(once=True)
+    parser = OptionParser("%prog CONFIG [options]")
+    parser.add_option('--processes', dest='processes',
+                      help="Number of processes to use to do the work, don't "
+                      "use this option to do all the work in one process")
+    parser.add_option('--process', dest='process',
+                      help="Process number for this process, don't use "
+                      "this option to do all the work in one process, this "
+                      "is used to determine which part of the work this "
+                      "process should do")
+    conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectExpirer, conf_file, **options)

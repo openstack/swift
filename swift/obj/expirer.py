@@ -17,8 +17,10 @@ import urllib
 from random import random
 from time import time
 from os.path import join
+import hashlib
 
 from eventlet import sleep, Timeout
+from eventlet.greenpool import GreenPool
 
 from swift.common.daemon import Daemon
 from swift.common.internal_client import InternalClient
@@ -53,6 +55,11 @@ class ObjectExpirer(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = join(self.recon_cache_path, 'object.recon')
+        self.concurrency = int(conf.get('concurrency', 1))
+        if self.concurrency < 1:
+            raise ValueError("concurrency must be set to at least 1")
+        self.processes = int(self.conf.get('processes', 0))
+        self.process = int(self.conf.get('process', 0))
 
     def report(self, final=False):
         """
@@ -82,8 +89,13 @@ class ObjectExpirer(Daemon):
         :param args: Extra args to fulfill the Daemon interface; this daemon
                      has no additional args.
         :param kwargs: Extra keyword args to fulfill the Daemon interface; this
-                       daemon has no additional keyword args.
+                       daemon accepts processes and process keyword args.
+                       These will override the values from the config file if
+                       provided.
         """
+        processes, process = self.get_process_values(kwargs)
+        pool = GreenPool(self.concurrency)
+        containers_to_delete = []
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         try:
@@ -97,27 +109,25 @@ class ObjectExpirer(Daemon):
                 timestamp = int(container)
                 if timestamp > int(time()):
                     break
+                containers_to_delete.append(container)
                 for o in self.swift.iter_objects(self.expiring_objects_account,
                                                  container):
                     obj = o['name'].encode('utf8')
+                    if processes > 0:
+                        obj_process = int(
+                            hashlib.md5('%s/%s' % (container, obj)).
+                            hexdigest(), 16)
+                        if obj_process % processes != process:
+                            continue
                     timestamp, actual_obj = obj.split('-', 1)
                     timestamp = int(timestamp)
                     if timestamp > int(time()):
                         break
-                    start_time = time()
-                    try:
-                        self.delete_actual_object(actual_obj, timestamp)
-                        self.swift.delete_object(self.expiring_objects_account,
-                                                 container, obj)
-                        self.report_objects += 1
-                        self.logger.increment('objects')
-                    except (Exception, Timeout), err:
-                        self.logger.increment('errors')
-                        self.logger.exception(
-                            _('Exception while deleting object %s %s %s') %
-                            (container, obj, str(err)))
-                    self.logger.timing_since('timing', start_time)
-                    self.report()
+                    pool.spawn_n(
+                        self.delete_object, actual_obj, timestamp,
+                        container, obj)
+            pool.waitall()
+            for container in containers_to_delete:
                 try:
                     self.swift.delete_container(
                         self.expiring_objects_account,
@@ -145,12 +155,62 @@ class ObjectExpirer(Daemon):
         while True:
             begin = time()
             try:
-                self.run_once()
+                self.run_once(*args, **kwargs)
             except (Exception, Timeout):
                 self.logger.exception(_('Unhandled exception'))
             elapsed = time() - begin
             if elapsed < self.interval:
                 sleep(random() * (self.interval - elapsed))
+
+    def get_process_values(self, kwargs):
+        """
+        Gets the processes, process from the kwargs if those values exist.
+
+        Otherwise, return processes, process set in the config file.
+
+        :param kwargs: Keyword args passed into the run_forever(), run_once()
+                       methods.  They have values specified on the command
+                       line when the daemon is run.
+        """
+        if kwargs.get('processes') is not None:
+            processes = int(kwargs['processes'])
+        else:
+            processes = self.processes
+
+        if kwargs.get('process') is not None:
+            process = int(kwargs['process'])
+        else:
+            process = self.process
+
+        if process < 0:
+            raise ValueError(
+                'process must be an integer greater than or equal to 0')
+
+        if processes < 0:
+            raise ValueError(
+                'processes must be an integer greater than or equal to 0')
+
+        if processes and process >= processes:
+            raise ValueError(
+                'process must be less than or equal to processes')
+
+        return processes, process
+
+    def delete_object(self, actual_obj, timestamp, container, obj):
+        start_time = time()
+        try:
+            self.delete_actual_object(actual_obj, timestamp)
+            self.swift.delete_object(self.expiring_objects_account,
+                                     container, obj)
+            self.report_objects += 1
+            self.logger.increment('objects')
+        except (Exception, Timeout), err:
+            self.logger.increment('errors')
+            self.logger.exception(
+                _('Exception while deleting object %s %s %s') %
+                (container, obj, str(err)))
+        self.logger.timing_since('timing', start_time)
+        self.report()
 
     def delete_actual_object(self, actual_obj, timestamp):
         """
