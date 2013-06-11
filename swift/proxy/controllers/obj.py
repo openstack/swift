@@ -116,6 +116,7 @@ class SegmentedIterable(object):
         self.segment_dict = None
         self.segment_peek = None
         self.seek = 0
+        self.length = None
         self.segment_iter = None
         # See NOTE: swift_conn at top of file about this.
         self.segment_iter_swift_conn = None
@@ -145,8 +146,17 @@ class SegmentedIterable(object):
                 self.controller.account_name, container, obj)
             path = '/%s/%s/%s' % (self.controller.account_name, container, obj)
             req = Request.blank(path)
-            if self.seek:
-                req.range = 'bytes=%s-' % self.seek
+            if self.seek or (self.length and self.length > 0):
+                bytes_available = self.segment_dict['bytes'] - self.seek
+                range_tail = ''
+                if self.length:
+                    if bytes_available >= self.length:
+                        range_tail = self.seek + self.length - 1
+                        self.length = 0
+                    else:
+                        self.length -= bytes_available
+                if self.seek or range_tail:
+                    req.range = 'bytes=%s-%s' % (self.seek, range_tail)
                 self.seek = 0
             if not self.is_slo and self.ratelimit_index > \
                     self.controller.app.rate_limit_after_segment:
@@ -217,7 +227,10 @@ class SegmentedIterable(object):
                             chunk = self.segment_iter.next()
                             break
                         except StopIteration:
-                            self._load_next_segment()
+                            if self.length is None or self.length > 0:
+                                self._load_next_segment()
+                            else:
+                                return
                 self.position += len(chunk)
                 yield chunk
         except StopIteration:
@@ -254,14 +267,18 @@ class SegmentedIterable(object):
                 start = 0
             if stop is not None:
                 length = stop - start
+                self.length = length
             else:
                 length = None
             for chunk in self:
                 if length is not None:
                     length -= len(chunk)
-                    if length < 0:
-                        # Chop off the extra:
-                        yield chunk[:length]
+                    if length <= 0:
+                        if length < 0:
+                            # Chop off the extra:
+                            yield chunk[:length]
+                        else:
+                            yield chunk
                         break
                 yield chunk
             # See NOTE: swift_conn at top of file about this.

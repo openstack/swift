@@ -5930,13 +5930,14 @@ class FakeObjectController(object):
         self.node_timeout = 1
         self.rate_limit_after_segment = 3
         self.rate_limit_segments_per_sec = 2
+        self.GETorHEAD_base_args = []
 
     def exception(self, *args):
         self.exception_args = args
         self.exception_info = sys.exc_info()
 
     def GETorHEAD_base(self, *args):
-        self.GETorHEAD_base_args = args
+        self.GETorHEAD_base_args.append(args)
         req = args[0]
         path = args[4]
         body = data = path[-1] * int(path[-1])
@@ -5987,7 +5988,8 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = SegmentedIterable(self.controller, 'lc', [{'name':
                                   'o1'}])
         segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        self.assertEquals(
+            self.controller.GETorHEAD_base_args[0][4], '/a/lc/o1')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '1')
 
@@ -5995,11 +5997,13 @@ class TestSegmentedIterable(unittest.TestCase):
         segit = SegmentedIterable(self.controller, 'lc', [{'name':
                                   'o1'}, {'name': 'o2'}])
         segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o1')
+        self.assertEquals(
+            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o1')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '1')
         segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        self.assertEquals(
+            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '22')
 
@@ -6021,19 +6025,19 @@ class TestSegmentedIterable(unittest.TestCase):
             for _ in xrange(3):
                 segit._load_next_segment()
             self.assertEquals([], sleep_calls)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o3')
 
             # Loading of next (4th) segment starts rate-limiting.
             segit._load_next_segment()
             self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o4')
 
             sleep_calls = []
             segit._load_next_segment()
             self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o5')
         finally:
             swift.proxy.controllers.obj.sleep = orig_sleep
@@ -6062,19 +6066,19 @@ class TestSegmentedIterable(unittest.TestCase):
                 # o0 and o1 were skipped.
                 segit._load_next_segment()
             self.assertEquals([], sleep_calls)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o4')
 
             # Loading of next (5th) segment starts rate-limiting.
             segit._load_next_segment()
             self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o5')
 
             sleep_calls = []
             segit._load_next_segment()
             self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[4],
+            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
                               '/a/lc/o6')
         finally:
             swift.proxy.controllers.obj.sleep = orig_sleep
@@ -6085,22 +6089,44 @@ class TestSegmentedIterable(unittest.TestCase):
         segit.ratelimit_index = 0
         segit.listing.next()
         segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
+        self.assertEquals(self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '22')
 
     def test_load_next_segment_with_seek(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name':
-                                  'o1'}, {'name': 'o2'}])
+        segit = SegmentedIterable(self.controller, 'lc',
+                                  [{'name': 'o1', 'bytes': 1},
+                                   {'name': 'o2', 'bytes': 2}])
         segit.ratelimit_index = 0
         segit.listing.next()
         segit.seek = 1
         segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[4], '/a/lc/o2')
-        self.assertEquals(str(self.controller.GETorHEAD_base_args[0].range),
+        self.assertEquals(self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
+        self.assertEquals(str(self.controller.GETorHEAD_base_args[-1][0].range),
                           'bytes=1-')
         data = ''.join(segit.segment_iter)
         self.assertEquals(data, '2')
+
+    def test_fetching_only_what_you_need(self):
+        segit = SegmentedIterable(self.controller, 'lc',
+                                  [{'name': 'o7', 'bytes': 7},
+                                   {'name': 'o8', 'bytes': 8},
+                                   {'name': 'o9', 'bytes': 9}])
+
+        body = ''.join(segit.app_iter_range(10, 20))
+        self.assertEqual('8888899999', body)
+
+        GoH_args = self.controller.GETorHEAD_base_args
+        self.assertEquals(2, len(GoH_args))
+
+        # Either one is fine, as they both indicate "from byte 3 to (the last)
+        # byte 8".
+        self.assert_(str(GoH_args[0][0].range) in ['bytes=3-', 'bytes=3-8'])
+
+        # This one must ask only for the bytes it needs; otherwise we waste
+        # bandwidth pulling bytes from the object server and then throwing
+        # them out
+        self.assertEquals(str(GoH_args[1][0].range), 'bytes=0-4')
 
     def test_load_next_segment_with_get_error(self):
 
