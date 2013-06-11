@@ -141,12 +141,11 @@ class TempAuth(object):
             # Note: Empty reseller_prefix will match all tokens.
             groups = self.get_groups(env, token)
             if groups:
-                env['REMOTE_USER'] = groups
                 user = groups and groups.split(',', 1)[0] or ''
-                # We know the proxy logs the token, so we augment it just a bit
-                # to also log the authenticated user.
-                env['HTTP_X_AUTH_TOKEN'] = \
-                    '%s,%s' % (user, 's3' if s3 else token)
+                trans_id = env.get('swift.trans_id')
+                self.logger.debug('User: %s uses token %s (trans_id %s)' %
+                                  (user, 's3' if s3 else token, trans_id))
+                env['REMOTE_USER'] = groups
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
                 if '.reseller_admin' in groups:
