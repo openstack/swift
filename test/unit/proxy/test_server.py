@@ -662,25 +662,34 @@ class TestProxyServer(unittest.TestCase):
         exp_timings = {}
         self.assertEquals(baseapp.node_timings, exp_timings)
 
-        proxy_server.time = lambda: times.pop(0)
-        try:
-            times = [time.time()]
-            exp_timings = {'127.0.0.1': (0.1,
-                                         times[0] + baseapp.timing_expiry)}
+        times = [time.time()]
+        exp_timings = {'127.0.0.1': (0.1, times[0] + baseapp.timing_expiry)}
+        with mock.patch('swift.proxy.server.time', lambda: times.pop(0)):
             baseapp.set_node_timing({'ip': '127.0.0.1'}, 0.1)
-            self.assertEquals(baseapp.node_timings, exp_timings)
-        finally:
-            proxy_server.time = time.time
+        self.assertEquals(baseapp.node_timings, exp_timings)
 
-        proxy_server.shuffle = lambda l: l
-        try:
-            nodes = [{'ip': '127.0.0.1'}, {'ip': '127.0.0.2'}, {'ip': '127.0.0.3'}]
+        nodes = [{'ip': '127.0.0.1'}, {'ip': '127.0.0.2'}, {'ip': '127.0.0.3'}]
+        with mock.patch('swift.proxy.server.shuffle', lambda l: l):
             res = baseapp.sort_nodes(nodes)
-            exp_sorting = [{'ip': '127.0.0.2'}, {'ip': '127.0.0.3'},
-                           {'ip': '127.0.0.1'}]
-            self.assertEquals(res, exp_sorting)
-        finally:
-            proxy_server.shuffle = random.shuffle
+        exp_sorting = [{'ip': '127.0.0.2'}, {'ip': '127.0.0.3'},
+                       {'ip': '127.0.0.1'}]
+        self.assertEquals(res, exp_sorting)
+
+    def test_node_affinity(self):
+        baseapp = proxy_server.Application({'sorting_method': 'affinity',
+                                            'read_affinity': 'r1=1'},
+                                           FakeMemcache(),
+                                           container_ring=FakeRing(),
+                                           object_ring=FakeRing(),
+                                           account_ring=FakeRing())
+
+        nodes = [{'region': 2, 'zone': 1, 'ip': '127.0.0.1'},
+                 {'region': 1, 'zone': 2, 'ip': '127.0.0.2'}]
+        with mock.patch('swift.proxy.server.shuffle', lambda x:x):
+            app_sorted = baseapp.sort_nodes(nodes)
+            exp_sorted = [{'region': 1, 'zone': 2, 'ip': '127.0.0.2'},
+                          {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}]
+            self.assertEquals(exp_sorted, app_sorted)
 
 
 class TestObjectController(unittest.TestCase):

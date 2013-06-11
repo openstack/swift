@@ -34,7 +34,8 @@ from eventlet import Timeout
 
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
-    get_remote_client, split_path, config_true_value, generate_trans_id
+    get_remote_client, split_path, config_true_value, generate_trans_id, \
+    affinity_key_function
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController
@@ -125,6 +126,13 @@ class Application(object):
         else:
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
+        try:
+            read_affinity = conf.get('read_affinity', '')
+            self.read_affinity_sort_key = affinity_key_function(read_affinity)
+        except ValueError as err:
+            # make the message a little more useful
+            raise ValueError("Invalid read_affinity value: %r (%s)" %
+                             (read_affinity, err.message))
 
     def get_controller(self, path):
         """
@@ -277,6 +285,8 @@ class Application(object):
                 timing, expires = self.node_timings.get(node['ip'], (-1.0, 0))
                 return timing if expires > now else -1.0
             nodes.sort(key=key_func)
+        elif self.sorting_method == 'affinity':
+            nodes.sort(key=self.read_affinity_sort_key)
         return nodes
 
     def set_node_timing(self, node, timing):
