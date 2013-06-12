@@ -203,6 +203,13 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 507)
 
+    def test_HEAD_invalid_format(self):
+        format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
+        req = Request.blank('/sda1/p/a?format=' + format,
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 400)
+
     def test_PUT_not_found(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-PUT-Timestamp': normalize_timestamp(1),

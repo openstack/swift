@@ -143,6 +143,13 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.HEAD(req)
         self.assertEquals(resp.status_int, 406)
 
+    def test_HEAD_invalid_format(self):
+        format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
+        req = Request.blank('/sda1/p/a/c?format=' + format,
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 400)
+
     def test_PUT(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '1'})

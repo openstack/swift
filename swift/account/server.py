@@ -167,9 +167,14 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        if get_param(req, 'format'):
+        try:
+            query_format = get_param(req, 'format')
+        except UnicodeDecodeError:
+            return HTTPBadRequest(body='parameters not utf8',
+                                  content_type='text/plain', request=req)
+        if query_format:
             req.accept = FORMAT2CONTENT_TYPE.get(
-                get_param(req, 'format').lower(), FORMAT2CONTENT_TYPE['plain'])
+                query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
         out_content_type = req.accept.best_match(
             ['text/plain', 'application/json', 'application/xml', 'text/xml'])
         if not out_content_type:
