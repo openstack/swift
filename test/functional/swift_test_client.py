@@ -155,7 +155,11 @@ class Connection(object):
         self.storage_host = x[2].split(':')[0]
         if ':' in x[2]:
             self.storage_port = int(x[2].split(':')[1])
-        self.storage_url = '/%s/%s' % (x[3], x[4])
+        # Make sure storage_url is a string and not unicode, since
+        # keystoneclient (called by swiftclient) returns them in
+        # unicode and this would cause troubles when doing
+        # no_safe_quote query.
+        self.storage_url = str('/%s/%s' % (x[3], x[4]))
 
         self.storage_token = storage_token
 
