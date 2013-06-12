@@ -17,6 +17,9 @@ from swift.common.swob import Request
 
 from swift.common.middleware import account_quotas
 
+from swift.proxy.controllers.base import _get_cache_key, \
+    headers_to_account_info
+
 
 class FakeCache(object):
     def __init__(self, val):
@@ -43,6 +46,9 @@ class FakeApp(object):
         self.headers = headers
 
     def __call__(self, env, start_response):
+        # Cache the account_info (same as a real application)
+        cache_key, env_key = _get_cache_key('a', None)
+        env[env_key] = headers_to_account_info(self.headers, 200)
         start_response('200 OK', self.headers)
         return []
 

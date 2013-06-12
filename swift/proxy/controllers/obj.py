@@ -568,7 +568,7 @@ class ObjectController(Controller):
             if error_response:
                 return error_response
             container_info = self.container_info(
-                self.account_name, self.container_name)
+                self.account_name, self.container_name, req)
             container_partition = container_info['partition']
             containers = container_info['nodes']
             req.acl = container_info['write_acl']
@@ -693,7 +693,7 @@ class ObjectController(Controller):
     def PUT(self, req):
         """HTTP PUT request handler."""
         container_info = self.container_info(
-            self.account_name, self.container_name)
+            self.account_name, self.container_name, req)
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
