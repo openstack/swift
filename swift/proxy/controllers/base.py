@@ -28,6 +28,7 @@ import os
 import time
 import functools
 import inspect
+import itertools
 from urllib import quote
 
 from eventlet import spawn_n, GreenPile
@@ -599,7 +600,7 @@ class Controller(object):
             info['nodes'] = nodes
         return info
 
-    def iter_nodes(self, ring, partition):
+    def iter_nodes(self, ring, partition, node_iter=None):
         """
         Yields nodes for a ring partition, skipping over error
         limited nodes and stopping at the configurable number of
@@ -615,9 +616,22 @@ class Controller(object):
 
         :param ring: ring to get yield nodes from
         :param partition: ring partition to yield nodes for
+        :param node_iter: optional iterable of nodes to try. Useful if you
+            want to filter or reorder the nodes.
         """
-        primary_nodes = self.app.sort_nodes(ring.get_part_nodes(partition))
+        part_nodes = ring.get_part_nodes(partition)
+        if node_iter is None:
+            node_iter = itertools.chain(part_nodes,
+                                        ring.get_more_nodes(partition))
+        num_primary_nodes = len(part_nodes)
+
+        # Use of list() here forcibly yanks the first N nodes (the primary
+        # nodes) from node_iter, so the rest of its values are handoffs.
+        primary_nodes = self.app.sort_nodes(
+            list(itertools.islice(node_iter, num_primary_nodes)))
+        handoff_nodes = node_iter
         nodes_left = self.app.request_node_count(ring)
+
         for node in primary_nodes:
             if not self.error_limited(node):
                 yield node
@@ -625,8 +639,9 @@ class Controller(object):
                     nodes_left -= 1
                     if nodes_left <= 0:
                         return
+
         handoffs = 0
-        for node in ring.get_more_nodes(partition):
+        for node in handoff_nodes:
             if not self.error_limited(node):
                 handoffs += 1
                 if self.app.log_handoffs:

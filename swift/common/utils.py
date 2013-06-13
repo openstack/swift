@@ -1663,8 +1663,8 @@ def affinity_key_function(affinity_str):
 
     :param affinity_str: affinity config value, e.g. "r1z2=3"
                          or "r1=1, r2z1=2, r2z2=2"
-    :returns: single-argument function, or None if argument invalid
-
+    :returns: single-argument function
+    :raises: ValueError if argument invalid
     """
     affinity_str = affinity_str.strip()
 
@@ -1699,6 +1699,56 @@ def affinity_key_function(affinity_str):
                 return matcher['priority']
         return 4294967296  # 2^32, i.e. "a big number"
     return keyfn
+
+
+def affinity_locality_predicate(write_affinity_str):
+    """
+    Turns a write-affinity config value into a predicate function for nodes.
+    The returned value will be a 1-arg function that takes a node dictionary
+    and returns a true value if it is "local" and a false value otherwise. The
+    definition of "local" comes from the affinity_str argument passed in here.
+
+    For example, if affinity_str is "r1, r2z2", then only nodes where region=1
+    or where (region=2 and zone=2) are considered local.
+
+    If affinity_str is empty or all whitespace, then the resulting function
+    will consider everything local
+
+    :param affinity_str: affinity config value, e.g. "r1z2"
+        or "r1, r2z1, r2z2"
+    :returns: single-argument function, or None if affinity_str is empty
+    :raises: ValueError if argument invalid
+    """
+    affinity_str = write_affinity_str.strip()
+
+    if not affinity_str:
+        return None
+
+    matchers = []
+    pieces = [s.strip() for s in affinity_str.split(',')]
+    for piece in pieces:
+        # matches r<number> or r<number>z<number>
+        match = re.match("r(\d+)(?:z(\d+))?$", piece)
+        if match:
+            region, zone = match.groups()
+            region = int(region)
+            zone = int(zone) if zone else None
+
+            matcher = {'region': region}
+            if zone is not None:
+                matcher['zone'] = zone
+            matchers.append(matcher)
+        else:
+            raise ValueError("Invalid write-affinity value: %r" % affinity_str)
+
+    def is_local(ring_node):
+        for matcher in matchers:
+            if (matcher['region'] == ring_node['region']
+                and ('zone' not in matcher
+                     or matcher['zone'] == ring_node['zone'])):
+                return True
+        return False
+    return is_local
 
 
 def get_remote_client(req):
