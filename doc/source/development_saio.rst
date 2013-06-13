@@ -19,7 +19,7 @@ available on the wiki at http://wiki.openstack.org/SAIOInstructions.
 -----------------------------------------
 Installing dependencies and the core code
 -----------------------------------------
-* As root on guest (you'll have to log in as you, then `sudo su -`):
+*  On Ubuntu,
 
   #. `apt-get install python-software-properties`
   #. `add-apt-repository ppa:swift-core/release`
@@ -32,17 +32,18 @@ Installing dependencies and the core code
   #. `pip install dnspython`
   #. Install anything else you want, like screen, ssh, vim, etc.
 
-* On Fedora, log in as root and do:
+* On Fedora,
 
-  #. `yum install openstack-swift openstack-swift-proxy
-     openstack-swift-account openstack-swift-container openstack-swift-object`
   #. `yum install xinetd rsync`
   #. `yum install memcached`
   #. `yum install python-netifaces python-nose python-mock python-dns`
+  #. `yum install git gcc`
 
-  This installs all necessary dependencies, and also creates user `swift`
-  and group `swift`. So, `swift:swift` ought to be used in every place where
-  this manual calls for `<your-user-name>:<your-group-name>`.
+  This installs all necessary dependencies, and you could use your guest user
+  or root for starting process. But you must first config it correctly
+  (`user = <your-user-name>`) in object-server.conf or proxy.conf, and then use
+  it to be used in every place where this manual calls for
+  `<your-user-name>:<your-group-name>`.
 
   Ensure that you are installing the version of Swift that corresponds to
   this document. If not, enable the correct update repositories.
