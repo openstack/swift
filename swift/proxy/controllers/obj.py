@@ -589,6 +589,8 @@ class ObjectController(Controller):
                     return HTTPBadRequest(request=req,
                                           content_type='text/plain',
                                           body='Non-integer X-Delete-At')
+                req.environ.setdefault('swift.log_info', []).append(
+                    'x-delete-at:%d' % x_delete_at)
                 delete_at_container = str(
                     x_delete_at /
                     self.app.expiring_objects_container_divisor *
@@ -866,6 +868,8 @@ class ObjectController(Controller):
             except ValueError:
                 return HTTPBadRequest(request=req, content_type='text/plain',
                                       body='Non-integer X-Delete-At')
+            req.environ.setdefault('swift.log_info', []).append(
+                'x-delete-at:%d' % x_delete_at)
             delete_at_container = str(
                 x_delete_at /
                 self.app.expiring_objects_container_divisor *

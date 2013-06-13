@@ -23,7 +23,7 @@ The logging format implemented below is as follows:
 
 client_ip remote_addr datetime request_method request_path protocol
     status_int referer user_agent auth_token bytes_recvd bytes_sent
-    client_etag transaction_id headers request_time source
+    client_etag transaction_id headers request_time source log_info
 
 These values are space-separated, and each is url-encoded, so that they can
 be separated with a simple .split()
@@ -32,6 +32,18 @@ be separated with a simple .split()
   client_ip is swift's best guess at the end-user IP, extracted variously
   from the X-Forwarded-For header, X-Cluster-Ip header, or the REMOTE_ADDR
   environment variable.
+
+* source (swift.source in the WSGI environment) indicates the code
+  that generated the request, such as most middleware. (See below for
+  more detail.)
+
+* log_info (swift.log_info in the WSGI environment) is for additional
+  information that could prove quite useful, such as any x-delete-at
+  value or other "behind the scenes" activity that might not
+  otherwise be detectable from the plain log information. Code that
+  wishes to add additional log information should use code like
+  ``env.setdefault('swift.log_info', []).append(your_info)`` so as to
+  not disturb others' log information.
 
 * Values that are missing (e.g. due to a header not being present) or zero
   are generally represented by a single hyphen ('-').
@@ -152,6 +164,7 @@ class ProxyLoggingMiddleware(object):
                 logged_headers,
                 '%.4f' % request_time,
                 req.environ.get('swift.source'),
+                ','.join(req.environ.get('swift.log_info') or '-'),
             )))
         self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
