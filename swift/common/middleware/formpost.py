@@ -312,7 +312,9 @@ class FormPost(object):
                     _parse_attrs(env.get('CONTENT_TYPE') or '')
                 if content_type == 'multipart/form-data' and \
                         'boundary' in attrs:
-                    env['HTTP_USER_AGENT'] += ' FormPost'
+                    http_user_agent = "%s FormPost" % (
+                        env.get('HTTP_USER_AGENT', ''))
+                    env['HTTP_USER_AGENT'] = http_user_agent.strip()
                     status, headers, body = self._translate_form(
                         env, attrs['boundary'])
                     start_response(status, headers)

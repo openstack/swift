@@ -304,7 +304,7 @@ class TestFormPost(unittest.TestCase):
         return req
 
     def _make_sig_env_body(self, path, redirect, max_file_size, max_file_count,
-                           expires, key):
+                           expires, key, user_agent=True):
         sig = hmac.new(
             key,
             '%s\n%s\n%s\n%s\n%s' % (
@@ -379,6 +379,9 @@ class TestFormPost(unittest.TestCase):
             'wsgi.url_scheme': 'http',
             'wsgi.version': (1, 0),
         }
+        if user_agent is False:
+            del env['HTTP_USER_AGENT']
+
         return sig, env, body
 
     def test_passthrough(self):
@@ -1172,6 +1175,26 @@ class TestFormPost(unittest.TestCase):
             'http://brim.net?status=400&message=no%20files%20to%20process'
             in body)
         self.assertEquals(len(self.app.requests), 0)
+
+    def test_formpost_without_useragent(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
+            int(time() + 86400), key, user_agent=False)
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.cache'] = FakeMemcache()
+        env['swift.cache'].set('temp-url-key/AUTH_test', key)
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+
+        def start_response(s, h, e=None):
+            pass
+        body = ''.join(self.formpost(env, start_response))
+        self.assertTrue('User-Agent' in self.app.requests[0].headers)
+        self.assertEquals(self.app.requests[0].headers['User-Agent'],
+                          'FormPost')
 
     def test_redirect(self):
         key = 'abc'
