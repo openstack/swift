@@ -537,6 +537,44 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(resp_body, 'FAKE APP')
         self.assertEquals(log_parts[11], str(len(resp_body)))
 
+    def test_log_info_none(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[17], '-')
+
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        req.environ['swift.log_info'] = []
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[17], '-')
+
+    def test_log_info_single(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        req.environ['swift.log_info'] = ['one']
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[17], 'one')
+
+    def test_log_info_multiple(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        req.environ['swift.log_info'] = ['one', 'and two']
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[17], 'one%2Cand%20two')
+
 
 if __name__ == '__main__':
     unittest.main()
