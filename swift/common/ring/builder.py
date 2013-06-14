@@ -384,6 +384,11 @@ class RingBuilder(object):
         dev_len = len(self.devs)
 
         parts_on_devs = sum(d['parts'] for d in self._iter_devs())
+
+        if not self._replica2part2dev:
+            raise exceptions.RingValidationError(
+                '_replica2part2dev empty; did you forget to rebalance?')
+
         parts_in_map = sum(len(p2d) for p2d in self._replica2part2dev)
         if parts_on_devs != parts_in_map:
             raise exceptions.RingValidationError(

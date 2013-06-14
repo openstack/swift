@@ -819,6 +819,10 @@ class TestRingBuilder(unittest.TestCase):
                     'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
         rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 2,
                     'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+
+        # Degenerate case: devices added but not rebalanced yet
+        self.assertRaises(exceptions.RingValidationError, rb.validate)
+
         rb.rebalance()
         r = rb.get_ring()
         counts = {}
