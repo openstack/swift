@@ -676,6 +676,29 @@ class TestAccountController(unittest.TestCase):
             dom.firstChild.firstChild.nextSibling.firstChild.firstChild.data,
             '"<word')
 
+    def test_GET_xml_escapes_container_name_as_subdir(self):
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '0'})
+        self.controller.PUT(req)
+
+        req = Request.blank(
+            '/sda1/p/a/%22%3Cword-test',  # "<word-test
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
+                     'HTTP_X_PUT_TIMESTAMP': '1', 'HTTP_X_OBJECT_COUNT': '0',
+                     'HTTP_X_DELETE_TIMESTAMP': '0', 'HTTP_X_BYTES_USED': '1'})
+        self.controller.PUT(req)
+
+        req = Request.blank(
+            '/sda1/p/a?format=xml&delimiter=-',
+            environ={'REQUEST_METHOD': 'GET', 'HTTP_X_TIMESTAMP': '1'})
+        resp = self.controller.GET(req)
+        dom = xml.dom.minidom.parseString(resp.body)
+
+        self.assertEquals(
+            dom.firstChild.firstChild.nextSibling.attributes['name'].value,
+            '"<word-')
+
     def test_GET_limit_marker_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})

@@ -98,13 +98,13 @@ def account_listing_response(account, req, response_content_type, broker=None,
         output_list = ['<?xml version="1.0" encoding="UTF-8"?>',
                        '<account name=%s>' % saxutils.quoteattr(account)]
         for (name, object_count, bytes_used, is_subdir) in account_list:
-            name = saxutils.escape(name)
             if is_subdir:
-                output_list.append('<subdir name="%s" />' % name)
+                output_list.append(
+                    '<subdir name=%s />' % saxutils.quoteattr(name))
             else:
                 item = '<container><name>%s</name><count>%s</count>' \
                        '<bytes>%s</bytes></container>' % \
-                       (name, object_count, bytes_used)
+                       (saxutils.escape(name), object_count, bytes_used)
                 output_list.append(item)
         output_list.append('</account>')
         account_list = '\n'.join(output_list)
