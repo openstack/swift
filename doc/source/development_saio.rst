@@ -9,44 +9,48 @@ Instructions for setting up a development VM
 This section documents setting up a virtual machine for doing Swift development.
 The virtual machine will emulate running a four node Swift cluster.
 
-* Get either Ubuntu 12.04 LTS (Precise Pangolin) or Ubuntu 10.04 LTS (Lucid Lynx) server image.
+* Get an Ubuntu 12.04 LTS (Precise Pangolin) server image or try something Fedora/CentOS.
 
-* Create guest virtual machine from the Ubuntu image.
+* Create guest virtual machine from the image.
 
 Additional information about setting up a Swift development snapshot on other distributions is
 available on the wiki at http://wiki.openstack.org/SAIOInstructions.
 
------------------------------------------
-Installing dependencies and the core code
------------------------------------------
-*  On Ubuntu,
+----------------------------
+What's in a <your-user-name>
+----------------------------
 
-  #. `apt-get install python-software-properties`
-  #. `add-apt-repository ppa:swift-core/release`
+Much of the configuration described in this guide requires escalated root
+privileges; however, we assume that administrator logs in an unprivileged
+user. Swift processes also run under a separate user and group, set by
+configuration option, and refered as <your-user-name>:<your-group-name>.
+The default user is `swift`, which may not exist on your system.
+
+Perform the following commands as root.
+
+-----------------------
+Installing dependencies
+-----------------------
+
+* On apt based systems,
+
   #. `apt-get update`
-  #. `apt-get install curl gcc git-core memcached python-coverage python-dev
-     python-nose python-setuptools python-simplejson python-xattr sqlite3
-     xfsprogs python-eventlet python-greenlet python-pastedeploy
-     python-netifaces python-pip`
-  #. `pip install mock`
-  #. `pip install dnspython`
-  #. Install anything else you want, like screen, ssh, vim, etc.
+  #. `apt-get install curl gcc memcached rsync sqlite3 xfsprogs git-core python-setuptools`
+  #. `apt-get install python-coverage python-dev python-nose python-simplejson
+     python-xattr python-eventlet python-greenlet python-pastedeploy
+     python-netifaces python-pip python-dnspython python-mock`
 
-* On Fedora,
+* On yum based systems,
 
-  #. `yum install xinetd rsync`
-  #. `yum install memcached`
-  #. `yum install python-netifaces python-nose python-mock python-dns`
-  #. `yum install git gcc`
+  #. `yum install curl gcc memcached rsync sqlite xfsprogs git-core xinetd python-setuptools`
+  #. `yum install python-coverage python-devel python-nose python-simplejson
+     python-xattr python-eventlet python-greenlet python-pastedeploy
+     python-netifaces python-pip python-dnspython python-mock`
 
-  This installs all necessary dependencies, and you could use your guest user
-  or root for starting process. But you must first config it correctly
-  (`user = <your-user-name>`) in object-server.conf or proxy.conf, and then use
-  it to be used in every place where this manual calls for
-  `<your-user-name>:<your-group-name>`.
-
-  Ensure that you are installing the version of Swift that corresponds to
-  this document. If not, enable the correct update repositories.
+  This installs necessary system dependencies; and *most* of the python
+  dependencies.  Later in the process setuptools/distribute or pip will
+  install and/or upgrade some other stuff - it's getting harder to avoid.
+  You can also install anything else you want, like screen, ssh, vim, etc.
 
 Next, choose either :ref:`partition-section` or :ref:`loopback-section`.
 
@@ -114,8 +118,8 @@ Setting up rsync
 
   #. Create /etc/rsyncd.conf::
 
-        uid = <Your user name>
-        gid = <Your group name>
+        uid = <your-user-name>
+        gid = <your-group-name>
         log file = /var/log/rsyncd.log
         pid file = /var/run/rsyncd.pid
         address = 127.0.0.1
@@ -143,7 +147,6 @@ Setting up rsync
         path = /srv/4/node/
         read only = false
         lock file = /var/lock/account6042.lock
-
 
         [container6011]
         max connections = 25
@@ -201,19 +204,29 @@ Setting up rsync
 
         disable = no
 
-  #. On Ubuntu `service rsync restart`
+  #. On Ubuntu, run `service rsync restart`, on xinetd based systems
+     run `service xinetd restart`.
+
+  #. Verify rsync is accepting connections for all servers::
+
+        rsync rsync://pub@localhost/
 
 ------------------
 Starting memcached
 ------------------
 
-On Fedora, make sure that memcached runs, running this if necessary:
+On non-Ubuntu distros you need to ensure memcached is running:
+
+  * `service memcached start`
+  * `chkconfig memcached on`
+
+or:
 
   * `systemctl enable memcached.service`
   * `systemctl start memcached.service`
 
-If this is not done, tokens of tempauth expire immediately and accessing
-Swift with curl becomes impossible.
+The tempauth middleware stores tokens in memcached. If memcached is not
+running, tokens cannot be validated, and accessing Swift becomes impossible.
 
 ---------------------------------------------------
 Optional: Setting up rsyslog for individual logging
@@ -257,27 +270,25 @@ Optional: Setting up rsyslog for individual logging
   #. `chmod -R g+w /var/log/swift`
   #. `service rsyslog restart`
 
-------------------------------------------------
-Getting the code and setting up test environment
-------------------------------------------------
+----------------
+Getting the code
+----------------
 
-Sample configuration files are provided with all defaults in line-by-line comments.
+You can do the following commands as administrator user.
 
-Do these commands as you on guest.
+  #. Check out the python-swiftclient repo
+       `git clone https://github.com/openstack/python-swiftclient.git`
+  #. Build a development installation of python-swiftclient
+       `cd ~/python-swiftclient; sudo python setup.py develop; cd -`
+  #. Check out the swift repo
+       `git clone https://github.com/openstack/swift.git`
+  #. Build a development installation of swift
+       `cd ~/swift; sudo python setup.py develop; cd -`
+  #. Install swift's test dependencies
+       `sudo pip install -r swift/test-requirements.txt`
 
-  #. `mkdir ~/bin`
-  #. Check out the swift repo with `git clone https://github.com/openstack/swift.git`
-  #. Build a development installation of swift, for example:
-     `cd ~/swift; sudo python setup.py develop`
-  #. Check out the python-swiftclient repo with `git clone https://github.com/openstack/python-swiftclient.git`
-  #. Build a development installation of python-swiftclient, for example:
-     `cd ~/python-swiftclient; sudo python setup.py develop`
-  #. Edit `~/.bashrc` and add to the end::
-
-        export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf
-        export PATH=${PATH}:~/bin
-
-  #. `. ~/.bashrc`
+Do the following commands as root, but verify that Swift has access
+to resulting configuration files.
 
 ---------------------
 Configuring each node
@@ -669,9 +680,15 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [object-auditor]
 
+  #. Update <your-user-name>::
+
+        find /etc/swift/ -name \*.conf | xargs sed -i "s/<your-user-name>/${USER}/"
+
 ------------------------------------
 Setting up scripts for running Swift
 ------------------------------------
+
+  #. `mkdir ~/bin`
 
   #. Create `~/bin/resetswift.`
 
@@ -703,22 +720,22 @@ Setting up scripts for running Swift
         rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
 
         swift-ring-builder object.builder create 18 3 1
-        swift-ring-builder object.builder add z1-127.0.0.1:6010/sdb1 1
-        swift-ring-builder object.builder add z2-127.0.0.1:6020/sdb2 1
-        swift-ring-builder object.builder add z3-127.0.0.1:6030/sdb3 1
-        swift-ring-builder object.builder add z4-127.0.0.1:6040/sdb4 1
+        swift-ring-builder object.builder add r1z1-127.0.0.1:6010/sdb1 1
+        swift-ring-builder object.builder add r1z2-127.0.0.1:6020/sdb2 1
+        swift-ring-builder object.builder add r1z3-127.0.0.1:6030/sdb3 1
+        swift-ring-builder object.builder add r1z4-127.0.0.1:6040/sdb4 1
         swift-ring-builder object.builder rebalance
         swift-ring-builder container.builder create 18 3 1
-        swift-ring-builder container.builder add z1-127.0.0.1:6011/sdb1 1
-        swift-ring-builder container.builder add z2-127.0.0.1:6021/sdb2 1
-        swift-ring-builder container.builder add z3-127.0.0.1:6031/sdb3 1
-        swift-ring-builder container.builder add z4-127.0.0.1:6041/sdb4 1
+        swift-ring-builder container.builder add r1z1-127.0.0.1:6011/sdb1 1
+        swift-ring-builder container.builder add r1z2-127.0.0.1:6021/sdb2 1
+        swift-ring-builder container.builder add r1z3-127.0.0.1:6031/sdb3 1
+        swift-ring-builder container.builder add r1z4-127.0.0.1:6041/sdb4 1
         swift-ring-builder container.builder rebalance
         swift-ring-builder account.builder create 18 3 1
-        swift-ring-builder account.builder add z1-127.0.0.1:6012/sdb1 1
-        swift-ring-builder account.builder add z2-127.0.0.1:6022/sdb2 1
-        swift-ring-builder account.builder add z3-127.0.0.1:6032/sdb3 1
-        swift-ring-builder account.builder add z4-127.0.0.1:6042/sdb4 1
+        swift-ring-builder account.builder add r1z1-127.0.0.1:6012/sdb1 1
+        swift-ring-builder account.builder add r1z2-127.0.0.1:6022/sdb2 1
+        swift-ring-builder account.builder add r1z3-127.0.0.1:6032/sdb3 1
+        swift-ring-builder account.builder add r1z4-127.0.0.1:6042/sdb4 1
         swift-ring-builder account.builder rebalance
 
   #. Create `~/bin/startmain`::
@@ -734,16 +751,23 @@ Setting up scripts for running Swift
         swift-init rest start
 
   #. `chmod +x ~/bin/*`
+  #. Edit `~/.bashrc` and add to the end::
+
+        export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf
+        export PATH=${PATH}:~/bin
+
+  #. `. ~/.bashrc`
+
   #. `remakerings`
   #. `cp ~/swift/test/sample.conf /etc/swift/test.conf`
-  #. `cd ~/swift; ./.unittests`
+  #. `~/swift/.unittests`
   #. `startmain` (The ``Unable to increase file descriptor limit.  Running as non-root?`` warnings are expected and ok.)
   #. Get an `X-Storage-Url` and `X-Auth-Token`: ``curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0``
   #. Check that you can GET account: ``curl -v -H 'X-Auth-Token: <token-from-x-auth-token-above>' <url-from-x-storage-url-above>``
   #. Check that `swift` works: `swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat`
-  #. `cd ~/swift; ./.functests` (Note: functional tests will first delete
+  #. `~/swift/.functests` (Note: functional tests will first delete
      everything in the configured accounts.)
-  #. `cd ~/swift; ./.probetests` (Note: probe tests will reset your
+  #. `~/swift/.probetests` (Note: probe tests will reset your
      environment as they call `resetswift` for each test.)
 
 ----------------
