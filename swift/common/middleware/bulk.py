@@ -254,10 +254,11 @@ class Bulk(object):
         Will occasionally yield whitespace while request is being processed.
         When the request is completed will yield a response body that can be
         parsed to determine success. See above documentation for details.
+
         :params req: a swob Request
         :params objs_to_delete: a list of dictionaries that specifies the
-                                objects to be deleted. If None, uses
-                                self.get_objs_to_delete to query request.
+            objects to be deleted. If None, uses self.get_objs_to_delete to
+            query request.
         """
         last_yield = time()
         separator = ''
@@ -349,9 +350,10 @@ class Bulk(object):
         processed. When the request is completed will yield a response body
         that can be parsed to determine success. See above documentation for
         details.
+
         :params req: a swob Request
         :params compress_type: specifying the compression type of the tar.
-                               Accepts '', 'gz, or 'bz2'
+            Accepts '', 'gz, or 'bz2'
         """
         resp_dict = {'Response Status': HTTPCreated().status,
                      'Response Body': '', 'Number Files Created': 0}
