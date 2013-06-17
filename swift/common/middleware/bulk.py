@@ -247,7 +247,8 @@ class Bulk(object):
         return objs_to_delete
 
     def handle_delete_iter(self, req, objs_to_delete=None,
-                           user_agent='BulkDelete', swift_source='BD'):
+                           user_agent='BulkDelete', swift_source='BD',
+                           out_content_type='text/plain'):
         """
         A generator that can be assigned to a swob Response's app_iter which,
         when iterated over, will delete the objects specified in request body.
@@ -268,7 +269,6 @@ class Bulk(object):
                      'Number Deleted': 0,
                      'Number Not Found': 0}
         try:
-            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
             if out_content_type.endswith('/xml'):
@@ -342,7 +342,8 @@ class Bulk(object):
         yield separator + get_response_body(out_content_type,
                                             resp_dict, failed_files)
 
-    def handle_extract_iter(self, req, compress_type):
+    def handle_extract_iter(self, req, compress_type,
+                            out_content_type='text/plain'):
         """
         A generator that can be assigned to a swob Response's app_iter which,
         when iterated over, will extract and PUT the objects pulled from the
@@ -362,7 +363,6 @@ class Bulk(object):
         separator = ''
         existing_containers = set()
         try:
-            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
             if not out_content_type:
                 raise HTTPNotAcceptable(request=req)
             if out_content_type.endswith('/xml'):
@@ -488,12 +488,20 @@ class Bulk(object):
                 'tar.bz2': 'bz2'}.get(extract_type.lower().strip('.'))
             if archive_type is not None:
                 resp = HTTPOk(request=req)
-                resp.app_iter = self.handle_extract_iter(req, archive_type)
+                out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+                if out_content_type:
+                    resp.content_type = out_content_type
+                resp.app_iter = self.handle_extract_iter(
+                    req, archive_type, out_content_type=out_content_type)
             else:
                 resp = HTTPBadRequest("Unsupported archive format")
         if 'bulk-delete' in req.params and req.method == 'DELETE':
             resp = HTTPOk(request=req)
-            resp.app_iter = self.handle_delete_iter(req)
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+            if out_content_type:
+                resp.content_type = out_content_type
+            resp.app_iter = self.handle_delete_iter(
+                req, out_content_type=out_content_type)
 
         return resp or self.app
 
