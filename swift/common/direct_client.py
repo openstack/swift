@@ -28,7 +28,7 @@ from eventlet import sleep, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swiftclient import ClientException, json_loads
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import normalize_timestamp, FileLikeIter
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.swob import HeaderKeyDict
@@ -305,7 +305,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
 def direct_put_object(node, part, account, container, name, contents,
                       content_length=None, etag=None, content_type=None,
                       headers=None, conn_timeout=5, response_timeout=15,
-                      resp_chunk_size=None):
+                      chunk_size=65535):
     """
     Put object directly from the object server.
 
@@ -324,7 +324,7 @@ def direct_put_object(node, part, account, container, name, contents,
     :param chunk_size: if defined, chunk size of data to send.
     :returns: etag from the server response
     """
-    # TODO: Add chunked puts
+
     path = '/%s/%s/%s' % (account, container, name)
     if headers is None:
         headers = {}
@@ -332,6 +332,10 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['ETag'] = etag.strip('"')
     if content_length is not None:
         headers['Content-Length'] = str(content_length)
+    else:
+        for n, v in headers.iteritems():
+            if n.lower() == 'content-length':
+                content_length = int(v)
     if content_type is not None:
         headers['Content-Type'] = content_type
     else:
@@ -340,11 +344,36 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Length'] = '0'
     if isinstance(contents, basestring):
         contents = [contents]
+    #Incase the caller want to insert an object with specific age
+    add_ts = 'X-Timestamp' not in headers
+
+    if content_length is None:
+        headers['Transfer-Encoding'] = 'chunked'
+
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'PUT', path, headers=gen_headers(headers, True))
-    for chunk in contents:
-        conn.send(chunk)
+                            'PUT', path, headers=gen_headers(headers, add_ts))
+
+    contents_f = FileLikeIter(contents)
+
+    if content_length is None:
+        chunk = contents_f.read(chunk_size)
+        while chunk:
+            conn.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+            chunk = contents_f.read(chunk_size)
+        conn.send('0\r\n\r\n')
+    else:
+        left = content_length
+        while left > 0:
+            size = chunk_size
+            if size > left:
+                size = left
+            chunk = contents_f.read(size)
+            if not chunk:
+                break
+            conn.send(chunk)
+            left -= len(chunk)
+
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
