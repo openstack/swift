@@ -115,13 +115,14 @@ class TestContainer(unittest.TestCase):
 
         uni_key = u'X-Container-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
-        resp = retry(post, uni_key, '1')
-        resp.read()
-        self.assertEquals(resp.status, 204)
-        resp = retry(head)
-        resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader(uni_key.encode('utf-8')), '1')
+        if (web_front_end == 'integral'):
+            resp = retry(post, uni_key, '1')
+            resp.read()
+            self.assertEquals(resp.status, 204)
+            resp = retry(head)
+            resp.read()
+            self.assert_(resp.status in (200, 204), resp.status)
+            self.assertEquals(resp.getheader(uni_key.encode('utf-8')), '1')
         resp = retry(post, 'X-Container-Meta-uni', uni_value)
         resp.read()
         self.assertEquals(resp.status, 204)
@@ -130,13 +131,14 @@ class TestContainer(unittest.TestCase):
         self.assert_(resp.status in (200, 204), resp.status)
         self.assertEquals(resp.getheader('X-Container-Meta-uni'),
                           uni_value.encode('utf-8'))
-        resp = retry(post, uni_key, uni_value)
-        resp.read()
-        self.assertEquals(resp.status, 204)
-        resp = retry(head)
-        resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader(uni_key.encode('utf-8')),
+        if (web_front_end == 'integral'):
+            resp = retry(post, uni_key, uni_value)
+            resp.read()
+            self.assertEquals(resp.status, 204)
+            resp = retry(head)
+            resp.read()
+            self.assert_(resp.status in (200, 204), resp.status)
+            self.assertEquals(resp.getheader(uni_key.encode('utf-8')),
                           uni_value.encode('utf-8'))
 
     def test_PUT_metadata(self):
