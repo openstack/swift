@@ -27,45 +27,9 @@ from swift.common.direct_client import direct_get_object
 from swift.common.ring import Ring
 from swift.common.db import ContainerBroker
 from swift.common.utils import audit_location_generator, get_logger, \
-    hash_path, config_true_value, validate_sync_to, whataremyips
+    hash_path, config_true_value, validate_sync_to, whataremyips, FileLikeIter
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
-
-
-class _Iter2FileLikeObject(object):
-    """
-    Returns an iterator's contents via :func:`read`, making it look like a file
-    object.
-    """
-
-    def __init__(self, iterator):
-        self.iterator = iterator
-        self._chunk = ''
-
-    def read(self, size=-1):
-        """
-        read([size]) -> read at most size bytes, returned as a string.
-
-        If the size argument is negative or omitted, read until EOF is reached.
-        Notice that when in non-blocking mode, less data than what was
-        requested may be returned, even if no size parameter was given.
-        """
-        if size < 0:
-            chunk = self._chunk
-            self._chunk = ''
-            return chunk + ''.join(self.iterator)
-        chunk = self._chunk
-        self._chunk = ''
-        if chunk and len(chunk) <= size:
-            return chunk
-        try:
-            chunk += self.iterator.next()
-        except StopIteration:
-            pass
-        if len(chunk) <= size:
-            return chunk
-        self._chunk = chunk[size:]
-        return chunk[:size]
 
 
 class ContainerSync(Daemon):
@@ -409,7 +373,7 @@ class ContainerSync(Daemon):
                 headers['x-timestamp'] = row['created_at']
                 headers['x-container-sync-key'] = sync_key
                 put_object(sync_to, name=row['name'], headers=headers,
-                           contents=_Iter2FileLikeObject(body),
+                           contents=FileLikeIter(body),
                            proxy=self.proxy)
                 self.container_puts += 1
                 self.logger.increment('puts')

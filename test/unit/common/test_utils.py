@@ -1325,6 +1325,124 @@ log_name = %(yarr)s'''
                 MagicMock(side_effect=BaseException('test3')))
 
 
+class TestFileLikeIter(unittest.TestCase):
+
+    def test_iter_file_iter(self):
+        in_iter = ['abc', 'de', 'fghijk', 'l']
+        chunks = []
+        for chunk in utils.FileLikeIter(in_iter):
+            chunks.append(chunk)
+        self.assertEquals(chunks, in_iter)
+
+    def test_next(self):
+        in_iter = ['abc', 'de', 'fghijk', 'l']
+        chunks = []
+        iter_file = utils.FileLikeIter(in_iter)
+        while True:
+            try:
+                chunk = iter_file.next()
+            except StopIteration:
+                break
+            chunks.append(chunk)
+        self.assertEquals(chunks, in_iter)
+
+    def test_read(self):
+        in_iter = ['abc', 'de', 'fghijk', 'l']
+        chunks = []
+        iter_file = utils.FileLikeIter(in_iter)
+        self.assertEquals(iter_file.read(), ''.join(in_iter))
+
+    def test_read_with_size(self):
+        in_iter = ['abc', 'de', 'fghijk', 'l']
+        chunks = []
+        iter_file = utils.FileLikeIter(in_iter)
+        while True:
+            chunk = iter_file.read(2)
+            if not chunk:
+                break
+            self.assertTrue(len(chunk) <= 2)
+            chunks.append(chunk)
+        self.assertEquals(''.join(chunks), ''.join(in_iter))
+
+    def test_read_with_size_zero(self):
+        # makes little sense, but file supports it, so...
+        self.assertEquals(utils.FileLikeIter('abc').read(0), '')
+
+    def test_readline(self):
+        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        lines = []
+        iter_file = utils.FileLikeIter(in_iter)
+        while True:
+            line = iter_file.readline()
+            if not line:
+                break
+            lines.append(line)
+        self.assertEquals(
+            lines,
+            [v if v == 'trailing.' else v + '\n'
+             for v in ''.join(in_iter).split('\n')])
+
+    def test_readline2(self):
+        self.assertEquals(
+            utils.FileLikeIter(['abc', 'def\n']).readline(4),
+            'abcd')
+
+    def test_readline3(self):
+        self.assertEquals(
+            utils.FileLikeIter(['a' * 1111, 'bc\ndef']).readline(),
+            ('a' * 1111) + 'bc\n')
+
+    def test_readline_with_size(self):
+
+        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        lines = []
+        iter_file = utils.FileLikeIter(in_iter)
+        while True:
+            line = iter_file.readline(2)
+            if not line:
+                break
+            lines.append(line)
+        self.assertEquals(
+            lines,
+            ['ab', 'c\n', 'd\n', 'ef', 'g\n', 'h\n', 'ij', '\n', '\n', 'k\n',
+             'tr', 'ai', 'li', 'ng', '.'])
+
+    def test_readlines(self):
+        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        lines = utils.FileLikeIter(in_iter).readlines()
+        self.assertEquals(
+            lines,
+            [v if v == 'trailing.' else v + '\n'
+             for v in ''.join(in_iter).split('\n')])
+
+    def test_readlines_with_size(self):
+        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        iter_file = utils.FileLikeIter(in_iter)
+        lists_of_lines = []
+        while True:
+            lines = iter_file.readlines(2)
+            if not lines:
+                break
+            lists_of_lines.append(lines)
+        self.assertEquals(
+            lists_of_lines,
+            [['ab'], ['c\n'], ['d\n'], ['ef'], ['g\n'], ['h\n'], ['ij'],
+             ['\n', '\n'], ['k\n'], ['tr'], ['ai'], ['li'], ['ng'], ['.']])
+
+    def test_close(self):
+        iter_file = utils.FileLikeIter('abcdef')
+        self.assertEquals(iter_file.next(), 'a')
+        iter_file.close()
+        self.assertTrue(iter_file.closed, True)
+        self.assertRaises(ValueError, iter_file.next)
+        self.assertRaises(ValueError, iter_file.read)
+        self.assertRaises(ValueError, iter_file.readline)
+        self.assertRaises(ValueError, iter_file.readlines)
+        # Just make sure repeated close calls don't raise an Exception
+        iter_file.close()
+        self.assertTrue(iter_file.closed, True)
+
+
 class TestStatsdLogging(unittest.TestCase):
     def test_get_logger_statsd_client_not_specified(self):
         logger = utils.get_logger({}, 'some-name', log_route='some-route')
