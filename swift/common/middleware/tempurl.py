@@ -97,12 +97,11 @@ __all__ = ['TempURL', 'filter_factory',
 import hmac
 from hashlib import sha1
 from os.path import basename
-from StringIO import StringIO
 from time import time
 from urllib import urlencode
 from urlparse import parse_qs
 
-from swift.common.wsgi import make_pre_authed_env
+from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict
 
 
@@ -359,34 +358,9 @@ class TempURL(object):
         :returns: [X-Account-Meta-Temp-URL-Key str value if set,
                    X-Account-Meta-Temp-URL-Key-2 str value if set]
         """
-        keys = None
-        memcache = env.get('swift.cache')
-        memcache_hash_key = 'temp-url-keys/%s' % account
-        if memcache:
-            keys = memcache.get(memcache_hash_key)
-        if keys is None:
-            newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
-                                         self.agent, swift_source='TU')
-            newenv['CONTENT_LENGTH'] = '0'
-            newenv['wsgi.input'] = StringIO('')
-            keys = []
-
-            def _start_response(status, response_headers, exc_info=None):
-                for h, v in response_headers:
-                    if h.lower() == 'x-account-meta-temp-url-key':
-                        keys.append(v)
-                    elif h.lower() == 'x-account-meta-temp-url-key-2':
-                        keys.append(v)
-
-            i = iter(self.app(newenv, _start_response))
-            try:
-                i.next()
-            except StopIteration:
-                pass
-            if memcache:
-                timeout = 60 if keys else 6
-                memcache.set(memcache_hash_key, keys, time=timeout)
-        return keys
+        account_info = get_account_info(env, self.app, swift_source='TU')
+        return [value for key, value in account_info['meta'].iteritems()
+                if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
     def _get_hmacs(self, env, expires, keys, request_method=None):
         """
