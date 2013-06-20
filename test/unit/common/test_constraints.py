@@ -210,5 +210,12 @@ class TestConstraints(unittest.TestCase):
         self.assertEquals(constraints.check_metadata(req, 'object').status_int,
                           HTTP_BAD_REQUEST)
 
+    def test_validate_constraints(self):
+        c = constraints
+        self.assertTrue(c.MAX_META_OVERALL_SIZE > c.MAX_META_NAME_LENGTH)
+        self.assertTrue(c.MAX_META_OVERALL_SIZE > c.MAX_META_VALUE_LENGTH)
+        self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_NAME_LENGTH)
+        self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_VALUE_LENGTH)
+
 if __name__ == '__main__':
     unittest.main()

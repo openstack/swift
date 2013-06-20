@@ -1,9 +1,9 @@
 [swift-hash]
 
 # swift_hash_path_suffix and swift_hash_path_prefix are used as part of the
-# the hashing algorithm when determining data placement in the cluster. 
-# These values should remain secret and MUST NOT change 
-# once a cluster has been deployed. 
+# the hashing algorithm when determining data placement in the cluster.
+# These values should remain secret and MUST NOT change
+# once a cluster has been deployed.
 
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
@@ -46,6 +46,14 @@ swift_hash_path_prefix = changeme
 # of the metadata (keys + values)
 
 #max_meta_overall_size = 4096
+
+
+# max_header_size is the max number of bytes in the utf8 encoding of each
+# header. Using 8192 as default becasue eventlet use 8192 as max size of
+# header line and the longest header passed from Keystone(PKI token) uses
+# 8192 as default too.
+
+#max_header_size = 8192
 
 
 # max_object_name_length is the max number of bytes in the utf8 encoding
