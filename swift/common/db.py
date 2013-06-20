@@ -173,7 +173,7 @@ class DatabaseBroker(object):
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=10,
                  stale_reads_ok=False):
-        """ Encapsulates working with a database. """
+        """Encapsulates working with a database."""
         self.conn = None
         self.db_file = db_file
         self.pending_file = self.db_file + '.pending'
@@ -332,7 +332,7 @@ class DatabaseBroker(object):
         except sqlite3.DatabaseError:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
             self.possibly_quarantine(*sys.exc_info())
         except (Exception, Timeout):

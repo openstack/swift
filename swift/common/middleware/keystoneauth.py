@@ -155,7 +155,7 @@ class KeystoneAuth(object):
 
     def _authorize_cross_tenant(self, user_id, user_name,
                                 tenant_id, tenant_name, roles):
-        """ Check cross-tenant ACLs
+        """Check cross-tenant ACLs.
 
         Match tenant:user, tenant and user could be its id, name or '*'
 

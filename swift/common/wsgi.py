@@ -165,11 +165,11 @@ def get_socket(conf, default_port=8080):
     if hasattr(socket, 'TCP_KEEPIDLE'):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
     if warn_ssl:
-        ssl_warning_message = 'WARNING: SSL should only be enabled for ' \
-                              'testing purposes. Use external SSL ' \
-                              'termination for a production deployment.'
+        ssl_warning_message = _('WARNING: SSL should only be enabled for '
+                                'testing purposes. Use external SSL '
+                                'termination for a production deployment.')
         get_logger(conf).warning(ssl_warning_message)
-        print _(ssl_warning_message)
+        print(ssl_warning_message)
     return sock
 
 
@@ -224,7 +224,7 @@ def run_server(conf, logger, sock):
     pool.waitall()
 
 
-# TODO: pull more pieces of this to test more
+#TODO(clayg): pull more pieces of this to test more
 def run_wsgi(conf_path, app_section, *args, **kwargs):
     """
     Runs the server using the specified number of workers.

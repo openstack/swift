@@ -266,7 +266,7 @@ class SegmentedIterable(object):
         return iter(self).next()
 
     def __iter__(self):
-        """ Standard iterator function that returns the object's contents. """
+        """Standard iterator function that returns the object's contents."""
         try:
             while True:
                 if not self.segment_iter:
@@ -804,7 +804,7 @@ class ObjectController(Controller):
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.error_limit(node, _('ERROR Insufficient Storage'))
-            except:
+            except Exception:
                 self.exception_occurred(node, _('Object'),
                                         _('Expect: 100-continue on %s') % path)
 

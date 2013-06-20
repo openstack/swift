@@ -2,7 +2,7 @@
 pep8==1.4.5
 pyflakes==0.7.2
 flake8==2.0
-
+hacking>=0.5.6,<0.6
 coverage
 nose
 nosexcover

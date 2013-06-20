@@ -528,7 +528,7 @@ class ObjectController(object):
             int(conf.get('expiring_objects_container_divisor') or 86400)
 
     def _diskfile(self, device, partition, account, container, obj, **kwargs):
-        """ Utility method for instantiating a DiskFile. """
+        """Utility method for instantiating a DiskFile."""
         kwargs.setdefault('bytes_per_sync', self.bytes_per_sync)
         kwargs.setdefault('disk_chunk_size', self.disk_chunk_size)
         kwargs.setdefault('logger', self.logger)

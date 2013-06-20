@@ -178,7 +178,7 @@ class MemcacheRing(object):
                         server, e, action='connecting', sock=sock)
 
     def _return_conn(self, server, fp, sock):
-        """ Returns a server connection to the pool """
+        """Returns a server connection to the pool."""
         self._client_cache[server].append((fp, sock))
 
     def set(self, key, value, serialize=True, timeout=0, time=0,

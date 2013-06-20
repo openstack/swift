@@ -335,7 +335,7 @@ class FallocateWrapper(object):
                          "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, length):
-        """ The length parameter must be a ctypes.c_uint64 """
+        """The length parameter must be a ctypes.c_uint64."""
         if FALLOCATE_RESERVE > 0:
             st = os.fstatvfs(fd)
             free = st.f_frsize * st.f_bavail - length.value
@@ -1019,8 +1019,8 @@ def drop_privileges(user):
         os.setsid()
     except OSError:
         pass
-    os.chdir('/')  # in case you need to rmdir on where you started the daemon
-    os.umask(022)  # ensure files are created with the correct privileges
+    os.chdir('/')   # in case you need to rmdir on where you started the daemon
+    os.umask(0o22)  # ensure files are created with the correct privileges
 
 
 def capture_stdio(logger, **kwargs):
