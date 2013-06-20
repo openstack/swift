@@ -1,0 +1,24 @@
+# Object Server VHOST Template For Apache2
+#
+# Change %PORT% to the port that you wish to use on your system
+# Change %SERVICENAME% to the service name you are using
+# Change the debug level as you see fit
+#
+# For example:
+#     Replace %PORT% by 6010
+#     Replace %SERVICENAME% by object-server-1
+
+
+NameVirtualHost *:%PORT%
+Listen %PORT%
+
+<VirtualHost *:%PORT%>
+    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1
+    WSGIProcessGroup %SERVICENAME%
+    WSGIScriptAlias / /var/www/swift/%SERVICENAME%.wsgi
+    WSGIApplicationGroup %{GLOBAL}
+    LimitRequestFields 200
+    ErrorLog /var/log/%APACHE_NAME%/%SERVICENAME%
+    LogLevel debug
+    CustomLog /var/log/%APACHE_NAME%/access.log combined
+</VirtualHost>
