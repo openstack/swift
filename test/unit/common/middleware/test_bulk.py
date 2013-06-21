@@ -111,9 +111,11 @@ class TestUntar(unittest.TestCase):
         self.app.calls = 0
         rmtree(self.testdir)
 
-    def handle_extract_and_iter(self, req, compress_format):
+    def handle_extract_and_iter(self, req, compress_format,
+                                out_content_type='application/json'):
         resp_body = ''.join(
-            self.bulk.handle_extract_iter(req, compress_format))
+            self.bulk.handle_extract_iter(req, compress_format,
+                                          out_content_type=out_content_type))
         return resp_body
 
     def test_create_container_for_path(self):
@@ -147,8 +149,7 @@ class TestUntar(unittest.TestCase):
                                mode=mode)
             tar.add(os.path.join(self.testdir, base_name))
             tar.close()
-            req = Request.blank('/tar_works/acc/cont/',
-                                headers={'Accept': 'application/json'})
+            req = Request.blank('/tar_works/acc/cont/')
             req.environ['wsgi.input'] = open(
                 os.path.join(self.testdir, 'tar_works.tar' + extension))
             req.headers['transfer-encoding'] = 'chunked'
@@ -157,23 +158,31 @@ class TestUntar(unittest.TestCase):
             self.assertEquals(resp_data['Number Files Created'], 6)
 
             # test out xml
-            req = Request.blank('/tar_works/acc/cont/',
-                                headers={'Accept': 'application/xml'})
+            req = Request.blank('/tar_works/acc/cont/')
             req.environ['wsgi.input'] = open(
                 os.path.join(self.testdir, 'tar_works.tar' + extension))
             req.headers['transfer-encoding'] = 'chunked'
-            resp_body = self.handle_extract_and_iter(req, compress_format)
+            resp_body = self.handle_extract_and_iter(
+                req, compress_format, 'application/xml')
             self.assert_('<response_status>201 Created</response_status>' in
                          resp_body)
             self.assert_('<number_files_created>6</number_files_created>' in
                          resp_body)
 
             # test out nonexistent format
-            req = Request.blank('/tar_works/acc/cont/',
+            req = Request.blank('/tar_works/acc/cont/?extract-archive=tar',
                                 headers={'Accept': 'good_xml'})
+            req.environ['REQUEST_METHOD'] = 'PUT'
             req.environ['wsgi.input'] = open(
                 os.path.join(self.testdir, 'tar_works.tar' + extension))
-            resp_body = self.handle_extract_and_iter(req, compress_format)
+            req.headers['transfer-encoding'] = 'chunked'
+
+            def fake_start_response(*args, **kwargs):
+                pass
+
+            app_iter = self.bulk(req.environ, fake_start_response)
+            resp_body = ''.join([i for i in app_iter])
+
             self.assert_('Response Status: 406' in resp_body)
 
     def test_extract_call(self):
@@ -205,7 +214,7 @@ class TestUntar(unittest.TestCase):
         req.headers['transfer-encoding'] = 'Chunked'
         req.method = 'PUT'
         app_iter = self.bulk(req.environ, fake_start_response)
-        resp_body = ''.join([i for i in app_iter])
+        list(app_iter)  # iter over resp
         self.assertEquals(self.app.calls, 7)
 
         self.app.calls = 0
@@ -229,7 +238,7 @@ class TestUntar(unittest.TestCase):
         req.environ['wsgi.input'] = open(
             os.path.join(self.testdir, 'tar_works.tar'))
         app_iter = self.bulk(req.environ, fake_start_response)
-        resp_body = ''.join([i for i in app_iter])
+        list(app_iter)  # iter over resp
         self.assertEquals(self.app.calls, 7)
 
     def test_bad_container(self):
@@ -263,8 +272,7 @@ class TestUntar(unittest.TestCase):
                              {'sub_dir2': ['sub2_file1', 'sub2_file2']},
                              {'sub_dir3': [{'sub4_dir1': 'sub4_file1'}]}]}]
         self.build_tar(dir_tree)
-        req = Request.blank('/tar_works/acc/',
-                            headers={'Accept': 'application/json'})
+        req = Request.blank('/tar_works/acc/')
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
@@ -278,7 +286,8 @@ class TestUntar(unittest.TestCase):
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
-        resp_body = self.handle_extract_and_iter(req, '')
+        resp_body = self.handle_extract_and_iter(
+            req, '', out_content_type='text/plain')
         self.assertTrue('Response Status: 401 Unauthorized' in resp_body)
 
     def test_extract_tar_fail_obj_401(self):
@@ -287,7 +296,8 @@ class TestUntar(unittest.TestCase):
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
-        resp_body = self.handle_extract_and_iter(req, '')
+        resp_body = self.handle_extract_and_iter(
+            req, '', out_content_type='text/plain')
         self.assertTrue('Response Status: 401 Unauthorized' in resp_body)
 
     def test_extract_tar_fail_obj_name_len(self):
@@ -416,8 +426,9 @@ class TestDelete(unittest.TestCase):
         self.app.calls = 0
         self.app.delete_paths = []
 
-    def handle_delete_and_iter(self, req):
-        resp_body = ''.join(self.bulk.handle_delete_iter(req))
+    def handle_delete_and_iter(self, req, out_content_type='application/json'):
+        resp_body = ''.join(self.bulk.handle_delete_iter(
+            req, out_content_type=out_content_type))
         return resp_body
 
     def test_bulk_delete_works(self):
@@ -446,15 +457,16 @@ class TestDelete(unittest.TestCase):
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Response Status'], '406 Not Acceptable')
 
-    def test_bulk_delete_call(self):
+    def test_bulk_delete_call_and_content_type(self):
         def fake_start_response(*args, **kwargs):
-            pass
+            self.assertEquals(args[1][0], ('Content-Type', 'application/json'))
+
         req = Request.blank('/delete_works/AUTH_Acc?bulk-delete')
         req.method = 'DELETE'
         req.headers['Transfer-Encoding'] = 'chunked'
+        req.headers['Accept'] = 'application/json'
         req.environ['wsgi.input'] = StringIO('/c/f')
-        list(self.bulk(req.environ,
-                       fake_start_response))  # iterate over whole resp
+        list(self.bulk(req.environ, fake_start_response))  # iterate over resp
         self.assertEquals(
             self.app.delete_paths, ['/delete_works/AUTH_Acc/c/f'])
         self.assertEquals(self.app.calls, 1)
