@@ -119,13 +119,12 @@ import cgi
 import time
 from urllib import quote as urllib_quote
 
-
-from swift.common.utils import cache_from_env, human_readable, split_path, \
-    config_true_value, json
-from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request, \
-    WSGIContext
+from swift.common.utils import human_readable, split_path, config_true_value, \
+    json
+from swift.common.wsgi import make_pre_authed_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
+from swift.proxy.controllers.base import get_container_info
 
 
 def quote(value, safe='/'):
@@ -219,47 +218,14 @@ class _StaticWebContext(WSGIContext):
         """
         self._index = self._error = self._listings = self._listings_css = \
             self._dir_type = None
-        memcache_client = cache_from_env(env)
-        if memcache_client:
-            cached_data = memcache_client.get(
-                get_memcache_key(self.version, self.account, self.container))
-            if cached_data:
-                (self._index, self._error, self._listings, self._listings_css,
-                 self._dir_type) = cached_data
-                return
-            else:
-                cached_data = memcache_client.get(
-                    get_compat_memcache_key(
-                        self.version, self.account, self.container))
-                if cached_data:
-                    (self._index, self._error, self._listings,
-                     self._listings_css) = cached_data
-                    self._dir_type = ''
-                    return
-        resp = make_pre_authed_request(
-            env, 'HEAD', '/%s/%s/%s' % (
-                self.version, self.account, self.container),
-            agent=self.agent, swift_source='SW').get_response(self.app)
-        if is_success(resp.status_int):
-            self._index = \
-                resp.headers.get('x-container-meta-web-index', '').strip()
-            self._error = \
-                resp.headers.get('x-container-meta-web-error', '').strip()
-            self._listings = \
-                resp.headers.get('x-container-meta-web-listings', '').strip()
-            self._listings_css = \
-                resp.headers.get('x-container-meta-web-listings-css',
-                                 '').strip()
-            self._dir_type = \
-                resp.headers.get('x-container-meta-web-directory-type',
-                                 '').strip()
-            if memcache_client:
-                memcache_client.set(
-                    get_memcache_key(
-                        self.version, self.account, self.container),
-                    (self._index, self._error, self._listings,
-                     self._listings_css, self._dir_type),
-                    time=self.cache_timeout)
+        container_info = get_container_info(env, self.app, swift_source='SW')
+        if is_success(container_info['status']):
+            meta = container_info.get('meta', {})
+            self._index = meta.get('web-index', '').strip()
+            self._error = meta.get('web-error', '').strip()
+            self._listings = meta.get('web-listings', '').strip()
+            self._listings_css = meta.get('web-listings-css', '').strip()
+            self._dir_type = meta.get('web-directory-type', '').strip()
 
     def _listing(self, env, start_response, prefix=None):
         """
@@ -515,14 +481,6 @@ class StaticWeb(object):
             (version, account, container, obj) = \
                 split_path(env['PATH_INFO'], 2, 4, True)
         except ValueError:
-            return self.app(env, start_response)
-        if env['REQUEST_METHOD'] in ('PUT', 'POST') and container and not obj:
-            memcache_client = cache_from_env(env)
-            if memcache_client:
-                memcache_client.delete(
-                    get_memcache_key(version, account, container))
-                memcache_client.delete(
-                    get_compat_memcache_key(version, account, container))
             return self.app(env, start_response)
         if env['REQUEST_METHOD'] not in ('HEAD', 'GET'):
             return self.app(env, start_response)
