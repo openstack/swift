@@ -114,7 +114,9 @@ Shows information about matching devices.
 .RE
 
 
-.IP "\fBadd\fR z<zone>-<ip>:<port>/<device_name>_<meta><wght>"
+.IP "\fBadd\fR z<zone>-<ip>:<port>/<device_name>_<meta> <weight>"
+.IP "\fBadd\fR r<region>z<zone>-<ip>:<port>/<device_name>_<meta> <weight>"
+.IP "\fBadd\fR -r <region> -z <zone> -i <ip> -p <port> -d <device_name> -m <meta> -w <weight>"
 .RS 5
 Adds a device to the ring with the given information. No partitions will be 
 assigned to the new device until after running 'rebalance'. This is so you 
