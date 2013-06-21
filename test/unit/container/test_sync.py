@@ -66,8 +66,10 @@ class FakeContainerBroker(object):
 
 class TestContainerSync(unittest.TestCase):
 
-    def test_Iter2FileLikeObject(self):
-        flo = sync._Iter2FileLikeObject(iter(['123', '4567', '89', '0']))
+    def test_FileLikeIter(self):
+        # Retained test to show new FileLikeIter acts just like the removed
+        # _Iter2FileLikeObject did.
+        flo = sync.FileLikeIter(iter(['123', '4567', '89', '0']))
         expect = '1234567890'
 
         got = flo.read(2)
@@ -84,7 +86,7 @@ class TestContainerSync(unittest.TestCase):
         self.assertEquals(flo.read(), '')
         self.assertEquals(flo.read(2), '')
 
-        flo = sync._Iter2FileLikeObject(iter(['123', '4567', '89', '0']))
+        flo = sync.FileLikeIter(iter(['123', '4567', '89', '0']))
         self.assertEquals(flo.read(), '1234567890')
         self.assertEquals(flo.read(), '')
         self.assertEquals(flo.read(2), '')
