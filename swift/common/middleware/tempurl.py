@@ -71,11 +71,6 @@ X-Account-Meta-Temp-URL-Key-2. Signatures are checked against both keys, if
 present. This is to allow for key rotation without invalidating all existing
 temporary URLs.
 
-Note that changing either X-Account-Meta-Temp-URL-Key or
-X-Account-Meta-Temp-URL-Key-2 will invalidate any previously generated
-temporary URLs signed with that key within 60 seconds (the memcache lifetime
-for the key). It is not instantaneous.
-
 With GET TempURLs, a Content-Disposition header will be set on the
 response so that browsers will interpret this as a file attachment to
 be saved. The filename chosen is based on the object name, but you

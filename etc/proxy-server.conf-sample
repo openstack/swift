@@ -338,8 +338,6 @@ use = egg:swift#cname_lookup
 # Note: Put staticweb just after your auth filter(s) in the pipeline
 [filter:staticweb]
 use = egg:swift#staticweb
-# Seconds to cache container x-container-meta-web-* header values.
-# cache_timeout = 300
 
 # Note: Put tempurl just before your auth filter(s) in the pipeline
 [filter:tempurl]

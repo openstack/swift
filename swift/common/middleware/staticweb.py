@@ -35,8 +35,6 @@ added. For example::
 
     [filter:staticweb]
     use = egg:swift#staticweb
-    # Seconds to cache container x-container-meta-web-* header values.
-    # cache_timeout = 300
 
 Any publicly readable containers (for example, ``X-Container-Read: .r:*``, see
 `acls`_ for more information on this) will be checked for
@@ -134,23 +132,6 @@ def quote(value, safe='/'):
     if isinstance(value, unicode):
         value = value.encode('utf-8')
     return urllib_quote(value, safe)
-
-
-def get_memcache_key(version, account, container):
-    """
-    This key's value is (index, error, listings, listings_css, dir_type)
-    """
-    return '/staticweb2/%s/%s/%s' % (version, account, container)
-
-
-def get_compat_memcache_key(version, account, container):
-    """
-    This key's value is (index, error, listings, listings_css)
-
-    TODO: This compat key and its use should be removed after the
-          Havana OpenStack release.
-    """
-    return '/staticweb/%s/%s/%s' % (version, account, container)
 
 
 class _StaticWebContext(WSGIContext):
