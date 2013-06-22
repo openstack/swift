@@ -282,23 +282,33 @@ class TestUntar(unittest.TestCase):
 
     def test_extract_tar_fail_cont_401(self):
         self.build_tar()
-        req = Request.blank('/unauth/acc/')
+        req = Request.blank('/unauth/acc/',
+                            headers={'Accept': 'application/json'})
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
-        resp_body = self.handle_extract_and_iter(
-            req, '', out_content_type='text/plain')
-        self.assertTrue('Response Status: 401 Unauthorized' in resp_body)
+        resp_body = self.handle_extract_and_iter(req, '')
+        self.assertEquals(self.app.calls, 1)
+        resp_data = json.loads(resp_body)
+        self.assertEquals(resp_data['Response Status'], '401 Unauthorized')
+        self.assertEquals(
+            resp_data['Errors'],
+            [['base_fails1/sub_dir1/sub1_file1', '401 Unauthorized']])
 
     def test_extract_tar_fail_obj_401(self):
         self.build_tar()
-        req = Request.blank('/create_obj_unauth/acc/cont/')
+        req = Request.blank('/create_obj_unauth/acc/cont/',
+                            headers={'Accept': 'application/json'})
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
-        resp_body = self.handle_extract_and_iter(
-            req, '', out_content_type='text/plain')
-        self.assertTrue('Response Status: 401 Unauthorized' in resp_body)
+        resp_body = self.handle_extract_and_iter(req, '')
+        self.assertEquals(self.app.calls, 2)
+        resp_data = json.loads(resp_body)
+        self.assertEquals(resp_data['Response Status'], '401 Unauthorized')
+        self.assertEquals(
+            resp_data['Errors'],
+            [['cont/base_fails1/sub_dir1/sub1_file1', '401 Unauthorized']])
 
     def test_extract_tar_fail_obj_name_len(self):
         self.build_tar()
@@ -308,22 +318,28 @@ class TestUntar(unittest.TestCase):
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
         resp_body = self.handle_extract_and_iter(req, '')
+        self.assertEquals(self.app.calls, 6)
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Number Files Created'], 4)
-        self.assertEquals(resp_data['Errors'][0][0],
-                          '/tar_works/acc/cont/base_fails1/' + ('f' * 101))
+        self.assertEquals(
+            resp_data['Errors'],
+            [['cont/base_fails1/' + ('f' * 101), '400 Bad Request']])
 
     def test_extract_tar_fail_compress_type(self):
         self.build_tar()
-        req = Request.blank('/tar_works/acc/cont/')
+        req = Request.blank('/tar_works/acc/cont/',
+                            headers={'Accept': 'application/json'})
         req.environ['wsgi.input'] = open(os.path.join(self.testdir,
                                                       'tar_fails.tar'))
         req.headers['transfer-encoding'] = 'chunked'
         resp_body = self.handle_extract_and_iter(req, 'gz')
-        self.assert_('400 Bad Request' in resp_body)
         self.assertEquals(self.app.calls, 0)
+        resp_data = json.loads(resp_body)
+        self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+        self.assertEquals(
+            resp_data['Response Body'], 'Invalid Tar File: not a gzip file')
 
-    def test_extract_tar_fail_max_file_name_length(self):
+    def test_extract_tar_fail_max_failed_extractions(self):
         self.build_tar()
         with patch.object(self.bulk, 'max_failed_extractions', 1):
             self.app.calls = 0
@@ -333,10 +349,12 @@ class TestUntar(unittest.TestCase):
                                                           'tar_fails.tar'))
             req.headers['transfer-encoding'] = 'chunked'
             resp_body = self.handle_extract_and_iter(req, '')
-            resp_data = json.loads(resp_body)
             self.assertEquals(self.app.calls, 5)
-            self.assertEquals(resp_data['Errors'][0][0],
-                              '/tar_works/acc/cont/base_fails1/' + ('f' * 101))
+            resp_data = json.loads(resp_body)
+            self.assertEquals(resp_data['Number Files Created'], 3)
+            self.assertEquals(
+                resp_data['Errors'],
+                [['cont/base_fails1/' + ('f' * 101), '400 Bad Request']])
 
     @patch.object(bulk, 'MAX_FILE_SIZE', 4)
     def test_extract_tar_fail_max_file_size(self):
@@ -356,7 +374,10 @@ class TestUntar(unittest.TestCase):
         req.headers['transfer-encoding'] = 'chunked'
         resp_body = self.handle_extract_and_iter(req, '')
         resp_data = json.loads(resp_body)
-        self.assert_(resp_data['Errors'][0][1].startswith('413'))
+        self.assertEquals(
+            resp_data['Errors'],
+            [['cont' + self.testdir + '/test/sub_dir1/sub1_file1',
+              '413 Request Entity Too Large']])
 
     def test_extract_tar_fail_max_cont(self):
         dir_tree = [{'sub_dir1': ['sub1_file1']},
@@ -367,17 +388,21 @@ class TestUntar(unittest.TestCase):
         with patch.object(self.bulk, 'max_containers', 1):
             self.app.calls = 0
             body = open(os.path.join(self.testdir, 'tar_fails.tar')).read()
-            req = Request.blank('/tar_works/acc/', body=body)
+            req = Request.blank('/tar_works/acc/', body=body,
+                                headers={'Accept': 'application/json'})
             req.headers['transfer-encoding'] = 'chunked'
             resp_body = self.handle_extract_and_iter(req, '')
             self.assertEquals(self.app.calls, 3)
-            self.assert_('400 Bad Request' in resp_body)
+            resp_data = json.loads(resp_body)
+            self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+            self.assertEquals(
+                resp_data['Response Body'],
+                'More than 1 base level containers in tar.')
 
     def test_extract_tar_fail_create_cont(self):
         dir_tree = [{'base_fails1': [
             {'sub_dir1': ['sub1_file1']},
             {'sub_dir2': ['sub2_file1', 'sub2_file2']},
-            'f\xde',
             {'./sub_dir3': [{'sub4_dir1': 'sub4_file1'}]}]}]
         self.build_tar(dir_tree)
         req = Request.blank('/create_cont_fail/acc/cont/',
@@ -388,7 +413,7 @@ class TestUntar(unittest.TestCase):
         resp_body = self.handle_extract_and_iter(req, '')
         resp_data = json.loads(resp_body)
         self.assertEquals(self.app.calls, 4)
-        self.assertEquals(len(resp_data['Errors']), 5)
+        self.assertEquals(len(resp_data['Errors']), 4)
 
     def test_extract_tar_fail_create_cont_value_err(self):
         self.build_tar()
@@ -406,6 +431,29 @@ class TestUntar(unittest.TestCase):
             resp_data = json.loads(resp_body)
             self.assertEquals(self.app.calls, 0)
             self.assertEquals(len(resp_data['Errors']), 5)
+            self.assertEquals(
+                resp_data['Errors'][0],
+                ['cont/base_fails1/sub_dir1/sub1_file1', '400 Bad Request'])
+
+    def test_extract_tar_fail_unicode(self):
+        dir_tree = [{'sub_dir1': ['sub1_file1']},
+                    {'sub_dir2': ['sub2\xdefile1', 'sub2_file2']},
+                    {'sub_\xdedir3': [{'sub4_dir1': 'sub4_file1'}]}]
+        self.build_tar(dir_tree)
+        req = Request.blank('/tar_works/acc/',
+                            headers={'Accept': 'application/json'})
+        req.environ['wsgi.input'] = open(os.path.join(self.testdir,
+                                                      'tar_fails.tar'))
+        req.headers['transfer-encoding'] = 'chunked'
+        resp_body = self.handle_extract_and_iter(req, '')
+        resp_data = json.loads(resp_body)
+        self.assertEquals(self.app.calls, 4)
+        self.assertEquals(resp_data['Number Files Created'], 2)
+        self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+        self.assertEquals(
+            resp_data['Errors'],
+            [['sub_dir2/sub2%DEfile1', '412 Precondition Failed'],
+             ['sub_%DEdir3/sub4_dir1/sub4_file1', '412 Precondition Failed']])
 
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
@@ -535,10 +583,8 @@ class TestDelete(unittest.TestCase):
         self.assertEquals(len(resp_data['Errors']), 2)
         self.assertEquals(
             resp_data['Errors'],
-            [[urllib.quote('/delete_works/AUTH_Acc/c/ objbadutf8'),
-              '412 Precondition Failed'],
-             [urllib.quote('/delete_works/AUTH_Acc/c/f\xdebadutf8'),
-              '412 Precondition Failed']])
+            [[urllib.quote('c/ objbadutf8'), '412 Precondition Failed'],
+             [urllib.quote('/c/f\xdebadutf8'), '412 Precondition Failed']])
 
     def test_bulk_delete_no_body(self):
         req = Request.blank('/unauth/AUTH_acc/')
@@ -551,16 +597,25 @@ class TestDelete(unittest.TestCase):
         self.assertTrue('400 Bad Request' in resp_body)
 
     def test_bulk_delete_unauth(self):
-        req = Request.blank('/unauth/AUTH_acc/', body='/c/f\n')
+        req = Request.blank('/unauth/AUTH_acc/', body='/c/f\n/c/f2\n',
+                            headers={'Accept': 'application/json'})
         req.method = 'DELETE'
         resp_body = self.handle_delete_and_iter(req)
-        self.assertTrue('401 Unauthorized' in resp_body)
+        self.assertEquals(self.app.calls, 1)
+        resp_data = json.loads(resp_body)
+        self.assertEquals(resp_data['Errors'], [['/c/f', '401 Unauthorized']])
+        self.assertEquals(resp_data['Response Status'], '401 Unauthorized')
 
     def test_bulk_delete_500_resp(self):
-        req = Request.blank('/broke/AUTH_acc/', body='/c/f\n')
+        req = Request.blank('/broke/AUTH_acc/', body='/c/f\nc/f2\n',
+                            headers={'Accept': 'application/json'})
         req.method = 'DELETE'
         resp_body = self.handle_delete_and_iter(req)
-        self.assertTrue('502 Bad Gateway' in resp_body)
+        resp_data = json.loads(resp_body)
+        self.assertEquals(
+            resp_data['Errors'],
+            [['/c/f', '500 Internal Error'], ['c/f2', '500 Internal Error']])
+        self.assertEquals(resp_data['Response Status'], '502 Bad Gateway')
 
     def test_bulk_delete_bad_path(self):
         req = Request.blank('/delete_cont_fail/')
@@ -574,19 +629,22 @@ class TestDelete(unittest.TestCase):
         resp_body = self.handle_delete_and_iter(req)
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Number Deleted'], 0)
-        self.assertEquals(resp_data['Errors'][0][1], '409 Conflict')
+        self.assertEquals(resp_data['Errors'], [['c', '409 Conflict']])
+        self.assertEquals(resp_data['Response Status'], '400 Bad Request')
 
     def test_bulk_delete_bad_file_too_long(self):
         req = Request.blank('/delete_works/AUTH_Acc',
                             headers={'Accept': 'application/json'})
         req.method = 'DELETE'
-        data = '/c/f\nc/' + ('1' * bulk.MAX_PATH_LENGTH) + '\n/c/f'
+        bad_file = 'c/' + ('1' * bulk.MAX_PATH_LENGTH)
+        data = '/c/f\n' + bad_file + '\n/c/f'
         req.environ['wsgi.input'] = StringIO(data)
         req.headers['Transfer-Encoding'] = 'chunked'
         resp_body = self.handle_delete_and_iter(req)
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Number Deleted'], 2)
-        self.assertEquals(resp_data['Errors'][0][1], '400 Bad Request')
+        self.assertEquals(resp_data['Errors'], [[bad_file, '400 Bad Request']])
+        self.assertEquals(resp_data['Response Status'], '400 Bad Request')
 
     def test_bulk_delete_bad_file_over_twice_max_length(self):
         body = '/c/f\nc/' + ('123456' * bulk.MAX_PATH_LENGTH) + '\n'

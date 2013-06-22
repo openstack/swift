@@ -23,8 +23,7 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
 from swift.common.utils import json, get_logger
 from swift.common.constraints import check_utf8, MAX_FILE_SIZE
-from swift.common.http import HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, \
-    HTTP_NOT_FOUND
+from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH, \
     MAX_CONTAINER_NAME_LENGTH
 
@@ -112,7 +111,7 @@ class Bulk(object):
     responses. This is because a short request body sent from the client could
     result in many operations on the proxy server and precautions need to be
     made to prevent the request from timing out due to lack of activity. To
-    this end, the client will always receive a 200 Ok response, regardless of
+    this end, the client will always receive a 200 OK response, regardless of
     the actual success of the call.  The body of the response must be parsed to
     determine the actual success of the operation. In addition to this the
     client may receive zero or more whitespace characters prepended to the
@@ -123,12 +122,12 @@ class Bulk(object):
     text/plain, application/json, application/xml, and text/xml. An example
     body is as follows:
 
-    {"Response Code": "201 Created",
+    {"Response Status": "201 Created",
      "Response Body": "",
      "Errors": [],
      "Number Files Created": 10}
 
-    If all valid files were uploaded successfully the Response Code will be a
+    If all valid files were uploaded successfully the Response Status will be
     201 Created.  If any files failed to be created the response code
     corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
     server errors), etc. In both cases the response body will specify the
@@ -158,17 +157,17 @@ class Bulk(object):
     /container_name
 
     The response is similar to bulk deletes as in every response will be a 200
-    Ok and you must parse the response body for acutal results. An example
+    OK and you must parse the response body for actual results. An example
     response is:
 
     {"Number Not Found": 0,
-     "Response Code": "200 OK",
+     "Response Status": "200 OK",
      "Response Body": "",
      "Errors": [],
      "Number Deleted": 6}
 
     If all items were successfully deleted (or did not exist), the Response
-    Code will be a 200 Ok. If any failed to delete, the response code
+    Status will be 200 OK. If any failed to delete, the response code
     corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
     server errors), etc. In all cases the response body will specify the number
     of items successfully deleted, not found, and a list of those that failed.
@@ -294,12 +293,13 @@ class Bulk(object):
                     separator = '\r\n\r\n'
                     last_yield = time()
                     yield ' '
-                obj_to_delete = obj_to_delete.strip().lstrip('/')
+                obj_to_delete = obj_to_delete.strip()
                 if not obj_to_delete:
                     continue
-                delete_path = '/'.join(['', vrs, account, obj_to_delete])
+                delete_path = '/'.join(['', vrs, account,
+                                        obj_to_delete.lstrip('/')])
                 if not check_utf8(delete_path):
-                    failed_files.append([quote(delete_path),
+                    failed_files.append([quote(obj_to_delete),
                                          HTTPPreconditionFailed().status])
                     continue
                 new_env = req.environ.copy()
@@ -316,13 +316,13 @@ class Bulk(object):
                 elif resp.status_int == HTTP_NOT_FOUND:
                     resp_dict['Number Not Found'] += 1
                 elif resp.status_int == HTTP_UNAUTHORIZED:
-                    failed_files.append([quote(delete_path),
-                                         HTTP_UNAUTHORIZED])
+                    failed_files.append([quote(obj_to_delete),
+                                         HTTPUnauthorized().status])
                     raise HTTPUnauthorized(request=req)
                 else:
                     if resp.status_int // 100 == 5:
                         failed_file_response_type = HTTPBadGateway
-                    failed_files.append([quote(delete_path), resp.status])
+                    failed_files.append([quote(obj_to_delete), resp.status])
 
             if failed_files:
                 resp_dict['Response Status'] = \
@@ -354,7 +354,7 @@ class Bulk(object):
 
         :params req: a swob Request
         :params compress_type: specifying the compression type of the tar.
-            Accepts '', 'gz, or 'bz2'
+            Accepts '', 'gz', or 'bz2'
         """
         resp_dict = {'Response Status': HTTPCreated().status,
                      'Response Body': '', 'Number Files Created': 0}
@@ -406,12 +406,12 @@ class Bulk(object):
                     container = obj_path.split('/', 1)[0]
                     if not check_utf8(destination):
                         failed_files.append(
-                            [quote(destination[:MAX_PATH_LENGTH]),
+                            [quote(obj_path[:MAX_PATH_LENGTH]),
                              HTTPPreconditionFailed().status])
                         continue
                     if tar_info.size > MAX_FILE_SIZE:
                         failed_files.append([
-                            quote(destination[:MAX_PATH_LENGTH]),
+                            quote(obj_path[:MAX_PATH_LENGTH]),
                             HTTPRequestEntityTooLarge().status])
                         continue
                     if container not in existing_containers:
@@ -420,16 +420,16 @@ class Bulk(object):
                                 req, '/'.join(['', vrs, account, container]))
                             existing_containers.add(container)
                         except CreateContainerError, err:
+                            failed_files.append([
+                                quote(obj_path[:MAX_PATH_LENGTH]),
+                                err.status])
                             if err.status_int == HTTP_UNAUTHORIZED:
                                 raise HTTPUnauthorized(request=req)
-                            failed_files.append([
-                                quote(destination[:MAX_PATH_LENGTH]),
-                                err.status])
                             continue
                         except ValueError:
                             failed_files.append([
-                                quote(destination[:MAX_PATH_LENGTH]),
-                                HTTP_BAD_REQUEST])
+                                quote(obj_path[:MAX_PATH_LENGTH]),
+                                HTTPBadRequest().status])
                             continue
                         if len(existing_containers) > self.max_containers:
                             raise HTTPBadRequest(
@@ -451,13 +451,13 @@ class Bulk(object):
                     else:
                         if resp.status_int == HTTP_UNAUTHORIZED:
                             failed_files.append([
-                                quote(destination[:MAX_PATH_LENGTH]),
-                                HTTP_UNAUTHORIZED])
+                                quote(obj_path[:MAX_PATH_LENGTH]),
+                                HTTPUnauthorized().status])
                             raise HTTPUnauthorized(request=req)
                         if resp.status_int // 100 == 5:
                             failed_response_type = HTTPBadGateway
                         failed_files.append([
-                            quote(destination[:MAX_PATH_LENGTH]), resp.status])
+                            quote(obj_path[:MAX_PATH_LENGTH]), resp.status])
 
             if failed_files:
                 resp_dict['Response Status'] = failed_response_type().status
@@ -469,7 +469,7 @@ class Bulk(object):
             resp_dict['Response Status'] = err.status
             resp_dict['Response Body'] = err.body
         except tarfile.TarError, tar_error:
-            resp_dict['Response Status'] = HTTPBadRequest().status,
+            resp_dict['Response Status'] = HTTPBadRequest().status
             resp_dict['Response Body'] = 'Invalid Tar File: %s' % tar_error
         except Exception:
             self.logger.exception('Error in extract archive.')
