@@ -164,13 +164,18 @@ class TestAuthorize(unittest.TestCase):
     def _get_account(self, identity=None):
         if not identity:
             identity = self._get_identity()
-        return self.test_auth._get_account_for_tenant(identity['tenant'][0])
+        return self.test_auth._get_account_for_tenant(identity['HTTP_X_TENANT_ID'])
 
-    def _get_identity(self, tenant_id='tenant_id',
-                      tenant_name='tenant_name', user='user', roles=None):
-        if not roles:
-            roles = []
-        return dict(tenant=(tenant_id, tenant_name), user=user, roles=roles)
+    def _get_identity(self, tenant_id='tenant_id', tenant_name='tenant_name',
+                      user_id='user_id', user_name='user_name', roles=[]):
+        if isinstance(roles, list):
+            roles = ','.join(roles)
+        return {'HTTP_X_USER_ID': user_id,
+                'HTTP_X_USER_NAME': user_name,
+                'HTTP_X_TENANT_ID': tenant_id,
+                'HTTP_X_TENANT_NAME': tenant_name,
+                'HTTP_X_ROLES': roles,
+                'HTTP_X_IDENTITY_STATUS': 'Confirmed'}
 
     def _check_authenticate(self, account=None, identity=None, headers=None,
                             exception=None, acl=None, env=None, path=None):
@@ -180,8 +185,8 @@ class TestAuthorize(unittest.TestCase):
             account = self._get_account(identity)
         if not path:
             path = '/v1/%s/c' % account
-        default_env = {'keystone.identity': identity,
-                       'REMOTE_USER': identity['tenant']}
+        default_env = {'REMOTE_USER': identity['HTTP_X_TENANT_ID']}
+        default_env.update(identity)
         if env:
             default_env.update(env)
         req = self._make_request(path, headers=headers, environ=default_env)
@@ -225,8 +230,7 @@ class TestAuthorize(unittest.TestCase):
         self.assertTrue(req.environ.get('swift_owner'))
 
     def _check_authorize_for_tenant_owner_match(self, exception=None):
-        identity = self._get_identity()
-        identity['user'] = identity['tenant'][1]
+        identity = self._get_identity(user_name='same_name', tenant_name='same_name')
         req = self._check_authenticate(identity=identity, exception=exception)
         expected = bool(exception is None)
         self.assertEqual(bool(req.environ.get('swift_owner')), expected)
@@ -271,30 +275,55 @@ class TestAuthorize(unittest.TestCase):
 
     def test_authorize_succeeds_for_tenant_name_user_in_roles(self):
         identity = self._get_identity()
-        acl = '%s:%s' % (identity['tenant'][1], identity['user'])
-        self._check_authenticate(identity=identity, acl=acl)
+        user_name = identity['HTTP_X_USER_NAME']
+        user_id = identity['HTTP_X_USER_ID']
+        tenant_id = identity['HTTP_X_TENANT_ID']
+        for user in [user_id, user_name, '*']:
+            acl = '%s:%s' % (tenant_id, user)
+            self._check_authenticate(identity=identity, acl=acl)
 
     def test_authorize_succeeds_for_tenant_id_user_in_roles(self):
         identity = self._get_identity()
-        acl = '%s:%s' % (identity['tenant'][0], identity['user'])
-        self._check_authenticate(identity=identity, acl=acl)
+        user_name = identity['HTTP_X_USER_NAME']
+        user_id = identity['HTTP_X_USER_ID']
+        tenant_name = identity['HTTP_X_TENANT_NAME']
+        for user in [user_id, user_name, '*']:
+            acl = '%s:%s' % (tenant_name, user)
+            self._check_authenticate(identity=identity, acl=acl)
 
     def test_authorize_succeeds_for_wildcard_tenant_user_in_roles(self):
         identity = self._get_identity()
-        acl = '*:%s' % (identity['user'])
-        self._check_authenticate(identity=identity, acl=acl)
+        user_name = identity['HTTP_X_USER_NAME']
+        user_id = identity['HTTP_X_USER_ID']
+        for user in [user_id, user_name, '*']:
+            acl = '*:%s' % user
+            self._check_authenticate(identity=identity, acl=acl)
 
     def test_cross_tenant_authorization_success(self):
-        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
-            'tenantID', 'tenantNAME', ['tenantID:userA']))
-        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
-            'tenantID', 'tenantNAME', ['tenantNAME:userA']))
-        self.assertTrue(self.test_auth._authorize_cross_tenant('userA',
-            'tenantID', 'tenantNAME', ['*:userA']))
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantID:userA']), 'tenantID:userA')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:userA']), 'tenantNAME:userA')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['*:userA']), '*:userA')
+
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantID:userID']), 'tenantID:userID')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:userID']), 'tenantNAME:userID')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['*:userID']), '*:userID')
+
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantID:*']), 'tenantID:*')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:*']), 'tenantNAME:*')
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['*:*']), '*:*')
 
     def test_cross_tenant_authorization_failure(self):
-        self.assertFalse(self.test_auth._authorize_cross_tenant('userA',
-            'tenantID', 'tenantNAME', ['tenantXYZ:userA']))
+        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
+            'userA', 'tenantID', 'tenantNAME', ['tenantXYZ:userA']), None)
 
 
 if __name__ == '__main__':
