@@ -1,3 +1,78 @@
+swift (1.9.0)
+
+    * Global clusters support
+
+      The "region" concept introduced in Swift 1.8.0 has been augmented with
+      support for using a separate replication network and configuring read
+      and write affinity. These features combine to offer support for a single
+      Swift cluster spanning wide geographic area.
+
+    * Disk performance
+
+      The object server now can be configured to use threadpools to increase
+      performance and smooth out latency throughout the system. Also, many
+      disk operations were reordered to increase reliability and improve
+      performance.
+
+    * Added config file conf.d support
+
+      Allow Swift daemons and servers to optionally accept a directory as the
+      configuration parameter. This allows different parts of the config file
+      to be managed separately, eg each middleware could use a separate file
+      for its particular config settings.
+
+    * Allow two TempURL keys per account
+
+      By adding a second key, a user can safely rotate keys and prevent URLs
+      already in use from becoming invalid. TempURL middlware has also been
+      updated to allow a configuable set of allowed methods and to prevent a
+      bugrelated to content-disposition names.
+
+    * Added crossdomain.xml middleware. See
+      http://docs.openstack.org/developer/swift/crossdomain.html for details
+
+    * Added rsync bandwidth limit setting for object replicator
+
+    * Transaction ID updated to include the time and an optional suffix
+
+    * Added x-remove-versions-location header to disable versioned writes
+
+    * Improvements to support for Keystone ACLs
+
+    * Added parallelism to object expirer daemon
+
+    * Added support for ring hash prefix in addition to the existing suffix
+
+    * Allow all headers requested for CORS
+
+    * Stop getting useless bytes on manifest Range requests
+
+    * Improved container-sync resiliency
+
+    * Added example Apache config files. See
+      http://docs.openstack.org/developer/swift/apache_deployment_guide.html
+      for more info
+
+    * If an account is marked as deleted but hasn't been reaped and is still
+      on disk, responses will include an "X-Account-Status" header
+
+    * Fix 503 on account/container HEAD with invalid format
+
+    * Added extra safety on account-level DELETE when using bulk deletes
+
+    * Made colons quote-safe in logs (mainly for IPv6)
+
+    * Fixed bug with bulk delete max items
+
+    * Fixed static large object manifest range requests
+
+    * Prevent static large objects from containing other static large objects
+
+    * Fixed issue with use of delimiter in container queries where some
+      objects would not be listed
+
+    * Various other minor bug fixes and improvements
+
 swift (1.8.0)
 
     * Make rings' replica count adjustable
