@@ -527,6 +527,15 @@ class ObjectController(object):
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
 
+    def _diskfile(self, device, partition, account, container, obj, **kwargs):
+        """ Utility method for instantiating a DiskFile. """
+        kwargs.setdefault('bytes_per_sync', self.bytes_per_sync)
+        kwargs.setdefault('disk_chunk_size', self.disk_chunk_size)
+        kwargs.setdefault('logger', self.logger)
+        kwargs.setdefault('threadpool', self.threadpools[device])
+        return DiskFile(self.devices, device, partition, account,
+                        container, obj, **kwargs)
+
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice):
         """
@@ -710,11 +719,7 @@ class ObjectController(object):
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
-        disk_file = DiskFile(self.devices, device, partition, account,
-                             container, obj, self.logger,
-                             disk_chunk_size=self.disk_chunk_size,
-                             bytes_per_sync=self.bytes_per_sync,
-                             threadpool=self.threadpools[device])
+        disk_file = self._diskfile(device, partition, account, container, obj)
         if disk_file.is_deleted() or disk_file.is_expired():
             return HTTPNotFound(request=request)
         try:
@@ -769,11 +774,7 @@ class ObjectController(object):
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
-        disk_file = DiskFile(self.devices, device, partition, account,
-                             container, obj, self.logger,
-                             disk_chunk_size=self.disk_chunk_size,
-                             bytes_per_sync=self.bytes_per_sync,
-                             threadpool=self.threadpools[device])
+        disk_file = self._diskfile(device, partition, account, container, obj)
         old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
         orig_timestamp = disk_file.metadata.get('X-Timestamp')
         upload_expiration = time.time() + self.max_upload_time
@@ -854,12 +855,8 @@ class ObjectController(object):
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
-        disk_file = DiskFile(self.devices, device, partition, account,
-                             container, obj, self.logger, keep_data_fp=True,
-                             disk_chunk_size=self.disk_chunk_size,
-                             bytes_per_sync=self.bytes_per_sync,
-                             threadpool=self.threadpools[device],
-                             iter_hook=sleep)
+        disk_file = self._diskfile(device, partition, account, container, obj,
+                                   keep_data_fp=True, iter_hook=sleep)
         if disk_file.is_deleted() or disk_file.is_expired():
             if request.headers.get('if-match') == '*':
                 return HTTPPreconditionFailed(request=request)
@@ -938,11 +935,7 @@ class ObjectController(object):
             return resp
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
-        disk_file = DiskFile(self.devices, device, partition, account,
-                             container, obj, self.logger,
-                             disk_chunk_size=self.disk_chunk_size,
-                             bytes_per_sync=self.bytes_per_sync,
-                             threadpool=self.threadpools[device])
+        disk_file = self._diskfile(device, partition, account, container, obj)
         if disk_file.is_deleted() or disk_file.is_expired():
             return HTTPNotFound(request=request)
         try:
@@ -984,11 +977,7 @@ class ObjectController(object):
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
         response_class = HTTPNoContent
-        disk_file = DiskFile(self.devices, device, partition, account,
-                             container, obj, self.logger,
-                             disk_chunk_size=self.disk_chunk_size,
-                             bytes_per_sync=self.bytes_per_sync,
-                             threadpool=self.threadpools[device])
+        disk_file = self._diskfile(device, partition, account, container, obj)
         if 'x-if-delete-at' in request.headers and \
                 int(request.headers['x-if-delete-at']) != \
                 int(disk_file.metadata.get('X-Delete-At') or 0):
