@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from ConfigParser import ConfigParser
 from optparse import OptionParser
 from sys import exit, stdout, stderr
@@ -78,8 +79,9 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         return
     retries_done = [0]
     containers_queried = [0]
-    container_copies_found = [0] * (container_ring.replica_count + 1)
-    container_copies_expected = [0] * (container_ring.replica_count + 1)
+    container_copies_missing = defaultdict(int)
+    container_copies_found = [0]
+    container_copies_expected = [0]
     begun = time()
     next_report = [time() + 2]
 
@@ -107,8 +109,9 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             stdout.flush()
             print >>stderr, '# Container partition %s missing %s cop%s' % (
                 part, missing, 'y' if missing == 1 else 'ies')
-        container_copies_found[found_count] += 1
+        container_copies_found[0] += found_count
         containers_queried[0] += 1
+        container_copies_missing[len(nodes) - found_count] += 1
         if time() >= next_report[0]:
             next_report[0] = time() + 5
             eta, eta_unit = compute_eta(begun, containers_queried[0],
@@ -121,17 +124,17 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     container_parts = {}
     for container in containers:
         part, nodes = container_ring.get_nodes(account, container)
-        container_copies_expected[len(nodes)] += 1
+        container_copies_expected[0] += len(nodes)
         if part not in container_parts:
             container_parts[part] = part
             coropool.spawn(direct, container, part, nodes)
     coropool.waitall()
     distinct_partitions = len(container_parts)
-    copies_found = sum(a * b for a, b in enumerate(container_copies_found))
-    copies_expected = sum(a * b for a, b
-                          in enumerate(container_copies_expected))
+    copies_found = container_copies_found[0]
+    copies_expected = container_copies_expected[0]
     value = 100.0 * copies_found / copies_expected
     elapsed, elapsed_unit = get_time_units(time() - begun)
+    container_copies_missing.pop(0, None)
     if not json_output:
         print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
               '%d%s, %d retries' % (containers_listed, round(elapsed),
@@ -139,13 +142,9 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         if containers_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   containers_listed - distinct_partitions)
-        for copies in xrange(container_ring.replica_count - 1, -1, -1):
-            missing_copies = (container_copies_expected[copies] -
-                              container_copies_found[copies])
-            if container_copies_found[copies]:
-                print missing_string(container_copies_found[copies],
-                                     missing_copies,
-                                     container_copies_expected[copies])
+        for missing_copies, num_parts in container_copies_missing.iteritems():
+            print missing_string(num_parts, missing_copies,
+                                 container_ring.replica_count)
         print '%.02f%% of container copies found (%d of %d)' % (
             value, copies_found, copies_expected)
         print 'Sample represents %.02f%% of the container partition space' % (
@@ -158,11 +157,8 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
                    'pct_found': value,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
-        for copies in xrange(container_ring.replica_count):
-            missing_copies = (container_copies_expected[copies] -
-                              container_copies_found[copies])
-            results['missing_%d' % (missing_copies)] = \
-                container_copies_found[copies]
+        for missing_copies, num_parts in container_copies_missing.iteritems():
+            results['missing_%d' % (missing_copies)] = num_parts
         return results
 
 
@@ -188,8 +184,9 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         return
     retries_done = [0]
     objects_queried = [0]
-    object_copies_found = [0] * (object_ring.replica_count + 1)
-    object_copies_expected = [0] * (object_ring.replica_count + 1)
+    object_copies_found = [0]
+    object_copies_expected = [0]
+    object_copies_missing = defaultdict(int)
     begun = time()
     next_report = [time() + 2]
 
@@ -211,13 +208,14 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                 error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
                           container, obj, err))
         if output_missing_partitions and \
-                found_count < object_ring.replica_count:
-            missing = object_ring.replica_count - found_count
+                found_count < len(nodes):
+            missing = len(nodes) - found_count
             print '\r\x1B[K',
             stdout.flush()
             print >>stderr, '# Object partition %s missing %s cop%s' % (
                 part, missing, 'y' if missing == 1 else 'ies')
-        object_copies_found[found_count] += 1
+        object_copies_found[0] += found_count
+        object_copies_missing[len(nodes) - found_count] += 1
         objects_queried[0] += 1
         if time() >= next_report[0]:
             next_report[0] = time() + 5
@@ -231,16 +229,14 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     object_parts = {}
     for obj in objects:
         part, nodes = object_ring.get_nodes(account, container, obj)
-        object_copies_expected[len(nodes)] += 1
+        object_copies_expected[0] += len(nodes)
         if part not in object_parts:
             object_parts[part] = part
             coropool.spawn(direct, obj, part, nodes)
     coropool.waitall()
     distinct_partitions = len(object_parts)
-    copies_expected = distinct_partitions * object_ring.replica_count
-    copies_found = sum(a * b for a, b in enumerate(object_copies_found))
-    copies_expected = sum(a * b for a, b
-                          in enumerate(object_copies_expected))
+    copies_found = object_copies_found[0]
+    copies_expected = object_copies_expected[0]
     value = 100.0 * copies_found / copies_expected
     elapsed, elapsed_unit = get_time_units(time() - begun)
     if not json_output:
@@ -250,12 +246,11 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         if objects_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   objects_listed - distinct_partitions)
-        for copies in xrange(object_ring.replica_count - 1, -1, -1):
-            missing_copies = (object_copies_expected[copies] -
-                              object_copies_found[copies])
-            if object_copies_found[copies]:
-                print missing_string(object_copies_found[copies],
-                                     missing_copies, object_ring.replica_count)
+
+        for missing_copies, num_parts in object_copies_missing.iteritems():
+            print missing_string(num_parts, missing_copies,
+                                 object_ring.replica_count)
+
         print '%.02f%% of object copies found (%d of %d)' % \
             (value, copies_found, copies_expected)
         print 'Sample represents %.02f%% of the object partition space' % (
@@ -268,11 +263,9 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                    'pct_found': value,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
-        for copies in xrange(object_ring.replica_count):
-            missing_copies = (object_copies_expected[copies] -
-                              object_copies_found[copies])
-            results['missing_%d' % (missing_copies)] = \
-                object_copies_found[copies]
+
+        for missing_copies, num_parts in object_copies_missing.iteritems():
+            results['missing_%d' % (missing_copies,)] = num_parts
         return results
 
 
