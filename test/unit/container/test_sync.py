@@ -126,14 +126,17 @@ class TestContainerSync(unittest.TestCase):
 
         def fake_audit_location_generator(*args, **kwargs):
             audit_location_generator_calls[0] += 1
-            # Makes .container_sync() short-circuit because 'path' doesn't end
-            # with .db
-            return [('path', 'device', 'partition')]
+            # Makes .container_sync() short-circuit
+            yield 'container.db', 'device', 'partition'
+            return
 
         orig_time = sync.time
         orig_sleep = sync.sleep
         orig_audit_location_generator = sync.audit_location_generator
+        orig_ContainerBroker = sync.ContainerBroker
         try:
+            sync.ContainerBroker = lambda p: FakeContainerBroker(p,
+                info={'account': 'a', 'container': 'c'})
             sync.time = fake_time
             sync.sleep = fake_sleep
             sync.audit_location_generator = fake_audit_location_generator
@@ -147,6 +150,7 @@ class TestContainerSync(unittest.TestCase):
             sync.time = orig_time
             sync.sleep = orig_sleep
             sync.audit_location_generator = orig_audit_location_generator
+            sync.ContainerBroker = orig_ContainerBroker
 
         self.assertEquals(time_calls, [9])
         self.assertEquals(len(sleep_calls), 2)
@@ -180,13 +184,16 @@ class TestContainerSync(unittest.TestCase):
 
         def fake_audit_location_generator(*args, **kwargs):
             audit_location_generator_calls[0] += 1
-            # Makes .container_sync() short-circuit because 'path' doesn't end
-            # with .db
-            return [('path', 'device', 'partition')]
+            # Makes .container_sync() short-circuit
+            yield 'container.db', 'device', 'partition'
+            return
 
         orig_time = sync.time
         orig_audit_location_generator = sync.audit_location_generator
+        orig_ContainerBroker = sync.ContainerBroker
         try:
+            sync.ContainerBroker = lambda p: FakeContainerBroker(p,
+                info={'account': 'a', 'container': 'c'})
             sync.time = fake_time
             sync.audit_location_generator = fake_audit_location_generator
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
@@ -202,6 +209,7 @@ class TestContainerSync(unittest.TestCase):
         finally:
             sync.time = orig_time
             sync.audit_location_generator = orig_audit_location_generator
+            sync.ContainerBroker = orig_ContainerBroker
 
         self.assertEquals(time_calls, [10])
         self.assertEquals(audit_location_generator_calls, [2])
@@ -295,7 +303,7 @@ class TestContainerSync(unittest.TestCase):
             cs.container_sync('isa.db')
             self.assertEquals(cs.container_failures, 0)
             self.assertEquals(cs.container_skips, 1)
- 
+
             sync.ContainerBroker = lambda p: FakeContainerBroker(p,
                 info={'account': 'a', 'container': 'c',
                       'x_container_sync_point1': -1,
@@ -308,7 +316,7 @@ class TestContainerSync(unittest.TestCase):
             cs.container_sync('isa.db')
             self.assertEquals(cs.container_failures, 0)
             self.assertEquals(cs.container_skips, 2)
- 
+
             sync.ContainerBroker = lambda p: FakeContainerBroker(p,
                 info={'account': 'a', 'container': 'c',
                       'x_container_sync_point1': -1,
@@ -321,7 +329,7 @@ class TestContainerSync(unittest.TestCase):
             cs.container_sync('isa.db')
             self.assertEquals(cs.container_failures, 0)
             self.assertEquals(cs.container_skips, 3)
- 
+
             sync.ContainerBroker = lambda p: FakeContainerBroker(p,
                 info={'account': 'a', 'container': 'c',
                       'x_container_sync_point1': -1,
@@ -336,7 +344,7 @@ class TestContainerSync(unittest.TestCase):
             cs.container_sync('isa.db')
             self.assertEquals(cs.container_failures, 1)
             self.assertEquals(cs.container_skips, 3)
- 
+
             sync.ContainerBroker = lambda p: FakeContainerBroker(p,
                 info={'account': 'a', 'container': 'c',
                       'x_container_sync_point1': -1,
@@ -385,7 +393,7 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_time():
                 return fake_times.pop(0)
-                
+
             sync.time = fake_time
             # This same sync won't fail since it will look like it took so long
             # as to be time to move on (before it ever actually tries to do
