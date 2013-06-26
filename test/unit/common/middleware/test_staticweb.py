@@ -24,34 +24,6 @@ from swift.common.swob import Request, Response
 from swift.common.middleware import staticweb
 
 
-class FakeMemcache(object):
-
-    def __init__(self):
-        self.store = {}
-
-    def get(self, key):
-        return self.store.get(key)
-
-    def set(self, key, value, time=0):
-        self.store[key] = value
-        return True
-
-    def incr(self, key, time=0):
-        self.store[key] = self.store.setdefault(key, 0) + 1
-        return self.store[key]
-
-    @contextmanager
-    def soft_lock(self, key, timeout=0, retries=5):
-        yield True
-
-    def delete(self, key):
-        try:
-            del self.store[key]
-        except Exception:
-            pass
-        return True
-
-
 meta_map = {
     'c1': {'status': 401},
     'c2': {},
@@ -417,14 +389,6 @@ class TestStaticWeb(unittest.TestCase):
         conf = {'blah': 1}
         sw = staticweb.filter_factory(conf)(FakeApp())
         self.assertEquals(sw.conf, conf)
-
-    def test_cache_timeout_unset(self):
-        sw = staticweb.filter_factory({})(FakeApp())
-        self.assertEquals(sw.cache_timeout, 300)
-
-    def test_cache_timeout_set(self):
-        sw = staticweb.filter_factory({'cache_timeout': '1'})(FakeApp())
-        self.assertEquals(sw.cache_timeout, 1)
 
     def test_root(self):
         resp = Request.blank('/').get_response(self.test_staticweb)
