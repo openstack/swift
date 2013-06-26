@@ -1663,6 +1663,50 @@ class TestAffinityKeyFunction(unittest.TestCase):
         ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
         self.assertEqual([3, 2, 0, 1, 4, 5, 6, 7], ids)
 
+
+class TestAffinityLocalityPredicate(unittest.TestCase):
+    def setUp(self):
+        self.nodes = [dict(id=0, region=1, zone=1),
+                      dict(id=1, region=1, zone=2),
+                      dict(id=2, region=2, zone=1),
+                      dict(id=3, region=2, zone=2),
+                      dict(id=4, region=3, zone=1),
+                      dict(id=5, region=3, zone=2),
+                      dict(id=6, region=4, zone=0),
+                      dict(id=7, region=4, zone=1)]
+
+    def test_empty(self):
+        pred = utils.affinity_locality_predicate('')
+        self.assert_(pred is None)
+
+    def test_region(self):
+        pred = utils.affinity_locality_predicate('r1')
+        self.assert_(callable(pred))
+        ids = [n['id'] for n in self.nodes if pred(n)]
+        self.assertEqual([0, 1], ids)
+
+    def test_zone(self):
+        pred = utils.affinity_locality_predicate('r1z1')
+        self.assert_(callable(pred))
+        ids = [n['id'] for n in self.nodes if pred(n)]
+        self.assertEqual([0], ids)
+
+    def test_multiple(self):
+        pred = utils.affinity_locality_predicate('r1, r3, r4z0')
+        self.assert_(callable(pred))
+        ids = [n['id'] for n in self.nodes if pred(n)]
+        self.assertEqual([0, 1, 4, 5, 6], ids)
+
+    def test_invalid(self):
+        self.assertRaises(ValueError,
+                          utils.affinity_locality_predicate, 'falafel')
+        self.assertRaises(ValueError,
+                          utils.affinity_locality_predicate, 'r8zQ')
+        self.assertRaises(ValueError,
+                          utils.affinity_locality_predicate, 'r2d2')
+        self.assertRaises(ValueError,
+                          utils.affinity_locality_predicate, 'r1z1=1')
+
 class TestGreenthreadSafeIterator(unittest.TestCase):
     def increment(self, iterable):
         plus_ones = []

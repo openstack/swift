@@ -147,6 +147,26 @@ use = egg:swift#proxy
 # read_affinity = r1z1=100, r1z2=200, r2=300
 # Default is empty, meaning no preference.
 # read_affinity =
+#
+# Which backend servers to prefer on writes. Format is r<N> for region
+# N or r<N>z<M> for region N, zone M. If this is set, then when
+# handling an object PUT request, some number (see setting
+# write_affinity_node_count) of local backend servers will be tried
+# before any nonlocal ones.
+#
+# Example: try to write to regions 1 and 2 before writing to any other
+# nodes:
+# write_affinity = r1, r2
+# Default is empty, meaning no preference.
+# write_affinity =
+#
+# The number of local (as governed by the write_affinity setting)
+# nodes to attempt to contact first, before any non-local ones. You
+# can use '* replicas' at the end to have it use the number given
+# times the number of replicas for the ring being used for the
+# request.
+# write_affinity_node_count = 2 * replicas
+
 
 [filter:tempauth]
 use = egg:swift#tempauth

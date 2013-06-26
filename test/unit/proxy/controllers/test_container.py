@@ -29,7 +29,7 @@ class TestContainerController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
-                                            object_ring=FakeRing)
+                                            object_ring=FakeRing())
 
     def test_container_info_in_response_env(self):
         controller = proxy_server.ContainerController(self.app, 'a', 'c')

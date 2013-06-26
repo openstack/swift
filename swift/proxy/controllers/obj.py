@@ -381,6 +381,44 @@ class ObjectController(Controller):
         except ListingIterNotAuthorized:
             pass
 
+    def iter_nodes_local_first(self, ring, partition):
+        """
+        Yields nodes for a ring partition.
+
+        If the 'write_affinity' setting is non-empty, then this will yield N
+        local nodes (as defined by the write_affinity setting) first, then the
+        rest of the nodes as normal. It is a re-ordering of the nodes such
+        that the local ones come first; no node is omitted. The effect is
+        that the request will be serviced by local object servers first, but
+        nonlocal ones will be employed if not enough local ones are available.
+
+        :param ring: ring to get nodes from
+        :param partition: ring partition to yield nodes for
+        """
+
+        primary_nodes = ring.get_part_nodes(partition)
+        num_locals = self.app.write_affinity_node_count(ring)
+        is_local = self.app.write_affinity_is_local_fn
+
+        if is_local is None:
+            return self.iter_nodes(ring, partition)
+
+        all_nodes = itertools.chain(primary_nodes,
+                                    ring.get_more_nodes(partition))
+        first_n_local_nodes = list(itertools.islice(
+            itertools.ifilter(is_local, all_nodes), num_locals))
+
+        # refresh it; it moved when we computed first_n_local_nodes
+        all_nodes = itertools.chain(primary_nodes,
+                                    ring.get_more_nodes(partition))
+        local_first_node_iter = itertools.chain(
+            first_n_local_nodes,
+            itertools.ifilter(lambda node: node not in first_n_local_nodes,
+                              all_nodes))
+
+        return self.iter_nodes(
+            ring, partition, node_iter=local_first_node_iter)
+
     def is_good_source(self, src):
         """
         Indicates whether or not the request made to the backend found
@@ -898,7 +936,7 @@ class ObjectController(Controller):
             delete_at_container = delete_at_part = delete_at_nodes = None
 
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes(self.app.object_ring, partition))
+            self.iter_nodes_local_first(self.app.object_ring, partition))
         pile = GreenPile(len(nodes))
         te = req.headers.get('transfer-encoding', '')
         chunked = ('chunked' in te)

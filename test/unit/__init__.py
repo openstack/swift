@@ -19,11 +19,11 @@ from httplib import HTTPException
 
 class FakeRing(object):
 
-    def __init__(self, replicas=3):
+    def __init__(self, replicas=3, max_more_nodes=0):
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
         self.replicas = replicas
-        self.max_more_nodes = 0
+        self.max_more_nodes = max_more_nodes
         self.devs = {}
 
     def set_replicas(self, replicas):
@@ -46,17 +46,24 @@ class FakeRing(object):
                     {'ip': '10.0.0.%s' % x,
                      'port': 1000 + x,
                      'device': 'sd' + (chr(ord('a') + x)),
+                     'zone': x % 3,
+                     'region': x % 2,
                      'id': x}
         return 1, devs
 
     def get_part_nodes(self, part):
         return self.get_nodes('blah')[1]
 
-    def get_more_nodes(self, nodes):
+    def get_more_nodes(self, part):
         # replicas^2 is the true cap
         for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
                                            self.replicas * self.replicas)):
-            yield {'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
+            yield {'ip': '10.0.0.%s' % x,
+                   'port': 1000 + x,
+                   'device': 'sda',
+                   'zone': x % 3,
+                   'region': x % 2,
+                   'id': x}
 
 
 class FakeMemcache(object):

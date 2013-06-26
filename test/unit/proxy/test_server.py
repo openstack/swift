@@ -766,6 +766,78 @@ class TestObjectController(unittest.TestCase):
             res = controller.PUT(req)
             self.assertTrue(res.status.startswith('201 '))
 
+    def test_PUT_respects_write_affinity(self):
+        written_to = []
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if path == '/a/c/o.jpg':
+                written_to.append((ipaddr, port, device))
+
+        with save_globals():
+            def is_r0(node):
+                return node['region'] == 0
+
+            self.app.object_ring.max_more_nodes = 100
+            self.app.write_affinity_is_local_fn = is_r0
+            self.app.write_affinity_node_count = lambda r: 3
+
+            controller = \
+                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+            set_http_connect(200, 200, 201, 201, 201,
+                             give_connect=test_connect)
+            req = Request.blank('/a/c/o.jpg', {})
+            req.content_length = 1
+            req.body = 'a'
+            self.app.memcache.store = {}
+            res = controller.PUT(req)
+            self.assertTrue(res.status.startswith('201 '))
+
+        self.assertEqual(3, len(written_to))
+        for ip, port, device in written_to:
+            # this is kind of a hokey test, but in FakeRing, the port is even
+            # when the region is 0, and odd when the region is 1, so this test
+            # asserts that we only wrote to nodes in region 0.
+            self.assertEqual(0, port % 2)
+
+    def test_PUT_respects_write_affinity_with_507s(self):
+        written_to = []
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if path == '/a/c/o.jpg':
+                written_to.append((ipaddr, port, device))
+
+        with save_globals():
+            def is_r0(node):
+                return node['region'] == 0
+
+            self.app.object_ring.max_more_nodes = 100
+            self.app.write_affinity_is_local_fn = is_r0
+            self.app.write_affinity_node_count = lambda r: 3
+
+            controller = \
+                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+            controller.error_limit(
+                self.app.object_ring.get_part_nodes(1)[0], 'test')
+            set_http_connect(200, 200,       # account, container
+                             201, 201, 201,  # 3 working backends
+                             give_connect=test_connect)
+            req = Request.blank('/a/c/o.jpg', {})
+            req.content_length = 1
+            req.body = 'a'
+            self.app.memcache.store = {}
+            res = controller.PUT(req)
+            self.assertTrue(res.status.startswith('201 '))
+
+        self.assertEqual(3, len(written_to))
+        # this is kind of a hokey test, but in FakeRing, the port is even when
+        # the region is 0, and odd when the region is 1, so this test asserts
+        # that we wrote to 2 nodes in region 0, then went to 1 non-r0 node.
+        self.assertEqual(0, written_to[0][1] % 2)  # it's (ip, port, device)
+        self.assertEqual(0, written_to[1][1] % 2)
+        self.assertNotEqual(0, written_to[2][1] % 2)
+
     def test_PUT_message_length_using_content_length(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -2187,6 +2259,25 @@ class TestObjectController(unittest.TestCase):
                 second_nodes.append(node)
             self.assertEquals(len(first_nodes), 6)
             self.assertEquals(len(second_nodes), 7)
+
+    def test_iter_nodes_with_custom_node_iter(self):
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        node_list = [dict(id=n) for n in xrange(10)]
+        with nested(
+                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+                mock.patch.object(self.app, 'request_node_count',
+                                  lambda r: 3)):
+            got_nodes = list(controller.iter_nodes(self.app.object_ring, 0,
+                                                   node_iter=iter(node_list)))
+        self.assertEqual(node_list[:3], got_nodes)
+
+        with nested(
+                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+                mock.patch.object(self.app, 'request_node_count',
+                                  lambda r: 1000000)):
+            got_nodes = list(controller.iter_nodes(self.app.object_ring, 0,
+                                                   node_iter=iter(node_list)))
+        self.assertEqual(node_list, got_nodes)
 
     def test_best_response_sets_etag(self):
         controller = proxy_server.ObjectController(self.app, 'account',

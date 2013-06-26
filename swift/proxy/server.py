@@ -35,7 +35,7 @@ from eventlet import Timeout
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
-    affinity_key_function
+    affinity_key_function, affinity_locality_predicate
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController
@@ -133,6 +133,25 @@ class Application(object):
             # make the message a little more useful
             raise ValueError("Invalid read_affinity value: %r (%s)" %
                              (read_affinity, err.message))
+        try:
+            write_affinity = conf.get('write_affinity', '')
+            self.write_affinity_is_local_fn \
+                = affinity_locality_predicate(write_affinity)
+        except ValueError as err:
+            # make the message a little more useful
+            raise ValueError("Invalid write_affinity value: %r (%s)" %
+                             (write_affinity, err.message))
+        value = conf.get('write_affinity_node_count',
+                         '2 * replicas').lower().split()
+        if len(value) == 1:
+            value = int(value[0])
+            self.write_affinity_node_count = lambda r: value
+        elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
+            value = int(value[0])
+            self.write_affinity_node_count = lambda r: value * r.replica_count
+        else:
+            raise ValueError(
+                'Invalid write_affinity_node_count value: %r' % ''.join(value))
 
     def get_controller(self, path):
         """
