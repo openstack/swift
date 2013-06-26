@@ -350,12 +350,12 @@ class TestController(unittest.TestCase):
             # Test the internal representation in memcache
             # 'container_count' changed from 0 to None
             cache_key = get_account_memcache_key(self.account)
-            container_info = {'status': 404,
-                              'container_count': None, # internally keep None
-                              'total_object_count': None,
-                              'bytes': None,
-                              'meta': {}}
-            self.assertEquals(container_info,
+            account_info = {'status': 404,
+                            'container_count': None, # internally keep None
+                            'total_object_count': None,
+                            'bytes': None,
+                            'meta': {}}
+            self.assertEquals(account_info,
                               self.memcache.get(cache_key))
 
             set_http_connect()
@@ -2278,6 +2278,16 @@ class TestObjectController(unittest.TestCase):
             got_nodes = list(controller.iter_nodes(self.app.object_ring, 0,
                                                    node_iter=iter(node_list)))
         self.assertEqual(node_list, got_nodes)
+
+    def test_best_response_sets_headers(self):
+        controller = proxy_server.ObjectController(self.app, 'account',
+                                                   'container', 'object')
+        req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
+                                        'Object', headers=[{'X-Test': '1'},
+                                                           {'X-Test': '2'},
+                                                           {'X-Test': '3'}])
+        self.assertEquals(resp.headers['X-Test'], '1')
 
     def test_best_response_sets_etag(self):
         controller = proxy_server.ObjectController(self.app, 'account',

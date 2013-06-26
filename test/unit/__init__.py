@@ -402,8 +402,10 @@ def fake_http_connect(*code_iter, **kwargs):
                        'x-object-meta-test': 'testing',
                        'x-delete-at': '9876543210',
                        'etag': etag,
-                       'x-works': 'yes',
-                       'x-account-container-count': kwargs.get('count', 12345)}
+                       'x-works': 'yes'}
+            if self.status // 100 == 2:
+                headers['x-account-container-count'] = \
+                    kwargs.get('count', 12345)
             if not self.timestamp:
                 del headers['x-timestamp']
             try:

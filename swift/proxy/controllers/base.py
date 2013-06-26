@@ -689,7 +689,8 @@ class Controller(object):
                     resp = conn.getresponse()
                     if not is_informational(resp.status) and \
                             not is_server_error(resp.status):
-                        return resp.status, resp.reason, resp.read()
+                        return resp.status, resp.reason, resp.getheaders(), \
+                            resp.read()
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
@@ -722,13 +723,14 @@ class Controller(object):
                        head, query_string, self.app.logger.thread_locals)
         response = [resp for resp in pile if resp]
         while len(response) < len(start_nodes):
-            response.append((HTTP_SERVICE_UNAVAILABLE, '', ''))
-        statuses, reasons, bodies = zip(*response)
+            response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
+        statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
-                                  '%s %s' % (self.server_type, req.method))
+                                  '%s %s' % (self.server_type, req.method),
+                                  headers=resp_headers)
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
-                      etag=None):
+                      etag=None, headers=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
@@ -739,6 +741,7 @@ class Controller(object):
         :param bodies: bodies of each response
         :param server_type: type of server the responses came from
         :param etag: etag
+        :param headers: headers of each response
         :returns: swob.Response object with the correct status, body, etc. set
         """
         resp = Response(request=req)
@@ -751,6 +754,8 @@ class Controller(object):
                     status_index = statuses.index(status)
                     resp.status = '%s %s' % (status, reasons[status_index])
                     resp.body = bodies[status_index]
+                    if headers:
+                        update_headers(resp, headers[status_index])
                     if etag:
                         resp.headers['etag'] = etag.strip('"')
                     return resp
@@ -922,6 +927,7 @@ class Controller(object):
         statuses = []
         reasons = []
         bodies = []
+        source_headers = []
         sources = []
         newest = config_true_value(req.headers.get('x-newest', 'f'))
         for node in self.iter_nodes(ring, partition):
@@ -950,11 +956,13 @@ class Controller(object):
                     statuses.append(HTTP_NOT_FOUND)
                     reasons.append('')
                     bodies.append('')
+                    source_headers.append('')
                     self.close_swift_conn(possible_source)
                 else:
                     statuses.append(possible_source.status)
                     reasons.append(possible_source.reason)
                     bodies.append('')
+                    source_headers.append('')
                     sources.append((possible_source, node))
                     if not newest:  # one good source is enough
                         break
@@ -962,6 +970,7 @@ class Controller(object):
                 statuses.append(possible_source.status)
                 reasons.append(possible_source.reason)
                 bodies.append(possible_source.read())
+                source_headers.append(possible_source.getheaders())
                 if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
                     self.error_limit(node, _('ERROR Insufficient Storage'))
                 elif is_server_error(possible_source.status):
@@ -995,7 +1004,8 @@ class Controller(object):
                 res.content_type = source.getheader('Content-Type')
         if not res:
             res = self.best_response(req, statuses, reasons, bodies,
-                                     '%s %s' % (server_type, req.method))
+                                     '%s %s' % (server_type, req.method),
+                                     headers=source_headers)
         try:
             (account, container) = split_path(req.path_info, 1, 2)
             _set_info_cache(self.app, req.environ, account, container, res)
