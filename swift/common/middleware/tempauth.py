@@ -286,17 +286,12 @@ class TempAuth(object):
             return None
 
         referrers, groups = parse_acl(getattr(req, 'acl', None))
+
         if referrer_allowed(req.referer, referrers):
             if obj or '.rlistings' in groups:
                 self.logger.debug("Allow authorizing %s via referer ACL."
                                   % req.referer)
                 return None
-            self.logger.debug("Disallow authorizing %s via referer ACL."
-                              % req.referer)
-            return self.denied_response(req)
-
-        if not req.remote_user:
-            return self.denied_response(req)
 
         for user_group in user_groups:
             if user_group in groups:

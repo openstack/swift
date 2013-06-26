@@ -285,6 +285,12 @@ class TestAuth(unittest.TestCase):
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
 
+    def test_authorize_acl_referer_after_user_groups(self):
+        req = self._make_request('/v1/AUTH_cfa/c')
+        req.remote_user = 'act:usr'
+        req.acl = '.r:*,act:usr'
+        self.assertEquals(self.test_auth.authorize(req), None)
+
     def test_authorize_acl_referrer_access(self):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
