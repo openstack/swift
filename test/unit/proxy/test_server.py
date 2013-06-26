@@ -41,7 +41,7 @@ from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
-from swift.common.exceptions import ChunkReadTimeout, SloSegmentError
+from swift.common.exceptions import ChunkReadTimeout, SegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
@@ -1370,7 +1370,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_length, 4)  # content incomplete
             self.assertEqual(resp.content_type, 'text/html')
-            self.assertRaises(SloSegmentError, lambda: resp.body)
+            self.assertRaises(SegmentError, lambda: resp.body)
             # dropped connection, exception is caught by eventlet as it is
             # iterating over response
 
@@ -1388,18 +1388,37 @@ class TestObjectController(unittest.TestCase):
                     "bytes": 2,
                     "name": "/d1/seg01",
                     "content_type": "application/octet-stream"},
-                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                   {"hash": "8681fb3ada2715c8754706ee5f23d4f8",
                     "last_modified": "2012-11-08T04:05:37.846710",
+                    "bytes": 4,
+                    "name": "/d2/sub_manifest",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "419af6d362a14b7a789ba1c7e772bbae",
+                    "last_modified": "2012-11-08T04:05:37.866820",
                     "bytes": 2,
-                    "name": "/d2/seg02",
+                    "name": "/d1/seg04",
                     "content_type": "application/octet-stream"}]
+
+        sub_listing = [{"hash": "d526f1c8ef6c1e4e980e2b8471352d23",
+                        "last_modified": "2012-11-08T04:05:37.866820",
+                        "bytes": 2,
+                        "name": "/d1/seg02",
+                        "content_type": "application/octet-stream"},
+                       {"hash": "e4c8f1de1c0855c7c2be33196d3c3537",
+                        "last_modified": "2012-11-08T04:05:37.846710",
+                        "bytes": 2,
+                        "name": "/d2/seg03",
+                        "content_type": "application/octet-stream"}]
 
         response_bodies = (
             '',                           # HEAD /a
             '',                           # HEAD /a/c
             simplejson.dumps(listing),    # GET manifest
             'Aa',                         # GET seg01
-            'Bb')                         # GET seg02
+            simplejson.dumps(sub_listing),  # GET sub_manifest
+            'Bb',                         # GET seg02
+            'Cc',                         # GET seg03
+            'Dd')                         # GET seg04
         with save_globals():
             controller = proxy_server.ObjectController(
                 self.app, 'a', 'c', 'manifest')
@@ -1419,26 +1438,37 @@ class TestObjectController(unittest.TestCase):
                 200,    # HEAD /a/c
                 200,    # GET listing1
                 200,    # GET seg01
+                200,    # GET sub listing1
                 200,    # GET seg02
-                headers=[{}, {}, slob_headers, {}, slob_headers],
+                200,    # GET seg03
+                200,    # GET seg04
+                headers=[{}, {}, slob_headers, {}, slob_headers, {}, {}, {}],
                 body_iter=response_bodies,
                 give_connect=capture_requested_paths)
             req = Request.blank('/a/c/manifest')
             resp = controller.GET(req)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(resp.content_length, 4)  # content incomplete
+            self.assertEqual(resp.content_length, 8)
             self.assertEqual(resp.content_type, 'text/html')
-            self.assertRaises(SloSegmentError, lambda: resp.body)
-            # dropped connection, exception is caught by eventlet as it is
-            # iterating over response
 
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}]])
+            # iterating over body will retrieve manifest and sub manifest's
+            # objects
+            self.assertEqual(resp.body, 'AaBbCcDd')
             self.assertEqual(
                 requested,
                 [['HEAD', '/a', {}],
                  ['HEAD', '/a/c', {}],
                  ['GET', '/a/c/manifest', {}],
                  ['GET', '/a/d1/seg01', {}],
-                 ['GET', '/a/d2/seg02', {}]])
+                 ['GET', '/a/d2/sub_manifest', {}],
+                 ['GET', '/a/d1/seg02', {}],
+                 ['GET', '/a/d2/seg03', {}],
+                 ['GET', '/a/d1/seg04', {}]])
 
     def test_GET_bad_404_manifest_slo(self):
         listing = [{"hash": "98568d540134639be4655198a36614a4",
@@ -1490,7 +1520,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_length, 6)  # content incomplete
             self.assertEqual(resp.content_type, 'text/html')
-            self.assertRaises(SloSegmentError, lambda: resp.body)
+            self.assertRaises(SegmentError, lambda: resp.body)
             # dropped connection, exception is caught by eventlet as it is
             # iterating over response
 

@@ -112,5 +112,5 @@ class ListingIterNotAuthorized(ListingIterError):
         self.aresp = aresp
 
 
-class SloSegmentError(SwiftException):
+class SegmentError(SwiftException):
     pass

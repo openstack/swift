@@ -61,9 +61,11 @@ appended to the existing Content-Type, where total_size is the sum of all
 the included segments' size_bytes. This extra parameter will be hidden from
 the user.
 
-Manifest files can reference objects in separate containers, which
-will improve concurrent upload speed. Objects can be referenced by
-multiple manifests.
+Manifest files can reference objects in separate containers, which will improve
+concurrent upload speed. Objects can be referenced by multiple manifests. The
+segments of a SLO manifest can even be other SLO manifests. Treat them as any
+other object i.e., use the Etag and Content-Length given on the PUT of the
+sub-SLO in the manifest to the parent SLO.
 
 -------------------------
 Retrieving a Large Object
@@ -107,9 +109,8 @@ A DELETE with a query parameter::
 
     ?multipart-manifest=delete
 
-will delete all the segments referenced in the manifest and then, if
-successful, the manifest itself. The failure response will be similar to
-the bulk delete middleware.
+will delete all the segments referenced in the manifest and then the manifest
+itself. The failure response will be similar to the bulk delete middleware.
 
 ------------------------
 Modifying a Large Object
@@ -141,7 +142,8 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, wsgify
 from swift.common.utils import json, get_logger, config_true_value
-from swift.common.constraints import check_utf8
+from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
+from swift.common.http import HTTP_NOT_FOUND
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -254,16 +256,12 @@ class StaticLargeObject(object):
                 '%s MultipartPUT' % req.environ.get('HTTP_USER_AGENT')
             head_seg_resp = \
                 Request.blank(obj_path, new_env).get_response(self.app)
-            if head_seg_resp.status_int // 100 == 2:
+            if head_seg_resp.is_success:
                 total_size += seg_size
                 if seg_size != head_seg_resp.content_length:
                     problem_segments.append([quote(obj_path), 'Size Mismatch'])
                 if seg_dict['etag'] != head_seg_resp.etag:
                     problem_segments.append([quote(obj_path), 'Etag Mismatch'])
-                if 'X-Static-Large-Object' in head_seg_resp.headers or \
-                        'X-Object-Manifest' in head_seg_resp.headers:
-                    problem_segments.append(
-                        [quote(obj_path), 'Segments cannot be Large Objects'])
                 if head_seg_resp.last_modified:
                     last_modified = head_seg_resp.last_modified
                 else:
@@ -272,12 +270,15 @@ class StaticLargeObject(object):
 
                 last_modified_formatted = \
                     last_modified.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                data_for_storage.append(
-                    {'name': '/' + seg_dict['path'].lstrip('/'),
-                     'bytes': seg_size,
-                     'hash': seg_dict['etag'],
-                     'content_type': head_seg_resp.content_type,
-                     'last_modified': last_modified_formatted})
+                seg_data = {'name': '/' + seg_dict['path'].lstrip('/'),
+                            'bytes': seg_size,
+                            'hash': seg_dict['etag'],
+                            'content_type': head_seg_resp.content_type,
+                            'last_modified': last_modified_formatted}
+                if config_true_value(
+                        head_seg_resp.headers.get('X-Static-Large-Object')):
+                    seg_data['sub_slo'] = True
+                data_for_storage.append(seg_data)
 
             else:
                 problem_segments.append([quote(obj_path),
@@ -299,6 +300,60 @@ class StaticLargeObject(object):
         env['wsgi.input'] = StringIO(json_data)
         return self.app
 
+    def get_segments_to_delete_iter(self, req):
+        """
+        A generator function to be used to delete all the segments and
+        sub-segments referenced in a manifest.
+
+        :raises HTTPBadRequest: on sub manifest not manifest anymore or
+                                on too many buffered sub segments
+        :raises HTTPServerError: on unable to load manifest
+        """
+        try:
+            vrs, account, container, obj = req.split_path(4, 4, True)
+        except ValueError:
+            raise HTTPBadRequest('Not a SLO manifest')
+        sub_segments = [{
+            'sub_slo': True,
+            'name': ('/%s/%s' % (container, obj)).decode('utf-8')}]
+        while sub_segments:
+            if len(sub_segments) > MAX_BUFFERED_SLO_SEGMENTS:
+                raise HTTPBadRequest(
+                    'Too many buffered slo segments to delete.')
+            if sub_segments:
+                seg_data = sub_segments.pop(0)
+            if seg_data.get('sub_slo'):
+                new_env = req.environ.copy()
+                new_env['REQUEST_METHOD'] = 'GET'
+                del(new_env['wsgi.input'])
+                new_env['QUERY_STRING'] = 'multipart-manifest=get'
+                new_env['CONTENT_LENGTH'] = 0
+                new_env['HTTP_USER_AGENT'] = \
+                    '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
+                new_env['swift.source'] = 'SLO'
+                new_env['PATH_INFO'] = (
+                    '/%s/%s/%s' % (
+                    vrs, account,
+                    seg_data['name'].lstrip('/'))).encode('utf-8')
+                sub_resp = Request.blank('', new_env).get_response(self.app)
+                if sub_resp.is_success:
+                    try:
+                        # if its still a SLO, load its segments
+                        if config_true_value(
+                                sub_resp.headers.get('X-Static-Large-Object')):
+                            sub_segments.extend(json.loads(sub_resp.body))
+                    except ValueError:
+                        raise HTTPServerError('Unable to load SLO manifest')
+                    # add sub-manifest back to be deleted after sub segments
+                    # (even if obj is not a SLO)
+                    seg_data['sub_slo'] = False
+                    sub_segments.append(seg_data)
+                elif sub_resp.status_int != HTTP_NOT_FOUND:
+                    # on deletes treat not found as success
+                    raise HTTPServerError('Sub SLO unable to load.')
+            else:
+                yield seg_data['name'].encode('utf-8')
+
     def handle_multipart_delete(self, req):
         """
         Will delete all the segments in the SLO manifest and then, if
@@ -310,38 +365,16 @@ class StaticLargeObject(object):
         if not check_utf8(req.path_info):
             raise HTTPPreconditionFailed(
                 request=req, body='Invalid UTF8 or contains NULL')
-        try:
-            vrs, account, container, obj = req.split_path(4, 4, True)
-        except ValueError:
-            raise HTTPBadRequest('Not an SLO manifest')
-        new_env = req.environ.copy()
-        new_env['REQUEST_METHOD'] = 'GET'
-        del(new_env['wsgi.input'])
-        new_env['QUERY_STRING'] = 'multipart-manifest=get'
-        new_env['CONTENT_LENGTH'] = 0
-        new_env['HTTP_USER_AGENT'] = \
-            '%s MultipartDELETE' % req.environ.get('HTTP_USER_AGENT')
-        new_env['swift.source'] = 'SLO'
-        get_man_resp = \
-            Request.blank('', new_env).get_response(self.app)
-        if get_man_resp.status_int // 100 == 2:
-            if not config_true_value(
-                    get_man_resp.headers.get('X-Static-Large-Object')):
-                raise HTTPBadRequest('Not an SLO manifest')
-            try:
-                manifest = json.loads(get_man_resp.body)
-                # append the manifest file for deletion at the end
-                manifest.append(
-                    {'name': '/'.join(['', container, obj]).decode('utf-8')})
-            except ValueError:
-                raise HTTPServerError('Invalid manifest file')
-            resp = HTTPOk(request=req)
-            resp.app_iter = self.bulk_deleter.handle_delete_iter(
-                req,
-                objs_to_delete=[o['name'].encode('utf-8') for o in manifest],
-                user_agent='MultipartDELETE', swift_source='SLO')
-            return resp
-        return get_man_resp
+
+        resp = HTTPOk(request=req)
+        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        if out_content_type:
+            resp.content_type = out_content_type
+        resp.app_iter = self.bulk_deleter.handle_delete_iter(
+            req, objs_to_delete=self.get_segments_to_delete_iter(req),
+            user_agent='MultipartDELETE', swift_source='SLO',
+            out_content_type=out_content_type)
+        return resp
 
     @wsgify
     def __call__(self, req):
