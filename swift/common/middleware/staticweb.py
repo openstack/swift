@@ -152,7 +152,6 @@ class _StaticWebContext(WSGIContext):
         self.container = container
         self.obj = obj
         self.app = staticweb.app
-        self.cache_timeout = staticweb.cache_timeout
         self.agent = '%(orig)s StaticWeb'
         # Results from the last call to self._get_container_info.
         self._index = self._error = self._listings = self._listings_css = \
@@ -447,8 +446,6 @@ class StaticWeb(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
-        #: The seconds to cache the x-container-meta-web-* headers.,
-        self.cache_timeout = int(conf.get('cache_timeout', 300))
 
     def __call__(self, env, start_response):
         """
