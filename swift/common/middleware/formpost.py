@@ -105,12 +105,13 @@ import hmac
 import re
 import rfc822
 from hashlib import sha1
-from StringIO import StringIO
 from time import time
 from urllib import quote
 
+from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time
 from swift.common.wsgi import make_pre_authed_env
+from swift.proxy.controllers.base import get_account_info
 
 
 #: The size of data to read from the form at any given time.
@@ -337,7 +338,7 @@ class FormPost(object):
         :param boundary: The MIME type boundary to look for.
         :returns: status_line, headers_list, body
         """
-        key = self._get_key(env)
+        keys = self._get_keys(env)
         status = message = ''
         attributes = {}
         file_count = 0
@@ -359,7 +360,7 @@ class FormPost(object):
                     attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
                 status, message = self._perform_subrequest(env, attributes, fp,
-                                                           key)
+                                                           keys)
                 if status[:1] != '2':
                     break
             else:
@@ -397,7 +398,7 @@ class FormPost(object):
         headers = [('Location', redirect), ('Content-Length', str(len(body)))]
         return '303 See Other', headers, body
 
-    def _perform_subrequest(self, orig_env, attributes, fp, key):
+    def _perform_subrequest(self, orig_env, attributes, fp, keys):
         """
         Performs the subrequest and returns the response.
 
@@ -405,10 +406,10 @@ class FormPost(object):
                          to form a new env for the subrequest.
         :param attributes: dict of the attributes of the form so far.
         :param fp: The file-like object containing the request body.
-        :param key: The account key to validate the signature with.
+        :param keys: The account keys to validate the signature with.
         :returns: (status_line, message)
         """
-        if not key:
+        if not keys:
             return '401 Unauthorized', 'invalid signature'
         try:
             max_file_size = int(attributes.get('max_file_size') or 0)
@@ -440,10 +441,16 @@ class FormPost(object):
             attributes.get('max_file_size') or '0',
             attributes.get('max_file_count') or '0',
             attributes.get('expires') or '0')
-        sig = hmac.new(key, hmac_body, sha1).hexdigest()
-        if not streq_const_time(sig, (attributes.get('signature') or
+
+        has_valid_sig = False
+        for key in keys:
+            sig = hmac.new(key, hmac_body, sha1).hexdigest()
+            if streq_const_time(sig, (attributes.get('signature') or
                                       'invalid')):
+                has_valid_sig = True
+        if not has_valid_sig:
             return '401 Unauthorized', 'invalid signature'
+
         substatus = [None]
 
         def _start_response(status, headers, exc_info=None):
@@ -456,46 +463,21 @@ class FormPost(object):
             pass
         return substatus[0], ''
 
-    def _get_key(self, env):
+    def _get_keys(self, env):
         """
-        Returns the X-Account-Meta-Temp-URL-Key header value for the
-        account, or None if none is set.
+        Fetch the tempurl keys for the account. Also validate that the request
+        path indicates a valid container; if not, no keys will be returned.
 
         :param env: The WSGI environment for the request.
-        :returns: X-Account-Meta-Temp-URL-Key str value, or None.
+        :returns: list of tempurl keys
         """
         parts = env['PATH_INFO'].split('/', 4)
         if len(parts) < 4 or parts[0] or parts[1] != 'v1' or not parts[2] or \
                 not parts[3]:
-            return None
-        account = parts[2]
-        key = None
-        memcache = env.get('swift.cache')
-        if memcache:
-            key = memcache.get('temp-url-key/%s' % account)
-        if not key:
-            newenv = make_pre_authed_env(env, 'HEAD', '/v1/' + account,
-                                         agent=None, swift_source='FP')
-            if 'QUERY_STRING' in newenv:
-                del newenv['QUERY_STRING']
-            newenv['CONTENT_LENGTH'] = '0'
-            newenv['wsgi.input'] = StringIO('')
-            key = [None]
+            return []
 
-            def _start_response(status, response_headers, exc_info=None):
-                for h, v in response_headers:
-                    if h.lower() == 'x-account-meta-temp-url-key':
-                        key[0] = v
-
-            i = iter(self.app(newenv, _start_response))
-            try:
-                i.next()
-            except StopIteration:
-                pass
-            key = key[0]
-            if key and memcache:
-                memcache.set('temp-url-key/%s' % account, key, time=60)
-        return key
+        account_info = get_account_info(env, self.app, swift_source='FP')
+        return get_tempurl_keys_from_metadata(account_info['meta'])
 
 
 def filter_factory(global_conf, **local_conf):
