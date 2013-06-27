@@ -176,6 +176,11 @@ use = egg:swift#proxy
 # times the number of replicas for the ring being used for the
 # request.
 # write_affinity_node_count = 2 * replicas
+#
+# These are the headers whose values will only be shown to swift_owners. The
+# exact definition of a swift_owner is up to the auth system in use, but
+# usually indicates administrative responsibilities.
+# swift_owner_headers = x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2
 
 
 [filter:tempauth]

@@ -82,8 +82,7 @@ class ContainerController(Controller):
             if aresp:
                 return aresp
         if not req.environ.get('swift_owner', False):
-            for key in ('x-container-read', 'x-container-write',
-                        'x-container-sync-key', 'x-container-sync-to'):
+            for key in self.app.swift_owner_headers:
                 if key in resp.headers:
                     del resp.headers[key]
         return resp

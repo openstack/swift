@@ -63,8 +63,12 @@ class AccountController(Controller):
             content_type, error = account_listing_content_type(req)
             if error:
                 return error
-            return account_listing_response(self.account_name, req,
+            resp = account_listing_response(self.account_name, req,
                                             content_type)
+        if not req.environ.get('swift_owner', False):
+            for key in self.app.swift_owner_headers:
+                if key in resp.headers:
+                    del resp.headers[key]
         return resp
 
     @public
