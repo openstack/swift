@@ -87,7 +87,7 @@ if __name__ == '__main__':
         exit('Unable to read config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
     swift_dir = conf.get('swift_dir', '/etc/swift')
-    dispersion_coverage = int(conf.get('dispersion_coverage', 1))
+    dispersion_coverage = float(conf.get('dispersion_coverage', 1))
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
