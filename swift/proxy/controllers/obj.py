@@ -37,7 +37,8 @@ from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
 from swift.common.utils import ContextPool, normalize_timestamp, \
-    config_true_value, public, json, csv_append, GreenthreadSafeIterator
+    config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
+    quorum_size
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE, MAX_BUFFERED_SLO_SEGMENTS
@@ -1016,11 +1017,12 @@ class ObjectController(Controller):
                        req.path_info, nheaders, self.app.logger.thread_locals)
 
         conns = [conn for conn in pile if conn]
-        if len(conns) <= len(nodes) / 2:
+        min_conns = quorum_size(len(nodes))
+        if len(conns) < min_conns:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '
                   'required connections'),
-                {'conns': len(conns), 'nodes': len(nodes) // 2 + 1})
+                {'conns': len(conns), 'nodes': min_conns})
             return HTTPServiceUnavailable(request=req)
         bytes_transferred = 0
         try:
@@ -1047,11 +1049,11 @@ class ObjectController(Controller):
                                 if chunked else chunk)
                         else:
                             conns.remove(conn)
-                    if len(conns) <= len(nodes) / 2:
+                    if len(conns) < min_conns:
                         self.app.logger.error(_(
                             'Object PUT exceptions during'
                             ' send, %(conns)s/%(nodes)s required connections'),
-                            {'conns': len(conns), 'nodes': len(nodes) / 2 + 1})
+                            {'conns': len(conns), 'nodes': min_conns})
                         return HTTPServiceUnavailable(request=req)
                 for conn in conns:
                     if conn.queue.unfinished_tasks:
