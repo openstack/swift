@@ -63,7 +63,7 @@ If you are going to use a separate partition for Swift data, be sure to add
 another device when creating the VM, and follow these instructions.
 
   #. `fdisk /dev/sdb` (set up a single partition)
-  #. `mkfs.xfs -i size=1024 /dev/sdb1`
+  #. `mkfs.xfs /dev/sdb1`
   #. Edit `/etc/fstab` and add
        `/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
@@ -93,7 +93,7 @@ If you want to use a loopback device instead of another partition, follow these 
   #. `mkdir /srv`
   #. `truncate -s 1GB /srv/swift-disk`
        (modify size to make a larger or smaller partition)
-  #. `mkfs.xfs -i size=1024 /srv/swift-disk`
+  #. `mkfs.xfs /srv/swift-disk`
   #. Edit `/etc/fstab` and add
        `/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0`
   #. `mkdir /mnt/sdb1`
@@ -701,7 +701,7 @@ Setting up scripts for running Swift
         swift-init all stop
         find /var/log/swift -type f -exec rm -f {} \;
         sudo umount /mnt/sdb1
-        sudo mkfs.xfs -f -i size=1024 /dev/sdb1
+        sudo mkfs.xfs -f /dev/sdb1
         sudo mount /mnt/sdb1
         sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
         sudo chown <your-user-name>:<your-group-name> /mnt/sdb1/*
