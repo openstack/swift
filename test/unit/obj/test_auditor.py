@@ -50,7 +50,8 @@ class TestAuditor(unittest.TestCase):
 
         self.conf = dict(
             devices=self.devices,
-            mount_check='false')
+            mount_check='false',
+            object_size_stats='10,100,1024,10240')
         self.disk_file = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
                                   self.logger)
 
@@ -168,6 +169,8 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
         self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.quarantines, pre_quarantines)
+        self.assertEquals(self.auditor.stats_buckets[1024], 1)
+        self.assertEquals(self.auditor.stats_buckets[10240], 0)
 
     def test_object_run_once_no_sda(self):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)

@@ -20,7 +20,7 @@ from eventlet import Timeout
 
 from swift.obj import server as object_server
 from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, config_true_value, dump_recon_cache
+    ratelimit_sleep, config_true_value, dump_recon_cache, list_from_csv, json
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist
 from swift.common.daemon import Daemon
@@ -56,6 +56,10 @@ class AuditorWorker(object):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.stats_sizes = sorted(
+            [int(s) for s in list_from_csv(conf.get('object_size_stats'))])
+        self.stats_buckets = dict(
+            [(s, 0) for s in self.stats_sizes + ['OVER']])
 
     def audit_all_objects(self, mode='once'):
         self.logger.info(_('Begin object audit "%s" mode (%s)' %
@@ -124,6 +128,26 @@ class AuditorWorker(object):
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
+        if self.stats_sizes:
+            self.logger.info(
+                _('Object audit stats: %s') % json.dumps(self.stats_buckets))
+
+    def record_stats(self, obj_size):
+        """
+        Based on config's object_size_stats will keep track of how many objects
+        fall into the specified ranges. For example with the following:
+
+        object_size_stats = 10, 100, 1024
+
+        and your system has 3 objects of sizes: 5, 20, and 10000 bytes the log
+        will look like: {"10": 1, "100": 1, "1024": 0, "OVER": 1}
+        """
+        for size in self.stats_sizes:
+            if obj_size <= size:
+                self.stats_buckets[size] += 1
+                break
+        else:
+            self.stats_buckets["OVER"] += 1
 
     def object_audit(self, path, device, partition):
         """
@@ -154,6 +178,8 @@ class AuditorWorker(object):
                     raise AuditException(str(e))
                 except DiskFileNotExist:
                     return
+                if self.stats_sizes:
+                    self.record_stats(obj_size)
                 if self.zero_byte_only_at_fps and obj_size:
                     self.passes += 1
                     return
