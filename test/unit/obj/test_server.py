@@ -208,7 +208,7 @@ class TestDiskFile(unittest.TestCase):
         self.assert_('-' in os.path.basename(double_uuid_path))
 
     def _get_disk_file(self, invalid_type=None, obj_name='o',
-                       fsize=1024, csize=8, extension='.data', ts=None,
+                       fsize=1024, csize=8, mark_deleted=False, ts=None,
                        iter_hook=None):
         '''returns a DiskFile'''
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
@@ -228,7 +228,7 @@ class TestDiskFile(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(writer.fd).st_size),
             }
-            writer.put(metadata, extension=extension)
+            writer.put(metadata)
             if invalid_type == 'ETag':
                 etag = md5()
                 etag.update('1' + '0' * (fsize - 1))
@@ -238,6 +238,13 @@ class TestDiskFile(unittest.TestCase):
             if invalid_type == 'Content-Length':
                 metadata['Content-Length'] = fsize - 1
                 object_server.write_metadata(writer.fd, metadata)
+
+        if mark_deleted:
+            metadata = {
+                'X-Timestamp': timestamp,
+                'deleted': True
+            }
+            df.put_metadata(metadata, tombstone=True)
 
         df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
                                     obj_name, FakeLogger(),
@@ -315,16 +322,15 @@ class TestDiskFile(unittest.TestCase):
         self.run_quarantine_invalids('Zero-Byte')
 
     def test_quarantine_deleted_files(self):
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.data')
+        df = self._get_disk_file(invalid_type='Content-Length')
         df.close()
         self.assertTrue(df.quarantined_dir)
         df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.ts')
+                                 mark_deleted=True)
         df.close()
         self.assertFalse(df.quarantined_dir)
         df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.ts')
+                                 mark_deleted=True)
         self.assertRaises(DiskFileNotExist, df.get_data_file_size)
 
     def test_put_metadata(self):
@@ -370,8 +376,7 @@ class TestDiskFile(unittest.TestCase):
         self.assertEquals(len(df.logger.log_dict['error']), 1)
 
     def test_quarantine_twice(self):
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.data')
+        df = self._get_disk_file(invalid_type='Content-Length')
         self.assert_(os.path.isfile(df.data_file))
         quar_dir = df.quarantine()
         self.assertFalse(os.path.isfile(df.data_file))
