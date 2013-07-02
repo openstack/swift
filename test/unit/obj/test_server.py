@@ -223,6 +223,41 @@ class TestObjectController(unittest.TestCase):
                      "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
+    def test_POST_old_timestamp(self):
+        ts = time()
+        timestamp = normalize_timestamp(ts)
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Meta-Two': 'Two'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        # Same timestamp should result in 409
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'X-Object-Meta-3': 'Three',
+                                     'X-Object-Meta-4': 'Four',
+                                     'Content-Encoding': 'gzip',
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 409)
+
+        # Earlier timestamp should result in 409
+        timestamp = normalize_timestamp(ts - 1)
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'X-Object-Meta-5': 'Five',
+                                     'X-Object-Meta-6': 'Six',
+                                     'Content-Encoding': 'gzip',
+                                     'Content-Type': 'application/x-test'})
+        resp = self.object_controller.POST(req)
+        self.assertEquals(resp.status_int, 409)
+
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/fail',
@@ -269,14 +304,16 @@ class TestObjectController(unittest.TestCase):
 
         old_http_connect = object_server.http_connect
         try:
-            timestamp = normalize_timestamp(time())
+            ts = time()
+            timestamp = normalize_timestamp(ts)
             req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD':
                 'POST'}, headers={'X-Timestamp': timestamp, 'Content-Type':
                 'text/plain', 'Content-Length': '0'})
             resp = self.object_controller.PUT(req)
+            self.assertEquals(resp.status_int, 201)
             req = Request.blank('/sda1/p/a/c/o',
                     environ={'REQUEST_METHOD': 'POST'},
-                    headers={'X-Timestamp': timestamp,
+                    headers={'X-Timestamp': normalize_timestamp(ts + 1),
                              'X-Container-Host': '1.2.3.4:0',
                              'X-Container-Partition': '3',
                              'X-Container-Device': 'sda1',
@@ -287,7 +324,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 202)
             req = Request.blank('/sda1/p/a/c/o',
                     environ={'REQUEST_METHOD': 'POST'},
-                    headers={'X-Timestamp': timestamp,
+                    headers={'X-Timestamp': normalize_timestamp(ts + 2),
                              'X-Container-Host': '1.2.3.4:0',
                              'X-Container-Partition': '3',
                              'X-Container-Device': 'sda1',
@@ -298,7 +335,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 202)
             req = Request.blank('/sda1/p/a/c/o',
                     environ={'REQUEST_METHOD': 'POST'},
-                    headers={'X-Timestamp': timestamp,
+                    headers={'X-Timestamp': normalize_timestamp(ts + 3),
                              'X-Container-Host': '1.2.3.4:0',
                              'X-Container-Partition': '3',
                              'X-Container-Device': 'sda1',
@@ -438,6 +475,32 @@ class TestObjectController(unittest.TestCase):
                            'Content-Type': 'text/plain',
                            'name': '/a/c/o',
                            'Content-Encoding': 'gzip'})
+
+    def test_PUT_old_timestamp(self):
+        ts = time()
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': normalize_timestamp(ts),
+                         'Content-Length': '6',
+                         'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(ts),
+                                     'Content-Type': 'text/plain',
+                                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 409)
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(ts - 1),
+                                     'Content-Type': 'text/plain',
+                                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY THREE'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 409)
 
     def test_PUT_no_etag(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1014,7 +1077,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
 
     def test_DELETE(self):
-        """ Test swift.object_server.ObjectController.DELETE """
+        # Test swift.object_server.ObjectController.DELETE
         req = Request.blank('/sda1/p/a/c',
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = self.object_controller.DELETE(req)
@@ -1026,12 +1089,32 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 400)
         # self.assertRaises(KeyError, self.object_controller.DELETE, req)
 
+        # The following should have created a tombstone file
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = self.object_controller.DELETE(req)
         self.assertEquals(resp.status_int, 404)
+        objfile = os.path.join(self.testdir, 'sda1',
+            storage_directory(object_server.DATADIR, 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp + '.ts')
+        self.assert_(os.path.isfile(objfile))
+
+        # The following should *not* have created a tombstone file.
+        timestamp = normalize_timestamp(float(timestamp) - 1)
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': timestamp})
+        resp = self.object_controller.DELETE(req)
+        self.assertEquals(resp.status_int, 404)
+        objfile = os.path.join(self.testdir, 'sda1',
+            storage_directory(object_server.DATADIR, 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp + '.ts')
+        self.assertFalse(os.path.isfile(objfile))
+        self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1045,17 +1128,19 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
 
+        # The following should *not* have created a tombstone file.
         timestamp = normalize_timestamp(float(timestamp) - 1)
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = self.object_controller.DELETE(req)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.status_int, 409)
         objfile = os.path.join(self.testdir, 'sda1',
             storage_directory(object_server.DATADIR, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
-        self.assert_(os.path.isfile(objfile))
+        self.assertFalse(os.path.isfile(objfile))
+        self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1069,6 +1154,103 @@ class TestObjectController(unittest.TestCase):
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
         self.assert_(os.path.isfile(objfile))
+
+    def test_DELETE_container_updates(self):
+        # Test swift.object_server.ObjectController.DELETE and container
+        # updates, making sure container update is called in the correct
+        # state.
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': timestamp,
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4',
+                                })
+        req.body = 'test'
+        resp = self.object_controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+
+        calls_made = [0]
+
+        def our_container_update(*args, **kwargs):
+            calls_made[0] += 1
+
+        orig_cu = self.object_controller.container_update
+        self.object_controller.container_update = our_container_update
+        try:
+            # The following request should return 409 (HTTP Conflict). A
+            # tombstone file should not have been created with this timestamp.
+            timestamp = normalize_timestamp(float(timestamp) - 1)
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': timestamp})
+            resp = self.object_controller.DELETE(req)
+            self.assertEquals(resp.status_int, 409)
+            objfile = os.path.join(self.testdir, 'sda1',
+                storage_directory(object_server.DATADIR, 'p',
+                                  hash_path('a', 'c', 'o')),
+                timestamp + '.ts')
+            self.assertFalse(os.path.isfile(objfile))
+            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+            self.assertEquals(0, calls_made[0])
+
+            # The following request should return 204, and the object should
+            # be truly deleted (container update is performed) because this
+            # timestamp is newer. A tombstone file should have been created
+            # with this timestamp.
+            sleep(.00001)
+            timestamp = normalize_timestamp(time())
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': timestamp})
+            resp = self.object_controller.DELETE(req)
+            self.assertEquals(resp.status_int, 204)
+            objfile = os.path.join(self.testdir, 'sda1',
+                storage_directory(object_server.DATADIR, 'p',
+                                  hash_path('a', 'c', 'o')),
+                timestamp + '.ts')
+            self.assert_(os.path.isfile(objfile))
+            self.assertEquals(1, calls_made[0])
+            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+
+            # The following request should return a 404, as the object should
+            # already have been deleted, but it should have also performed a
+            # container update because the timestamp is newer, and a tombstone
+            # file should also exist with this timestamp.
+            sleep(.00001)
+            timestamp = normalize_timestamp(time())
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': timestamp})
+            resp = self.object_controller.DELETE(req)
+            self.assertEquals(resp.status_int, 404)
+            objfile = os.path.join(self.testdir, 'sda1',
+                storage_directory(object_server.DATADIR, 'p',
+                                  hash_path('a', 'c', 'o')),
+                timestamp + '.ts')
+            self.assert_(os.path.isfile(objfile))
+            self.assertEquals(2, calls_made[0])
+            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+
+            # The following request should return a 404, as the object should
+            # already have been deleted, and it should not have performed a
+            # container update because the timestamp is older, or created a
+            # tombstone file with this timestamp.
+            timestamp = normalize_timestamp(float(timestamp) - 1)
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': timestamp})
+            resp = self.object_controller.DELETE(req)
+            self.assertEquals(resp.status_int, 404)
+            objfile = os.path.join(self.testdir, 'sda1',
+                storage_directory(object_server.DATADIR, 'p',
+                                  hash_path('a', 'c', 'o')),
+                timestamp + '.ts')
+            self.assertFalse(os.path.isfile(objfile))
+            self.assertEquals(2, calls_made[0])
+            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+        finally:
+            self.object_controller.container_update = orig_cu
 
     def test_call(self):
         """ Test swift.object_server.ObjectController.__call__ """
@@ -1161,7 +1343,7 @@ class TestObjectController(unittest.TestCase):
                                              'SERVER_PROTOCOL': 'HTTP/1.0',
                                              'CONTENT_LENGTH': '0',
                                              'CONTENT_TYPE': 'text/html',
-                                             'HTTP_X_TIMESTAMP': 1.2,
+                                             'HTTP_X_TIMESTAMP': '1.2',
                                              'wsgi.version': (1, 0),
                                              'wsgi.url_scheme': 'http',
                                              'wsgi.input': inbuf,
@@ -1184,7 +1366,7 @@ class TestObjectController(unittest.TestCase):
                                              'SERVER_PROTOCOL': 'HTTP/1.0',
                                              'CONTENT_LENGTH': '0',
                                              'CONTENT_TYPE': 'text/html',
-                                             'HTTP_X_TIMESTAMP': 1.3,
+                                             'HTTP_X_TIMESTAMP': '1.3',
                                              'wsgi.version': (1, 0),
                                              'wsgi.url_scheme': 'http',
                                              'wsgi.input': inbuf,

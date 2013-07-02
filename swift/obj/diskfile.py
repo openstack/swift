@@ -366,7 +366,6 @@ class DiskFile(object):
         self.logger = logger
         self.disallowed_metadata_keys = disallowed_metadata_keys or []
         self.metadata = {}
-        self.meta_file = None
         self.data_file = None
         self.fp = None
         self.iter_etag = None
@@ -379,13 +378,16 @@ class DiskFile(object):
         if not exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
+        meta_file = None
         for afile in files:
             if afile.endswith('.ts'):
-                self.data_file = self.meta_file = None
-                self.metadata = {'deleted': True}
-                return
-            if afile.endswith('.meta') and not self.meta_file:
-                self.meta_file = join(self.datadir, afile)
+                self.data_file = None
+                with open(join(self.datadir, afile)) as mfp:
+                    self.metadata = read_metadata(mfp)
+                self.metadata['deleted'] = True
+                break
+            if afile.endswith('.meta') and not meta_file:
+                meta_file = join(self.datadir, afile)
             if afile.endswith('.data') and not self.data_file:
                 self.data_file = join(self.datadir, afile)
                 break
@@ -395,8 +397,8 @@ class DiskFile(object):
         self.metadata = read_metadata(self.fp)
         if not keep_data_fp:
             self.close(verify_file=False)
-        if self.meta_file:
-            with open(self.meta_file) as mfp:
+        if meta_file:
+            with open(meta_file) as mfp:
                 for key in self.metadata.keys():
                     if key.lower() not in self.disallowed_metadata_keys:
                         del self.metadata[key]
