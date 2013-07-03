@@ -160,3 +160,8 @@ use = egg:swift#recon
 # log_time = 3600
 # zero_byte_files_per_second = 50
 # recon_cache_path = /var/cache/swift
+
+# Takes a comma separated list of ints. If set, the object auditor will
+# increment a counter for every object whose size is <= to the given break
+# points and report the result after a full scan.
+# object_size_stats =
