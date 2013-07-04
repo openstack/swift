@@ -4519,9 +4519,9 @@ class TestObjectController(unittest.TestCase):
 
     def _gather_x_container_headers(self, controller_call, req, *connect_args,
                                     **kwargs):
-        header_list = kwargs.pop('header_list', ['X-Container-Partition',
+        header_list = kwargs.pop('header_list', ['X-Container-Device',
                                                  'X-Container-Host',
-                                                 'X-Container-Device'])
+                                                 'X-Container-Partition'])
         seen_headers = []
 
         def capture_headers(ipaddr, port, device, partition, method,
@@ -4542,7 +4542,7 @@ class TestObjectController(unittest.TestCase):
             # don't care about the account/container HEADs, so chuck
             # the first two requests
             return sorted(seen_headers[2:],
-                          key=lambda d: d.get(header_list[0]) or 'Z')
+                          key=lambda d: d.get(header_list[0]) or 'z')
 
     def test_PUT_x_container_headers_with_equal_replicas(self):
         req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
