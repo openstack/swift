@@ -432,6 +432,7 @@ def make_pre_authed_request(env, method=None, path=None, body=None,
     :returns: Fresh swob.Request object.
     """
     query_string = None
+    path = path or ''
     if path and '?' in path:
         path, query_string = path.split('?', 1)
     newenv = make_pre_authed_env(env, method, path=unquote(path), agent=agent,

@@ -484,6 +484,45 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(r.body, 'the body')
         self.assertEquals(r.environ['swift.source'], 'UT')
 
+    def test_pre_auth_req_with_empty_env_no_path(self):
+        r = wsgi.make_pre_authed_request(
+            {}, 'GET')
+        self.assertEquals(r.path, quote(''))
+        self.assertTrue('SCRIPT_NAME' in r.environ)
+        self.assertTrue('PATH_INFO' in r.environ)
+
+    def test_pre_auth_req_with_env_path(self):
+        r = wsgi.make_pre_authed_request(
+            {'PATH_INFO': '/unquoted path with %20'}, 'GET')
+        self.assertEquals(r.path, quote('/unquoted path with %20'))
+        self.assertEquals(r.environ['SCRIPT_NAME'], '')
+
+    def test_pre_auth_req_with_env_script(self):
+        r = wsgi.make_pre_authed_request({'SCRIPT_NAME': '/hello'}, 'GET')
+        self.assertEquals(r.path, quote('/hello'))
+
+    def test_pre_auth_req_with_env_path_and_script(self):
+        env = {'PATH_INFO': '/unquoted path with %20',
+               'SCRIPT_NAME': '/script'}
+        r = wsgi.make_pre_authed_request(env, 'GET')
+        expected_path = quote(env['SCRIPT_NAME'] + env['PATH_INFO'])
+        self.assertEquals(r.path, expected_path)
+        env = {'PATH_INFO': '', 'SCRIPT_NAME': '/script'}
+        r = wsgi.make_pre_authed_request(env, 'GET')
+        self.assertEquals(r.path, '/script')
+        env = {'PATH_INFO': '/path', 'SCRIPT_NAME': ''}
+        r = wsgi.make_pre_authed_request(env, 'GET')
+        self.assertEquals(r.path, '/path')
+        env = {'PATH_INFO': '', 'SCRIPT_NAME': ''}
+        r = wsgi.make_pre_authed_request(env, 'GET')
+        self.assertEquals(r.path, '')
+
+    def test_pre_auth_req_path_overrides_env(self):
+        env = {'PATH_INFO': '/path', 'SCRIPT_NAME': '/script'}
+        r = wsgi.make_pre_authed_request(env, 'GET', '/override')
+        self.assertEquals(r.path, '/override')
+        self.assertEquals(r.environ['SCRIPT_NAME'], '')
+        self.assertEquals(r.environ['PATH_INFO'], '/override')
 
 class TestWSGIContext(unittest.TestCase):
 
