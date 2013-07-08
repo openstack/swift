@@ -66,10 +66,7 @@ class KeystoneAuth(object):
     mix different auth servers you can configure the option
     ``reseller_prefix`` in your keystoneauth entry like this::
 
-        reseller_prefix = NEWAUTH_
-
-    Make sure you have a underscore at the end of your new
-    ``reseller_prefix`` option.
+        reseller_prefix = NEWAUTH
 
     :param app: The next WSGI app in the pipeline
     :param conf: The dict of configuration values
@@ -79,6 +76,8 @@ class KeystoneAuth(object):
         self.conf = conf
         self.logger = swift_utils.get_logger(conf, log_route='keystoneauth')
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH_').strip()
+        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
+            self.reseller_prefix += '_'
         self.operator_roles = conf.get('operator_roles',
                                        'admin, swiftoperator').lower()
         self.reseller_admin_role = conf.get('reseller_admin_role',
