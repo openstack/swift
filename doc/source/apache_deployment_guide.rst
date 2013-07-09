@@ -26,10 +26,9 @@ client<---->'Apache2 with mod_wsgi'<----->middleware<---->'core swift'
 The integral web front-end offers simplicity and requires
 minimal configuration. It is also the web front-end most commonly used
 with Swift.
-
-The integral web front-end has built-in support for handling client requests
-with chunked transfer encoding. Apache 2 with mod_wsgi also supports this
-with an optional configuration parameter - WSGIChunkedRequest.
+Additionlly, the integral web front-end includes support for
+receiving chunked transfer encoding from a client,
+presently not supported by Apache2 in the operation mode described here.
 
 The use of Apache2 offers new ways to extend Swift and integrate it with
 existing authentication, administration and control systems.
@@ -103,7 +102,6 @@ For example an Apache2 serving as a web front end of a proxy service::
         WSGIDaemonProcess proxy-server processes=5 threads=1
         WSGIProcessGroup proxy-server
         WSGIScriptAlias / /var/www/swift/proxy-server.wsgi
-        WSGIChunkedRequest On
         LimitRequestFields 200
         ErrorLog /var/log/apache2/proxy-server
         LogLevel debug
@@ -126,7 +124,6 @@ For example an Apache2 serving as a web front end of a storage node::
         WSGIDaemonProcess object-server processes=5 threads=1
         WSGIProcessGroup object-server
         WSGIScriptAlias / /var/www/swift/object-server.wsgi
-        WSGIChunkedRequest On
         LimitRequestFields 200
         ErrorLog /var/log/apache2/object-server
         LogLevel debug
@@ -141,7 +138,6 @@ For example an Apache2 serving as a web front end of a storage node::
         WSGIDaemonProcess container-server processes=5 threads=1
         WSGIProcessGroup container-server
         WSGIScriptAlias / /var/www/swift/container-server.wsgi
-        WSGIChunkedRequest On
         LimitRequestFields 200
         ErrorLog /var/log/apache2/container-server
         LogLevel debug
@@ -156,7 +152,6 @@ For example an Apache2 serving as a web front end of a storage node::
         WSGIDaemonProcess account-server processes=5 threads=1
         WSGIProcessGroup account-server
         WSGIScriptAlias / /var/www/swift/account-server.wsgi
-        WSGIChunkedRequest On
         LimitRequestFields 200
         ErrorLog /var/log/apache2/account-server
         LogLevel debug
