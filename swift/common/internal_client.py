@@ -181,6 +181,7 @@ class InternalClient(object):
                                     defaults to (2,).
 
         :returns : A dict of metadata with metadata_prefix stripped from keys.
+                   Keys will be lowercase.
 
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status
@@ -195,7 +196,7 @@ class InternalClient(object):
         metadata = {}
         for k, v in resp.headers.iteritems():
             if k.lower().startswith(metadata_prefix):
-                metadata[k[len(metadata_prefix):]] = v
+                metadata[k[len(metadata_prefix):].lower()] = v
         return metadata
 
     def _iter_items(
@@ -354,7 +355,7 @@ class InternalClient(object):
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
-        :returns : Returns dict of account metadata.
+        :returns : Returns dict of account metadata.  Keys will be lowercase.
 
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status
@@ -467,7 +468,7 @@ class InternalClient(object):
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
-        :returns : Returns dict of container metadata.
+        :returns : Returns dict of container metadata.  Keys will be lowercase.
 
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status
