@@ -34,6 +34,49 @@ from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
 from swift.common.swob import HeaderKeyDict
 
 
+def _get_direct_account_container(path, stype, node, part,
+                                  account, marker=None, limit=None,
+                                  prefix=None, delimiter=None, conn_timeout=5,
+                                  response_timeout=15):
+    """Base class for get direct account and container.
+
+    Do not use directly use the get_direct_account or
+    get_direct_container instead.
+    """
+    qs = 'format=json'
+    if marker:
+        qs += '&marker=%s' % quote(marker)
+    if limit:
+        qs += '&limit=%d' % limit
+    if prefix:
+        qs += '&prefix=%s' % quote(prefix)
+    if delimiter:
+        qs += '&delimiter=%s' % quote(delimiter)
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                            'GET', path, query_string=qs,
+                            headers=gen_headers())
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+    if not is_success(resp.status):
+        resp.read()
+        raise ClientException(
+            '%s server %s:%s direct GET %s gave stats %s' %
+            (stype, node['ip'], node['port'],
+             repr('/%s/%s%s' % (node['device'], part, path)),
+             resp.status),
+            http_host=node['ip'], http_port=node['port'],
+            http_device=node['device'], http_status=resp.status,
+            http_reason=resp.reason)
+    resp_headers = {}
+    for header, value in resp.getheaders():
+        resp_headers[header.lower()] = value
+    if resp.status == HTTP_NO_CONTENT:
+        resp.read()
+        return resp_headers, []
+    return resp_headers, json_loads(resp.read())
+
+
 def quote(value, safe='/'):
     if isinstance(value, unicode):
         value = value.encode('utf8')
@@ -67,38 +110,12 @@ def direct_get_account(node, part, account, marker=None, limit=None,
               headers will be a dict and all header names will be lowercase.
     """
     path = '/' + account
-    qs = 'format=json'
-    if marker:
-        qs += '&marker=%s' % quote(marker)
-    if limit:
-        qs += '&limit=%d' % limit
-    if prefix:
-        qs += '&prefix=%s' % quote(prefix)
-    if delimiter:
-        qs += '&delimiter=%s' % quote(delimiter)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string=qs,
-                            headers=gen_headers())
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-    if not is_success(resp.status):
-        resp.read()
-        raise ClientException(
-            'Account server %s:%s direct GET %s gave status %s' %
-            (node['ip'], node['port'],
-             repr('/%s/%s%s' % (node['device'], part, path)),
-             resp.status),
-            http_host=node['ip'], http_port=node['port'],
-            http_device=node['device'], http_status=resp.status,
-            http_reason=resp.reason)
-    resp_headers = {}
-    for header, value in resp.getheaders():
-        resp_headers[header.lower()] = value
-    if resp.status == HTTP_NO_CONTENT:
-        resp.read()
-        return resp_headers, []
-    return resp_headers, json_loads(resp.read())
+    return _get_direct_account_container(path, "Account", node, part,
+                                         account, marker=None,
+                                         limit=None, prefix=None,
+                                         delimiter=None,
+                                         conn_timeout=5,
+                                         response_timeout=15)
 
 
 def direct_head_container(node, part, account, container, conn_timeout=5,
@@ -157,38 +174,12 @@ def direct_get_container(node, part, account, container, marker=None,
               headers will be a dict and all header names will be lowercase.
     """
     path = '/%s/%s' % (account, container)
-    qs = 'format=json'
-    if marker:
-        qs += '&marker=%s' % quote(marker)
-    if limit:
-        qs += '&limit=%d' % limit
-    if prefix:
-        qs += '&prefix=%s' % quote(prefix)
-    if delimiter:
-        qs += '&delimiter=%s' % quote(delimiter)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'GET', path, query_string=qs,
-                            headers=gen_headers())
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-    if not is_success(resp.status):
-        resp.read()
-        raise ClientException(
-            'Container server %s:%s direct GET %s gave stats %s' %
-            (node['ip'], node['port'],
-             repr('/%s/%s%s' % (node['device'], part, path)),
-             resp.status),
-            http_host=node['ip'], http_port=node['port'],
-            http_device=node['device'], http_status=resp.status,
-            http_reason=resp.reason)
-    resp_headers = {}
-    for header, value in resp.getheaders():
-        resp_headers[header.lower()] = value
-    if resp.status == HTTP_NO_CONTENT:
-        resp.read()
-        return resp_headers, []
-    return resp_headers, json_loads(resp.read())
+    return _get_direct_account_container(path, "Container", node,
+                                         part, account, marker=None,
+                                         limit=None, prefix=None,
+                                         delimiter=None,
+                                         conn_timeout=5,
+                                         response_timeout=15)
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
