@@ -280,14 +280,13 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             i[0] += 1
             return 1
         with unit_mock({'swift.obj.diskfile.getmtime': _getmtime}):
-            diskfile.getmtime("/tmp")
             hashed, hashes = diskfile.get_hashes(
                 part, recalculate=[])
         # getmtime will actually not get called.  Initially, the pickle.load
         # will raise an exception first and later, force_rewrite will
         # short-circuit the if clause to determine whether to write out a
         # fresh hashes_file.
-        self.assertEquals(i[0], 1)
+        self.assertEquals(i[0], 0)
         self.assertTrue('a83' in hashes)
 
     def test_get_hashes_modified(self):
@@ -312,6 +311,42 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 part, recalculate=['a83'])
         self.assertEquals(i[0], 3)
 
+    def test_hash_cleanup_listdir(self):
+        file_list = []
+        def mock_listdir(path):
+            return list(file_list)
+        def mock_unlink(path):
+            file_list.remove(os.path.basename(path))
+        with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
+            # purge .data if there's a newer .ts
+            file1 = normalize_timestamp(time()) + '.data'
+            file2 = normalize_timestamp(time() + 1) + '.ts'
+            file_list = [file1, file2]
+            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
+                              [file2])
+
+            # purge .ts if there's a newer .data
+            file1 = normalize_timestamp(time()) + '.ts'
+            file2 = normalize_timestamp(time() + 1) + '.data'
+            file_list = [file1, file2]
+            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
+                              [file2])
+
+            # keep .meta and .data if meta newer than data
+            file1 = normalize_timestamp(time()) + '.ts'
+            file2 = normalize_timestamp(time() + 1) + '.data'
+            file3 = normalize_timestamp(time() + 2) + '.meta'
+            file_list = [file1, file2, file3]
+            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
+                              [file3, file2])
+
+            # keep only latest of multiple .ts files
+            file1 = normalize_timestamp(time()) + '.ts'
+            file2 = normalize_timestamp(time() + 1) + '.ts'
+            file3 = normalize_timestamp(time() + 2) + '.ts'
+            file_list = [file1, file2, file3]
+            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
+                              [file3])
 
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
@@ -631,17 +666,8 @@ class TestDiskFile(unittest.TestCase):
         df.put_metadata(metadata, tombstone=True)
         exp_name = '%s.ts' % str(normalize_timestamp(ts))
         dl = os.listdir(df.datadir)
-        self.assertEquals(len(dl), 2)
+        self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
-
-    def test_unlinkold(self):
-        df1 = self._get_disk_file()
-        future_time = str(normalize_timestamp(time() + 100))
-        self._get_disk_file(ts=future_time)
-        self.assertEquals(len(os.listdir(df1.datadir)), 2)
-        df1.unlinkold(future_time)
-        self.assertEquals(len(os.listdir(df1.datadir)), 1)
-        self.assertEquals(os.listdir(df1.datadir)[0], "%s.data" % future_time)
 
     def test_close_error(self):
 

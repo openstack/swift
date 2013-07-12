@@ -343,11 +343,13 @@ def mock(update):
         else:
             deletes.append((module, attr))
         setattr(module, attr, value)
-    yield True
-    for module, attr, value in returns:
-        setattr(module, attr, value)
-    for module, attr in deletes:
-        delattr(module, attr)
+    try:
+        yield True
+    finally:
+        for module, attr, value in returns:
+            setattr(module, attr, value)
+        for module, attr in deletes:
+            delattr(module, attr)
 
 
 def fake_http_connect(*code_iter, **kwargs):

@@ -412,7 +412,6 @@ class ObjectController(object):
                 writer.put(metadata)
         except DiskFileNoSpace:
             return HTTPInsufficientStorage(drive=device, request=request)
-        disk_file.unlinkold(metadata['X-Timestamp'])
         if old_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update(
@@ -580,7 +579,6 @@ class ObjectController(object):
         if orig_timestamp < req_timestamp:
             disk_file.put_metadata({'X-Timestamp': req_timestamp},
                                    tombstone=True)
-            disk_file.unlinkold(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp}),
