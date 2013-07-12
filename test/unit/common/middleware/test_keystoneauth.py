@@ -116,6 +116,16 @@ class SwiftAuth(unittest.TestCase):
         account = tenant_id = 'foo'
         self.assertTrue(test_auth._reseller_check(account, tenant_id))
 
+    def test_reseller_prefix_added_underscore(self):
+        conf = {'reseller_prefix': 'AUTH'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+
+    def test_reseller_prefix_not_added_double_underscores(self):
+        conf = {'reseller_prefix': 'AUTH_'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+
     def test_override_asked_for_but_not_allowed(self):
         conf = {'allow_overrides': 'false'}
         self.test_auth = keystoneauth.filter_factory(conf)(FakeApp())
