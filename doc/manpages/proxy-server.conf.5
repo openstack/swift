@@ -59,9 +59,18 @@ TCP port the proxy server should bind to. The default is 80.
 .IP \fBbacklog\fR
 TCP backlog.  Maximum number of allowed pending connections. The default value is 4096.
 .IP \fBworkers\fR
-Number of container server workers to fork. The default is 1.
+The number of pre-forked processes that will accept connections.  Zero means
+no fork.  The default is auto which will make the server try to match the
+number of effective cpu cores if python multiprocessing is available (included
+with most python distributions >= 2.6) or fallback to one.  It's worth noting
+that individual workers will use many eventlet co-routines to service multiple
+concurrent requests.
+.IP \fBmax_clients\fR
+Maximum number of clients one worker can process simultaneously (it will
+actually accept(2) N + 1). Setting this to one (1) will only handle one request
+at a time, without accepting another request concurrently.  The default is 1024.
 .IP \fBuser\fR
-The system user that the container server will run as. The default is swift.
+The system user that the proxy server will run as. The default is swift.
 .IP \fBswift_dir\fR
 Swift configuration directory. The default is /etc/swift.
 .IP \fBcert_file\fR
@@ -537,12 +546,6 @@ object.  The default is 10 segments.
 .IP \fBrate_limit_segments_per_sec\fR
 Once segment rate-limiting kicks in for an object, limit segments served to N
 per second.  The default is 1.
-.IP \fBmax_clients\fR
-Maximum number of clients one worker can process simultaneously (it will
-actually accept(2) N + 1). Setting this to one (1) will only handle one request
-at a time, without accepting another request concurrently. By increasing the
-number of workers to a much higher value, one can reduce the impact of slow file system
-operations in one request from negatively impacting other requests. The default is 1024.
 .RE
 .PD
 

@@ -34,7 +34,13 @@ from swift.common import utils
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
-    validate_configuration, get_hub
+    validate_configuration, get_hub, config_auto_int_value
+
+try:
+    import multiprocessing
+    CPU_COUNT = multiprocessing.cpu_count() or 1
+except (ImportError, NotImplementedError):
+    CPU_COUNT = 1
 
 
 class NamedConfigLoader(loadwsgi.ConfigLoader):
@@ -255,7 +261,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
-    worker_count = int(conf.get('workers', '1'))
+    worker_count = config_auto_int_value(conf.get('workers'), CPU_COUNT)
+
     # Useful for profiling [no forks].
     if worker_count == 0:
         run_server(conf, logger, sock)

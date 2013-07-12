@@ -142,6 +142,22 @@ def config_true_value(value):
         (isinstance(value, basestring) and value.lower() in TRUE_VALUES)
 
 
+def config_auto_int_value(value, default):
+    """
+    Returns default if value is None or 'auto'.
+    Returns value as an int or raises ValueError otherwise.
+    """
+    if value is None or \
+       (isinstance(value, basestring) and value.lower() == 'auto'):
+        return default
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise ValueError('Config option must be a integer or the '
+                         'string "auto", not "%s".' % value)
+    return value
+
+
 def noop_libc_function(*args):
     return 0
 

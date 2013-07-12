@@ -328,17 +328,23 @@ mount_check          true        Whether or not check if the devices are
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6000        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
-workers              1           Number of workers to fork
+workers              auto        Override the number of pre-forked workers
+                                 that will accept connections.  If set it
+                                 should be an integer, zero means no fork.  If
+                                 unset, it will try to default to the number
+                                 of effective cpu cores and fallback to one.
+                                 Increasing the number of workers may reduce
+                                 the possibility of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests, but may not be as
+                                 efficient as tuning :ref:`threads_per_disk
+                                 <object-server-options>`
 max_clients          1024        Maximum number of clients one worker can
                                  process simultaneously (it will actually
                                  accept(2) N + 1). Setting this to one (1)
                                  will only handle one request at a time,
                                  without accepting another request
-                                 concurrently. By increasing the number of
-                                 workers to a much higher value, one can
-                                 reduce the impact of slow file system
-                                 operations in one request from negatively
-                                 impacting other requests.
+                                 concurrently.
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
 log_custom_handlers  None        Comma-separated list of functions to call
@@ -352,6 +358,8 @@ fallocate_reserve    0           You can set fallocate_reserve to the number of
                                  make the services pretend they're out of space
                                  early.
 ===================  ==========  =============================================
+
+.. _object-server-options:
 
 [object-server]
 
@@ -462,17 +470,22 @@ mount_check          true        Whether or not check if the devices are
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6001        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
-workers              1           Number of workers to fork
+workers              auto        Override the number of pre-forked workers
+                                 that will accept connections.  If set it
+                                 should be an integer, zero means no fork.  If
+                                 unset, it will try to default to the number
+                                 of effective cpu cores and fallback to one.
+                                 Increasing the number of workers may reduce
+                                 the possibility of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests.  See
+                                 :ref:`general-service-tuning`
 max_clients          1024        Maximum number of clients one worker can
                                  process simultaneously (it will actually
                                  accept(2) N + 1). Setting this to one (1)
                                  will only handle one request at a time,
                                  without accepting another request
-                                 concurrently. By increasing the number of
-                                 workers to a much higher value, one can
-                                 reduce the impact of slow file system
-                                 operations in one request from negatively
-                                 impacting other requests.
+                                 concurrently.
 user                 swift       User to run as
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
@@ -582,17 +595,22 @@ mount_check          true        Whether or not check if the devices are
 bind_ip              0.0.0.0     IP Address for server to bind to
 bind_port            6002        Port for server to bind to
 bind_timeout         30          Seconds to attempt bind before giving up
-workers              1           Number of workers to fork
+workers              auto        Override the number of pre-forked workers
+                                 that will accept connections.  If set it
+                                 should be an integer, zero means no fork.  If
+                                 unset, it will try to default to the number
+                                 of effective cpu cores and fallback to one.
+                                 Increasing the number of workers may reduce
+                                 the possibility of slow file system
+                                 operations in one request from negatively
+                                 impacting other requests.  See
+                                 :ref:`general-service-tuning`
 max_clients          1024        Maximum number of clients one worker can
                                  process simultaneously (it will actually
                                  accept(2) N + 1). Setting this to one (1)
                                  will only handle one request at a time,
                                  without accepting another request
-                                 concurrently. By increasing the number of
-                                 workers to a much higher value, one can
-                                 reduce the impact of slow file system
-                                 operations in one request from negatively
-                                 impacting other requests.
+                                 concurrently.
 user                 swift       User to run as
 db_preallocation     off         If you don't mind the extra disk space usage in
                                  overhead, you can turn this on to preallocate
@@ -696,7 +714,15 @@ bind_port                     80               Port for server to bind to
 bind_timeout                  30               Seconds to attempt bind before
                                                giving up
 swift_dir                     /etc/swift       Swift configuration directory
-workers                       1                Number of workers to fork
+workers                       auto             Override the number of
+                                               pre-forked workers that will
+                                               accept connections.  If set it
+                                               should be an integer, zero
+                                               means no fork.  If unset, it
+                                               will try to default to the
+                                               number of effective cpu cores
+                                               and fallback to one.  See
+                                               :ref:`general-service-tuning`
 max_clients                   1024             Maximum number of clients one
                                                worker can process
                                                simultaneously (it will
@@ -705,13 +731,7 @@ max_clients                   1024             Maximum number of clients one
                                                will only handle one request at
                                                a time, without accepting
                                                another request
-                                               concurrently. By increasing the
-                                               number of workers to a much
-                                               higher value, one can reduce
-                                               the impact of slow file system
-                                               operations in one request from
-                                               negatively impacting other
-                                               requests.
+                                               concurrently.
 user                          swift            User to run as
 cert_file                                      Path to the ssl .crt. This
                                                should be enabled for testing
@@ -920,6 +940,8 @@ by synced as closely as possible (more so for the proxy server, but in general
 it is a good idea for all the servers).  At Rackspace, we use NTP with a local
 NTP server to ensure that the system times are as close as possible.  This
 should also be monitored to ensure that the times do not vary too much.
+
+.. _general-service-tuning:
 
 ----------------------
 General Service Tuning
