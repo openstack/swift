@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-populate
+.B swift-dispersion-populate [--insecure] [conf_file]
 
 .SH DESCRIPTION 
 .PP
@@ -55,6 +55,13 @@ Both \fBswift-dispersion-populate\fR and \fBswift-dispersion-report\fR use the
 same configuration file, /etc/swift/dispersion.conf . The account used by these
 tool should be a dedicated account for the dispersion stats and also have admin
 privileges. 
+
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB--insecure\fR"
+Allow accessing insecure keystone server. The keystone's certificate will not
+be verified.
 
 .SH CONFIGURATION
 .PD 0 

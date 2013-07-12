@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [--container-only|--object-only] [conf_file]
+.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [--container-only|--object-only] [--insecure] [conf_file]
 
 .SH DESCRIPTION 
 .PP
@@ -83,6 +83,13 @@ Only run the container report
 .PD 1
 .IP "\fB--object-only\fR"
 Only run the object report
+
+.SH OPTIONS
+.RS 0
+.PD 1
+.IP "\fB--insecure\fR"
+Allow accessing insecure keystone server. The keystone's certificate will not
+be verified.
 
 .SH CONFIGURATION
 .PD 0 
