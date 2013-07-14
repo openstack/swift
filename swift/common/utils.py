@@ -1856,6 +1856,14 @@ def public(func):
     return wrapped
 
 
+def quorum_size(n):
+    """
+    Number of successful backend requests needed for the proxy to consider
+    the client request successful.
+    """
+    return (n // 2) + 1
+
+
 def rsync_ip(ip):
     """
     Transform ip string to an rsync-compatible form
