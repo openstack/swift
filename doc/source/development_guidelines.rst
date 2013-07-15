@@ -6,7 +6,7 @@ Development Guidelines
 Coding Guidelines
 -----------------
 
-For the most part we try to follow PEP 8 guidelines which can be viewed 
+For the most part we try to follow PEP 8 guidelines which can be viewed
 here: http://www.python.org/dev/peps/pep-0008/
 
 There is a useful pep8 command line tool for checking files for pep8
@@ -17,7 +17,7 @@ Testing Guidelines
 ------------------
 
 Swift has a comprehensive suite of tests that are run on all submitted code,
-and it is recommended that developers execute the tests themselves to 
+and it is recommended that developers execute the tests themselves to
 catch regressions early.  Developers are also expected to keep the
 test suite up-to-date with any submitted code changes.
 
@@ -51,11 +51,29 @@ To execute the unit tests:
 
   - `tox -e pep8,py26`
 
+------------
+Coding Style
+------------
+
+Swift use flake8 with the OpenStack `hacking`_ module to enforce
+coding style.
+
+Install flake8 and hacking with pip or by the packages of your
+Operating System.
+
+It is advised to integrate flake8+hacking with your editor to get it
+automated and not get `caught` by Jenkins.
+
+For example for Vim the `syntastic`_ plugin can do this for you.
+
+.. _`hacking`: https://pypi.python.org/pypi/hacking
+.. _`syntastic`: https://github.com/scrooloose/syntastic
+
 ------------------------
 Documentation Guidelines
 ------------------------
 
-The documentation in docstrings should follow the PEP 257 conventions 
+The documentation in docstrings should follow the PEP 257 conventions
 (as mentioned in the PEP 8 guidelines).
 
 More specifically:
@@ -80,7 +98,7 @@ License and Copyright
 ---------------------
 
 You can have the following copyright and license statement at
-the top of each source file. Copyright assignment is optional. 
+the top of each source file. Copyright assignment is optional.
 
 New files should contain the current year. Substantial updates can have
 another year added, and date ranges are not needed.::
