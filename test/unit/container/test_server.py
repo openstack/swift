@@ -28,7 +28,7 @@ import simplejson
 from swift.common.swob import Request, HeaderKeyDict
 import swift.container
 from swift.container import server as container_server
-from swift.common.utils import normalize_timestamp, mkdirs
+from swift.common.utils import normalize_timestamp, mkdirs, public, replication
 from test.unit import fake_http_connect
 
 
@@ -1435,25 +1435,14 @@ class TestContainerController(unittest.TestCase):
 
     def test_list_allowed_methods(self):
         """ Test list of allowed_methods """
-        methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE', 'POST']
-        self.assertEquals(self.controller.allowed_methods, methods)
-
-    def test_allowed_methods_from_configuration_file(self):
-        """
-        Test list of allowed_methods which
-        were set from configuration file.
-        """
-        container_controller = container_server.ContainerController
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEquals(container_controller(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                           'POST'])
-        conf['replication_server'] = 'True'
-        self.assertEquals(container_controller(conf).allowed_methods,
-                          ['REPLICATE'])
-        conf['replication_server'] = 'False'
-        self.assertEquals(container_controller(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'POST'])
+        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
+        repl_methods = ['REPLICATE']
+        for method_name in obj_methods:
+            method = getattr(self.controller, method_name)
+            self.assertFalse(hasattr(method, 'replication'))
+        for method_name in repl_methods:
+            method = getattr(self.controller, method_name)
+            self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
         """
@@ -1463,12 +1452,15 @@ class TestContainerController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.controller = container_server.ContainerController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.controller.allowed_methods[0]
+        method = 'PUT'
 
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
@@ -1485,14 +1477,11 @@ class TestContainerController(unittest.TestCase):
                'wsgi.multiprocess': False,
                'wsgi.run_once': False}
 
-        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
-                  'allowed for this resource.</p></html>']
-
-        with mock.patch.object(self.controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
+        method_res = mock.MagicMock()
+        mock_method = public(lambda x: mock.MagicMock(return_value=method_res))
+        with mock.patch.object(self.controller, method, new=mock_method):
             response = self.controller.__call__(env, start_response)
-            self.assertNotEqual(response, answer)
-            self.assertEqual(mock_method.call_count, 1)
+            self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
         """
@@ -1502,12 +1491,15 @@ class TestContainerController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.controller = container_server.ContainerController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.controller.allowed_methods[0]
+        method = 'PUT'
 
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
@@ -1526,14 +1518,10 @@ class TestContainerController(unittest.TestCase):
 
         answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
                   'allowed for this resource.</p></html>']
-
-        with mock.patch.object(self.controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
-            self.controller.allowed_methods.remove(method)
+        mock_method = replication(public(lambda x: mock.MagicMock()))
+        with mock.patch.object(self.controller, method, new=mock_method):
             response = self.controller.__call__(env, start_response)
-            self.assertEqual(mock_method.call_count, 0)
             self.assertEqual(response, answer)
-            self.controller.allowed_methods.append(method)
 
 
 if __name__ == '__main__':

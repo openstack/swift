@@ -1841,6 +1841,24 @@ def streq_const_time(s1, s2):
     return result == 0
 
 
+def replication(func):
+    """
+    Decorator to declare which methods are accessible for different
+    type of servers:
+    * If option replication_server is None then this decorator
+      doesn't matter.
+    * If option replication_server is True then ONLY decorated with
+      this decorator methods will be started.
+    * If option replication_server is False then decorated with this
+      decorator methods will NOT be started.
+
+    :param func: function to mark accessible for replication
+    """
+    func.replication = True
+
+    return func
+
+
 def public(func):
     """
     Decorator to declare which methods are publicly accessible as HTTP
