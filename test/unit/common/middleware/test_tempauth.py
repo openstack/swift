@@ -490,6 +490,59 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.headers['x-storage-url'],
                           'fake://somehost:5678/v1/AUTH_test')
 
+    def test_use_old_token_from_memcached(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing',
+                                 'storage_url_scheme': 'fake'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        req.environ['HTTP_HOST'] = 'somehost:5678'
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        req.environ['swift.cache'].set('AUTH_/user/test:tester', 'uuid_token')
+        req.environ['swift.cache'].set('AUTH_/token/uuid_token',
+                                       (time() + 180, 'test,test:tester'))
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['x-auth-token'], 'uuid_token')
+
+    def test_old_token_overdate(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing',
+                                 'storage_url_scheme': 'fake'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        req.environ['HTTP_HOST'] = 'somehost:5678'
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        req.environ['swift.cache'].set('AUTH_/user/test:tester', 'uuid_token')
+        req.environ['swift.cache'].set('AUTH_/token/uuid_token',
+                                       (0, 'test,test:tester'))
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEquals(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+
+    def test_old_token_with_old_data(self):
+        self.test_auth = \
+            auth.filter_factory({'user_test_tester': 'testing',
+                                 'storage_url_scheme': 'fake'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'test:tester', 'X-Auth-Key': 'testing'})
+        req.environ['HTTP_HOST'] = 'somehost:5678'
+        req.environ['SERVER_NAME'] = 'bob'
+        req.environ['SERVER_PORT'] = '1234'
+        req.environ['swift.cache'].set('AUTH_/user/test:tester', 'uuid_token')
+        req.environ['swift.cache'].set('AUTH_/token/uuid_token',
+                                       (time() + 99, 'test,test:tester,.role'))
+        resp = req.get_response(self.test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEquals(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+
     def test_reseller_admin_is_owner(self):
         orig_authorize = self.test_auth.authorize
         owner_values = []
@@ -630,6 +683,18 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'OPTIONS'})
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp, None)
+
+    def test_get_user_group(self):
+        app = FakeApp()
+        ath = auth.filter_factory({})(app)
+
+        ath.users = {'test:tester': {'groups': ['.admin']}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups, 'test,test:tester,AUTH_test')
+
+        ath.users = {'test:tester': {'groups': []}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups, 'test,test:tester')
 
 
 class TestParseUserCreation(unittest.TestCase):
