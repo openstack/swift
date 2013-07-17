@@ -18,6 +18,7 @@ import time
 
 from eventlet import Timeout
 
+from swift.obj import diskfile
 from swift.obj import server as object_server
 from swift.common.utils import get_logger, audit_location_generator, \
     ratelimit_sleep, config_true_value, dump_recon_cache, list_from_csv, json
@@ -159,13 +160,13 @@ class AuditorWorker(object):
         """
         try:
             try:
-                name = object_server.read_metadata(path)['name']
+                name = diskfile.read_metadata(path)['name']
             except (Exception, Timeout) as exc:
                 raise AuditException('Error when reading metadata: %s' % exc)
             _junk, account, container, obj = name.split('/', 3)
-            df = object_server.DiskFile(self.devices, device, partition,
-                                        account, container, obj, self.logger,
-                                        keep_data_fp=True)
+            df = diskfile.DiskFile(self.devices, device, partition,
+                                   account, container, obj, self.logger,
+                                   keep_data_fp=True)
             try:
                 try:
                     obj_size = df.get_data_file_size()
@@ -199,7 +200,7 @@ class AuditorWorker(object):
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                                 'be quarantined: %(err)s'),
                               {'obj': path, 'err': err})
-            object_server.quarantine_renamer(
+            diskfile.quarantine_renamer(
                 os.path.join(self.devices, device), path)
             return
         except (Exception, Timeout):
