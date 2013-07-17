@@ -49,7 +49,7 @@ class ContainerAuditor(Daemon):
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
-                                            container_server.DATADIR,
+                                            container_server.DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
@@ -112,8 +112,6 @@ class ContainerAuditor(Daemon):
         """
         start_time = time.time()
         try:
-            if not path.endswith('.db'):
-                return
             broker = ContainerBroker(path)
             if not broker.is_deleted():
                 broker.get_info()

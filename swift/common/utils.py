@@ -1506,7 +1506,8 @@ def remove_file(path):
         pass
 
 
-def audit_location_generator(devices, datadir, mount_check=True, logger=None):
+def audit_location_generator(devices, datadir, suffix='',
+                             mount_check=True, logger=None):
     '''
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
@@ -1515,6 +1516,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
     :param datadir: a directory located under self.devices. This should be
                     one of the DATADIR constants defined in the account,
                     container, and object servers.
+    :param suffix: path name suffix required for all names returned
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
@@ -1538,8 +1540,8 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
             if not os.path.isdir(part_path):
                 continue
             suffixes = listdir(part_path)
-            for suffix in suffixes:
-                suff_path = os.path.join(part_path, suffix)
+            for asuffix in suffixes:
+                suff_path = os.path.join(part_path, asuffix)
                 if not os.path.isdir(suff_path):
                     continue
                 hashes = listdir(suff_path)
@@ -1549,6 +1551,8 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                         continue
                     for fname in sorted(listdir(hash_path),
                                         reverse=True):
+                        if suffix and not fname.endswith(suffix):
+                            continue
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
 

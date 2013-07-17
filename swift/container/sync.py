@@ -155,6 +155,7 @@ class ContainerSync(Daemon):
             begin = time()
             all_locs = audit_location_generator(self.devices,
                                                 container_server.DATADIR,
+                                                '.db',
                                                 mount_check=self.mount_check,
                                                 logger=self.logger)
             for path, device, partition in all_locs:
@@ -172,7 +173,7 @@ class ContainerSync(Daemon):
         self.logger.info(_('Begin container sync "once" mode'))
         begin = time()
         all_locs = audit_location_generator(self.devices,
-                                            container_server.DATADIR,
+                                            container_server.DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
@@ -213,9 +214,8 @@ class ContainerSync(Daemon):
 
         :param path: the path to a container db
         """
+        broker = None
         try:
-            if not path.endswith('.db'):
-                return
             broker = ContainerBroker(path)
             info = broker.get_info()
             x, nodes = self.container_ring.get_nodes(info['account'],
@@ -294,10 +294,11 @@ class ContainerSync(Daemon):
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
                 self.logger.increment('syncs')
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             self.container_failures += 1
             self.logger.increment('failures')
-            self.logger.exception(_('ERROR Syncing %s'), (broker.db_file))
+            self.logger.exception(_('ERROR Syncing %s'),
+                                  broker.db_file if broker else path)
 
     def container_sync_row(self, row, sync_to, sync_key, broker, info):
         """

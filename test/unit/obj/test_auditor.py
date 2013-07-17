@@ -15,6 +15,7 @@
 
 from test import unit
 import unittest
+import mock
 import os
 import time
 from shutil import rmtree
@@ -141,14 +142,26 @@ class TestAuditor(unittest.TestCase):
             'sda', '0')
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
-    def test_object_audit_bad_args(self):
+    def test_generic_exception_handling(self):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)
+        timestamp = str(normalize_timestamp(time.time()))
         pre_errors = self.auditor.errors
-        self.auditor.object_audit(5, 'sda', '0')
+        data = '0' * 1024
+        etag = md5()
+        with self.disk_file.writer() as writer:
+            writer.write(data)
+            etag.update(data)
+            etag = etag.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': timestamp,
+                'Content-Length': str(os.fstat(writer.fd).st_size),
+            }
+            writer.put(metadata)
+        with mock.patch('swift.obj.server.DiskFile',
+                        lambda *_: 1 / 0):
+            self.auditor.audit_all_objects()
         self.assertEquals(self.auditor.errors, pre_errors + 1)
-        pre_errors = self.auditor.errors
-        self.auditor.object_audit('badpath', 'sda', '0')
-        self.assertEquals(self.auditor.errors, pre_errors)  # just returns
 
     def test_object_run_once_pass(self):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)

@@ -49,7 +49,7 @@ class AccountAuditor(Daemon):
 
     def _one_audit_pass(self, reported):
         all_locs = audit_location_generator(self.devices,
-                                            account_server.DATADIR,
+                                            account_server.DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
@@ -113,8 +113,6 @@ class AccountAuditor(Daemon):
         """
         start_time = time.time()
         try:
-            if not path.endswith('.db'):
-                return
             broker = AccountBroker(path)
             if not broker.is_deleted():
                 broker.get_info()
