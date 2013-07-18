@@ -30,10 +30,6 @@ class SwiftException(Exception):
     pass
 
 
-class SwiftConfigurationError(SwiftException):
-    pass
-
-
 class AuditException(SwiftException):
     pass
 
@@ -55,10 +51,6 @@ class DiskFileNoSpace(SwiftException):
 
 
 class PathNotDir(OSError):
-    pass
-
-
-class AuthException(SwiftException):
     pass
 
 
