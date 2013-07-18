@@ -603,9 +603,17 @@ class Accept(object):
 
     :param headerval: value of the header as a str
     """
-    token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'  # RFC 2616 2.2
-    acc_pattern = re.compile(r'^\s*(' + token + r')/(' + token +
-                             r')(;\s*q=([\d.]+))?\s*$')
+
+    # RFC 2616 section 2.2
+    token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
+    qdtext = r'[^"]'
+    quoted_pair = r'(?:\\.)'
+    quoted_string = r'"(?:' + qdtext + r'|' + quoted_pair + r')*"'
+    extension = (r'(?:\s*;\s*(?:' + token + r")\s*=\s*" + r'(?:' + token +
+                 r'|' + quoted_string + r'))')
+    acc = (r'^\s*(' + token + r')/(' + token +
+           r')(' + extension + r'*?\s*)$')
+    acc_pattern = re.compile(acc)
 
     def __init__(self, headerval):
         self.headerval = headerval
@@ -618,8 +626,22 @@ class Accept(object):
             type_parms = self.acc_pattern.findall(typ)
             if not type_parms:
                 raise ValueError('Invalid accept header')
-            typ, subtype, parms, quality = type_parms[0]
-            quality = float(quality or '1.0')
+            typ, subtype, parms = type_parms[0]
+            parms = [p.strip() for p in parms.split(';') if p.strip()]
+
+            seen_q_already = False
+            quality = 1.0
+
+            for parm in parms:
+                name, value = parm.split('=')
+                name = name.strip()
+                value = value.strip()
+                if name == 'q':
+                    if seen_q_already:
+                        raise ValueError('Multiple "q" params')
+                    seen_q_already = True
+                    quality = float(value)
+
             pattern = '^' + \
                 (self.token if typ == '*' else re.escape(typ)) + '/' + \
                 (self.token if subtype == '*' else re.escape(subtype)) + '$'
