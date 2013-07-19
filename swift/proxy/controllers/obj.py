@@ -1037,7 +1037,8 @@ class ObjectController(Controller):
                             chunk = next(data_source)
                         except StopIteration:
                             if chunked:
-                                [conn.queue.put('0\r\n\r\n') for conn in conns]
+                                for conn in conns:
+                                    conn.queue.put('0\r\n\r\n')
                             break
                     bytes_transferred += len(chunk)
                     if bytes_transferred > MAX_FILE_SIZE:
