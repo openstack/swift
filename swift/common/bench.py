@@ -352,6 +352,7 @@ class BenchController(object):
         self.delete = config_true_value(conf.delete)
         self.gets = int(conf.num_gets)
         self.aborted = False
+        self.delay = int(self.conf.delay)
 
     def sigint1(self, signum, frame):
         if self.delete:
@@ -378,6 +379,11 @@ class BenchController(object):
             self.running = gets
             gets.run()
         if self.delete:
+            if self.delay != 0:
+                self.logger.info('Delay before '
+                                 'DELETE request %s sec'
+                                 % self.delay)
+                time.sleep(self.delay)
             dels = BenchDELETE(self.logger, self.conf, self.names)
             self.running = dels
             dels.run()
