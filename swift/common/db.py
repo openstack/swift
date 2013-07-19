@@ -16,7 +16,7 @@
 """ Database code for Swift """
 
 from __future__ import with_statement
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import hashlib
 import logging
 import os
@@ -155,10 +155,11 @@ def get_db_connection(path, timeout=30, okay_to_create=False):
                                               'DB file created by connect?')
         conn.row_factory = sqlite3.Row
         conn.text_factory = str
-        conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute('PRAGMA count_changes = OFF')
-        conn.execute('PRAGMA temp_store = MEMORY')
-        conn.execute('PRAGMA journal_mode = DELETE')
+        with closing(conn.cursor()) as cur:
+            cur.execute('PRAGMA synchronous = NORMAL')
+            cur.execute('PRAGMA count_changes = OFF')
+            cur.execute('PRAGMA temp_store = MEMORY')
+            cur.execute('PRAGMA journal_mode = DELETE')
         conn.create_function('chexor', 3, chexor)
     except sqlite3.DatabaseError:
         import traceback
@@ -203,9 +204,10 @@ class DatabaseBroker(object):
                                    factory=GreenDBConnection, timeout=0)
         # creating dbs implicitly does a lot of transactions, so we
         # pick fast, unsafe options here and do a big fsync at the end.
-        conn.execute('PRAGMA synchronous = OFF')
-        conn.execute('PRAGMA temp_store = MEMORY')
-        conn.execute('PRAGMA journal_mode = MEMORY')
+        with closing(conn.cursor()) as cur:
+            cur.execute('PRAGMA synchronous = OFF')
+            cur.execute('PRAGMA temp_store = MEMORY')
+            cur.execute('PRAGMA journal_mode = MEMORY')
         conn.create_function('chexor', 3, chexor)
         conn.row_factory = sqlite3.Row
         conn.text_factory = str
