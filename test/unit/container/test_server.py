@@ -738,17 +738,17 @@ class TestContainerController(unittest.TestCase):
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000"},
+                    "last_modified":"1970-01-01T00:00:01.000000Z"},
                     {"name":"1",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000"},
+                    "last_modified":"1970-01-01T00:00:01.000000Z"},
                     {"name":"2",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000"}]
+                    "last_modified":"1970-01-01T00:00:01.000000Z"}]
 
         req = Request.blank('/sda1/p/a/jsonc?format=json',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -860,12 +860,12 @@ class TestContainerController(unittest.TestCase):
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.500000"},
+                    "last_modified":"1970-01-01T00:00:01.500000Z"},
                     {"name":"1",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000"}, ]
+                    "last_modified":"1970-01-01T00:00:01.000000Z"}, ]
 
         req = Request.blank('/sda1/p/a/jsonc?format=json',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -894,15 +894,15 @@ class TestContainerController(unittest.TestCase):
             '<container name="xmlc">' \
                 '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000' \
+                    '<last_modified>1970-01-01T00:00:01.000000Z' \
                     '</last_modified></object>' \
                 '<object><name>1</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000' \
+                    '<last_modified>1970-01-01T00:00:01.000000Z' \
                     '</last_modified></object>' \
                 '<object><name>2</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000' \
+                    '<last_modified>1970-01-01T00:00:01.000000Z' \
                     '</last_modified></object>' \
             '</container>'
         # tests
@@ -1113,9 +1113,9 @@ class TestContainerController(unittest.TestCase):
         resp = self.controller.GET(req)
         self.assertEquals(simplejson.loads(resp.body),
             [{"name":"US/OK", "hash":"x", "bytes":0, "content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01.000000"},
+              "last_modified":"1970-01-01T00:00:01.000000Z"},
              {"name":"US/TX", "hash":"x", "bytes":0, "content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01.000000"}])
+              "last_modified":"1970-01-01T00:00:01.000000Z"}])
 
     def test_GET_insufficient_storage(self):
         self.controller = container_server.ContainerController(
