@@ -60,11 +60,13 @@ class AccountController(object):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
 
-    def _get_account_broker(self, drive, part, account):
+    def _get_account_broker(self, drive, part, account, **kwargs):
         hsh = hash_path(account)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, drive, db_dir, hsh + '.db')
-        return AccountBroker(db_path, account=account, logger=self.logger)
+        kwargs.setdefault('account', account)
+        kwargs.setdefault('logger', self.logger)
+        return AccountBroker(db_path, **kwargs)
 
     def _deleted_response(self, broker, req, resp, body=''):
         # We are here since either the account does not exist or
@@ -188,9 +190,9 @@ class AccountController(object):
             return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account)
+        broker = self._get_account_broker(drive, part, account,
+                                          stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
         info = broker.get_info()
@@ -241,9 +243,9 @@ class AccountController(object):
 
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account)
+        broker = self._get_account_broker(drive, part, account,
+                                          stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
         return account_listing_response(account, req, out_content_type, broker,
