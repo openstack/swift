@@ -81,6 +81,8 @@ class ObjectReplicator(Daemon):
         self.headers = {
             'Content-Length': '0',
             'user-agent': 'obj-replicator %s' % os.getpid()}
+        self.rsync_error_log_line_length = \
+            int(conf.get('rsync_error_log_line_length', 0))
 
     def _rsync(self, args):
         """
@@ -112,8 +114,11 @@ class ObjectReplicator(Daemon):
             else:
                 self.logger.error(result)
         if ret_val:
-            self.logger.error(_('Bad rsync return code: %(ret)d <- %(args)s'),
-                              {'args': str(args), 'ret': ret_val})
+            error_line = _('Bad rsync return code: %(ret)d <- %(args)s') % \
+                {'args': str(args), 'ret': ret_val}
+            if self.rsync_error_log_line_length:
+                error_line = error_line[:self.rsync_error_log_line_length]
+            self.logger.error(error_line)
         elif results:
             self.logger.info(
                 _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
