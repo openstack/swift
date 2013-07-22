@@ -731,7 +731,7 @@ class TestRingBuilder(unittest.TestCase):
     @mock.patch('__builtin__.open', autospec=True)
     @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
     def test_save(self, mock_pickle_dump, mock_open):
-        mock_open.return_value = mock_fh = mock.Mock()
+        mock_open.return_value = mock_fh = mock.MagicMock()
         rb = ring.RingBuilder(8, 3, 1)
         devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                  'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1',
@@ -749,7 +749,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.save('some.builder')
         mock_open.assert_called_once_with('some.builder', 'wb')
-        mock_pickle_dump.assert_called_once_with(rb.to_dict(), mock_fh,
+        mock_pickle_dump.assert_called_once_with(rb.to_dict(), mock_fh.__enter__(),
                                                  protocol=2)
 
     def test_search_devs(self):
