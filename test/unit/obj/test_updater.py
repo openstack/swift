@@ -16,6 +16,7 @@
 import cPickle as pickle
 import os
 import unittest
+from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from time import time
@@ -41,13 +42,15 @@ class TestObjectUpdater(unittest.TestCase):
                                     'object_updater')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
-        pickle.dump(
-            RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                     [{'id': 0, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-                       'zone': 0},
-                      {'id': 1, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-                       'zone': 2}], 30),
-            GzipFile(os.path.join(self.testdir, 'container.ring.gz'), 'wb'))
+        ring_file = os.path.join(self.testdir, 'container.ring.gz')
+        with closing(GzipFile(ring_file, 'wb')) as f:
+            pickle.dump(
+                RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                         [{'id': 0, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
+                           'zone': 0},
+                          {'id': 1, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
+                           'zone': 2}], 30),
+                f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
         self.sda1 = os.path.join(self.devices_dir, 'sda1')

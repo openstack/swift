@@ -27,6 +27,7 @@ from textwrap import dedent
 from gzip import GzipFile
 from StringIO import StringIO
 from collections import defaultdict
+from contextlib import closing
 from urllib import quote
 
 from eventlet import listen
@@ -41,24 +42,27 @@ from mock import patch
 
 
 def _fake_rings(tmpdir):
-    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': 6012},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': 6022}], 30),
-                GzipFile(os.path.join(tmpdir, 'account.ring.gz'), 'wb'))
-    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': 6011},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': 6021}], 30),
-                GzipFile(os.path.join(tmpdir, 'container.ring.gz'), 'wb'))
-    pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                  'port': 6010},
-                 {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                  'port': 6020}], 30),
-                GzipFile(os.path.join(tmpdir, 'object.ring.gz'), 'wb'))
+    with closing(GzipFile(os.path.join(tmpdir, 'account.ring.gz'), 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': 6012},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': 6022}], 30),
+                    f)
+    with closing(GzipFile(os.path.join(tmpdir, 'container.ring.gz'), 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': 6011},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': 6021}], 30),
+                    f)
+    with closing(GzipFile(os.path.join(tmpdir, 'object.ring.gz'), 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': 6010},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': 6020}], 30),
+                    f)
 
 
 class TestWSGI(unittest.TestCase):

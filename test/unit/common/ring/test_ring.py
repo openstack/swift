@@ -18,6 +18,7 @@ import cPickle as pickle
 import os
 import sys
 import unittest
+from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from time import sleep, time
@@ -56,14 +57,15 @@ class TestRingData(unittest.TestCase):
                 [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
         for p in xrange(pickle.HIGHEST_PROTOCOL):
-            pickle.dump(rd, GzipFile(ring_fname, 'wb'), protocol=p)
+            with closing(GzipFile(ring_fname, 'wb')) as f:
+                pickle.dump(rd, f, protocol=p)
             ring_data = ring.RingData.load(ring_fname)
             self.assert_ring_data_equal(rd, ring_data)
 
     def test_roundtrip_serialization(self):
         ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
         rd = ring.RingData(
-            [array.array('H', [0, 1, 0, 1]), array.array('H',[0, 1, 0, 1])],
+            [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
             [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         rd.save(ring_fname)
         rd2 = ring.RingData.load(ring_fname)
