@@ -420,6 +420,7 @@ class ContainerController(object):
                     # python isoformat() doesn't include msecs when zero
                     if len(created_at) < len("1970-01-01T00:00:00.000000"):
                         created_at += ".000000"
+                    created_at += 'Z'
                     content_type, size = self.derive_content_type_metadata(
                         content_type, size)
                     data.append({'last_modified': created_at, 'bytes': size,
@@ -434,6 +435,7 @@ class ContainerController(object):
                 # python isoformat() doesn't include msecs when zero
                 if len(created_at) < len("1970-01-01T00:00:00.000000"):
                     created_at += ".000000"
+                created_at += 'Z'
                 if content_type is None:
                     xml_output.append(
                         '<subdir name=%s><name>%s</name></subdir>' %
