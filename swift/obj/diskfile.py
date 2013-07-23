@@ -28,11 +28,12 @@ from contextlib import contextmanager
 from xattr import getxattr, setxattr
 from eventlet import Timeout
 
+from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool
-from swift.common.exceptions import DiskFileError, \
-    DiskFileNotExist, DiskFileCollision, DiskFileNoSpace
+from swift.common.exceptions import DiskFileError, DiskFileNotExist, \
+    DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable
 from swift.obj.base import invalidate_hash, \
     quarantine_renamer
 from swift.common.swob import multi_range_iterator
@@ -170,8 +171,10 @@ class DiskFile(object):
     def __init__(self, path, device, partition, account, container, obj,
                  logger, keep_data_fp=False, disk_chunk_size=65536,
                  bytes_per_sync=(512 * 1024 * 1024), iter_hook=None,
-                 threadpool=None, obj_dir='objects',
+                 threadpool=None, obj_dir='objects', mount_check=False,
                  disallowed_metadata_keys=None):
+        if mount_check and not check_mount(path, device):
+            raise DiskFileDeviceUnavailable()
         self.disk_chunk_size = disk_chunk_size
         self.bytes_per_sync = bytes_per_sync
         self.iter_hook = iter_hook
@@ -297,10 +300,10 @@ class DiskFile(object):
         """Check if file needs to be quarantined"""
         try:
             self.get_data_file_size()
+        except DiskFileNotExist:
+            return
         except DiskFileError:
             self.quarantine()
-            return
-        except DiskFileNotExist:
             return
 
         if self.iter_etag and self.started_at_0 and self.read_to_eof and \

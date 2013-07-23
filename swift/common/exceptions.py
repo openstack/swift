@@ -38,15 +38,19 @@ class DiskFileError(SwiftException):
     pass
 
 
-class DiskFileCollision(SwiftException):
+class DiskFileCollision(DiskFileError):
     pass
 
 
-class DiskFileNotExist(SwiftException):
+class DiskFileNotExist(DiskFileError):
     pass
 
 
-class DiskFileNoSpace(SwiftException):
+class DiskFileNoSpace(DiskFileError):
+    pass
+
+
+class DiskFileDeviceUnavailable(DiskFileError):
     pass
 
 

@@ -37,7 +37,7 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
                                NullLogger, storage_directory, public, \
                                replication
-from swift.common.exceptions import DiskFileNotExist
+from swift.common.exceptions import DiskFileNotExist, DiskFileDeviceUnavailable
 from swift.common import constraints
 from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
@@ -56,7 +56,7 @@ class TestDiskFile(unittest.TestCase):
     def tearDown(self):
         """ Tear down for testing swift.obj.diskfile"""
         rmtree(os.path.dirname(self.testdir))
-        tpool.execute = self._orig_tpool_exc 
+        tpool.execute = self._orig_tpool_exc
 
     def _create_test_file(self, data, keep_data_fp=True):
         df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
@@ -207,7 +207,7 @@ class TestDiskFile(unittest.TestCase):
 
     def _get_disk_file(self, invalid_type=None, obj_name='o',
                        fsize=1024, csize=8, mark_deleted=False, ts=None,
-                       iter_hook=None):
+                       iter_hook=None, mount_check=False):
         '''returns a DiskFile'''
         df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
                                     obj_name, FakeLogger())
@@ -245,9 +245,9 @@ class TestDiskFile(unittest.TestCase):
             df.put_metadata(metadata, tombstone=True)
 
         df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    obj_name, FakeLogger(),
-                                    keep_data_fp=True, disk_chunk_size=csize,
-                                    iter_hook=iter_hook)
+                               obj_name, FakeLogger(),
+                               keep_data_fp=True, disk_chunk_size=csize,
+                               iter_hook=iter_hook, mount_check=mount_check)
         if invalid_type == 'Zero-Byte':
             os.remove(df.data_file)
             fp = open(df.data_file, 'w')
@@ -380,3 +380,10 @@ class TestDiskFile(unittest.TestCase):
         self.assertFalse(os.path.isfile(df.data_file))
         self.assert_(os.path.isdir(quar_dir))
         self.assertEquals(df.quarantine(), None)
+
+    def test_mount_checking(self):
+        def _mock_ismount(*args, **kwargs):
+            return False
+        with mock.patch("os.path.ismount", _mock_ismount):
+            self.assertRaises(DiskFileDeviceUnavailable, self._get_disk_file,
+                              mount_check=True)

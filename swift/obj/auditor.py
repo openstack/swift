@@ -170,10 +170,10 @@ class AuditorWorker(object):
             try:
                 try:
                     obj_size = df.get_data_file_size()
-                except DiskFileError as e:
-                    raise AuditException(str(e))
                 except DiskFileNotExist:
                     return
+                except DiskFileError as e:
+                    raise AuditException(str(e))
                 if self.stats_sizes:
                     self.record_stats(obj_size)
                 if self.zero_byte_only_at_fps and obj_size:
