@@ -16,10 +16,9 @@
 # TODO: Tests
 
 import unittest
-from swift.account import auditor
+
 
 class TestAuditor(unittest.TestCase):
-
     def test_placeholder(self):
         pass
 

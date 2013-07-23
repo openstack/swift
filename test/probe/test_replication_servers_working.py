@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from subprocess import call, Popen
+from subprocess import Popen
 from unittest import main, TestCase
 from uuid import uuid4
 import os
@@ -23,8 +23,7 @@ import shutil
 
 from swiftclient import client
 
-from test.probe.common import kill_server, kill_servers, reset_environment, \
-    start_server
+from test.probe.common import kill_servers, reset_environment
 from swift.common.utils import readconf
 
 
@@ -102,7 +101,7 @@ class TestReplicatorFunctions(TestCase):
         # Check, that all files were replicated.
         path_list = []
         # Figure out where the devices are
-        for node_id in range(1,5):
+        for node_id in range(1, 5):
             conf = readconf(self.configs['object'] % node_id)
             device_path = conf['app:object-server']['devices']
             for dev in self.object_ring.devs:

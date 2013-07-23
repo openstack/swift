@@ -985,7 +985,7 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.GET(req)
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                             os.path.basename(os.path.dirname(file.data_file)))
-        body = resp.body
+        resp.body
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         self.assertFalse(os.path.isdir(quar_dir))
         req = Request.blank('/sda1/p/a/c/o')
@@ -997,7 +997,7 @@ class TestObjectController(unittest.TestCase):
         resp = self.object_controller.GET(req)
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                             os.path.basename(os.path.dirname(file.data_file)))
-        body = resp.body
+        resp.body
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         self.assertFalse(os.path.isdir(quar_dir))
 
@@ -1007,7 +1007,7 @@ class TestObjectController(unittest.TestCase):
         quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined', 'objects',
                        os.path.basename(os.path.dirname(file.data_file)))
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
-        body = resp.body
+        resp.body
         self.assertTrue(os.path.isdir(quar_dir))
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
@@ -1142,6 +1142,7 @@ class TestObjectController(unittest.TestCase):
 
         def my_check(*args):
             return False
+
         def my_storage_directory(*args):
             return self.testdir+'/collide'
         _storage_directory = diskfile.storage_directory
@@ -1202,6 +1203,7 @@ class TestObjectController(unittest.TestCase):
     def test_invalid_method_doesnt_exist(self):
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
         self.object_controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
@@ -1213,6 +1215,7 @@ class TestObjectController(unittest.TestCase):
     def test_invalid_method_is_not_public(self):
         errbuf = StringIO()
         outbuf = StringIO()
+
         def start_response(*args):
             outbuf.writelines(args)
         self.object_controller.__call__({'REQUEST_METHOD': '__init__',
@@ -1448,12 +1451,12 @@ class TestObjectController(unittest.TestCase):
             '/a/c/o', {'x-timestamp': '1', 'x-out': 'set',
                        'user-agent': 'obj-server %s' % os.getpid()}])
 
-
     def test_updating_multiple_delete_at_container_servers(self):
         self.object_controller.expiring_objects_account = 'exp'
         self.object_controller.expiring_objects_container_divisor = 60
 
         http_connect_args = []
+
         def fake_http_connect(ipaddr, port, device, partition, method, path,
                               headers=None, query_string=None, ssl=False):
             class SuccessfulFakeConn(object):
@@ -1473,7 +1476,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k,v) for k,v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.iteritems()
                      if v is not None))
 
         req = Request.blank(
@@ -1499,7 +1502,6 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = orig_http_connect
 
         self.assertEqual(resp.status_int, 201)
-
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -1555,6 +1557,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_updating_multiple_container_servers(self):
         http_connect_args = []
+
         def fake_http_connect(ipaddr, port, device, partition, method, path,
                               headers=None, query_string=None, ssl=False):
             class SuccessfulFakeConn(object):
@@ -1574,7 +1577,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k,v) for k,v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.iteritems()
                      if v is not None))
 
         req = Request.blank(
@@ -2472,7 +2475,6 @@ class TestObjectController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
-        method_called = False
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false'})

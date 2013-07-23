@@ -21,11 +21,12 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller
 from swift.common.swob import Request
 from swift.common.utils import split_path
-import swift.proxy.controllers.base
-from test.unit import FakeLogger, fake_http_connect, FakeRing, FakeMemcache
+from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
 
+
 FakeResponse_status_int = 201
+
 
 class FakeResponse(object):
     def __init__(self, headers, env, account, container):

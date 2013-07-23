@@ -1910,7 +1910,7 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
             pile.spawn(self.increment, iterable)
 
         try:
-            response = sorted([resp for resp in pile])
+            sorted([resp for resp in pile])
             self.assertTrue(False, "test setup is insufficiently crazy")
         except ValueError:
             pass

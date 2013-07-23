@@ -1861,7 +1861,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('x', 0, 0, 0, 0)
         broker.put_container('y', 0, 0, 0, 0)
         broker.put_container('z', 0, 0, 0, 0)
-        res = broker.reclaim(normalize_timestamp(time()), time())
+        broker.reclaim(normalize_timestamp(time()), time())
         # self.assertEquals(len(res), 2)
         # self.assert_(isinstance(res, tuple))
         # containers, account_name = res
@@ -1869,7 +1869,7 @@ class TestAccountBroker(unittest.TestCase):
         # self.assert_(account_name is None)
         # Now delete the account
         broker.delete_db(normalize_timestamp(time()))
-        res = broker.reclaim(normalize_timestamp(time()), time())
+        broker.reclaim(normalize_timestamp(time()), time())
         # self.assertEquals(len(res), 2)
         # self.assert_(isinstance(res, tuple))
         # containers, account_name = res

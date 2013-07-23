@@ -16,10 +16,9 @@
 # TODO: Tests
 
 import unittest
-from swift.container import auditor
+
 
 class TestReaper(unittest.TestCase):
-
     def test_placeholder(self):
         pass
 

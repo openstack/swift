@@ -188,7 +188,6 @@ class TestObjectExpirer(TestCase):
                 self.test.assertEqual(self.timestamp, timestamp)
                 self.called = True
 
-        account = 'account'
         container = 'container'
         obj = 'obj'
         actual_obj = 'actual_obj'

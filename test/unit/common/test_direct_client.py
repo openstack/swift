@@ -17,11 +17,10 @@ import unittest
 import os
 
 import StringIO
-import cPickle as pickle
 from hashlib import md5
 
 from swift.common import direct_client
-from swiftclient import ClientException, json_loads
+from swiftclient import json_loads
 
 
 def mock_http_connect(status, fake_headers=None, body=None):
@@ -46,7 +45,7 @@ def mock_http_connect(status, fake_headers=None, body=None):
                 raise Exception('test')
 
             if self.fake_headers is not None and self.method == 'POST':
-               self.fake_headers.append(self.headers)
+                self.fake_headers.append(self.headers)
             return self
 
         def getheader(self, header, default=None):
@@ -55,7 +54,7 @@ def mock_http_connect(status, fake_headers=None, body=None):
         def getheaders(self):
             if self.fake_headers is not None:
                 for key in self.fake_headers:
-                     self.headers.update({key: self.fake_headers[key]})
+                    self.headers.update({key: self.fake_headers[key]})
             return self.headers.items()
 
         def read(self):
@@ -104,11 +103,9 @@ class TestDirectClient(unittest.TestCase):
         assert len(hdrs.keys()) == 1
 
     def test_direct_get_account(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
-        container = 'c'
-        name = 'o'
         headers = {
             'X-Account-Container-Count': '1',
             'X-Account-Object-Count': '1',
@@ -121,91 +118,77 @@ class TestDirectClient(unittest.TestCase):
         fake_headers = {}
         for header, value in headers.items():
             fake_headers[header.lower()] = value
-         
+
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, fake_headers, body)
 
         resp_headers, resp = direct_client.direct_get_account(node, part, account)
 
-        fake_headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(fake_headers, resp_headers)
         self.assertEqual(json_loads(body), resp)
-
 
         direct_client.http_connect = mock_http_connect(204, fake_headers, body)
 
         resp_headers, resp = direct_client.direct_get_account(node, part, account)
 
-        fake_headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(fake_headers, resp_headers)
         self.assertEqual([], resp)
-
 
         direct_client.http_connect = was_http_connector
 
     def test_direct_head_container(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
-        name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'key':'value'}
-
+        headers = {'key': 'value'}
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, headers)
 
         resp = direct_client.direct_head_container(node, part, account, container)
 
-        headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp)
 
         direct_client.http_connect = was_http_connector
 
     def test_direct_get_container(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
-        name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'key':'value'}
+        headers = {'key': 'value'}
         body = '[{"hash": "8f4e3", "last_modified": "317260", "bytes": 209}]'
-
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, headers, body)
 
-        resp_headers, resp = \
-        direct_client.direct_get_container(node, part, account, container)
+        resp_headers, resp = (
+            direct_client.direct_get_container(node, part, account, container))
 
-        headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp_headers)
         self.assertEqual(json_loads(body), resp)
 
-
         direct_client.http_connect = mock_http_connect(204, headers, body)
 
-        resp_headers, resp = \
-        direct_client.direct_get_container(node, part, account, container)
+        resp_headers, resp = (
+            direct_client.direct_get_container(node, part, account, container))
 
-        headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp_headers)
         self.assertEqual([], resp)
-
 
         direct_client.http_connect = was_http_connector
 
     def test_direct_delete_container(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
-        name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'key':'value'}
-
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200)
@@ -215,27 +198,25 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = was_http_connector
 
     def test_direct_head_object(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
         name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'key':'value'}
-
+        headers = {'key': 'value'}
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, headers)
 
         resp = direct_client.direct_head_object(node, part, account,
                                                 container, name)
-        headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp)
 
         direct_client.http_connect = was_http_connector
 
     def test_direct_get_object(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
@@ -245,8 +226,8 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, body=contents)
 
-        resp_header, obj_body = \
-        direct_client.direct_get_object(node, part, account, container, name)
+        resp_header, obj_body = (
+            direct_client.direct_get_object(node, part, account, container, name))
         self.assertEqual(obj_body, contents)
 
         direct_client.http_connect = was_http_connector
@@ -254,13 +235,12 @@ class TestDirectClient(unittest.TestCase):
         pass
 
     def test_direct_post_object(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
         name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'Key':'value'}
+        headers = {'Key': 'value'}
 
         fake_headers = []
 
@@ -274,12 +254,11 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = was_http_connector
 
     def test_direct_delete_object(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
         name = 'o'
-        contents = StringIO.StringIO('123456')
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200)
@@ -289,7 +268,7 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = was_http_connector
 
     def test_direct_put_object(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
@@ -306,7 +285,7 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = was_http_connector
 
     def test_direct_put_object_fail(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
@@ -316,14 +295,14 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(500)
 
-        self.assertRaises(direct_client.ClientException,\
-            direct_client.direct_put_object, node, part, account,\
+        self.assertRaises(direct_client.ClientException,
+            direct_client.direct_put_object, node, part, account,
             container, name, contents)
 
         direct_client.http_connect = was_http_connector
 
     def test_direct_put_object_chunked(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
@@ -333,33 +312,30 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200)
 
-        resp = direct_client.direct_put_object(node, part, account,\
+        resp = direct_client.direct_put_object(node, part, account,
                 container, name, contents)
         self.assertEqual(md5('6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
 
         direct_client.http_connect = was_http_connector
 
     def test_retry(self):
-        node = {'ip':'1.2.3.4', 'port':'6000', 'device':'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
         part = '0'
         account = 'a'
         container = 'c'
         name = 'o'
-        contents = StringIO.StringIO('123456')
-        headers = {'key':'value'}
+        headers = {'key': 'value'}
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, headers)
 
-        attempts, resp = direct_client.retry(direct_client.direct_head_object,\
+        attempts, resp = direct_client.retry(direct_client.direct_head_object,
             node, part, account, container, name)
-        headers.update({'user-agent':'direct-client %s' % os.getpid()})
+        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp)
         self.assertEqual(attempts, 1)
-
 
         direct_client.http_connect = was_http_connector
 
 if __name__ == '__main__':
     unittest.main()
-

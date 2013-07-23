@@ -16,7 +16,6 @@
 import hmac
 import unittest
 from hashlib import sha1
-from contextlib import contextmanager
 from time import time
 
 from swift.common.middleware import tempauth, tempurl

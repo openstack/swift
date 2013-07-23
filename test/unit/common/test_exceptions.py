@@ -16,7 +16,6 @@
 # TODO: Tests
 
 import unittest
-from swift.common import exceptions
 
 
 class TestExceptions(unittest.TestCase):

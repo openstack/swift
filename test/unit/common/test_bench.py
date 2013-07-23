@@ -16,11 +16,9 @@
 # TODO: Tests
 
 import unittest
-from swift.common import bench
 
 
 class TestBench(unittest.TestCase):
-
     def test_placeholder(self):
         pass
 
