@@ -37,8 +37,12 @@ class FakeApp(object):
         if env['PATH_INFO'].startswith('/unauth/'):
             return Response(status=401)(env, start_response)
         if env['PATH_INFO'].startswith('/create_cont/'):
+            if env['REQUEST_METHOD'] == 'HEAD':
+                return Response(status='404 Not Found')(env, start_response)
             return Response(status='201 Created')(env, start_response)
         if env['PATH_INFO'].startswith('/create_cont_fail/'):
+            if env['REQUEST_METHOD'] == 'HEAD':
+                return Response(status='403 Forbidden')(env, start_response)
             return Response(status='404 Not Found')(env, start_response)
         if env['PATH_INFO'].startswith('/create_obj_unauth/'):
             if env['PATH_INFO'].endswith('/cont'):
@@ -46,6 +50,12 @@ class FakeApp(object):
             return Response(status=401)(env, start_response)
         if env['PATH_INFO'].startswith('/tar_works/'):
             if len(env['PATH_INFO']) > self.max_pathlen:
+                return Response(status='400 Bad Request')(env, start_response)
+            return Response(status='201 Created')(env, start_response)
+        if env['PATH_INFO'].startswith('/tar_works_cont_head_fail/'):
+            if env['REQUEST_METHOD'] == 'HEAD':
+                return Response(status='404 Not Found')(env, start_response)
+            if len(env['PATH_INFO']) > 100:
                 return Response(status='400 Bad Request')(env, start_response)
             return Response(status='201 Created')(env, start_response)
         if env['PATH_INFO'].startswith('/delete_works/'):
@@ -122,11 +132,13 @@ class TestUntar(unittest.TestCase):
         req = Request.blank('/')
         self.assertEquals(
             self.bulk.create_container(req, '/create_cont/acc/cont'),
-            None)
+            True)
+        self.assertEquals(self.app.calls, 2)
         self.assertRaises(
             bulk.CreateContainerError,
             self.bulk.create_container,
             req, '/create_cont_fail/acc/cont')
+        self.assertEquals(self.app.calls, 3)
 
     def test_extract_tar_works(self):
         # On systems where $TMPDIR is long (like OS X), we need to do this
@@ -295,9 +307,7 @@ class TestUntar(unittest.TestCase):
         self.assertEquals(self.app.calls, 1)
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Response Status'], '401 Unauthorized')
-        self.assertEquals(
-            resp_data['Errors'],
-            [['base_fails1/sub_dir1/sub1_file1', '401 Unauthorized']])
+        self.assertEquals(resp_data['Errors'], [])
 
     def test_extract_tar_fail_obj_401(self):
         self.build_tar()
@@ -392,16 +402,16 @@ class TestUntar(unittest.TestCase):
         with patch.object(self.bulk, 'max_containers', 1):
             self.app.calls = 0
             body = open(os.path.join(self.testdir, 'tar_fails.tar')).read()
-            req = Request.blank('/tar_works/acc/', body=body,
+            req = Request.blank('/tar_works_cont_head_fail/acc/', body=body,
                                 headers={'Accept': 'application/json'})
             req.headers['transfer-encoding'] = 'chunked'
             resp_body = self.handle_extract_and_iter(req, '')
-            self.assertEquals(self.app.calls, 3)
+            self.assertEquals(self.app.calls, 5)
             resp_data = json.loads(resp_body)
             self.assertEquals(resp_data['Response Status'], '400 Bad Request')
             self.assertEquals(
                 resp_data['Response Body'],
-                'More than 1 base level containers in tar.')
+                'More than 1 containers to create from tar.')
 
     def test_extract_tar_fail_create_cont(self):
         dir_tree = [{'base_fails1': [
@@ -416,8 +426,8 @@ class TestUntar(unittest.TestCase):
         req.headers['transfer-encoding'] = 'chunked'
         resp_body = self.handle_extract_and_iter(req, '')
         resp_data = json.loads(resp_body)
-        self.assertEquals(self.app.calls, 4)
-        self.assertEquals(len(resp_data['Errors']), 4)
+        self.assertEquals(self.app.calls, 5)
+        self.assertEquals(len(resp_data['Errors']), 5)
 
     def test_extract_tar_fail_create_cont_value_err(self):
         self.build_tar()
