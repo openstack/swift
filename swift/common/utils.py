@@ -2211,3 +2211,33 @@ def ismount(path):
         return True
 
     return False
+
+
+_rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
+_rfc_extension_pattern = re.compile(
+    r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
+    r'|"(?:[^"\\]|\\.)*"))?)')
+
+
+def parse_content_type(content_type):
+    """
+    Parse a content-type and its parameters into values.
+    RFC 2616 sec 14.17 and 3.7 are pertinent.
+    Examples:
+
+        'text/plain; charset=UTF-8' -> ('text/plain', [('charset, 'UTF-8')])
+        'text/plain; charset=UTF-8; level=1' ->
+            ('text/plain', [('charset, 'UTF-8'), ('level', '1')])
+
+    :param content_type: content_type to parse
+    :returns: a typle containing (content type, list of k, v parameter tuples)
+    """
+    parm_list = []
+    if ';' in content_type:
+        content_type, parms = content_type.split(';', 1)
+        parms = ';' + parms
+        for m in _rfc_extension_pattern.findall(parms):
+            key = m[0].strip()
+            value = m[1].strip()
+            parm_list.append((key, value))
+    return content_type, parm_list

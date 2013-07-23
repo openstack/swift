@@ -952,6 +952,14 @@ class TestResponse(unittest.TestCase):
         resp.charset = 'utf16'
         self.assertEquals(resp.charset, 'utf16')
 
+    def test_charset_content_type(self):
+        resp = swift.common.swob.Response(
+            content_type='text/plain', charset='utf-8')
+        self.assertEquals(resp.charset, 'utf-8')
+        resp = swift.common.swob.Response(
+            charset='utf-8', content_type='text/plain')
+        self.assertEquals(resp.charset, 'utf-8')
+
     def test_etag(self):
         resp = self._get_response()
         resp.etag = 'hi'
