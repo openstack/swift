@@ -19,7 +19,7 @@ from datetime import datetime
 from hashlib import md5
 
 from swift.common.ring import Ring
-from swift.obj.server import read_metadata
+from swift.obj.diskfile import read_metadata
 from swift.common.utils import hash_path
 
 if __name__ == '__main__':
@@ -88,4 +88,7 @@ if __name__ == '__main__':
     else:
         print 'Content-Length: Not found in metadata'
     print 'User Metadata: %s' % metadata
+    print
+    print 'note: /srv/node is used as default value of `devices`, the real '\
+          'value is set in object-server.conf on each storage node.'
     fp.close()
