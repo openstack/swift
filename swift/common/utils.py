@@ -45,6 +45,7 @@ import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
+import stat
 
 import eventlet
 import eventlet.semaphore
@@ -2174,3 +2175,38 @@ class ThreadPool(object):
             return self._run_in_eventlet_tpool(func, *args, **kwargs)
         else:
             return self.run_in_thread(func, *args, **kwargs)
+
+
+def ismount(path):
+    """
+    Test whether a path is a mount point.
+
+    This is code hijacked from C Python 2.6.8, adapted to remove the extra
+    lstat() system call.
+    """
+    try:
+        s1 = os.lstat(path)
+    except os.error as err:
+        if err.errno == errno.ENOENT:
+            # It doesn't exist -- so not a mount point :-)
+            return False
+        raise
+
+    if stat.S_ISLNK(s1.st_mode):
+        # A symlink can never be a mount point
+        return False
+
+    s2 = os.lstat(os.path.join(path, '..'))
+    dev1 = s1.st_dev
+    dev2 = s2.st_dev
+    if dev1 != dev2:
+        # path/.. on a different device as path
+        return True
+
+    ino1 = s1.st_ino
+    ino2 = s2.st_ino
+    if ino1 == ino2:
+        # path/.. is the same i-node as path
+        return True
+
+    return False

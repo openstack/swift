@@ -149,10 +149,10 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
 
-        def my_exists(*a, **kw):
+        def my_ismount(*a, **kw):
             return True
 
-        with patch('os.path.exists', my_exists):
+        with patch('os.path.ismount', my_ismount):
             broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
             broker._initialize = stub
             self.assertRaises(swift.common.db.DatabaseAlreadyExists,
