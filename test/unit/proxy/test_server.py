@@ -21,7 +21,7 @@ import sys
 import unittest
 import urlparse
 import signal
-from contextlib import contextmanager, nested
+from contextlib import contextmanager, nested, closing
 from gzip import GzipFile
 from shutil import rmtree
 import time
@@ -113,21 +113,24 @@ def setup():
     obj2lis = listen(('localhost', 0))
     _test_sockets = \
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
-    with GzipFile(os.path.join(_testdir, 'account.ring.gz'), 'wb') as f:
+    with closing(GzipFile(os.path.join(_testdir, 'account.ring.gz'), 'wb')) \
+            as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': acc1lis.getsockname()[1]},
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': acc2lis.getsockname()[1]}], 30),
                     f)
-    with GzipFile(os.path.join(_testdir, 'container.ring.gz'), 'wb') as f:
+    with closing(GzipFile(os.path.join(_testdir, 'container.ring.gz'), 'wb')) \
+             as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': con1lis.getsockname()[1]},
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': con2lis.getsockname()[1]}], 30),
                     f)
-    with GzipFile(os.path.join(_testdir, 'object.ring.gz'), 'wb') as f:
+    with closing(GzipFile(os.path.join(_testdir, 'object.ring.gz'), 'wb')) \
+            as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': obj1lis.getsockname()[1]},
