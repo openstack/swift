@@ -180,6 +180,17 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 403)
 
+    def test_delete_quotas_with_remove_header(self):
+        headers = [('x-account-bytes-used', '0'), ]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c', environ={
+                'REQUEST_METHOD': 'POST',
+                'swift.cache': cache,
+                'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 403)
+
     def test_delete_quotas_reseller(self):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
@@ -187,6 +198,18 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'POST',
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '',
                                      'reseller_request': True})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_delete_quotas_with_remove_header_reseller(self):
+        headers = [('x-account-bytes-used', '0'), ]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c', environ={
+                'REQUEST_METHOD': 'POST',
+                'swift.cache': cache,
+                'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True',
+                'reseller_request': True})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
