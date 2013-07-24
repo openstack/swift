@@ -377,10 +377,10 @@ class TestInternalClient(unittest.TestCase):
         metadata_prefix = 'some_key-'
         resp_headers = {
             '%sone' % (metadata_prefix): '1',
-            '%stwo' % (metadata_prefix): '2',
-            '%sthree' % (metadata_prefix): '3',
+            '%sTwo' % (metadata_prefix): '2',
+            '%sThree' % (metadata_prefix): '3',
             'some_header-four': '4',
-            'some_header-five': '5',
+            'Some_header-five': '5',
         }
         exp_metadata = {
             'one': '1',

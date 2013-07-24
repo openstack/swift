@@ -76,26 +76,26 @@ class AccountReaper(Daemon):
         self.reap_not_done_after = reap_warn_after + self.delay_reaping
 
     def get_account_ring(self):
-        """ The account :class:`swift.common.ring.Ring` for the cluster. """
+        """The account :class:`swift.common.ring.Ring` for the cluster."""
         if not self.account_ring:
             self.account_ring = Ring(self.swift_dir, ring_name='account')
         return self.account_ring
 
     def get_container_ring(self):
-        """ The container :class:`swift.common.ring.Ring` for the cluster. """
+        """The container :class:`swift.common.ring.Ring` for the cluster."""
         if not self.container_ring:
             self.container_ring = Ring(self.swift_dir, ring_name='container')
         return self.container_ring
 
     def get_object_ring(self):
-        """ The object :class:`swift.common.ring.Ring` for the cluster. """
+        """The object :class:`swift.common.ring.Ring` for the cluster."""
         if not self.object_ring:
             self.object_ring = Ring(self.swift_dir, ring_name='object')
         return self.object_ring
 
     def run_forever(self, *args, **kwargs):
-        """
-        Main entry point when running the reaper in its normal daemon mode.
+        """Main entry point when running the reaper in normal daemon mode.
+
         This repeatedly calls :func:`reap_once` no quicker than the
         configuration interval.
         """

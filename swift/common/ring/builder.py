@@ -1013,7 +1013,8 @@ class RingBuilder(object):
 
         :param builder_file: path to builder file to save
         """
-        pickle.dump(self.to_dict(), open(builder_file, 'wb'), protocol=2)
+        with open(builder_file, 'wb') as f:
+            pickle.dump(self.to_dict(), f, protocol=2)
 
     def search_devs(self, search_values):
         """Search devices by parameters.

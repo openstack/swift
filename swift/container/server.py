@@ -27,7 +27,8 @@ import swift.common.db
 from swift.common.db import ContainerBroker
 from swift.common.utils import get_logger, get_param, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
-    config_true_value, validate_device_partition, json, timing_stats
+    config_true_value, validate_device_partition, json, timing_stats, \
+    replication
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.bufferedhttp import http_connect
@@ -56,17 +57,9 @@ class ContainerController(object):
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         replication_server = conf.get('replication_server', None)
-        if replication_server is None:
-            allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                               'POST']
-        else:
+        if replication_server is not None:
             replication_server = config_true_value(replication_server)
-            if replication_server:
-                allowed_methods = ['REPLICATE']
-            else:
-                allowed_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         self.replication_server = replication_server
-        self.allowed_methods = allowed_methods
         self.allowed_sync_hosts = [
             h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
@@ -81,7 +74,7 @@ class ContainerController(object):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
 
-    def _get_container_broker(self, drive, part, account, container):
+    def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
         Get a DB broker for the container.
 
@@ -94,8 +87,10 @@ class ContainerController(object):
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, drive, db_dir, hsh + '.db')
-        return ContainerBroker(db_path, account=account, container=container,
-                               logger=self.logger)
+        kwargs.setdefault('account', account)
+        kwargs.setdefault('container', container)
+        kwargs.setdefault('logger', self.logger)
+        return ContainerBroker(db_path, **kwargs)
 
     def account_update(self, req, account, container, broker):
         """
@@ -317,9 +312,9 @@ class ContainerController(object):
             return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
+        broker = self._get_container_broker(drive, part, account, container,
+                                            stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -397,9 +392,9 @@ class ContainerController(object):
             return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
+        broker = self._get_container_broker(drive, part, account, container,
+                                            stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -427,6 +422,7 @@ class ContainerController(object):
                     # python isoformat() doesn't include msecs when zero
                     if len(created_at) < len("1970-01-01T00:00:00.000000"):
                         created_at += ".000000"
+                    created_at += 'Z'
                     content_type, size = self.derive_content_type_metadata(
                         content_type, size)
                     data.append({'last_modified': created_at, 'bytes': size,
@@ -441,6 +437,7 @@ class ContainerController(object):
                 # python isoformat() doesn't include msecs when zero
                 if len(created_at) < len("1970-01-01T00:00:00.000000"):
                     created_at += ".000000"
+                created_at += 'Z'
                 if content_type is None:
                     xml_output.append(
                         '<subdir name=%s><name>%s</name></subdir>' %
@@ -469,6 +466,7 @@ class ContainerController(object):
         return ret
 
     @public
+    @replication
     @timing_stats(sample_rate=0.01)
     def REPLICATE(self, req):
         """
@@ -542,7 +540,9 @@ class ContainerController(object):
                 try:
                     method = getattr(self, req.method)
                     getattr(method, 'publicly_accessible')
-                    if req.method not in self.allowed_methods:
+                    replication_method = getattr(method, 'replication', False)
+                    if (self.replication_server is not None and
+                            self.replication_server != replication_method):
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()

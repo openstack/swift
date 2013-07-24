@@ -17,6 +17,7 @@ import os
 import urllib
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
+from swift.common.utils import ismount
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
 
@@ -169,7 +170,7 @@ def check_mount(root, drive):
     if not (urllib.quote_plus(drive) == drive):
         return False
     path = os.path.join(root, drive)
-    return os.path.exists(path) and os.path.ismount(path)
+    return ismount(path)
 
 
 def check_float(string):

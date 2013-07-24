@@ -45,6 +45,7 @@ import cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
+import stat
 
 import eventlet
 import eventlet.semaphore
@@ -335,7 +336,7 @@ class FallocateWrapper(object):
                          "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, length):
-        """ The length parameter must be a ctypes.c_uint64 """
+        """The length parameter must be a ctypes.c_uint64."""
         if FALLOCATE_RESERVE > 0:
             st = os.fstatvfs(fd)
             free = st.f_frsize * st.f_bavail - length.value
@@ -1019,8 +1020,8 @@ def drop_privileges(user):
         os.setsid()
     except OSError:
         pass
-    os.chdir('/')  # in case you need to rmdir on where you started the daemon
-    os.umask(022)  # ensure files are created with the correct privileges
+    os.chdir('/')   # in case you need to rmdir on where you started the daemon
+    os.umask(0o22)  # ensure files are created with the correct privileges
 
 
 def capture_stdio(logger, **kwargs):
@@ -1506,7 +1507,8 @@ def remove_file(path):
         pass
 
 
-def audit_location_generator(devices, datadir, mount_check=True, logger=None):
+def audit_location_generator(devices, datadir, suffix='',
+                             mount_check=True, logger=None):
     '''
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
@@ -1515,6 +1517,7 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
     :param datadir: a directory located under self.devices. This should be
                     one of the DATADIR constants defined in the account,
                     container, and object servers.
+    :param suffix: path name suffix required for all names returned
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
@@ -1538,8 +1541,8 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
             if not os.path.isdir(part_path):
                 continue
             suffixes = listdir(part_path)
-            for suffix in suffixes:
-                suff_path = os.path.join(part_path, suffix)
+            for asuffix in suffixes:
+                suff_path = os.path.join(part_path, asuffix)
                 if not os.path.isdir(suff_path):
                     continue
                 hashes = listdir(suff_path)
@@ -1549,6 +1552,8 @@ def audit_location_generator(devices, datadir, mount_check=True, logger=None):
                         continue
                     for fname in sorted(listdir(hash_path),
                                         reverse=True):
+                        if suffix and not fname.endswith(suffix):
+                            continue
                         path = os.path.join(hash_path, fname)
                         yield path, device, partition
 
@@ -1841,6 +1846,24 @@ def streq_const_time(s1, s2):
     return result == 0
 
 
+def replication(func):
+    """
+    Decorator to declare which methods are accessible for different
+    type of servers:
+    * If option replication_server is None then this decorator
+      doesn't matter.
+    * If option replication_server is True then ONLY decorated with
+      this decorator methods will be started.
+    * If option replication_server is False then decorated with this
+      decorator methods will NOT be started.
+
+    :param func: function to mark accessible for replication
+    """
+    func.replication = True
+
+    return func
+
+
 def public(func):
     """
     Decorator to declare which methods are publicly accessible as HTTP
@@ -1854,6 +1877,14 @@ def public(func):
     def wrapped(*a, **kw):
         return func(*a, **kw)
     return wrapped
+
+
+def quorum_size(n):
+    """
+    Number of successful backend requests needed for the proxy to consider
+    the client request successful.
+    """
+    return (n // 2) + 1
 
 
 def rsync_ip(ip):
@@ -2144,3 +2175,38 @@ class ThreadPool(object):
             return self._run_in_eventlet_tpool(func, *args, **kwargs)
         else:
             return self.run_in_thread(func, *args, **kwargs)
+
+
+def ismount(path):
+    """
+    Test whether a path is a mount point.
+
+    This is code hijacked from C Python 2.6.8, adapted to remove the extra
+    lstat() system call.
+    """
+    try:
+        s1 = os.lstat(path)
+    except os.error as err:
+        if err.errno == errno.ENOENT:
+            # It doesn't exist -- so not a mount point :-)
+            return False
+        raise
+
+    if stat.S_ISLNK(s1.st_mode):
+        # A symlink can never be a mount point
+        return False
+
+    s2 = os.lstat(os.path.join(path, '..'))
+    dev1 = s1.st_dev
+    dev2 = s2.st_dev
+    if dev1 != dev2:
+        # path/.. on a different device as path
+        return True
+
+    ino1 = s1.st_ino
+    ino2 = s2.st_ino
+    if ino1 == ino2:
+        # path/.. is the same i-node as path
+        return True
+
+    return False

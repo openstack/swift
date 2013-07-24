@@ -37,7 +37,8 @@ from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import normalize_timestamp, config_true_value, \
-    public, split_path, list_from_csv, GreenthreadSafeIterator
+    public, split_path, list_from_csv, GreenthreadSafeIterator, \
+    quorum_size
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
@@ -749,7 +750,7 @@ class Controller(object):
             for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
                 hstatuses = \
                     [s for s in statuses if hundred <= s < hundred + 100]
-                if len(hstatuses) > len(statuses) / 2:
+                if len(hstatuses) >= quorum_size(len(statuses)):
                     status = max(hstatuses)
                     status_index = statuses.index(status)
                     resp.status = '%s %s' % (status, reasons[status_index])

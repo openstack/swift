@@ -116,6 +116,16 @@ class SwiftAuth(unittest.TestCase):
         account = tenant_id = 'foo'
         self.assertTrue(test_auth._reseller_check(account, tenant_id))
 
+    def test_reseller_prefix_added_underscore(self):
+        conf = {'reseller_prefix': 'AUTH'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+
+    def test_reseller_prefix_not_added_double_underscores(self):
+        conf = {'reseller_prefix': 'AUTH_'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+
     def test_override_asked_for_but_not_allowed(self):
         conf = {'allow_overrides': 'false'}
         self.test_auth = keystoneauth.filter_factory(conf)(FakeApp())
@@ -192,7 +202,11 @@ class TestAuthorize(unittest.TestCase):
         req = self._make_request(path, headers=headers, environ=default_env)
         req.acl = acl
         result = self.test_auth.authorize(req)
-        if exception:
+
+        # if we have requested an exception but nothing came back then
+        if exception and not result:
+            self.fail("error %s was not returned" % (str(exception)))
+        elif exception:
             self.assertEquals(result.status_int, exception)
         else:
             self.assertTrue(result is None)
@@ -325,6 +339,25 @@ class TestAuthorize(unittest.TestCase):
         self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
             'userA', 'tenantID', 'tenantNAME', ['tenantXYZ:userA']), None)
 
+    def test_delete_own_account_not_allowed(self):
+        roles = self.test_auth.operator_roles.split(',')
+        identity = self._get_identity(roles=roles)
+        account = self._get_account(identity)
+        self._check_authenticate(account=account,
+                                 identity=identity,
+                                 exception=HTTP_FORBIDDEN,
+                                 path='/v1/' + account,
+                                 env={'REQUEST_METHOD': 'DELETE'})
+
+    def test_delete_own_account_when_reseller_allowed(self):
+        roles = [self.test_auth.reseller_admin_role]
+        identity = self._get_identity(roles=roles)
+        account = self._get_account(identity)
+        req = self._check_authenticate(account=account,
+                                       identity=identity,
+                                       path='/v1/' + account,
+                                       env={'REQUEST_METHOD': 'DELETE'})
+        self.assertEqual(bool(req.environ.get('swift_owner')), True)
 
 if __name__ == '__main__':
     unittest.main()

@@ -53,7 +53,7 @@ from swift.proxy.controllers.base import get_account_info
 
 
 class AccountQuotaMiddleware(object):
-    """ Account quota middleware
+    """Account quota middleware
 
     See above for a full description.
 

@@ -66,10 +66,7 @@ class KeystoneAuth(object):
     mix different auth servers you can configure the option
     ``reseller_prefix`` in your keystoneauth entry like this::
 
-        reseller_prefix = NEWAUTH_
-
-    Make sure you have a underscore at the end of your new
-    ``reseller_prefix`` option.
+        reseller_prefix = NEWAUTH
 
     :param app: The next WSGI app in the pipeline
     :param conf: The dict of configuration values
@@ -79,6 +76,8 @@ class KeystoneAuth(object):
         self.conf = conf
         self.logger = swift_utils.get_logger(conf, log_route='keystoneauth')
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH_').strip()
+        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
+            self.reseller_prefix += '_'
         self.operator_roles = conf.get('operator_roles',
                                        'admin, swiftoperator').lower()
         self.reseller_admin_role = conf.get('reseller_admin_role',
@@ -156,7 +155,7 @@ class KeystoneAuth(object):
 
     def _authorize_cross_tenant(self, user_id, user_name,
                                 tenant_id, tenant_name, roles):
-        """ Check cross-tenant ACLs
+        """Check cross-tenant ACLs.
 
         Match tenant:user, tenant and user could be its id, name or '*'
 
@@ -204,6 +203,14 @@ class KeystoneAuth(object):
             self.logger.debug(msg % tenant_id)
             req.environ['swift_owner'] = True
             return
+
+        # If we are not reseller admin and user is trying to delete its own
+        # account then deny it.
+        if not container and not obj and req.method == 'DELETE':
+            # User is not allowed to issue a DELETE on its own account
+            msg = 'User %s:%s is not allowed to delete its own account'
+            self.logger.debug(msg % (tenant_name, user_name))
+            return self.denied_response(req)
 
         # cross-tenant authorization
         matched_acl = self._authorize_cross_tenant(user_id, user_name,

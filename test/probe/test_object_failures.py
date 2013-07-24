@@ -23,7 +23,7 @@ from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.utils import hash_path, readconf
-from swift.obj.server import write_metadata, read_metadata
+from swift.obj.diskfile import write_metadata, read_metadata
 from test.probe.common import kill_servers, reset_environment
 
 

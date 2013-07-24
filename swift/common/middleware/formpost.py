@@ -481,7 +481,7 @@ class FormPost(object):
 
 
 def filter_factory(global_conf, **local_conf):
-    """ Returns the WSGI filter for use with paste.deploy. """
+    """Returns the WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
     return lambda app: FormPost(app, conf)

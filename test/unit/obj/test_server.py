@@ -14,14 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.object_server """
+""" Tests for swift.obj.server """
 
 import cPickle as pickle
 import operator
 import os
 import mock
 import unittest
-import email
 from shutil import rmtree
 from StringIO import StringIO
 from time import gmtime, strftime, time
@@ -30,353 +29,16 @@ from hashlib import md5
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout
 from test.unit import FakeLogger
-from test.unit import _setxattr as setxattr
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
+from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-                               NullLogger, storage_directory
-from swift.common.exceptions import DiskFileNotExist
+                               NullLogger, storage_directory, public, \
+                               replication
 from swift.common import constraints
 from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
-
-
-class TestDiskFile(unittest.TestCase):
-    """Test swift.obj.server.DiskFile"""
-
-    def setUp(self):
-        """ Set up for testing swift.object_server.ObjectController """
-        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
-        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-
-        self._real_tpool_execute = tpool.execute
-        def fake_exe(meth, *args, **kwargs):
-            return meth(*args, **kwargs)
-        tpool.execute = fake_exe
-
-    def tearDown(self):
-        """ Tear down for testing swift.object_server.ObjectController """
-        rmtree(os.path.dirname(self.testdir))
-        tpool.execute = self._real_tpool_execute
-
-    def _create_test_file(self, data, keep_data_fp=True):
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger())
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        f.write(data)
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-        f.close()
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=keep_data_fp)
-        return df
-
-    def test_disk_file_app_iter_corners(self):
-        df = self._create_test_file('1234567890')
-        self.assertEquals(''.join(df.app_iter_range(0, None)), '1234567890')
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
-        self.assertEqual(''.join(df.app_iter_range(5, None)), '67890')
-
-    def test_disk_file_app_iter_ranges(self):
-        df = self._create_test_file('012345678911234567892123456789')
-        it = df.app_iter_ranges([(0, 10), (10, 20), (20, 30)], 'plain/text',
-                                '\r\n--someheader\r\n', 30)
-        value = ''.join(it)
-        self.assert_('0123456789' in value)
-        self.assert_('1123456789' in value)
-        self.assert_('2123456789' in value)
-
-    def test_disk_file_app_iter_ranges_edges(self):
-        df = self._create_test_file('012345678911234567892123456789')
-        it = df.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
-                                '\r\n--someheader\r\n', 30)
-        value = ''.join(it)
-        self.assert_('3456789' in value)
-        self.assert_('01' in value)
-
-    def test_disk_file_large_app_iter_ranges(self):
-        """
-        This test case is to make sure that the disk file app_iter_ranges
-        method all the paths being tested.
-        """
-        long_str = '01234567890' * 65536
-        target_strs = ['3456789', long_str[0:65590]]
-        df = self._create_test_file(long_str)
-
-        it = df.app_iter_ranges([(3, 10), (0, 65590)], 'plain/text',
-                                '5e816ff8b8b8e9a5d355497e5d9e0301', 655360)
-
-        """
-        the produced string actually missing the MIME headers
-        need to add these headers to make it as real MIME message.
-        The body of the message is produced by method app_iter_ranges
-        off of DiskFile object.
-        """
-        header = ''.join(['Content-Type: multipart/byteranges;',
-                          'boundary=',
-                          '5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
-
-        value = header + ''.join(it)
-
-        parts = map(lambda p: p.get_payload(decode=True),
-                    email.message_from_string(value).walk())[1:3]
-        self.assertEqual(parts, target_strs)
-
-    def test_disk_file_app_iter_ranges_empty(self):
-        """
-        This test case tests when empty value passed into app_iter_ranges
-        When ranges passed into the method is either empty array or None,
-        this method will yield empty string
-        """
-        df = self._create_test_file('012345678911234567892123456789')
-        it = df.app_iter_ranges([], 'application/whatever',
-                                '\r\n--someheader\r\n', 100)
-        self.assertEqual(''.join(it), '')
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
-        it = df.app_iter_ranges(None, 'app/something',
-                                '\r\n--someheader\r\n', 150)
-        self.assertEqual(''.join(it), '')
-
-    def test_disk_file_mkstemp_creates_dir(self):
-        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
-        os.rmdir(tmpdir)
-        with object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    'o', FakeLogger()).writer() as writer:
-            self.assert_(os.path.exists(tmpdir))
-
-    def test_iter_hook(self):
-        hook_call_count = [0]
-        def hook():
-            hook_call_count[0] += 1
-
-        df = self._get_disk_file(fsize=65, csize=8, iter_hook=hook)
-        for _ in df:
-            pass
-
-        self.assertEquals(hook_call_count[0], 9)
-
-    def test_quarantine(self):
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger())
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger())
-        df.quarantine()
-        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
-                                'objects', os.path.basename(os.path.dirname(
-                                                            df.data_file)))
-        self.assert_(os.path.isdir(quar_dir))
-
-    def test_quarantine_same_file(self):
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger())
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger())
-        new_dir = df.quarantine()
-        quar_dir = os.path.join(self.testdir, 'sda1', 'quarantined',
-                                'objects', os.path.basename(os.path.dirname(
-                                                            df.data_file)))
-        self.assert_(os.path.isdir(quar_dir))
-        self.assertEquals(quar_dir, new_dir)
-        # have to remake the datadir and file
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
-                              normalize_timestamp(time()) + '.data'), 'wb')
-        setxattr(f.fileno(), object_server.METADATA_KEY,
-                 pickle.dumps({}, object_server.PICKLE_PROTOCOL))
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
-        double_uuid_path = df.quarantine()
-        self.assert_(os.path.isdir(double_uuid_path))
-        self.assert_('-' in os.path.basename(double_uuid_path))
-
-    def _get_disk_file(self, invalid_type=None, obj_name='o',
-                       fsize=1024, csize=8, extension='.data', ts=None,
-                       iter_hook=None):
-        '''returns a DiskFile'''
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    obj_name, FakeLogger())
-        data = '0' * fsize
-        etag = md5()
-        if ts:
-            timestamp = ts
-        else:
-            timestamp = str(normalize_timestamp(time()))
-        with df.writer() as writer:
-            writer.write(data)
-            etag.update(data)
-            etag = etag.hexdigest()
-            metadata = {
-                'ETag': etag,
-                'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(writer.fd).st_size),
-            }
-            writer.put(metadata, extension=extension)
-            if invalid_type == 'ETag':
-                etag = md5()
-                etag.update('1' + '0' * (fsize - 1))
-                etag = etag.hexdigest()
-                metadata['ETag'] = etag
-                object_server.write_metadata(writer.fd, metadata)
-            if invalid_type == 'Content-Length':
-                metadata['Content-Length'] = fsize - 1
-                object_server.write_metadata(writer.fd, metadata)
-
-        df = object_server.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    obj_name, FakeLogger(),
-                                    keep_data_fp=True, disk_chunk_size=csize,
-                                    iter_hook=iter_hook)
-        if invalid_type == 'Zero-Byte':
-            os.remove(df.data_file)
-            fp = open(df.data_file, 'w')
-            fp.close()
-        df.unit_test_len = fsize
-        return df
-
-    def test_quarantine_valids(self):
-        df = self._get_disk_file(obj_name='1')
-        for chunk in df:
-            pass
-        self.assertFalse(df.quarantined_dir)
-
-        df = self._get_disk_file(obj_name='2', csize=1)
-        for chunk in df:
-            pass
-        self.assertFalse(df.quarantined_dir)
-
-        df = self._get_disk_file(obj_name='3', csize=100000)
-        for chunk in df:
-            pass
-        self.assertFalse(df.quarantined_dir)
-
-    def run_quarantine_invalids(self, invalid_type):
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='1')
-        for chunk in df:
-            pass
-        self.assertTrue(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type=invalid_type,
-                                 obj_name='2', csize=1)
-        for chunk in df:
-            pass
-        self.assertTrue(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type=invalid_type,
-                                 obj_name='3', csize=100000)
-        for chunk in df:
-            pass
-        self.assertTrue(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='4')
-        self.assertFalse(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='5')
-        for chunk in df.app_iter_range(0, df.unit_test_len):
-            pass
-        self.assertTrue(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='6')
-        for chunk in df.app_iter_range(0, df.unit_test_len + 100):
-            pass
-        self.assertTrue(df.quarantined_dir)
-        expected_quar = False
-        # for the following, Content-Length/Zero-Byte errors will always result
-        # in a quarantine, even if the whole file isn't check-summed
-        if invalid_type in ('Zero-Byte', 'Content-Length'):
-            expected_quar = True
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='7')
-        for chunk in df.app_iter_range(1, df.unit_test_len):
-            pass
-        self.assertEquals(bool(df.quarantined_dir), expected_quar)
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='8')
-        for chunk in df.app_iter_range(0, df.unit_test_len - 1):
-            pass
-        self.assertEquals(bool(df.quarantined_dir), expected_quar)
-        df = self._get_disk_file(invalid_type=invalid_type, obj_name='8')
-        for chunk in df.app_iter_range(1, df.unit_test_len + 1):
-            pass
-        self.assertEquals(bool(df.quarantined_dir), expected_quar)
-
-    def test_quarantine_invalids(self):
-        self.run_quarantine_invalids('ETag')
-        self.run_quarantine_invalids('Content-Length')
-        self.run_quarantine_invalids('Zero-Byte')
-
-    def test_quarantine_deleted_files(self):
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.data')
-        df.close()
-        self.assertTrue(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.ts')
-        df.close()
-        self.assertFalse(df.quarantined_dir)
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.ts')
-        self.assertRaises(DiskFileNotExist, df.get_data_file_size)
-
-    def test_put_metadata(self):
-        df = self._get_disk_file()
-        ts = time()
-        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
-        df.put_metadata(metadata)
-        exp_name = '%s.meta' % str(normalize_timestamp(ts))
-        dl = os.listdir(df.datadir)
-        self.assertEquals(len(dl), 2)
-        self.assertTrue(exp_name in set(dl))
-
-    def test_put_metadata_ts(self):
-        df = self._get_disk_file()
-        ts = time()
-        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
-        df.put_metadata(metadata, tombstone=True)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
-        dl = os.listdir(df.datadir)
-        self.assertEquals(len(dl), 2)
-        self.assertTrue(exp_name in set(dl))
-
-    def test_unlinkold(self):
-        df1 = self._get_disk_file()
-        future_time = str(normalize_timestamp(time() + 100))
-        df2 = self._get_disk_file(ts=future_time)
-        self.assertEquals(len(os.listdir(df1.datadir)), 2)
-        df1.unlinkold(future_time)
-        self.assertEquals(len(os.listdir(df1.datadir)), 1)
-        self.assertEquals(os.listdir(df1.datadir)[0], "%s.data" % future_time)
-
-    def test_close_error(self):
-
-        def err():
-            raise Exception("bad")
-
-        df = self._get_disk_file(fsize=1024 * 1024 * 2)
-        df._handle_close_quarantine = err
-        for chunk in df:
-            pass
-        # close is called at the end of the iterator
-        self.assertEquals(df.fp, None)
-        self.assertEquals(len(df.logger.log_dict['error']), 1)
-
-    def test_quarantine_twice(self):
-        df = self._get_disk_file(invalid_type='Content-Length',
-                                 extension='.data')
-        self.assert_(os.path.isfile(df.data_file))
-        quar_dir = df.quarantine()
-        self.assertFalse(os.path.isfile(df.data_file))
-        self.assert_(os.path.isdir(quar_dir))
-        self.assertEquals(df.quarantine(), None)
 
 
 class TestObjectController(unittest.TestCase):
@@ -392,10 +54,13 @@ class TestObjectController(unittest.TestCase):
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(conf)
         self.object_controller.bytes_per_sync = 1
+        self._orig_tpool_exc = tpool.execute
+        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
 
     def tearDown(self):
         """ Tear down for testing swift.object_server.ObjectController """
         rmtree(os.path.dirname(self.testdir))
+        tpool.execute = self._orig_tpool_exc 
 
     def test_REQUEST_SPECIAL_CHARS(self):
         obj = 'special昆%20/%'
@@ -654,15 +319,15 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
-        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+        file = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
                                       FakeLogger(), keep_data_fp=True)
 
         file_name = os.path.basename(file.data_file)
         with open(file.data_file) as fp:
-            metadata = object_server.read_metadata(fp)
+            metadata = diskfile.read_metadata(fp)
         os.unlink(file.data_file)
         with open(file.data_file, 'w') as fp:
-            object_server.write_metadata(fp, metadata)
+            diskfile.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o',
@@ -736,7 +401,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY')
-        self.assertEquals(object_server.read_metadata(objfile),
+        self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '6',
                            'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
@@ -766,7 +431,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY TWO')
-        self.assertEquals(object_server.read_metadata(objfile),
+        self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '10',
                            'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
@@ -808,7 +473,7 @@ class TestObjectController(unittest.TestCase):
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY THREE')
-        self.assertEquals(object_server.read_metadata(objfile),
+        self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
                            'Content-Length': '12',
                            'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
@@ -958,15 +623,15 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
-        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+        file = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
                                       FakeLogger(), keep_data_fp=True)
 
         file_name = os.path.basename(file.data_file)
         with open(file.data_file) as fp:
-            metadata = object_server.read_metadata(fp)
+            metadata = diskfile.read_metadata(fp)
         os.unlink(file.data_file)
         with open(file.data_file, 'w') as fp:
-            object_server.write_metadata(fp, metadata)
+            diskfile.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
@@ -1247,7 +912,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
-        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+        file = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
                                       FakeLogger(), keep_data_fp=True)
         file_name = os.path.basename(file.data_file)
         etag = md5()
@@ -1255,7 +920,7 @@ class TestObjectController(unittest.TestCase):
         etag = etag.hexdigest()
         metadata = {'X-Timestamp': timestamp,
                     'Content-Length': 6, 'ETag': etag}
-        object_server.write_metadata(file.fp, metadata)
+        diskfile.write_metadata(file.fp, metadata)
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         resp = self.object_controller.GET(req)
@@ -1278,14 +943,14 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
-        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+        file = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
                                       FakeLogger(), keep_data_fp=True)
         file_name = os.path.basename(file.data_file)
         with open(file.data_file) as fp:
-            metadata = object_server.read_metadata(fp)
+            metadata = diskfile.read_metadata(fp)
         os.unlink(file.data_file)
         with open(file.data_file, 'w') as fp:
-            object_server.write_metadata(fp, metadata)
+            diskfile.write_metadata(fp, metadata)
 
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
@@ -1305,7 +970,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = self.object_controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
-        file = object_server.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
+        file = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
                                       FakeLogger(), keep_data_fp=True)
         file_name = os.path.basename(file.data_file)
         etag = md5()
@@ -1313,7 +978,7 @@ class TestObjectController(unittest.TestCase):
         etag = etag.hexdigest()
         metadata = {'X-Timestamp': timestamp,
                     'Content-Length': 6, 'ETag': etag}
-        object_server.write_metadata(file.fp, metadata)
+        diskfile.write_metadata(file.fp, metadata)
         self.assertEquals(os.listdir(file.datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         req.range = 'bytes=0-4'  # partial
@@ -1479,10 +1144,10 @@ class TestObjectController(unittest.TestCase):
             return False
         def my_storage_directory(*args):
             return self.testdir+'/collide'
-        _storage_directory = object_server.storage_directory
+        _storage_directory = diskfile.storage_directory
         _check = object_server.check_object_creation
         try:
-            object_server.storage_directory = my_storage_directory
+            diskfile.storage_directory = my_storage_directory
             object_server.check_object_creation = my_check
             inbuf = StringIO()
             errbuf = StringIO()
@@ -1531,7 +1196,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(outbuf.getvalue()[:4], '403 ')
 
         finally:
-            object_server.storage_directory = _storage_directory
+            diskfile.storage_directory = _storage_directory
             object_server.check_object_creation = _check
 
     def test_invalid_method_doesnt_exist(self):
@@ -1736,7 +1401,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(object_server.DATADIR, 'p', hash_path('a', 'c',
             'o')), timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
-        self.assertEquals(object_server.read_metadata(objfile),
+        self.assertEquals(diskfile.read_metadata(objfile),
             {'X-Timestamp': timestamp,
             'Content-Length': '0', 'Content-Type': 'text/plain', 'name':
             '/a/c/o', 'X-Object-Manifest': 'c/o/', 'ETag':
@@ -2753,9 +2418,9 @@ class TestObjectController(unittest.TestCase):
         def fake_fallocate(fd, size):
             raise OSError(42, 'Unable to fallocate(%d)' % size)
 
-        orig_fallocate = object_server.fallocate
+        orig_fallocate = diskfile.fallocate
         try:
-            object_server.fallocate = fake_fallocate
+            diskfile.fallocate = fake_fallocate
             timestamp = normalize_timestamp(time())
             body_reader = IgnoredBody()
             req = Request.blank('/sda1/p/a/c/o',
@@ -2769,7 +2434,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 507)
             self.assertFalse(body_reader.read_called)
         finally:
-            object_server.fallocate = orig_fallocate
+            diskfile.fallocate = orig_fallocate
 
     def test_serv_reserv(self):
         """
@@ -2790,24 +2455,14 @@ class TestObjectController(unittest.TestCase):
 
     def test_list_allowed_methods(self):
         """ Test list of allowed_methods """
-        methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE', 'POST']
-        self.assertEquals(self.object_controller.allowed_methods, methods)
-
-    def test_allowed_methods_from_configuration_file(self):
-        """
-        Test list of allowed_methods which
-        were set from configuration file.
-        """
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEquals(object_server.ObjectController(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'REPLICATE',
-                           'POST'])
-        conf['replication_server'] = 'True'
-        self.assertEquals(object_server.ObjectController(conf).allowed_methods,
-                          ['REPLICATE'])
-        conf['replication_server'] = 'False'
-        self.assertEquals(object_server.ObjectController(conf).allowed_methods,
-                          ['DELETE', 'PUT', 'HEAD', 'GET', 'POST'])
+        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
+        repl_methods = ['REPLICATE']
+        for method_name in obj_methods:
+            method = getattr(self.object_controller, method_name)
+            self.assertFalse(hasattr(method, 'replication'))
+        for method_name in repl_methods:
+            method = getattr(self.object_controller, method_name)
+            self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
         """
@@ -2817,13 +2472,16 @@ class TestObjectController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        method_called = False
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.object_controller.allowed_methods[0]
-
+        method = 'PUT'
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
                'PATH_INFO': '/sda1/p/a/c',
@@ -2839,14 +2497,12 @@ class TestObjectController(unittest.TestCase):
                'wsgi.multiprocess': False,
                'wsgi.run_once': False}
 
-        answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
-                  'allowed for this resource.</p></html>']
-
+        method_res = mock.MagicMock()
+        mock_method = public(lambda x: mock.MagicMock(return_value=method_res))
         with mock.patch.object(self.object_controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
+                               new=mock_method):
             response = self.object_controller.__call__(env, start_response)
-            self.assertNotEqual(response, answer)
-            self.assertEqual(mock_method.call_count, 1)
+            self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
         """
@@ -2856,12 +2512,15 @@ class TestObjectController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """ Sends args to outbuf """
             outbuf.writelines(args)
 
-        method = self.object_controller.allowed_methods[0]
+        method = 'PUT'
 
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
@@ -2880,14 +2539,12 @@ class TestObjectController(unittest.TestCase):
 
         answer = ['<html><h1>Method Not Allowed</h1><p>The method is not '
                   'allowed for this resource.</p></html>']
-
+        mock_method = replication(public(lambda x: mock.MagicMock()))
         with mock.patch.object(self.object_controller, method,
-                               return_value=mock.MagicMock()) as mock_method:
-            self.object_controller.allowed_methods.remove(method)
+                               new=mock_method):
+            mock_method.replication = True
             response = self.object_controller.__call__(env, start_response)
-            self.assertEqual(mock_method.call_count, 0)
             self.assertEqual(response, answer)
-            self.object_controller.allowed_methods.append(method)
 
 
 if __name__ == '__main__':

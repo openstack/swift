@@ -17,11 +17,13 @@ from __future__ import with_statement
 
 import unittest
 import os
+from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 import cPickle as pickle
 import time
 import tempfile
+
 from test.unit import FakeLogger, mock as unit_mock
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
@@ -48,10 +50,11 @@ def _create_test_ring(path):
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000}]
     intended_part_shift = 30
     intended_reload_time = 15
-    pickle.dump(
-        ring.RingData(intended_replica2part2dev_id, intended_devs,
-                      intended_part_shift),
-        GzipFile(testgz, 'wb'))
+    with closing(GzipFile(testgz, 'wb')) as f:
+        pickle.dump(
+            ring.RingData(intended_replica2part2dev_id, intended_devs,
+                          intended_part_shift),
+            f)
     return ring.Ring(path, ring_name='object',
                      reload_time=intended_reload_time)
 

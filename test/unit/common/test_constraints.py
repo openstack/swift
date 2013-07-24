@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import unittest
+import mock
+
 from test.unit import MockTrue
 
 from swift.common.swob import HTTPBadRequest, Request
@@ -170,14 +172,13 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
-        constraints.os = MockTrue()  # mock os module
-        self.assertTrue(constraints.check_mount('/srv', '1'))
-        self.assertTrue(constraints.check_mount('/srv', 'foo-bar'))
-        self.assertTrue(constraints.check_mount('/srv', '003ed03c-242a-4b2f-bee9-395f801d1699'))
-        self.assertFalse(constraints.check_mount('/srv', 'foo bar'))
-        self.assertFalse(constraints.check_mount('/srv', 'foo/bar'))
-        self.assertFalse(constraints.check_mount('/srv', 'foo?bar'))
-        reload(constraints)  # put it back
+        with mock.patch("swift.common.constraints.ismount", MockTrue()):
+            self.assertTrue(constraints.check_mount('/srv', '1'))
+            self.assertTrue(constraints.check_mount('/srv', 'foo-bar'))
+            self.assertTrue(constraints.check_mount('/srv', '003ed03c-242a-4b2f-bee9-395f801d1699'))
+            self.assertFalse(constraints.check_mount('/srv', 'foo bar'))
+            self.assertFalse(constraints.check_mount('/srv', 'foo/bar'))
+            self.assertFalse(constraints.check_mount('/srv', 'foo?bar'))
 
     def test_check_float(self):
         self.assertFalse(constraints.check_float(''))
@@ -216,6 +217,7 @@ class TestConstraints(unittest.TestCase):
         self.assertTrue(c.MAX_META_OVERALL_SIZE > c.MAX_META_VALUE_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_NAME_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_VALUE_LENGTH)
+
 
 if __name__ == '__main__':
     unittest.main()

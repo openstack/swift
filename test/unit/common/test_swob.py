@@ -261,7 +261,10 @@ class TestAccept(unittest.TestCase):
 
     def test_accept_xml(self):
         for accept in ('application/xml', 'application/xml;q=1.0,*/*;q=0.9',
-                       '*/*;q=0.9,application/xml;q=1.0'):
+                       '*/*;q=0.9,application/xml;q=1.0',
+                       'application/xml;charset=UTF-8',
+                       'application/xml;charset=UTF-8;qws="quoted with space"',
+                       'application/xml; q=0.99 ; qws="quoted with space"'):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/xml',
                                    'text/xml'])
@@ -270,7 +273,10 @@ class TestAccept(unittest.TestCase):
     def test_accept_invalid(self):
         for accept in ('*', 'text/plain,,', 'some stuff',
                        'application/xml;q=1.0;q=1.1', 'text/plain,*',
-                       'text /plain', 'text\x7f/plain'):
+                       'text /plain', 'text\x7f/plain',
+                       'text/plain;a=b=c',
+                       'text/plain;q=1;q=2',
+                       'text/plain; ubq="unbalanced " quotes"'):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/xml',
                                    'text/xml'])
@@ -279,6 +285,7 @@ class TestAccept(unittest.TestCase):
     def test_repr(self):
         acc = swift.common.swob.Accept("application/json")
         self.assertEquals(repr(acc), "application/json")
+
 
 class TestRequest(unittest.TestCase):
     def test_blank(self):

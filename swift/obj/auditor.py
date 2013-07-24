@@ -18,6 +18,7 @@ import time
 
 from eventlet import Timeout
 
+from swift.obj import diskfile
 from swift.obj import server as object_server
 from swift.common.utils import get_logger, audit_location_generator, \
     ratelimit_sleep, config_true_value, dump_recon_cache, list_from_csv, json
@@ -71,7 +72,7 @@ class AuditorWorker(object):
         total_errors = 0
         time_auditing = 0
         all_locs = audit_location_generator(self.devices,
-                                            object_server.DATADIR,
+                                            object_server.DATADIR, '.data',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
@@ -158,26 +159,21 @@ class AuditorWorker(object):
         :param partition: the partition the path is on
         """
         try:
-            if not path.endswith('.data'):
-                return
             try:
-                name = object_server.read_metadata(path)['name']
-            except (Exception, Timeout), exc:
+                name = diskfile.read_metadata(path)['name']
+            except (Exception, Timeout) as exc:
                 raise AuditException('Error when reading metadata: %s' % exc)
             _junk, account, container, obj = name.split('/', 3)
-            df = object_server.DiskFile(self.devices, device, partition,
-                                        account, container, obj, self.logger,
-                                        keep_data_fp=True)
+            df = diskfile.DiskFile(self.devices, device, partition,
+                                   account, container, obj, self.logger,
+                                   keep_data_fp=True)
             try:
-                if df.data_file is None:
-                    # file is deleted, we found the tombstone
-                    return
                 try:
                     obj_size = df.get_data_file_size()
-                except DiskFileError, e:
-                    raise AuditException(str(e))
                 except DiskFileNotExist:
                     return
+                except DiskFileError as e:
+                    raise AuditException(str(e))
                 if self.stats_sizes:
                     self.record_stats(obj_size)
                 if self.zero_byte_only_at_fps and obj_size:
@@ -198,13 +194,13 @@ class AuditorWorker(object):
                         {'path': path})
             finally:
                 df.close(verify_file=False)
-        except AuditException, err:
+        except AuditException as err:
             self.logger.increment('quarantines')
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and will '
                                 'be quarantined: %(err)s'),
                               {'obj': path, 'err': err})
-            object_server.quarantine_renamer(
+            diskfile.quarantine_renamer(
                 os.path.join(self.devices, device), path)
             return
         except (Exception, Timeout):

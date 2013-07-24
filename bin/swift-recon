@@ -101,7 +101,7 @@ class SwiftRecon(object):
         self.server_type = 'object'
 
     def _gen_stats(self, stats, name=None):
-        """ compute various stats from a list of values """
+        """Compute various stats from a list of values."""
         cstats = [x for x in stats if x is not None]
         if len(cstats) > 0:
             ret_dict = {'low': min(cstats), 'high': max(cstats),

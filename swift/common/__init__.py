@@ -1,1 +1,1 @@
-""" Code common to all of Swift. """
+"""Code common to all of Swift."""

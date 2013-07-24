@@ -30,6 +30,7 @@ class FakeApp(object):
     def __init__(self):
         self.calls = 0
         self.delete_paths = []
+        self.max_pathlen = 100
 
     def __call__(self, env, start_response):
         self.calls += 1
@@ -44,12 +45,12 @@ class FakeApp(object):
                 return Response(status='201 Created')(env, start_response)
             return Response(status=401)(env, start_response)
         if env['PATH_INFO'].startswith('/tar_works/'):
-            if len(env['PATH_INFO']) > 100:
+            if len(env['PATH_INFO']) > self.max_pathlen:
                 return Response(status='400 Bad Request')(env, start_response)
             return Response(status='201 Created')(env, start_response)
         if env['PATH_INFO'].startswith('/delete_works/'):
             self.delete_paths.append(env['PATH_INFO'])
-            if len(env['PATH_INFO']) > 100:
+            if len(env['PATH_INFO']) > self.max_pathlen:
                 return Response(status='400 Bad Request')(env, start_response)
             if env['PATH_INFO'].endswith('404'):
                 return Response(status='404 Not Found')(env, start_response)
@@ -129,6 +130,9 @@ class TestUntar(unittest.TestCase):
             req, '/create_cont_fail/acc/cont')
 
     def test_extract_tar_works(self):
+        # On systems where $TMPDIR is long (like OS X), we need to do this
+        # or else every upload will fail due to the path being too long.
+        self.app.max_pathlen += len(self.testdir)
         for compress_format in ['', 'gz', 'bz2']:
             base_name = 'base_works_%s' % compress_format
             dir_tree = [
@@ -138,6 +142,7 @@ class TestUntar(unittest.TestCase):
                              {'sub_dir3': [{'sub4_dir1': '../sub4 file1'}]},
                              {'sub_dir4': None},
                              ]}]
+
             build_dir_tree(self.testdir, dir_tree)
             mode = 'w'
             extension = ''

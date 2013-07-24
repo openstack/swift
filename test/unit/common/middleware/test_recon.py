@@ -18,6 +18,7 @@ from unittest import TestCase
 from contextlib import contextmanager
 from posix import stat_result, statvfs_result
 import os
+import mock
 
 import swift.common.constraints
 from swift import __version__ as swiftver
@@ -30,18 +31,21 @@ class FakeApp(object):
     def __call__(self, env, start_response):
         return "FAKE APP"
 
+
 def start_response(*args):
     pass
+
 
 class FakeFromCache(object):
 
     def __init__(self, out=None):
         self.fakeout = out
-        self.fakeout_calls  = []
+        self.fakeout_calls = []
 
     def fake_from_recon_cache(self, *args, **kwargs):
         self.fakeout_calls.append((args, kwargs))
         return self.fakeout
+
 
 class OpenAndReadTester(object):
 
@@ -76,34 +80,28 @@ class OpenAndReadTester(object):
         self.open_calls.append((args, kwargs))
         yield self
 
+
 class MockOS(object):
 
-    def __init__(self, ls_out=None, pe_out=None, statvfs_out=None,
-                 lstat_out=(1, 1, 5, 4, 5, 5, 55, 55, 55, 55)):
+    def __init__(self, ls_out=None, im_out=False, statvfs_out=None):
         self.ls_output = ls_out
-        self.path_exists_output = pe_out
+        self.ismount_output = im_out
         self.statvfs_output = statvfs_out
-        self.lstat_output_tuple = lstat_out
         self.listdir_calls = []
         self.statvfs_calls = []
-        self.path_exists_calls = []
-        self.lstat_calls = []
+        self.ismount_calls = []
 
     def fake_listdir(self, *args, **kwargs):
         self.listdir_calls.append((args, kwargs))
         return self.ls_output
 
-    def fake_path_exists(self, *args, **kwargs):
-        self.path_exists_calls.append((args, kwargs))
-        return self.path_exists_output
+    def fake_ismount(self, *args, **kwargs):
+        self.ismount_calls.append((args, kwargs))
+        return self.ismount_output
 
     def fake_statvfs(self, *args, **kwargs):
         self.statvfs_calls.append((args, kwargs))
         return statvfs_result(self.statvfs_output)
-
-    def fake_lstat(self, *args, **kwargs):
-        self.lstat_calls.append((args, kwargs))
-        return stat_result(self.lstat_output_tuple)
 
 
 class FakeRecon(object):
@@ -175,6 +173,7 @@ class FakeRecon(object):
     def raise_Exception(self, *args, **kwargs):
         raise Exception
 
+
 class TestReconSuccess(TestCase):
 
     def setUp(self):
@@ -182,12 +181,10 @@ class TestReconSuccess(TestCase):
         self.mockos = MockOS()
         self.fakecache = FakeFromCache()
         self.real_listdir = os.listdir
-        self.real_path_exists = os.path.exists
-        self.real_lstat = os.lstat
+        self.real_ismount = swift.common.constraints.ismount
         self.real_statvfs = os.statvfs
         os.listdir = self.mockos.fake_listdir
-        os.path.exists = self.mockos.fake_path_exists
-        os.lstat = self.mockos.fake_lstat
+        swift.common.constraints.ismount = self.mockos.fake_ismount
         os.statvfs = self.mockos.fake_statvfs
         self.real_from_cache = self.app._from_recon_cache
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
@@ -195,8 +192,7 @@ class TestReconSuccess(TestCase):
 
     def tearDown(self):
         os.listdir = self.real_listdir
-        os.path.exists = self.real_path_exists
-        os.lstat = self.real_lstat
+        swift.common.constraints.ismount = self.real_ismount
         os.statvfs = self.real_statvfs
         del self.mockos
         self.app._from_recon_cache = self.real_from_cache
@@ -389,7 +385,7 @@ class TestReconSuccess(TestCase):
                                     "no_change": 2, "remote_merge": 0,
                                     "remove": 0, "rsync": 0,
                                     "start": 1333044050.855202,
-                                    "success": 2, "ts_repl": 0 },
+                                    "success": 2, "ts_repl": 0},
                                "replication_time": 0.2615511417388916,
                                "replication_last": 1357969645.25}
         self.fakecache.fakeout = from_cache_response
@@ -405,7 +401,7 @@ class TestReconSuccess(TestCase):
                                     "no_change": 2, "remote_merge": 0,
                                     "remove": 0, "rsync": 0,
                                     "start": 1333044050.855202,
-                                    "success": 2, "ts_repl": 0 },
+                                    "success": 2, "ts_repl": 0},
                                 "replication_time": 0.2615511417388916,
                                 "replication_last": 1357969645.25})
 
@@ -516,14 +512,14 @@ class TestReconSuccess(TestCase):
                                     "completed": 115.4512460231781,
                                     "errors": 0,
                                     "files_processed": 2310,
-                                    "quarantined": 0 },
+                                    "quarantined": 0},
                                 "object_auditor_stats_ZBF": {
                                     "audit_time": 45.877294063568115,
                                     "bytes_processed": 0,
                                     "completed": 46.181446075439453,
                                     "errors": 0,
                                     "files_processed": 2310,
-                                    "quarantined": 0 }}
+                                    "quarantined": 0}}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_auditor_info('object')
@@ -537,28 +533,22 @@ class TestReconSuccess(TestCase):
                                     "completed": 115.4512460231781,
                                     "errors": 0,
                                     "files_processed": 2310,
-                                    "quarantined": 0 },
+                                    "quarantined": 0},
                                 "object_auditor_stats_ZBF": {
                                     "audit_time": 45.877294063568115,
                                     "bytes_processed": 0,
                                     "completed": 46.181446075439453,
                                     "errors": 0,
                                     "files_processed": 2310,
-                                    "quarantined": 0 }})
+                                    "quarantined": 0}})
 
     def test_get_unmounted(self):
 
-        def fake_checkmount_true(*args):
-            return True
-
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]
-        self.mockos.ls_output=['fakeone', 'faketwo']
-        self.mockos.path_exists_output=False
-        real_checkmount = swift.common.constraints.check_mount
-        swift.common.constraints.check_mount = fake_checkmount_true
+        self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        swift.common.constraints.check_mount = real_checkmount
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
         self.assertEquals(rv, unmounted_resp)
 
@@ -568,27 +558,25 @@ class TestReconSuccess(TestCase):
             return True
 
         unmounted_resp = []
-        self.mockos.ls_output=[]
-        self.mockos.path_exists_output=False
-        real_checkmount = swift.common.constraints.check_mount
-        swift.common.constraints.check_mount = fake_checkmount_true
+        self.mockos.ls_output = []
+        self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        swift.common.constraints.check_mount = real_checkmount
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
         self.assertEquals(rv, unmounted_resp)
 
     def test_get_diskusage(self):
         #posix.statvfs_result(f_bsize=4096, f_frsize=4096, f_blocks=1963185,
-        #                     f_bfree=1113075, f_bavail=1013351, f_files=498736,
+        #                     f_bfree=1113075, f_bavail=1013351,
+        #                     f_files=498736,
         #                     f_ffree=397839, f_favail=397839, f_flag=0,
         #                     f_namemax=255)
-        statvfs_content=(4096, 4096, 1963185, 1113075, 1013351, 498736, 397839,
-                         397839, 0, 255)
+        statvfs_content = (4096, 4096, 1963185, 1113075, 1013351, 498736,
+                           397839, 397839, 0, 255)
         du_resp = [{'device': 'canhazdrive1', 'avail': 4150685696,
                     'mounted': True, 'used': 3890520064, 'size': 8041205760}]
-        self.mockos.ls_output=['canhazdrive1']
-        self.mockos.statvfs_output=statvfs_content
-        self.mockos.path_exists_output=True
+        self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.statvfs_output = statvfs_content
+        self.mockos.ismount_output = True
         rv = self.app.get_diskusage()
         self.assertEquals(self.mockos.statvfs_calls,
                             [(('/srv/node/canhazdrive1',), {})])
@@ -597,23 +585,30 @@ class TestReconSuccess(TestCase):
     def test_get_diskusage_checkmount_fail(self):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
                     'mounted': False, 'used': '', 'size': ''}]
-        self.mockos.ls_output=['canhazdrive1']
-        self.mockos.path_exists_output=False
+        self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.ismount_output = False
         rv = self.app.get_diskusage()
-        self.assertEquals(self.mockos.listdir_calls,[(('/srv/node/',), {})])
-        self.assertEquals(self.mockos.path_exists_calls,
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.ismount_calls,
                             [(('/srv/node/canhazdrive1',), {})])
         self.assertEquals(rv, du_resp)
 
     def test_get_quarantine_count(self):
-        #posix.lstat_result(st_mode=1, st_ino=2, st_dev=3, st_nlink=4,
-        #                   st_uid=5, st_gid=6, st_size=7, st_atime=8,
-        #                   st_mtime=9, st_ctime=10)
-        lstat_content = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        self.mockos.ls_output=['sda']
-        self.mockos.path_exists_output=True
-        self.mockos.lstat_output=lstat_content
-        rv = self.app.get_quarantine_count()
+        self.mockos.ls_output = ['sda']
+        self.mockos.ismount_output = True
+
+        def fake_lstat(*args, **kwargs):
+            #posix.lstat_result(st_mode=1, st_ino=2, st_dev=3, st_nlink=4,
+            #                   st_uid=5, st_gid=6, st_size=7, st_atime=8,
+            #                   st_mtime=9, st_ctime=10)
+            return stat_result((1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+
+        def fake_exists(*args, **kwargs):
+            return True
+
+        with mock.patch("os.lstat", fake_lstat):
+            with mock.patch("os.path.exists", fake_exists):
+                rv = self.app.get_quarantine_count()
         self.assertEquals(rv, {'objects': 2, 'accounts': 2, 'containers': 2})
 
     def test_get_socket_info(self):
@@ -626,6 +621,7 @@ class TestReconSuccess(TestCase):
         self.app.get_socket_info(openr=oart.open)
         self.assertEquals(oart.open_calls, [(('/proc/net/sockstat', 'r'), {}),
                                             (('/proc/net/sockstat6', 'r'), {})])
+
 
 class TestReconMiddleware(unittest.TestCase):
 
