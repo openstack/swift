@@ -349,7 +349,7 @@ class _StaticWebContext(WSGIContext):
         status_int = self._get_status_int()
         if status_int == HTTP_NOT_FOUND:
             return self._listing(env, start_response)
-        elif not is_success(self._get_status_int()) or \
+        elif not is_success(self._get_status_int()) and \
                 not is_redirection(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         start_response(self._response_status, self._response_headers,
