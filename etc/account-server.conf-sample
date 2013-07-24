@@ -51,7 +51,7 @@ use = egg:swift#account
 # set log_name = account-server
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
-# set log_requests = True
+# set log_requests = true
 # set log_address = /dev/log
 #
 # auto_create_account_prefix = .
@@ -63,7 +63,7 @@ use = egg:swift#account
 # set to a True value (e.g. "True" or "1"). To handle only non-replication
 # verbs, set to "False". Unless you have a separate replication network, you
 # should not specify any value for "replication_server".
-# replication_server = False
+# replication_server = false
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

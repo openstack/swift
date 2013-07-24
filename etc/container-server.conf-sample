@@ -55,12 +55,12 @@ use = egg:swift#container
 # set log_name = container-server
 # set log_facility = LOG_LOCAL0
 # set log_level = INFO
-# set log_requests = True
+# set log_requests = true
 # set log_address = /dev/log
 #
 # node_timeout = 3
 # conn_timeout = 0.5
-# allow_versions = False
+# allow_versions = false
 # auto_create_account_prefix = .
 # max_clients = 1024
 #
@@ -70,7 +70,7 @@ use = egg:swift#container
 # set to a True value (e.g. "True" or "1"). To handle only non-replication
 # verbs, set to "False". Unless you have a separate replication network, you
 # should not specify any value for "replication_server".
-# replication_server = False
+# replication_server = false
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
