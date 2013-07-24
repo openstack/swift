@@ -74,7 +74,7 @@ class ContainerController(object):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
 
-    def _get_container_broker(self, drive, part, account, container):
+    def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
         Get a DB broker for the container.
 
@@ -87,8 +87,10 @@ class ContainerController(object):
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, drive, db_dir, hsh + '.db')
-        return ContainerBroker(db_path, account=account, container=container,
-                               logger=self.logger)
+        kwargs.setdefault('account', account)
+        kwargs.setdefault('container', container)
+        kwargs.setdefault('logger', self.logger)
+        return ContainerBroker(db_path, **kwargs)
 
     def account_update(self, req, account, container, broker):
         """
@@ -310,9 +312,9 @@ class ContainerController(object):
             return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
+        broker = self._get_container_broker(drive, part, account, container,
+                                            stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -390,9 +392,9 @@ class ContainerController(object):
             return HTTPNotAcceptable(request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
+        broker = self._get_container_broker(drive, part, account, container,
+                                            stale_reads_ok=True)
         broker.pending_timeout = 0.1
-        broker.stale_reads_ok = True
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
