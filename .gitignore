@@ -4,6 +4,7 @@
 doc/build/*
 dist
 build
+cover
 ChangeLog
 .coverage
 swift.egg-info
@@ -11,3 +12,4 @@ swift.egg-info
 .tox
 pycscope.*
 .idea
+MANIFEST
