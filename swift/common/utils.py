@@ -170,22 +170,6 @@ def load_libc_function(func_name, log_error=True):
         return noop_libc_function
 
 
-def get_param(req, name, default=None):
-    """
-    Get parameters from an HTTP request ensuring proper handling UTF-8
-    encoding.
-
-    :param req: request object
-    :param name: parameter name
-    :param default: result to return if the parameter is not found
-    :returns: HTTP request parameter value
-    """
-    value = req.params.get(name, default)
-    if value and not isinstance(value, unicode):
-        value.decode('utf8')    # Ensure UTF8ness
-    return value
-
-
 def generate_trans_id(trans_id_suffix):
     return 'tx%s-%010x%s' % (
         uuid.uuid4().hex[:21], time.time(), trans_id_suffix)

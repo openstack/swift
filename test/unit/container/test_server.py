@@ -147,7 +147,7 @@ class TestContainerController(unittest.TestCase):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
         req = Request.blank('/sda1/p/a/c?format=' + format,
                             environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 400)
 
     def test_PUT(self):
@@ -1245,7 +1245,7 @@ class TestContainerController(unittest.TestCase):
                       'end_marker', 'format'):
             req = Request.blank('/sda1/p/a/c?%s=\xce' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
-            resp = self.controller.GET(req)
+            resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 400,
                               "%d on param %s" % (resp.status_int, param))
         # Good UTF8 sequence for delimiter, too long (1 byte delimiters only)

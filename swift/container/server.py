@@ -25,7 +25,8 @@ from eventlet import Timeout
 
 import swift.common.db
 from swift.common.db import ContainerBroker
-from swift.common.utils import get_logger, get_param, hash_path, public, \
+from swift.common.request_helpers import get_param
+from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, validate_device_partition, json, timing_stats, \
     replication
@@ -38,7 +39,7 @@ from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPNotAcceptable, HeaderKeyDict
+    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException, HeaderKeyDict
 
 DATADIR = 'containers'
 
@@ -298,11 +299,7 @@ class ContainerController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        try:
-            query_format = get_param(req, 'format')
-        except UnicodeDecodeError:
-            return HTTPBadRequest(body='parameters not utf8',
-                                  content_type='text/plain', request=req)
+        query_format = get_param(req, 'format')
         if query_format:
             req.accept = FORMAT2CONTENT_TYPE.get(
                 query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
@@ -362,27 +359,23 @@ class ContainerController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        try:
-            path = get_param(req, 'path')
-            prefix = get_param(req, 'prefix')
-            delimiter = get_param(req, 'delimiter')
-            if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
-                # delimiters can be made more flexible later
-                return HTTPPreconditionFailed(body='Bad delimiter')
-            marker = get_param(req, 'marker', '')
-            end_marker = get_param(req, 'end_marker')
-            limit = CONTAINER_LISTING_LIMIT
-            given_limit = get_param(req, 'limit')
-            if given_limit and given_limit.isdigit():
-                limit = int(given_limit)
-                if limit > CONTAINER_LISTING_LIMIT:
-                    return HTTPPreconditionFailed(
-                        request=req,
-                        body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
-            query_format = get_param(req, 'format')
-        except UnicodeDecodeError, err:
-            return HTTPBadRequest(body='parameters not utf8',
-                                  content_type='text/plain', request=req)
+        path = get_param(req, 'path')
+        prefix = get_param(req, 'prefix')
+        delimiter = get_param(req, 'delimiter')
+        if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
+            # delimiters can be made more flexible later
+            return HTTPPreconditionFailed(body='Bad delimiter')
+        marker = get_param(req, 'marker', '')
+        end_marker = get_param(req, 'end_marker')
+        limit = CONTAINER_LISTING_LIMIT
+        given_limit = get_param(req, 'limit')
+        if given_limit and given_limit.isdigit():
+            limit = int(given_limit)
+            if limit > CONTAINER_LISTING_LIMIT:
+                return HTTPPreconditionFailed(
+                    request=req,
+                    body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
+        query_format = get_param(req, 'format')
         if query_format:
             req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
                                                  FORMAT2CONTENT_TYPE['plain'])
@@ -548,6 +541,8 @@ class ContainerController(object):
                     res = HTTPMethodNotAllowed()
                 else:
                     res = method(req)
+            except HTTPException as error_response:
+                res = error_response
             except (Exception, Timeout):
                 self.logger.exception(_(
                     'ERROR __call__ error with %(method)s %(path)s '),
