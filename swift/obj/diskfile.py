@@ -122,7 +122,8 @@ class DiskWriter(object):
         :param metadata: dictionary of metadata to be written
         :param extension: extension to be used when making the file
         """
-        assert self.tmppath is not None
+        if not self.tmppath:
+            raise ValueError("tmppath is unusable.")
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         metadata['name'] = self.disk_file.name
 
