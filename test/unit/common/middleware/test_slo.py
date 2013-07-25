@@ -15,6 +15,7 @@
 
 import unittest
 from mock import patch
+from hashlib import md5
 from swift.common.middleware import slo
 from swift.common.utils import json
 from swift.common.swob import Request, Response, HTTPException
@@ -194,7 +195,7 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank('/v/a/c/o')
         req.content_length = self.slo.max_manifest_size + 1
         try:
-            self.slo.handle_multipart_put(req)
+            self.slo.handle_multipart_put(req, fake_start_response)
         except HTTPException, e:
             pass
         self.assertEquals(e.status_int, 413)
@@ -203,7 +204,7 @@ class TestStaticLargeObject(unittest.TestCase):
             req = Request.blank('/v/a/c/o', body=test_json_data)
             e = None
             try:
-                self.slo.handle_multipart_put(req)
+                self.slo.handle_multipart_put(req, fake_start_response)
             except HTTPException, e:
                 pass
             self.assertEquals(e.status_int, 413)
@@ -211,14 +212,14 @@ class TestStaticLargeObject(unittest.TestCase):
         with patch.object(self.slo, 'min_segment_size', 1000):
             req = Request.blank('/v/a/c/o', body=test_json_data)
             try:
-                self.slo.handle_multipart_put(req)
+                self.slo.handle_multipart_put(req, fake_start_response)
             except HTTPException, e:
                 pass
             self.assertEquals(e.status_int, 400)
 
         req = Request.blank('/v/a/c/o', headers={'X-Copy-From': 'lala'})
         try:
-            self.slo.handle_multipart_put(req)
+            self.slo.handle_multipart_put(req, fake_start_response)
         except HTTPException, e:
             pass
         self.assertEquals(e.status_int, 405)
@@ -227,7 +228,9 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank(
             '/?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
-        self.assertEquals(self.slo.handle_multipart_put(req), self.app)
+        self.assertEquals(
+            self.slo.handle_multipart_put(req, fake_start_response),
+            ['passed'])
 
     def test_handle_multipart_put_success(self):
         req = Request.blank(
@@ -235,7 +238,12 @@ class TestStaticLargeObject(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_json_data)
         self.assertTrue('X-Static-Large-Object' not in req.headers)
-        self.slo(req.environ, fake_start_response)
+
+        def my_fake_start_response(*args, **kwargs):
+            gen_etag = '"' + md5('etagoftheobjectsegment').hexdigest() + '"'
+            self.assertTrue(('Etag', gen_etag) in args[1])
+
+        self.slo(req.environ, my_fake_start_response)
         self.assertTrue('X-Static-Large-Object' in req.headers)
 
     def test_handle_multipart_put_success_allow_small_last_segment(self):
@@ -282,7 +290,8 @@ class TestStaticLargeObject(unittest.TestCase):
         req = Request.blank(
             '/test_good/AUTH_test/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=bad_data)
-        self.assertRaises(HTTPException, self.slo.handle_multipart_put, req)
+        self.assertRaises(HTTPException, self.slo.handle_multipart_put, req,
+                          fake_start_response)
 
         for bad_data in [
                 json.dumps([{'path': '/cont', 'etag': 'etagoftheobj',
@@ -305,17 +314,17 @@ class TestStaticLargeObject(unittest.TestCase):
                 '/test_good/AUTH_test/c/man?multipart-manifest=put',
                 environ={'REQUEST_METHOD': 'PUT'}, body=bad_data)
             self.assertRaises(HTTPException, self.slo.handle_multipart_put,
-                              req)
+                              req, fake_start_response)
 
     def test_handle_multipart_put_check_data(self):
         good_data = json.dumps(
             [{'path': '/c/a_1', 'etag': 'a', 'size_bytes': '1'},
              {'path': '/d/b_2', 'etag': 'b', 'size_bytes': '2'}])
         req = Request.blank(
-            '/test_good_check/A/c/man?multipart-manifest=put',
+            '/test_good_check/A/c/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
-        self.slo.handle_multipart_put(req)
-        self.assertEquals(self.app.calls, 2)
+        self.slo.handle_multipart_put(req, fake_start_response)
+        self.assertEquals(self.app.calls, 3)
         self.assert_(req.environ['CONTENT_TYPE'].endswith(';swift_bytes=3'))
         manifest_data = json.loads(req.environ['wsgi.input'].read())
         self.assertEquals(len(manifest_data), 2)
@@ -336,7 +345,7 @@ class TestStaticLargeObject(unittest.TestCase):
             headers={'Accept': 'application/json'},
             body=bad_data)
         try:
-            self.slo.handle_multipart_put(req)
+            self.slo.handle_multipart_put(req, fake_start_response)
         except HTTPException, e:
             self.assertEquals(self.app.calls, 4)
             data = json.loads(e.body)

@@ -138,12 +138,14 @@ from urllib import quote
 from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
+from hashlib import md5
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
-    HTTPOk, HTTPPreconditionFailed, wsgify
+    HTTPOk, HTTPPreconditionFailed, HTTPException
 from swift.common.utils import json, get_logger, config_true_value
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND
+from swift.common.wsgi import WSGIContext
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -169,6 +171,26 @@ def parse_input(raw_data):
         raise HTTPBadRequest('Invalid SLO Manifest File')
 
     return parsed_data
+
+
+class SloContext(WSGIContext):
+
+    def __init__(self, slo, slo_etag):
+        WSGIContext.__init__(self, slo.app)
+        self.slo_etag = '"' + slo_etag.hexdigest() + '"'
+
+    def handle_slo_put(self, req, start_response):
+        app_resp = self._app_call(req.environ)
+
+        for i in xrange(len(self._response_headers)):
+            if self._response_headers[i][0].lower() == 'etag':
+                self._response_headers[i] = ('Etag', self.slo_etag)
+                break
+
+        start_response(self._response_status,
+                       self._response_headers,
+                       self._response_exc_info)
+        return app_resp
 
 
 class StaticLargeObject(object):
@@ -197,11 +219,12 @@ class StaticLargeObject(object):
         self.bulk_deleter = Bulk(
             app, {'max_deletes_per_request': self.max_manifest_segments})
 
-    def handle_multipart_put(self, req):
+    def handle_multipart_put(self, req, start_response):
         """
         Will handle the PUT of a SLO manifest.
         Heads every object in manifest to check if is valid and if so will
-        save a manifest generated from the user input.
+        save a manifest generated from the user input. Uses WSGIContext to
+        call self.app and start_response and returns a WSGI iterator.
 
         :params req: a swob.Request with an obj in path
         :raises: HttpException on errors
@@ -209,7 +232,7 @@ class StaticLargeObject(object):
         try:
             vrs, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
-            return self.app
+            return self.app(req.environ, start_response)
         if req.content_length > self.max_manifest_size:
             raise HTTPRequestEntityTooLarge(
                 "Manifest File > %d bytes" % self.max_manifest_size)
@@ -230,6 +253,7 @@ class StaticLargeObject(object):
         if not out_content_type:
             out_content_type = 'text/plain'
         data_for_storage = []
+        slo_etag = md5()
         for index, seg_dict in enumerate(parsed_data):
             obj_path = '/'.join(
                 ['', vrs, account, seg_dict['path'].lstrip('/')])
@@ -260,7 +284,9 @@ class StaticLargeObject(object):
                 total_size += seg_size
                 if seg_size != head_seg_resp.content_length:
                     problem_segments.append([quote(obj_path), 'Size Mismatch'])
-                if seg_dict['etag'] != head_seg_resp.etag:
+                if seg_dict['etag'] == head_seg_resp.etag:
+                    slo_etag.update(seg_dict['etag'])
+                else:
                     problem_segments.append([quote(obj_path), 'Etag Mismatch'])
                 if head_seg_resp.last_modified:
                     last_modified = head_seg_resp.last_modified
@@ -298,7 +324,9 @@ class StaticLargeObject(object):
         json_data = json.dumps(data_for_storage)
         env['CONTENT_LENGTH'] = str(len(json_data))
         env['wsgi.input'] = StringIO(json_data)
-        return self.app
+
+        slo_context = SloContext(self, slo_etag)
+        return slo_context.handle_slo_put(req, start_response)
 
     def get_segments_to_delete_iter(self, req):
         """
@@ -376,30 +404,34 @@ class StaticLargeObject(object):
             out_content_type=out_content_type)
         return resp
 
-    @wsgify
-    def __call__(self, req):
+    def __call__(self, env, start_response):
         """
         WSGI entry point
         """
+        req = Request(env)
         try:
             vrs, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
-            return self.app
-        if obj:
-            if req.method == 'PUT' and \
-                    req.params.get('multipart-manifest') == 'put':
-                return self.handle_multipart_put(req)
-            if req.method == 'DELETE' and \
-                    req.params.get('multipart-manifest') == 'delete':
-                return self.handle_multipart_delete(req)
-            if 'X-Static-Large-Object' in req.headers:
-                raise HTTPBadRequest(
-                    request=req,
-                    body='X-Static-Large-Object is a reserved header. '
-                    'To create a static large object add query param '
-                    'multipart-manifest=put.')
+            return self.app(env, start_response)
+        try:
+            if obj:
+                if req.method == 'PUT' and \
+                        req.params.get('multipart-manifest') == 'put':
+                    return self.handle_multipart_put(req, start_response)
+                if req.method == 'DELETE' and \
+                        req.params.get('multipart-manifest') == 'delete':
+                    return self.handle_multipart_delete(req)(env,
+                                                             start_response)
+                if 'X-Static-Large-Object' in req.headers:
+                    raise HTTPBadRequest(
+                        request=req,
+                        body='X-Static-Large-Object is a reserved header. '
+                        'To create a static large object add query param '
+                        'multipart-manifest=put.')
+        except HTTPException, err_resp:
+            return err_resp(env, start_response)
 
-        return self.app
+        return self.app(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):
