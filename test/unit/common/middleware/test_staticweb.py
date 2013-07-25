@@ -18,7 +18,6 @@ try:
 except ImportError:
     import json
 import unittest
-from contextlib import contextmanager
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import staticweb

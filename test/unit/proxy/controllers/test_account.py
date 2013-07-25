@@ -15,9 +15,7 @@
 
 import mock
 import unittest
-import swift.proxy.controllers.base
 
-from contextlib import contextmanager
 from swift.common.swob import Request
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info

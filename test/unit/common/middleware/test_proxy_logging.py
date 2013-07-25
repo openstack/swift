@@ -541,8 +541,7 @@ class TestProxyLogging(unittest.TestCase):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], '-')
 
@@ -550,8 +549,7 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = []
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], '-')
 
@@ -560,8 +558,7 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = ['one']
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], 'one')
 
@@ -570,8 +567,7 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = ['one', 'and two']
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], 'one%2Cand%20two')
 

@@ -26,6 +26,7 @@ else:  # executed if the try has no errors
 from swift.common.middleware import cname_lookup
 from swift.common.swob import Request
 
+
 class FakeApp(object):
 
     def __call__(self, env, start_response):
@@ -37,6 +38,7 @@ def start_response(*args):
 
 
 original_lookup = cname_lookup.lookup_cname
+
 
 class TestCNAMELookup(unittest.TestCase):
 
@@ -82,11 +84,11 @@ class TestCNAMELookup(unittest.TestCase):
     def test_good_lookup(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
-        
+
         def my_lookup(d):
             return 0, '%s.example.com' % d
         cname_lookup.lookup_cname = my_lookup
-        
+
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -102,7 +104,7 @@ class TestCNAMELookup(unittest.TestCase):
     def test_lookup_chain_too_long(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
-        
+
         def my_lookup(d):
             if d == 'mysite.com':
                 site = 'level1.foo.com'
@@ -112,18 +114,18 @@ class TestCNAMELookup(unittest.TestCase):
                 site = 'bar.example.com'
             return 0, site
         cname_lookup.lookup_cname = my_lookup
-        
+
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, ['CNAME lookup failed after 2 tries'])
 
     def test_lookup_chain_bad_target(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
-        
+
         def my_lookup(d):
             return 0, 'some.invalid.site.com'
         cname_lookup.lookup_cname = my_lookup
-        
+
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp,
                          ['CNAME lookup failed to resolve to a valid domain'])
@@ -131,11 +133,11 @@ class TestCNAMELookup(unittest.TestCase):
     def test_something_weird(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
-        
+
         def my_lookup(d):
             return 0, None
         cname_lookup.lookup_cname = my_lookup
-        
+
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp,
                          ['CNAME lookup failed to resolve to a valid domain'])
@@ -144,11 +146,14 @@ class TestCNAMELookup(unittest.TestCase):
         def my_lookup(d):
             return 0, '%s.example.com' % d
         cname_lookup.lookup_cname = my_lookup
+
         class memcache_stub(object):
             def __init__(self):
                 self.cache = {}
+
             def get(self, key):
                 return self.cache.get(key, None)
+
             def set(self, key, value, *a, **kw):
                 self.cache[key] = value
         memcache = memcache_stub()

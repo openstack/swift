@@ -17,30 +17,21 @@
 """ Tests for swift.obj.diskfile """
 
 import cPickle as pickle
-import operator
 import os
 import mock
 import unittest
 import email
 from shutil import rmtree
-from StringIO import StringIO
-from time import gmtime, strftime, time
+from time import time
 from tempfile import mkdtemp
 from hashlib import md5
 
-from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
+from eventlet import tpool
 from test.unit import FakeLogger
 from test.unit import _setxattr as setxattr
-from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import diskfile
-from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-                               NullLogger, storage_directory, public, \
-                               replication
+from swift.common.utils import mkdirs, normalize_timestamp
 from swift.common.exceptions import DiskFileNotExist, DiskFileDeviceUnavailable
-from swift.common import constraints
-from eventlet import tpool
-from swift.common.swob import Request, HeaderKeyDict
 
 
 class TestDiskFile(unittest.TestCase):
@@ -146,11 +137,12 @@ class TestDiskFile(unittest.TestCase):
         tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
         os.rmdir(tmpdir)
         with diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                                    'o', FakeLogger()).writer() as writer:
+                                    'o', FakeLogger()).writer():
             self.assert_(os.path.exists(tmpdir))
 
     def test_iter_hook(self):
         hook_call_count = [0]
+
         def hook():
             hook_call_count[0] += 1
 
@@ -334,7 +326,7 @@ class TestDiskFile(unittest.TestCase):
     def test_put_metadata(self):
         df = self._get_disk_file()
         ts = time()
-        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
+        metadata = {'X-Timestamp': ts, 'X-Object-Meta-test': 'data'}
         df.put_metadata(metadata)
         exp_name = '%s.meta' % str(normalize_timestamp(ts))
         dl = os.listdir(df.datadir)
@@ -344,7 +336,7 @@ class TestDiskFile(unittest.TestCase):
     def test_put_metadata_ts(self):
         df = self._get_disk_file()
         ts = time()
-        metadata = { 'X-Timestamp': ts, 'X-Object-Meta-test': 'data' }
+        metadata = {'X-Timestamp': ts, 'X-Object-Meta-test': 'data'}
         df.put_metadata(metadata, tombstone=True)
         exp_name = '%s.ts' % str(normalize_timestamp(ts))
         dl = os.listdir(df.datadir)
@@ -354,7 +346,7 @@ class TestDiskFile(unittest.TestCase):
     def test_unlinkold(self):
         df1 = self._get_disk_file()
         future_time = str(normalize_timestamp(time() + 100))
-        df2 = self._get_disk_file(ts=future_time)
+        self._get_disk_file(ts=future_time)
         self.assertEquals(len(os.listdir(df1.datadir)), 2)
         df1.unlinkold(future_time)
         self.assertEquals(len(os.listdir(df1.datadir)), 1)

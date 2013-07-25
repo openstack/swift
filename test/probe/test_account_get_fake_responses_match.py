@@ -18,7 +18,7 @@ import httplib
 import re
 import unittest
 
-from swiftclient import client, get_auth
+from swiftclient import get_auth
 from test.probe.common import kill_servers, reset_environment
 from urlparse import urlparse
 

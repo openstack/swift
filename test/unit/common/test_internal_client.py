@@ -284,7 +284,7 @@ class TestInternalClient(unittest.TestCase):
             try:
                 client.make_request('GET', '/', {}, (400,))
             except Exception, err:
-                exc = err
+                pass
             self.assertEquals(200, err.resp.status_int)
             try:
                 client.make_request('GET', '/', {}, (201,))

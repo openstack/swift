@@ -14,11 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
 import unittest
 
 from swift.proxy import server as proxy_server
-from test.unit import fake_http_connect, FakeRing, FakeMemcache
+from test.unit import FakeRing, FakeMemcache
 
 
 class TestObjControllerWriteAffinity(unittest.TestCase):
@@ -38,8 +37,6 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
 
         local_first_nodes = list(controller.iter_nodes_local_first(
             self.app.object_ring, 1))
-
-        fr = FakeRing()
 
         self.maxDiff = None
 
