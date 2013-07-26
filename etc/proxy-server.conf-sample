@@ -49,7 +49,7 @@
 # max_clients = 1024
 
 [pipeline:main]
-pipeline = catch_errors healthcheck proxy-logging cache slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors healthcheck proxy-logging cache bulk slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
