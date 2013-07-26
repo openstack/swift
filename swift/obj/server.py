@@ -29,7 +29,7 @@ from contextlib import contextmanager
 
 from webob import Request, Response, UTC
 from webob.exc import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
-    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
+    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPConflict, \
     HTTPNotModified, HTTPPreconditionFailed, \
     HTTPRequestTimeout, HTTPUnprocessableEntity, HTTPMethodNotAllowed
 from xattr import getxattr, setxattr
@@ -121,7 +121,6 @@ class DiskFile(object):
         self.tmpdir = os.path.join(path, device, 'tmp')
         self.logger = logger
         self.metadata = {}
-        self.meta_file = None
         self.data_file = None
         self.fp = None
         self.iter_etag = None
@@ -132,15 +131,18 @@ class DiskFile(object):
         if not os.path.exists(self.datadir):
             return
         files = sorted(os.listdir(self.datadir), reverse=True)
-        for file in files:
-            if file.endswith('.ts'):
-                self.data_file = self.meta_file = None
-                self.metadata = {'deleted': True}
-                return
-            if file.endswith('.meta') and not self.meta_file:
-                self.meta_file = os.path.join(self.datadir, file)
-            if file.endswith('.data') and not self.data_file:
-                self.data_file = os.path.join(self.datadir, file)
+        meta_file = None
+        for afile in files:
+            if afile.endswith('.ts'):
+                self.data_file = None
+                with open(os.path.join(self.datadir, afile)) as mfp:
+                    self.metadata = read_metadata(mfp)
+                self.metadata['deleted'] = True
+                break
+            if afile.endswith('.meta') and not meta_file:
+                meta_file = os.path.join(self.datadir, afile)
+            if afile.endswith('.data') and not self.data_file:
+                self.data_file = os.path.join(self.datadir, afile)
                 break
         if not self.data_file:
             return
@@ -148,8 +150,8 @@ class DiskFile(object):
         self.metadata = read_metadata(self.fp)
         if not keep_data_fp:
             self.close(verify_file=False)
-        if self.meta_file:
-            with open(self.meta_file) as mfp:
+        if meta_file:
+            with open(meta_file) as mfp:
                 for key in self.metadata.keys():
                     if key.lower() not in DISALLOWED_HEADERS:
                         del self.metadata[key]
@@ -532,6 +534,9 @@ class ObjectController(object):
         except (DiskFileError, DiskFileNotExist):
             file.quarantine()
             return HTTPNotFound(request=request)
+        orig_timestamp = file.metadata.get('X-Timestamp', '0')
+        if orig_timestamp >= request.headers['x-timestamp']:
+            return HTTPConflict(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                 if val[0].lower().startswith('x-object-meta-'))
@@ -584,6 +589,8 @@ class ObjectController(object):
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         orig_timestamp = file.metadata.get('X-Timestamp')
+        if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
+            return HTTPConflict(request=request)
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
         upload_size = 0
@@ -814,7 +821,6 @@ class ObjectController(object):
         if self.mount_check and not check_mount(self.devices, device):
             self.logger.increment('DELETE.errors')
             return HTTPInsufficientStorage(drive=device, request=request)
-        response_class = HTTPNoContent
         file = DiskFile(self.devices, device, partition, account, container,
                         obj, self.logger, disk_chunk_size=self.disk_chunk_size)
         if 'x-if-delete-at' in request.headers and \
@@ -823,23 +829,26 @@ class ObjectController(object):
             self.logger.timing_since('DELETE.timing', start_time)
             return HTTPPreconditionFailed(request=request,
                 body='X-If-Delete-At and X-Delete-At do not match')
-        orig_timestamp = file.metadata.get('X-Timestamp')
+        old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
+        if old_delete_at:
+            self.delete_at_update('DELETE', old_delete_at, account,
+                                  container, obj, request.headers, device)
+        orig_timestamp = file.metadata.get('X-Timestamp', 0)
+        req_timestamp = request.headers['X-Timestamp']
         if file.is_deleted():
             response_class = HTTPNotFound
-        metadata = {
-            'X-Timestamp': request.headers['X-Timestamp'], 'deleted': True,
-        }
-        with file.mkstemp() as (fd, tmppath):
-            old_delete_at = int(file.metadata.get('X-Delete-At') or 0)
-            if old_delete_at:
-                self.delete_at_update('DELETE', old_delete_at, account,
-                                      container, obj, request.headers, device)
-            file.put(fd, tmppath, metadata, extension='.ts')
-        file.unlinkold(metadata['X-Timestamp'])
-        if not orig_timestamp or \
-                orig_timestamp < request.headers['x-timestamp']:
+        else:
+            if orig_timestamp < req_timestamp:
+                response_class = HTTPNoContent
+            else:
+                response_class = HTTPConflict
+        if orig_timestamp < req_timestamp:
+            metadata = {'X-Timestamp': req_timestamp}
+            with file.mkstemp() as (fd, tmppath):
+                file.put(fd, tmppath, metadata, extension='.ts')
+            file.unlinkold(req_timestamp)
             self.container_update('DELETE', account, container, obj,
-                request.headers, {'x-timestamp': metadata['X-Timestamp'],
+                request.headers, {'x-timestamp': req_timestamp,
                 'x-trans-id': request.headers.get('x-trans-id', '-')},
                 device)
         resp = response_class(request=request)
