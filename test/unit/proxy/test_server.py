@@ -1274,6 +1274,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.body, json_listing)
             self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(resp.charset.lower(), 'utf-8')
 
             self.assertEqual(
                 requested,
