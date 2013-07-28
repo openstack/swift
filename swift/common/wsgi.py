@@ -20,6 +20,7 @@ import os
 import signal
 import time
 import mimetools
+from gettext import gettext as _
 from itertools import chain
 from StringIO import StringIO
 

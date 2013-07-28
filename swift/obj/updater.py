@@ -18,6 +18,7 @@ import os
 import signal
 import sys
 import time
+from gettext import gettext as _
 from random import random
 
 from eventlet import patcher, Timeout

@@ -20,6 +20,7 @@ import time
 import traceback
 from xml.sax import saxutils
 from datetime import datetime
+from gettext import gettext as _
 
 from eventlet import Timeout
 

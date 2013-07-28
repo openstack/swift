@@ -30,6 +30,7 @@ from hashlib import md5
 from random import random, shuffle
 from urllib import quote
 from contextlib import contextmanager, closing
+from gettext import gettext as _
 import ctypes
 import ctypes.util
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \

@@ -20,6 +20,7 @@ import shutil
 import time
 import itertools
 import cPickle as pickle
+from gettext import gettext as _
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs

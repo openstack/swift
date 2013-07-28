@@ -22,6 +22,7 @@ import shutil
 import uuid
 import errno
 import re
+from gettext import gettext as _
 
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
