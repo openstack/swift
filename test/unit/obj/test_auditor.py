@@ -23,11 +23,10 @@ from hashlib import md5
 from tempfile import mkdtemp
 from test.unit import FakeLogger
 from swift.obj import auditor
-from swift.obj.diskfile import DiskFile, write_metadata
+from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash
 from swift.obj.server import DATADIR
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
-from swift.obj.base import invalidate_hash
 
 
 class TestAuditor(unittest.TestCase):

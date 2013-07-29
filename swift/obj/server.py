@@ -38,14 +38,13 @@ from swift.common.constraints import check_object_creation, check_mount, \
 from swift.common.exceptions import ConnectionTimeout, DiskFileError, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, \
     DiskFileDeviceUnavailable
-from swift.obj.base import get_hashes
 from swift.common.http import is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict
-from swift.obj.diskfile import DiskFile
+from swift.obj.diskfile import DiskFile, get_hashes
 
 
 DATADIR = 'objects'
