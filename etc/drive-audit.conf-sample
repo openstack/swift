@@ -5,3 +5,18 @@
 # log_address = /dev/log
 # minutes = 60
 # error_limit = 1
+#
+# Location of the log file with globbing
+# pattern to check against device errors.
+# log_file_pattern = /var/log/kern*
+#
+# Regular expression patterns to be used to locate
+# device blocks with errors in the log file. Currently
+# the default ones are as follows:
+#   \berror\b.*\b(sd[a-z]{1,2}\d?)\b
+#   \b(sd[a-z]{1,2}\d?)\b.*\berror\b
+# One can overwrite the default ones by providing
+# new expressions using the format below: 
+# Format: regex_pattern_X = regex_expression
+# Example:
+#   regex_pattern_1 = \berror\b.*\b(dm-[0-9]{1,2}\d?)\b

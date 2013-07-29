@@ -156,20 +156,30 @@ settings:
 
 [drive-audit]
 
-==================  ==========  ===========================================
-Option              Default     Description
-------------------  ----------  -------------------------------------------
-log_facility        LOG_LOCAL0  Syslog log facility
-log_level           INFO        Log level
-device_dir          /srv/node   Directory devices are mounted under
-minutes             60          Number of minutes to look back in
-                                `/var/log/kern.log`
-error_limit         1           Number of errors to find before a device
-                                is unmounted
-==================  ==========  ===========================================
+==================  ==============  ===========================================
+Option              Default         Description
+------------------  --------------  -------------------------------------------
+log_facility        LOG_LOCAL0      Syslog log facility
+log_level           INFO            Log level
+device_dir          /srv/node       Directory devices are mounted under
+minutes             60              Number of minutes to look back in
+                                    `/var/log/kern.log`
+error_limit         1               Number of errors to find before a device
+                                    is unmounted
+log_file_pattern    /var/log/kern*  Location of the log file with globbing
+                                    pattern to check against device errors
+regex_pattern_X     (see below)     Regular expression patterns to be used to
+                                    locate device blocks with errors in the
+                                    log file  
+==================  ==============  ===========================================
 
-This script has only been tested on Ubuntu 10.04, so if you are using a
-different distro or OS, some care should be taken before using in production.
+The default regex pattern used to locate device blocks with errors are
+`\berror\b.*\b(sd[a-z]{1,2}\d?)\b` and `\b(sd[a-z]{1,2}\d?)\b.*\berror\b`.
+One is able to overwrite the default above by providing new expressions
+using the format `regex_pattern_X = regex_expression`, where `X` is a number.
+
+This script has been tested on Ubuntu 10.04 and Ubuntu 12.04, so if you are
+using a different distro or OS, some care should be taken before using in production.
 
 --------------
 Cluster Health
