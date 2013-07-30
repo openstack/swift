@@ -1447,29 +1447,6 @@ class AccountBroker(DatabaseBroker):
                         protocol=PICKLE_PROTOCOL).encode('base64'))
                     fp.flush()
 
-    def can_delete_db(self, cutoff):
-        """
-        Check if the accont DB can be deleted.
-
-        :returns: True if the account can be deleted, False otherwise
-        """
-        self._commit_puts()
-        with self.get() as conn:
-            row = conn.execute('''
-                SELECT status, put_timestamp, delete_timestamp, container_count
-                FROM account_stat''').fetchone()
-            # The account is considered deleted if its status is marked
-            # as 'DELETED" and the delete_timestamp is older than the supplied
-            # cutoff date; or if the delete_timestamp value is greater than
-            # the put_timestamp, and there are no containers for the account
-            status_del = (row['status'] == 'DELETED')
-            deltime = float(row['delete_timestamp'])
-            past_cutoff = (deltime < cutoff)
-            time_later = (row['delete_timestamp'] > row['put_timestamp'])
-            no_containers = (row['container_count'] in (None, '', 0, '0'))
-            return (
-                (status_del and past_cutoff) or (time_later and no_containers))
-
     def is_deleted(self):
         """
         Check if the account DB is considered to be deleted.
