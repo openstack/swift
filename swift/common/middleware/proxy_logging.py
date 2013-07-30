@@ -77,6 +77,7 @@ from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, config_true_value,
                                 InputProxy)
+from swift.common.constraints import MAX_HEADER_SIZE
 
 QUOTE_SAFE = '/:'
 
@@ -112,6 +113,8 @@ class ProxyLoggingMiddleware(object):
         self.access_logger = get_logger(access_log_conf,
                                         log_route='proxy-access')
         self.access_logger.set_statsd_prefix('proxy-server')
+        self.reveal_sensitive_prefix = int(conf.get('reveal_sensitive_prefix',
+                                                    MAX_HEADER_SIZE))
 
     def method_from_req(self, req):
         return req.environ.get('swift.orig_req_method', req.method)
@@ -121,6 +124,13 @@ class ProxyLoggingMiddleware(object):
 
     def mark_req_logged(self, req):
         req.environ['swift.proxy_access_log_made'] = True
+
+    def obscure_sensitive(self, value):
+        if not value:
+            return '-'
+        if len(value) > self.reveal_sensitive_prefix:
+            return value[:self.reveal_sensitive_prefix] + '...'
+        return value
 
     def log_request(self, req, status_int, bytes_received, bytes_sent,
                     request_time):
@@ -156,7 +166,7 @@ class ProxyLoggingMiddleware(object):
                 status_int,
                 req.referer,
                 req.user_agent,
-                req.headers.get('x-auth-token'),
+                self.obscure_sensitive(req.headers.get('x-auth-token')),
                 bytes_received,
                 bytes_sent,
                 req.headers.get('etag', None),
