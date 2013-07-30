@@ -71,6 +71,12 @@ class TestDiskFile(unittest.TestCase):
                                     FakeLogger(), keep_data_fp=True)
         self.assertEqual(''.join(df.app_iter_range(5, None)), '67890')
 
+    def test_disk_file_app_iter_partial_closes(self):
+        df = self._create_test_file('1234567890')
+        it = df.app_iter_range(0, 5)
+        self.assertEqual(''.join(it), '12345')
+        self.assertEqual(df.fp, None)
+
     def test_disk_file_app_iter_ranges(self):
         df = self._create_test_file('012345678911234567892123456789')
         it = df.app_iter_ranges([(0, 10), (10, 20), (20, 30)], 'plain/text',

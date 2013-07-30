@@ -274,14 +274,18 @@ class DiskFile(object):
             length = stop - start
         else:
             length = None
-        for chunk in self:
-            if length is not None:
-                length -= len(chunk)
-                if length < 0:
-                    # Chop off the extra:
-                    yield chunk[:length]
-                    break
-            yield chunk
+        try:
+            for chunk in self:
+                if length is not None:
+                    length -= len(chunk)
+                    if length < 0:
+                        # Chop off the extra:
+                        yield chunk[:length]
+                        break
+                yield chunk
+        finally:
+            if not self.suppress_file_closing:
+                self.close()
 
     def app_iter_ranges(self, ranges, content_type, boundary, size):
         """Returns an iterator over the data file for a set of ranges"""
