@@ -1128,6 +1128,26 @@ log_name = %(yarr)s'''
         finally:
             utils.TRUE_VALUES = orig_trues
 
+    def test_config_auto_int_value(self):
+        expectations = {
+            # (value, default) : expected,
+            ('1', 0): 1,
+            (1, 0): 1,
+            ('asdf', 0): ValueError,
+            ('auto', 1): 1,
+            ('AutO', 1): 1,
+            ('Aut0', 1): ValueError,
+            (None, 1): 1,
+        }
+        for (value, default), expected in expectations.items():
+            try:
+                rv = utils.config_auto_int_value(value, default)
+            except Exception, e:
+                if e.__class__ is not expected:
+                    raise
+            else:
+                self.assertEquals(expected, rv)
+
     def test_streq_const_time(self):
         self.assertTrue(utils.streq_const_time('abc123', 'abc123'))
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))

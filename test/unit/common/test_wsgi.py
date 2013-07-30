@@ -304,6 +304,7 @@ class TestWSGI(unittest.TestCase):
         [DEFAULT]
         eventlet_debug = yes
         client_timeout = 30
+        max_clients = 1000
         swift_dir = TEMPDIR
 
         [pipeline:main]
@@ -311,6 +312,10 @@ class TestWSGI(unittest.TestCase):
 
         [app:proxy-server]
         use = egg:swift#proxy
+        # while "set" values normally override default
+        set client_timeout = 20
+        # this section is not in conf during run_server
+        set max_clients = 10
         """
 
         contents = dedent(config)
@@ -337,8 +342,10 @@ class TestWSGI(unittest.TestCase):
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
         self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assertEquals(20, server_app.client_timeout)
         self.assert_(isinstance(server_logger, wsgi.NullLogger))
         self.assert_('custom_pool' in kwargs)
+        self.assertEquals(1000, kwargs['custom_pool'].size)
 
     def test_run_server_conf_dir(self):
         config_dir = {

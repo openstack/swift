@@ -300,6 +300,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
 
         [DEFAULT]
         bind_port = 8080
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL1
         eventlet_debug = true
@@ -342,6 +343,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6012
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -370,6 +372,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6022
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -398,6 +401,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6032
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -426,6 +430,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6042
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
@@ -454,6 +459,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6011
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -484,6 +490,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6021
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -514,6 +521,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6031
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -544,6 +552,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6041
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
@@ -575,6 +584,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6010
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL2
         recon_cache_path = /var/cache/swift
@@ -603,6 +613,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6020
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL3
         recon_cache_path = /var/cache/swift2
@@ -631,6 +642,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6030
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL4
         recon_cache_path = /var/cache/swift3
@@ -659,6 +671,7 @@ Sample configuration files are provided with all defaults in line-by-line commen
         mount_check = false
         disable_fallocate = true
         bind_port = 6040
+        workers = 1
         user = <your-user-name>
         log_facility = LOG_LOCAL5
         recon_cache_path = /var/cache/swift4
