@@ -21,6 +21,7 @@ import errno
 import os
 import time
 import traceback
+from gettext import gettext as _
 from hashlib import md5
 from tempfile import mkstemp
 from contextlib import contextmanager

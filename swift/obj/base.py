@@ -22,6 +22,7 @@ import logging
 import os
 import time
 import uuid
+from gettext import gettext as _
 from os.path import basename, dirname, join
 
 from swift.common.exceptions import PathNotDir

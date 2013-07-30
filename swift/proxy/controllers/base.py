@@ -29,6 +29,7 @@ import time
 import functools
 import inspect
 import itertools
+from gettext import gettext as _
 from urllib import quote
 
 from eventlet import spawn_n, GreenPile
@@ -219,7 +220,7 @@ def get_container_info(env, app, swift_source=None):
     Note: This call bypasses auth. Success does not imply that the
           request has authorization to the account.
     """
-    (version, account, container, _) = \
+    (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
     info = get_info(app, env, account, container, ret_not_found=True)
     if not info:

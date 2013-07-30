@@ -22,6 +22,7 @@ import signal
 import socket
 import logging
 from contextlib import contextmanager
+from gettext import gettext as _
 from optparse import Values
 
 import eventlet

@@ -15,6 +15,7 @@
 
 import os
 import time
+from gettext import gettext as _
 from random import random
 
 from eventlet import Timeout

@@ -22,6 +22,7 @@ import signal
 import time
 import subprocess
 import re
+from gettext import gettext as _
 
 from swift.common.utils import search_tree, remove_file, write_file
 
