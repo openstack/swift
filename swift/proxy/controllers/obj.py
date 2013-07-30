@@ -874,11 +874,17 @@ class ObjectController(Controller):
             req.headers['X-Timestamp'] = normalize_timestamp(time.time())
         # Sometimes the 'content-type' header exists, but is set to None.
         content_type_manually_set = True
-        if not req.headers.get('content-type'):
+        detect_content_type = \
+            config_true_value(req.headers.get('x-detect-content-type'))
+        if detect_content_type or not req.headers.get('content-type'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             req.headers['Content-Type'] = guessed_type or \
                 'application/octet-stream'
-            content_type_manually_set = False
+            if detect_content_type:
+                req.headers.pop('x-detect-content-type')
+            else:
+                content_type_manually_set = False
+
         error_response = check_object_creation(req, self.object_name) or \
             check_content_type(req)
         if error_response:

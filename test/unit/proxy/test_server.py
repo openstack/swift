@@ -2035,6 +2035,53 @@ class TestObjectController(unittest.TestCase):
             res = controller.POST(req)
             self.assertEquals(res.status_int, 400)
 
+    def test_PUT_not_autodetect_content_type(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'o.html')
+
+            headers = {'Content-Type': 'something/right', 'Content-Length': 0}
+            it_worked = []
+
+            def verify_content_type(ipaddr, port, device, partition,
+                                    method, path, headers=None,
+                                    query_string=None):
+                if path == '/a/c/o.html':
+                    it_worked.append(
+                        headers['Content-Type'].startswith('something/right'))
+
+            set_http_connect(204, 204, 201, 201, 201,
+                             give_connect=verify_content_type)
+            req = Request.blank('/a/c/o.html', {}, headers=headers)
+            self.app.update_request(req)
+            res = controller.PUT(req)
+            self.assertNotEquals(it_worked, [])
+            self.assertTrue(all(it_worked))
+
+    def test_PUT_autodetect_content_type(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'o.html')
+
+            headers = {'Content-Type': 'something/wrong', 'Content-Length': 0,
+                       'X-Detect-Content-Type': 'True'}
+            it_worked = []
+
+            def verify_content_type(ipaddr, port, device, partition,
+                                    method, path, headers=None,
+                                    query_string=None):
+                if path == '/a/c/o.html':
+                    it_worked.append(
+                        headers['Content-Type'].startswith('text/html'))
+
+            set_http_connect(204, 204, 201, 201, 201,
+                             give_connect=verify_content_type)
+            req = Request.blank('/a/c/o.html', {}, headers=headers)
+            self.app.update_request(req)
+            res = controller.PUT(req)
+            self.assertNotEquals(it_worked, [])
+            self.assertTrue(all(it_worked))
+
     def test_client_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
