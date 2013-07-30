@@ -14,16 +14,19 @@
 # limitations under the License.
 
 from httplib import HTTPConnection
+import os
 from os import kill, path
 from signal import SIGTERM
 from subprocess import Popen, PIPE
+import sys
 from time import sleep, time
 
 from swiftclient import get_auth, head_account
 
 from swift.common.ring import Ring
+from swift.common.utils import readconf
 
-from test.probe import CHECK_SERVER_TIMEOUT
+from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
 
 def start_server(port, port2server, pids, check=True):
@@ -130,12 +133,61 @@ def kill_nonprimary_server(primary_nodes, port2server, pids):
             return port
 
 
+def get_ring(server, force_validate=None):
+    ring = Ring('/etc/swift/%s.ring.gz' % server)
+    if not VALIDATE_RSYNC and not force_validate:
+        return ring
+    # easy sanity checks
+    assert 3 == ring.replica_count, '%s has %s replicas instead of 3' % (
+        ring.serialized_path, ring.replica_count)
+    assert 4 == len(ring.devs), '%s has %s devices instead of 4' % (
+        ring.serialized_path, len(ring.devs))
+    # map server to config by port
+    port_to_config = {}
+    for node_id in range(1,5):
+        conf = readconf('/etc/swift/%s-server/%d.conf' % (server, node_id),
+                        section_name='%s-replicator' % server)
+        port_to_config[int(conf['bind_port'])] = conf
+    for dev in ring.devs:
+        # verify server is exposing mounted device
+        conf = port_to_config[dev['port']]
+        for device in os.listdir(conf['devices']):
+            if device == dev['device']:
+                full_path = path.realpath(path.join(conf['devices'], device))
+                assert path.ismount(full_path), 'device %s in %s was not ' \
+                        'mounted (%s)' % (device, conf['devices'], full_path)
+                break
+        else:
+            assert False, "unable to find ring device %s " \
+                    "under %s's devices (%s)" % (
+                        dev['device'], server, conf['devices'])
+        # verify server is exposing rsync device
+        rsync_export = '%s%s' % (server, dev['replication_port'])
+        cmd = "rsync rsync://localhost/%s" % rsync_export
+        p = Popen(cmd, shell=True, stdout=PIPE)
+        stdout, _stderr = p.communicate()
+        if p.returncode:
+            raise AssertionError('unable to connect to rsync '
+                                 'export %s (%s)' % (rsync_export, cmd))
+        for line in stdout.splitlines():
+            if line.rsplit(None, 1)[-1] == dev['device']:
+                break
+        else:
+            assert False, "unable to find ring device %s under rsync's " \
+                    "exported devices for %s (%s)" % (
+                        dev['device'], rsync_export, cmd)
+    return ring
+
+
 def reset_environment():
     p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
     print stdout
     pids = {}
     try:
+        account_ring = get_ring('account')
+        container_ring = get_ring('container')
+        object_ring = get_ring('object')
         port2server = {}
         config_dict = {}
         for server, port in [('account', 6002), ('container', 6001),
@@ -148,15 +200,15 @@ def reset_environment():
             check_server(port, port2server, pids)
         port2server[8080] = 'proxy'
         url, token, account = start_server(8080, port2server, pids)
-        account_ring = Ring('/etc/swift/account.ring.gz')
-        container_ring = Ring('/etc/swift/container.ring.gz')
-        object_ring = Ring('/etc/swift/object.ring.gz')
         for name in ('account', 'container', 'object'):
             for server in (name, '%s-replicator' % name):
                 config_dict[server] = '/etc/swift/%s-server/%%d.conf' % name
     except BaseException:
         try:
             raise
+        except AssertionError, e:
+            print >>sys.stderr, 'ERROR: %s' % e
+            os._exit(1)
         finally:
             try:
                 kill_servers(port2server, pids)
@@ -202,3 +254,9 @@ def get_to_final_state():
                 'once']))
     for process in processes:
         process.wait()
+
+
+if __name__ == "__main__":
+    for server in ('account', 'container', 'object'):
+        get_ring(server, force_validate=True)
+        print '%s OK' % server
