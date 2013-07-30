@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
-from gettext import gettext as _
+from swift import gettext_ as _
 
 import eventlet
 

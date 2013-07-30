@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from gettext import gettext as _
+from swift import gettext_ as _
 from eventlet import Timeout
 
 from swift.common.swob import Request, HTTPServerError

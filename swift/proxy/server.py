@@ -26,7 +26,7 @@
 
 import mimetypes
 import os
-from gettext import gettext as _
+from swift import gettext_ as _
 from random import shuffle
 from time import time
 

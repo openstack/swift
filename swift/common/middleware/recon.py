@@ -15,7 +15,7 @@
 
 import errno
 import os
-from gettext import gettext as _
+from swift import gettext_ as _
 
 from swift import __version__ as swiftver
 from swift.common.swob import Request, Response

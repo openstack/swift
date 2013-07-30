@@ -49,7 +49,7 @@ import logging
 import socket
 import time
 from bisect import bisect
-from gettext import gettext as _
+from swift import gettext_ as _
 from hashlib import md5
 
 from swift.common.utils import json

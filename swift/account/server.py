@@ -18,7 +18,7 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-from gettext import gettext as _
+from swift import gettext_ as _
 
 from eventlet import Timeout
 

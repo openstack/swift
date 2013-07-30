@@ -25,7 +25,7 @@ import sys
 import time
 import cPickle as pickle
 import errno
-from gettext import gettext as _
+from swift import gettext_ as _
 from tempfile import mkstemp
 
 from eventlet import sleep, Timeout

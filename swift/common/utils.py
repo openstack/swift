@@ -30,7 +30,6 @@ from hashlib import md5
 from random import random, shuffle
 from urllib import quote as _quote
 from contextlib import contextmanager, closing
-from gettext import gettext as _
 import ctypes
 import ctypes.util
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
@@ -58,6 +57,7 @@ import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 
+from swift import gettext_ as _
 from swift.common.exceptions import LockTimeout, MessageTimeout
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 

@@ -29,7 +29,7 @@ import mimetypes
 import re
 import time
 from datetime import datetime
-from gettext import gettext as _
+from swift import gettext_ as _
 from urllib import unquote, quote
 from hashlib import md5
 
