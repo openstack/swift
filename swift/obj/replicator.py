@@ -35,7 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
-from swift.obj.base import get_hashes
+from swift.obj.diskfile import get_hashes
 
 
 hubs.use_hub(get_hub())
