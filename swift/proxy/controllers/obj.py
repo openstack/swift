@@ -521,6 +521,7 @@ class ObjectController(Controller):
                 'X-Copy-From' not in req.headers and \
                 self.app.allow_static_large_object:
             resp.content_type = 'application/json'
+            resp.charset = 'utf-8'
 
         if config_true_value(resp.headers.get('x-static-large-object')) and \
                 req.params.get('multipart-manifest') != 'get' and \
