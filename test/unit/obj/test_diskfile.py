@@ -343,10 +343,23 @@ class TestDiskFile(unittest.TestCase):
         return df
 
     def test_disk_file_default_disallowed_metadata(self):
-        keep_data_fp = True
+        # build an object with some meta (ts 41)
+        orig_metadata = {'X-Object-Meta-Key1': 'Value1',
+                         'Content-Type': 'text/garbage'}
+        df = self._get_disk_file(ts=41, extra_metadata=orig_metadata)
+        self.assertEquals('1024', df.metadata['Content-Length'])
+        # write some new metadata (fast POST, don't send orig meta, ts 42)
         df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=keep_data_fp)
-        self.assertEquals(df.disallowed_metadata_keys, [])
+                                    FakeLogger())
+        df.put_metadata({'X-Timestamp': '42', 'X-Object-Meta-Key2': 'Value2'})
+        df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger())
+        # non-fast-post updateable keys are preserved
+        self.assertEquals('text/garbage', df.metadata['Content-Type'])
+        # original fast-post updateable keys are removed
+        self.assert_('X-Object-Meta-Key1' not in df.metadata)
+        # new fast-post updateable keys are added
+        self.assertEquals('Value2', df.metadata['X-Object-Meta-Key2'])
 
     def test_disk_file_app_iter_corners(self):
         df = self._create_test_file('1234567890')
@@ -490,7 +503,8 @@ class TestDiskFile(unittest.TestCase):
 
     def _get_disk_file(self, invalid_type=None, obj_name='o',
                        fsize=1024, csize=8, mark_deleted=False, ts=None,
-                       iter_hook=None, mount_check=False):
+                       iter_hook=None, mount_check=False,
+                       extra_metadata=None):
         '''returns a DiskFile'''
         df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
                                     obj_name, FakeLogger())
@@ -509,6 +523,7 @@ class TestDiskFile(unittest.TestCase):
                 'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(writer.fd).st_size),
             }
+            metadata.update(extra_metadata or {})
             writer.put(metadata)
             if invalid_type == 'ETag':
                 etag = md5()

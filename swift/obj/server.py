@@ -45,14 +45,13 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
-from swift.obj.diskfile import DiskFile, get_hashes
+from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFile, \
+    get_hashes
 
 
 DATADIR = 'objects'
 ASYNCDIR = 'async_pending'
 MAX_OBJECT_NAME_LENGTH = 1024
-# keep these lower-case
-DISALLOWED_HEADERS = set('content-length content-type deleted etag'.split())
 
 
 def _parse_path(request, minsegs=5, maxsegs=5):
@@ -109,10 +108,15 @@ class ObjectController(object):
             x-object-manifest,
             x-static-large-object,
         '''
-        self.allowed_headers = set(
-            i.strip().lower() for i in
-            conf.get('allowed_headers', default_allowed_headers).split(',')
-            if i.strip() and i.strip().lower() not in DISALLOWED_HEADERS)
+        extra_allowed_headers = [
+            header.strip().lower() for header in conf.get(
+                'allowed_headers', default_allowed_headers).split(',')
+            if header.strip()
+        ]
+        self.allowed_headers = set()
+        for header in extra_allowed_headers:
+            if header not in DATAFILE_SYSTEM_META:
+                self.allowed_headers.add(header)
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
             'expiring_objects'
@@ -126,7 +130,6 @@ class ObjectController(object):
         kwargs.setdefault('disk_chunk_size', self.disk_chunk_size)
         kwargs.setdefault('threadpool', self.threadpools[device])
         kwargs.setdefault('obj_dir', DATADIR)
-        kwargs.setdefault('disallowed_metadata_keys', DISALLOWED_HEADERS)
         return DiskFile(self.devices, device, partition, account,
                         container, obj, self.logger, **kwargs)
 
