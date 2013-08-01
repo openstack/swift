@@ -1851,6 +1851,7 @@ def replication(func):
     """
     Decorator to declare which methods are accessible for different
     type of servers:
+
     * If option replication_server is None then this decorator
       doesn't matter.
     * If option replication_server is True then ONLY decorated with
