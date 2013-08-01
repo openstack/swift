@@ -342,6 +342,12 @@ class TestDiskFile(unittest.TestCase):
                                     FakeLogger(), keep_data_fp=keep_data_fp)
         return df
 
+    def test_disk_file_default_disallowed_metadata(self):
+        keep_data_fp = True
+        df = diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c', 'o',
+                                    FakeLogger(), keep_data_fp=keep_data_fp)
+        self.assertEquals(df.disallowed_metadata_keys, [])
+
     def test_disk_file_app_iter_corners(self):
         df = self._create_test_file('1234567890')
         self.assertEquals(''.join(df.app_iter_range(0, None)), '1234567890')

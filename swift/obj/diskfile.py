@@ -364,7 +364,7 @@ class DiskFile(object):
         self.device_path = join(path, device)
         self.tmpdir = join(path, device, 'tmp')
         self.logger = logger
-        self.disallowed_metadata_keys = disallowed_metadata_keys
+        self.disallowed_metadata_keys = disallowed_metadata_keys or []
         self.metadata = {}
         self.meta_file = None
         self.data_file = None
