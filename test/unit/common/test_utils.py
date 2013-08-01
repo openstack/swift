@@ -1529,6 +1529,27 @@ log_name = %(yarr)s'''
         finally:
             shutil.rmtree(tmpdir)
 
+    def test_parse_content_type(self):
+        self.assertEquals(utils.parse_content_type('text/plain'),
+                          ('text/plain', []))
+        self.assertEquals(utils.parse_content_type('text/plain;charset=utf-8'),
+                          ('text/plain', [('charset', 'utf-8')]))
+        self.assertEquals(
+            utils.parse_content_type('text/plain;hello="world";charset=utf-8'),
+            ('text/plain', [('hello', '"world"'), ('charset', 'utf-8')]))
+        self.assertEquals(
+            utils.parse_content_type('text/plain; hello="world"; a=b'),
+            ('text/plain', [('hello', '"world"'), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x="\""; a=b'),
+            ('text/plain', [('x', r'"\""'), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x; a=b'),
+            ('text/plain', [('x', ''), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x="\""; a'),
+            ('text/plain', [('x', r'"\""'), ('a', '')]))
+
 
 class TestFileLikeIter(unittest.TestCase):
 
