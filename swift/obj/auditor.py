@@ -74,7 +74,8 @@ class AuditorWorker(object):
         total_errors = 0
         time_auditing = 0
         all_locs = audit_location_generator(self.devices,
-                                            object_server.DATADIR, '.data',
+                                            object_server.DATADIR_REPL,
+                                            '.data',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:

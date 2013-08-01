@@ -32,6 +32,7 @@ from time import time
 
 from eventlet import Timeout
 
+import swift.common.storage_policy
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
@@ -48,7 +49,7 @@ class Application(object):
     """WSGI application for the proxy server."""
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
-                 container_ring=None, object_ring=None):
+                 container_ring=None, storage_policies=None):
         if conf is None:
             conf = {}
         if logger is None:
@@ -57,6 +58,7 @@ class Application(object):
             self.logger = logger
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.swift_dir = swift_dir
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
@@ -76,7 +78,10 @@ class Application(object):
             config_true_value(conf.get('allow_account_management', 'no'))
         self.object_post_as_copy = \
             config_true_value(conf.get('object_post_as_copy', 'true'))
-        self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
+        # either pass in a custom collection of policies (mainly for
+        # testability), or else use the default one that's built up from
+        # swift.conf.
+        self.policies = storage_policies or swift.common.storage_policy
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
@@ -160,6 +165,27 @@ class Application(object):
         self.swift_owner_headers = [
             name.strip()
             for name in swift_owner_headers.split(',') if name.strip()]
+
+    def get_object_ring(self, policy_idx):
+        """
+        Get the ring object to use to handle a request based on its policy.
+
+        :policy_idx: policy index as defined in swift.conf
+        :returns: appropriate ring object
+
+        """
+        if policy_idx is None:
+            policy_idx = 0
+        else:
+            # makes it easier for callers to just pass in a header value
+            policy_idx = int(policy_idx)
+        policy = self.policies.get_by_index(policy_idx)
+        if not policy:
+            raise ValueError("No policy with index %d" % policy_idx)
+        if not policy.object_ring:
+            policy.object_ring = Ring(self.swift_dir,
+                                      ring_name=policy.ring_name)
+        return policy.object_ring
 
     def get_controller(self, path):
         """

@@ -46,9 +46,14 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFile, \
     get_hashes
+import swift.common.storage_policy as storage_policy
+POLICY_INDEX = storage_policy.POLICY_INDEX
 
 
-DATADIR = 'objects'
+# XXX:  fixme, this should be replaced with a method that knows
+# about policy type so it can pull the right one, that is
+# pending on another branch so will be merged accordingly
+DATADIR_REPL = storage_policy.get_by_index(0).data_dir
 ASYNCDIR = 'async_pending'
 MAX_OBJECT_NAME_LENGTH = 1024
 
@@ -112,7 +117,7 @@ class ObjectController(object):
         kwargs.setdefault('bytes_per_sync', self.bytes_per_sync)
         kwargs.setdefault('disk_chunk_size', self.disk_chunk_size)
         kwargs.setdefault('threadpool', self.threadpools[device])
-        kwargs.setdefault('obj_dir', DATADIR)
+        kwargs.setdefault('obj_dir', DATADIR_REPL)
         return DiskFile(self.devices, device, partition, account,
                         container, obj, self.logger, **kwargs)
 
@@ -229,7 +234,6 @@ class ObjectController(object):
         # created income for thousands of future programmers.
         delete_at = max(min(delete_at, 9999999999), 0)
         updates = [(None, None)]
-
         partition = None
         hosts = contdevices = [None]
         headers_in = request.headers
@@ -281,7 +285,7 @@ class ObjectController(object):
 
     @public
     @timing_stats()
-    def POST(self, request):
+    def POST(self, request, obj_dir):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj = \
             split_and_validate_path(request, 5, 5, True)
@@ -296,7 +300,7 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj)
+                                       obj, obj_dir=obj_dir)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         with disk_file.open():
@@ -331,11 +335,10 @@ class ObjectController(object):
 
     @public
     @timing_stats()
-    def PUT(self, request):
+    def PUT(self, request, obj_dir):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj = \
             split_and_validate_path(request, 5, 5, True)
-
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -354,7 +357,7 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj)
+                                       obj, obj_dir=obj_dir)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         with disk_file.open():
@@ -429,13 +432,13 @@ class ObjectController(object):
 
     @public
     @timing_stats()
-    def GET(self, request):
+    def GET(self, request, obj_dir):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj = \
             split_and_validate_path(request, 5, 5, True)
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj, iter_hook=sleep)
+                                       obj, iter_hook=sleep, obj_dir=obj_dir)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         disk_file.open()
@@ -505,13 +508,13 @@ class ObjectController(object):
 
     @public
     @timing_stats(sample_rate=0.8)
-    def HEAD(self, request):
+    def HEAD(self, request, obj_dir):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj = \
             split_and_validate_path(request, 5, 5, True)
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj)
+                                       obj, obj_dir=obj_dir)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         with disk_file.open():
@@ -541,7 +544,7 @@ class ObjectController(object):
 
     @public
     @timing_stats()
-    def DELETE(self, request):
+    def DELETE(self, request, obj_dir):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj = \
             split_and_validate_path(request, 5, 5, True)
@@ -551,7 +554,7 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj)
+                                       obj, obj_dir=obj_dir)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         with disk_file.open():
@@ -589,7 +592,7 @@ class ObjectController(object):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def REPLICATE(self, request):
+    def REPLICATE(self, request, obj_dir):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
@@ -599,7 +602,7 @@ class ObjectController(object):
 
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
-        path = os.path.join(self.devices, device, DATADIR, partition)
+        path = os.path.join(self.devices, device, obj_dir, partition)
         if not os.path.exists(path):
             mkdirs(path)
         suffixes = suffix.split('-') if suffix else []
@@ -628,7 +631,19 @@ class ObjectController(object):
                 except AttributeError:
                     res = HTTPMethodNotAllowed()
                 else:
-                    res = method(req)
+                    policy_idx = req.headers.get(POLICY_INDEX, '0')
+                    try:
+                        policy_idx = int(policy_idx)
+                    except ValueError:
+                        res = HTTPBadRequest(
+                            "Policy index must be numeric (was %s)"
+                            % policy_idx)
+                    else:
+                        if policy_idx == 0:
+                            datadir = "objects"
+                        else:
+                            datadir = "objects-%d" % policy_idx
+                    res = method(req, obj_dir=datadir)
             except DiskFileCollision:
                 res = HTTPForbidden(request=req)
             except HTTPException as error_response:

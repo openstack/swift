@@ -39,6 +39,7 @@ from swift.common import ondisk
 from swift.common import constraints
 from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
+from swift.common.storage_policy import POLICY_INDEX
 
 
 class TestObjectController(unittest.TestCase):
@@ -447,7 +448,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -480,7 +481,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -554,7 +555,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -677,7 +678,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         os.unlink(objfile)
@@ -800,7 +801,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         os.unlink(objfile)
@@ -1150,7 +1151,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
         self.assert_(os.path.isfile(objfile))
@@ -1164,7 +1165,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
         self.assertFalse(os.path.isfile(objfile))
@@ -1191,7 +1192,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 409)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
         self.assertFalse(os.path.isfile(objfile))
@@ -1206,7 +1207,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.ts')
         self.assert_(os.path.isfile(objfile))
@@ -1244,7 +1245,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 409)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(object_server.DATADIR, 'p',
+                storage_directory(object_server.DATADIR_REPL, 'p',
                                   hash_path('a', 'c', 'o')),
                 timestamp + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -1264,7 +1265,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 204)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(object_server.DATADIR, 'p',
+                storage_directory(object_server.DATADIR_REPL, 'p',
                                   hash_path('a', 'c', 'o')),
                 timestamp + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -1284,7 +1285,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(object_server.DATADIR, 'p',
+                storage_directory(object_server.DATADIR_REPL, 'p',
                                   hash_path('a', 'c', 'o')),
                 timestamp + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -1303,7 +1304,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(object_server.DATADIR, 'p',
+                storage_directory(object_server.DATADIR_REPL, 'p',
                                   hash_path('a', 'c', 'o')),
                 timestamp + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -1658,7 +1659,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -1687,7 +1688,7 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(object_server.DATADIR, 'p',
+            storage_directory(object_server.DATADIR_REPL, 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -1862,7 +1863,7 @@ class TestObjectController(unittest.TestCase):
         orig_http_connect = object_server.http_connect
         try:
             object_server.http_connect = fake_http_connect
-            self.object_controller.PUT(req)
+            req.get_response(self.object_controller)
         finally:
             object_server.http_connect = orig_http_connect
 
@@ -2219,7 +2220,8 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
-        resp = self.object_controller.PUT(req)
+        resp = req.get_response(self.object_controller)
+
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [])
 
@@ -2229,7 +2231,7 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Type': 'application/x-test'})
-        resp = self.object_controller.POST(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(given_args, [])
 
@@ -2242,12 +2244,12 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp1,
                      'Content-Type': 'application/x-test',
                      'X-Delete-At': delete_at_timestamp1})
-        resp = self.object_controller.POST(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                req, 'sda1'])
+                given_args[5], 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2261,14 +2263,14 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp2,
                      'Content-Type': 'application/x-test',
                      'X-Delete-At': delete_at_timestamp2})
-        resp = self.object_controller.POST(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                req, 'sda1',
+                given_args[5], 'sda1',
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-                req, 'sda1'])
+                given_args[5], 'sda1'])
 
     def test_PUT_calls_delete_at(self):
         given_args = []
@@ -2284,7 +2286,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
-        resp = self.object_controller.PUT(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [])
 
@@ -2298,12 +2300,12 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream',
                      'X-Delete-At': delete_at_timestamp1})
         req.body = 'TEST'
-        resp = self.object_controller.PUT(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                req, 'sda1'])
+                given_args[5], 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2319,14 +2321,14 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream',
                      'X-Delete-At': delete_at_timestamp2})
         req.body = 'TEST'
-        resp = self.object_controller.PUT(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                req, 'sda1',
+                given_args[5], 'sda1',
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-                req, 'sda1'])
+                given_args[5], 'sda1'])
 
     def test_GET_but_expired(self):
         test_time = time() + 10000
@@ -2632,7 +2634,6 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.delete_at_update = fake_delete_at_update
-
         timestamp1 = normalize_timestamp(time())
         delete_at_timestamp1 = int(time() + 1000)
         delete_at_container1 = str(
@@ -2647,11 +2648,11 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At': str(delete_at_timestamp1),
                      'X-Delete-At-Container': delete_at_container1})
         req.body = 'TEST'
-        resp = self.object_controller.PUT(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            req, 'sda1'])
+            given_args[5], 'sda1'])
 
         while given_args:
             given_args.pop()
@@ -2663,11 +2664,11 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': timestamp2,
                      'Content-Type': 'application/octet-stream'})
-        resp = self.object_controller.DELETE(req)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(given_args, [
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-            req, 'sda1'])
+            given_args[5], 'sda1'])
 
     def test_PUT_delete_at_in_past(self):
         req = Request.blank(
@@ -2743,7 +2744,8 @@ class TestObjectController(unittest.TestCase):
                 '/sda1/p/suff',
                 environ={'REQUEST_METHOD': 'REPLICATE'},
                 headers={})
-            self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
+            self.assertRaises(Timeout, self.object_controller.REPLICATE, req,
+                              object_server.DATADIR_REPL)
         finally:
             tpool.execute = was_tpool_exe
             object_server.get_hashes = was_get_hashes
@@ -2839,7 +2841,8 @@ class TestObjectController(unittest.TestCase):
                'wsgi.run_once': False}
 
         method_res = mock.MagicMock()
-        mock_method = public(lambda x: mock.MagicMock(return_value=method_res))
+        mock_method = public(lambda x, obj_dir:
+                             mock.MagicMock(return_value=method_res))
         with mock.patch.object(self.object_controller, method,
                                new=mock_method):
             response = self.object_controller.__call__(env, start_response)
@@ -2885,6 +2888,37 @@ class TestObjectController(unittest.TestCase):
             response = self.object_controller.__call__(env, start_response)
             self.assertEqual(response, answer)
 
+    def test_dynamic_datadir(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'Foo': 'fooheader',
+                                     'Baz': 'bazheader',
+                                     POLICY_INDEX: 1,
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Meta-Two': 'Two'})
+        req.body = 'VERIFY'
+        object_dir = self.testdir + "/sda1/objects-1"
+        self.assertFalse(os.path.isdir(object_dir))
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        self.assertTrue(os.path.isdir(object_dir))
+
+        # make sure no idx in header uses policy 0 data_dir
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'Foo': 'fooheader',
+                                     'Baz': 'bazheader',
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Meta-Two': 'Two'})
+        req.body = 'VERIFY'
+        object_dir = self.testdir + "/sda1/objects"
+        self.assertFalse(os.path.isdir(object_dir))
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        self.assertTrue(os.path.isdir(object_dir))
 
 if __name__ == '__main__':
     unittest.main()

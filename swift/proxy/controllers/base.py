@@ -47,6 +47,29 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
 from swift.common.swob import Request, Response, HeaderKeyDict
+import swift.common.storage_policy as storage_policy
+POLICY_INDEX = storage_policy.POLICY_INDEX
+POLICY = storage_policy.POLICY
+from swift.common.swob import HTTPBadRequest
+
+
+def convert_policy_to_index(req):
+    """
+    Helper function to convert incoming requests that contain a policy
+    name into the policy index which is used internally
+
+    :param req: incoming request
+    """
+    policy_name = req.headers.get(POLICY)
+    if policy_name:
+        policy = storage_policy.get_by_name(policy_name)
+        if policy:
+            return policy.idx
+        else:
+            raise HTTPBadRequest(request=req,
+                                 content_type="text/plain",
+                                 body=("Invalid X-Storage-Policy '%s'"
+                                       % policy_name))
 
 
 def update_headers(response, headers):
@@ -130,6 +153,9 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
     Construct a cacheable dict of container info based on response headers.
     """
     headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    # assure we have a policy 0 set when the policy header doesn't exist
+    if headers.get(POLICY_INDEX.lower()) is None:
+        headers[POLICY_INDEX.lower()] = '0'
     return {
         'status': status_int,
         'read_acl': headers.get('x-container-read'),
@@ -138,6 +164,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
+        'storage_policy': headers.get(POLICY_INDEX.lower()),
         'cors': {
             'allow_origin': headers.get(
                 'x-container-meta-access-control-allow-origin'),

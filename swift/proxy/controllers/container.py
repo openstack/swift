@@ -28,10 +28,12 @@ from swift import gettext_ as _
 from urllib import unquote
 
 from swift.common.utils import public, csv_append
-from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
+from swift.common.constraints import check_metadata, \
+    MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, clear_info_cache
+    cors_validation, clear_info_cache, convert_policy_to_index
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -43,7 +45,7 @@ class ContainerController(Controller):
     # Ensure these are all lowercase
     pass_through_headers = ['x-container-read', 'x-container-write',
                             'x-container-sync-key', 'x-container-sync-to',
-                            'x-versions-location']
+                            'x-versions-location', POLICY_INDEX.lower()]
 
     def __init__(self, app, account_name, container_name, **kwargs):
         Controller.__init__(self, app)
@@ -109,6 +111,7 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
+        policy_index = convert_policy_to_index(req)
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -132,7 +135,8 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = self._backend_requests(req, len(containers),
-                                         account_partition, accounts)
+                                         account_partition, accounts,
+                                         policy_index)
         clear_info_cache(self.app, req.environ,
                          self.account_name, self.container_name)
         resp = self.make_requests(
@@ -148,13 +152,19 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
+        policy_index = convert_policy_to_index(req)
+        additional_headers = {}
+        if policy_index:
+            additional_headers[POLICY_INDEX] = str(policy_index)
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts:
             return HTTPNotFound(request=req)
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
-        headers = self.generate_request_headers(req, transfer=True)
+        headers = self.generate_request_headers(
+            req, transfer=True,
+            additional=additional_headers)
         clear_info_cache(self.app, req.environ,
                          self.account_name, self.container_name)
         resp = self.make_requests(
@@ -184,10 +194,16 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         return resp
 
-    def _backend_requests(self, req, n_outgoing,
-                          account_partition, accounts):
-        headers = [self.generate_request_headers(req, transfer=True)
-                   for _junk in range(n_outgoing)]
+    def _backend_requests(self, req, n_outgoing, account_partition, accounts,
+                          policy_index=None):
+        additional_headers = {}
+        if policy_index:
+            additional_headers[POLICY_INDEX] = str(policy_index)
+
+        headers = [
+            self.generate_request_headers(req, additional=additional_headers,
+                                          transfer=True)
+            for _junk in range(n_outgoing)]
 
         for i, account in enumerate(accounts):
             i = i % len(headers)

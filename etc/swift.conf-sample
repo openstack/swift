@@ -8,6 +8,28 @@
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
 
+# storage policies are defined here and determine various characterisitcs
+# about how objects are stored and treated.  Policies are specified by name
+# on a per container basis.  The policy index is specified in the section
+# header and is used internally.  Policy 0 is always used for legacy
+# containers and can be given a name for use in metadata however the ring
+# file name will always be 'object' for backwards compatibility.  The name
+# is optional for policy 0.  A default policy is used when creating new
+# containers and no policy is specified, any policy can be marked as default
+#[storage-policy:0]
+#name = chicken
+
+# the following declares a policy called 'turkey' and uses replication by
+# default, the number of replicas will be determined by how the ring is built.
+# In this example the 'turkey' policy could have a lower or higher # of
+# replicas than the 'chicken' policy above. The ring filename will be
+# 'object-1'. When a new container is created w/o a policy specified,
+# it will get the 'turkey' policy because it is specified as the default
+# however if a legacy container is accessed (one created with a pre-policy
+# version of swift) and no policy is specified, policy 0 will be used (chicken)
+#[storage-policy:1]
+#name = turkey
+#default = yes
 
 # The swift-constraints section sets the basic constraints on data
 # saved in the swift cluster.

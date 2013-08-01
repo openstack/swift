@@ -58,6 +58,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
     HTTPClientDisconnect, HTTPNotImplemented, HTTPException
+from swift.common.storage_policy import POLICY_INDEX
 
 
 def segment_listing_iter(listing):
@@ -106,6 +107,7 @@ class SegmentedIterable(object):
     :param listing: The listing of object segments to iterate over; this may
                     be an iterator or list that returns dicts with 'name' and
                     'bytes' keys.
+    :param object_ring: The object ring to work with.
     :param response: The swob.Response this iterable is associated with, if
                      any (default: None)
     :param is_slo: A boolean, defaults to False, as to whether this references
@@ -114,8 +116,8 @@ class SegmentedIterable(object):
                         SegmentedIterable will drop after that many seconds.
     """
 
-    def __init__(self, controller, container, listing, response=None,
-                 is_slo=False, max_lo_time=86400):
+    def __init__(self, controller, container, listing, object_ring,
+                 response=None, is_slo=False, max_lo_time=86400):
         self.controller = controller
         self.container = container
         self.listing = segment_listing_iter(listing)
@@ -136,6 +138,7 @@ class SegmentedIterable(object):
             self.response = Response()
         self.next_get_time = 0
         self.start_time = time.time()
+        self.object_ring = object_ring
 
     def _load_next_segment(self):
         """
@@ -156,7 +159,7 @@ class SegmentedIterable(object):
                     self.segment_dict['name'].lstrip('/').split('/', 1)
             else:
                 container, obj = self.container, self.segment_dict['name']
-            partition = self.controller.app.object_ring.get_part(
+            partition = self.object_ring.get_part(
                 self.controller.account_name, container, obj)
             path = '/%s/%s/%s' % (self.controller.account_name, container, obj)
             req = Request.blank(path)
@@ -179,7 +182,7 @@ class SegmentedIterable(object):
             self.next_get_time = time.time() + \
                 1.0 / self.controller.app.rate_limit_segments_per_sec
             resp = self.controller.GETorHEAD_base(
-                req, _('Object'), self.controller.app.object_ring, partition,
+                req, _('Object'), self.object_ring, partition,
                 path)
             if self.is_slo and resp.status_int == HTTP_NOT_FOUND:
                 raise SegmentError(_(
@@ -400,8 +403,9 @@ class ObjectController(Controller):
             marker = sublisting[-1]['name'].encode('utf-8')
             yield sublisting
 
-    def _slo_listing_obj_iter(self, incoming_req, account, container, obj,
-                              partition=None, initial_resp=None):
+    def _slo_listing_obj_iter(self, incoming_req, obj_ring, account,
+                              container, obj, partition=None,
+                              initial_resp=None):
         """
         The initial_resp indicated that this is a SLO manifest file. This will
         create an iterable that will expand nested SLOs as it walks though the
@@ -419,14 +423,14 @@ class ObjectController(Controller):
             new_req.range = None
             if partition is None:
                 try:
-                    partition = self.app.object_ring.get_part(
+                    partition = obj_ring.get_part(
                         account, container, obj)
                 except ValueError:
                     raise HTTPException(
                         "Invalid path to whole SLO manifest: %s" %
                         new_req.path)
             valid_resp = self.GETorHEAD_base(
-                new_req, _('Object'), self.app.object_ring, partition,
+                new_req, _('Object'), obj_ring, partition,
                 '/'.join(['', account, container, obj]))
 
         if 'swift.authorize' in incoming_req.environ:
@@ -455,7 +459,7 @@ class ObjectController(Controller):
                 if self.slo_recursion_depth >= self.max_slo_recusion_depth:
                     raise ListingIterError("Max recursion depth exceeded")
                 for sub_seg_dict in self._slo_listing_obj_iter(
-                        incoming_req, account, sub_cont, sub_obj):
+                        incoming_req, obj_ring, account, sub_cont, sub_obj):
                     yield sub_seg_dict
                 self.slo_recursion_depth -= 1
             else:
@@ -537,15 +541,18 @@ class ObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
+        policy_idx = container_info['storage_policy']
+        obj_ring = self.app.get_object_ring(policy_idx)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_idx
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-
-        partition = self.app.object_ring.get_part(
+        partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
         resp = self.GETorHEAD_base(
-            req, _('Object'), self.app.object_ring, partition, req.path_info)
+            req, _('Object'), obj_ring, partition, req.path_info)
 
         if ';' in resp.headers.get('content-type', ''):
             # strip off swift_bytes from content-type
@@ -569,7 +576,7 @@ class ObjectController(Controller):
             lcontainer = None  # container name is included in listing
             try:
                 seg_iter = iter(self._slo_listing_obj_iter(
-                    req, self.account_name, self.container_name,
+                    req, obj_ring, self.account_name, self.container_name,
                     self.object_name, partition=partition, initial_resp=resp))
                 listing_page1 = []
                 for seg in seg_iter:
@@ -632,10 +639,10 @@ class ObjectController(Controller):
                     return head_response
                 else:
                     resp.app_iter = SegmentedIterable(
-                        self, lcontainer, listing, resp,
+                        self, lcontainer, listing,
+                        obj_ring, resp,
                         is_slo=(large_object == 'SLO'),
                         max_lo_time=self.app.max_large_object_get_time)
-
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
@@ -660,7 +667,8 @@ class ObjectController(Controller):
                 resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
                 resp.app_iter = SegmentedIterable(
-                    self, lcontainer, listing, resp,
+                    self, lcontainer, listing,
+                    obj_ring, resp,
                     is_slo=(large_object == 'SLO'),
                     max_lo_time=self.app.max_large_object_get_time)
                 resp.content_length = content_length
@@ -758,7 +766,11 @@ class ObjectController(Controller):
                         self.app.expiring_objects_account, delete_at_container)
             else:
                 delete_at_container = delete_at_part = delete_at_nodes = None
-            partition, nodes = self.app.object_ring.get_nodes(
+            policy_idx = container_info['storage_policy']
+            obj_ring = self.app.get_object_ring(policy_idx)
+            # pass the policy index to storage nodes via req header
+            req.headers[POLICY_INDEX] = policy_idx
+            partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
             req.headers['X-Timestamp'] = normalize_timestamp(time.time())
 
@@ -766,7 +778,7 @@ class ObjectController(Controller):
                 req, len(nodes), container_partition, containers,
                 delete_at_container, delete_at_part, delete_at_nodes)
 
-            resp = self.make_requests(req, self.app.object_ring, partition,
+            resp = self.make_requests(req, obj_ring, partition,
                                       'POST', req.path_info, headers)
             return resp
 
@@ -854,6 +866,10 @@ class ObjectController(Controller):
         """HTTP PUT request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
+        policy_idx = container_info['storage_policy']
+        obj_ring = self.app.get_object_ring(policy_idx)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_idx
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -883,7 +899,7 @@ class ObjectController(Controller):
                                       content_type='text/plain',
                                       body='Non-integer X-Delete-After')
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
-        partition, nodes = self.app.object_ring.get_nodes(
+        partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # do a HEAD request for container sync and checking object versions
         if 'x-timestamp' in req.headers or \
@@ -892,7 +908,7 @@ class ObjectController(Controller):
             hreq = Request.blank(req.path_info, headers={'X-Newest': 'True'},
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(
-                hreq, _('Object'), self.app.object_ring, partition,
+                hreq, _('Object'), obj_ring, partition,
                 hreq.path_info)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
@@ -1048,7 +1064,7 @@ class ObjectController(Controller):
             delete_at_container = delete_at_part = delete_at_nodes = None
 
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes_local_first(self.app.object_ring, partition))
+            self.iter_nodes_local_first(obj_ring, partition))
         pile = GreenPile(len(nodes))
         te = req.headers.get('transfer-encoding', '')
         chunked = ('chunked' in te)
@@ -1178,6 +1194,10 @@ class ObjectController(Controller):
         """HTTP DELETE request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
+        policy_idx = container_info['storage_policy']
+        obj_ring = self.app.get_object_ring(policy_idx)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_idx
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -1230,6 +1250,10 @@ class ObjectController(Controller):
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)
+                policy_idx = container_info['storage_policy']
+                obj_ring = self.app.get_object_ring(policy_idx)
+                # pass the policy index to storage nodes via req header
+                req.headers[POLICY_INDEX] = policy_idx
                 container_partition = container_info['partition']
                 containers = container_info['nodes']
                 new_del_req.acl = container_info['write_acl']
@@ -1244,7 +1268,7 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
-        partition, nodes = self.app.object_ring.get_nodes(
+        partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
@@ -1261,7 +1285,7 @@ class ObjectController(Controller):
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
-        resp = self.make_requests(req, self.app.object_ring,
+        resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.path_info, headers)
         return resp
 

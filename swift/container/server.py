@@ -27,6 +27,8 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.backend import ContainerBroker
 from swift.common.db import DatabaseAlreadyExists
+import swift.common.storage_policy as storage_policy
+POLICY_INDEX = storage_policy.POLICY_INDEX
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
 from swift.common.utils import get_logger, public, validate_sync_to, \
@@ -53,9 +55,10 @@ class ContainerController(object):
 
     # Ensure these are all lowercase
     save_headers = ['x-container-read', 'x-container-write',
-                    'x-container-sync-key', 'x-container-sync-to']
+                    'x-container-sync-key', 'x-container-sync-to',
+                    POLICY_INDEX.lower()]
 
-    def __init__(self, conf):
+    def __init__(self, conf, storage_policies=None):
         self.logger = get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
@@ -78,6 +81,7 @@ class ContainerController(object):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        self.policies = storage_policies or storage_policy
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
@@ -96,6 +100,17 @@ class ContainerController(object):
         kwargs.setdefault('container', container)
         kwargs.setdefault('logger', self.logger)
         return ContainerBroker(db_path, **kwargs)
+
+    def validate_policy_index(self, req):
+        if POLICY_INDEX in req.headers:
+            # validate that the index supplied maps to a policy
+            try:
+                policy_index = int(req.headers[POLICY_INDEX])
+            except ValueError:
+                return False
+            if not self.policies.get_by_index(policy_index):
+                return False
+        return True
 
     def account_update(self, req, account, container, broker):
         """
@@ -237,6 +252,12 @@ class ContainerController(object):
                 return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
+        if not self.validate_policy_index(req):
+            return HTTPBadRequest(
+                request=req,
+                content_type="text/plain",
+                body=("Invalid X-Storage-Policy-Index %s" %
+                      req.headers[POLICY_INDEX]))
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
@@ -270,13 +291,31 @@ class ContainerController(object):
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
                 key.lower().startswith('x-container-meta-'))
-            if metadata:
-                if 'X-Container-Sync-To' in metadata:
-                    if 'X-Container-Sync-To' not in broker.metadata or \
-                            metadata['X-Container-Sync-To'][0] != \
-                            broker.metadata['X-Container-Sync-To'][0]:
-                        broker.set_x_container_sync_points(-1, -1)
-                broker.update_metadata(metadata)
+            if POLICY_INDEX in metadata:
+                """ policy specified and pre-validated """
+                requested_policy_index = metadata[POLICY_INDEX][0]
+                current_policy_index = broker.metadata.get(POLICY_INDEX,
+                                                           (None, None))[0]
+                if ((current_policy_index is not None) and
+                        (requested_policy_index != current_policy_index)):
+                    # Modifying a storage policy is prohibited
+                    return HTTPConflict(request=req)
+                elif POLICY_INDEX not in broker.metadata:
+                    metadata[POLICY_INDEX] = (requested_policy_index,
+                                              timestamp)
+            elif created:
+                # new container, no policy specified: add the default
+                metadata[POLICY_INDEX] = (self.policies.get_default().idx,
+                                          timestamp)
+            elif broker.metadata.get(POLICY_INDEX, (None, None))[0] is None:
+                # existing container, no policy specified: add policy 0
+                metadata[POLICY_INDEX] = (0, timestamp)
+            if 'X-Container-Sync-To' in metadata:
+                if 'X-Container-Sync-To' not in broker.metadata or \
+                        metadata['X-Container-Sync-To'][0] != \
+                        broker.metadata['X-Container-Sync-To'][0]:
+                    broker.set_x_container_sync_points(-1, -1)
+            broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -450,6 +489,12 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
+        if not self.validate_policy_index(req):
+            return HTTPBadRequest(
+                request=req,
+                content_type="text/plain",
+                body=("Invalid X-Storage-Policy-Index %s" %
+                      req.headers[POLICY_INDEX]))
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         metadata = {}
         metadata.update(
@@ -457,6 +502,12 @@ class ContainerController(object):
             if key.lower() in self.save_headers or
             key.lower().startswith('x-container-meta-'))
         if metadata:
+            """ make sure the policy is not being updated """
+            if POLICY_INDEX in metadata and POLICY_INDEX in broker.metadata:
+                if metadata[POLICY_INDEX][0] != \
+                   broker.metadata[POLICY_INDEX][0]:
+                    """ policy updates prohibited """
+                    return HTTPConflict(request=req)
             if 'X-Container-Sync-To' in metadata:
                 if 'X-Container-Sync-To' not in broker.metadata or \
                         metadata['X-Container-Sync-To'][0] != \

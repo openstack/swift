@@ -21,6 +21,7 @@ from swift.common.utils import ismount
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge
 
+
 constraints_conf = ConfigParser()
 constraints_conf.read('/etc/swift/swift.conf')
 

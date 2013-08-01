@@ -35,6 +35,8 @@ from eventlet import listen
 import swift
 from swift.common.swob import Request
 from swift.common import wsgi, utils, ring
+from swift.common.storage_policy import StoragePolicy, \
+    StoragePolicyCollection
 
 from test.unit import temptree
 
@@ -58,14 +60,21 @@ def _fake_rings(tmpdir):
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': 6021}], 30),
                     f)
-    object_ring_path = os.path.join(tmpdir, 'object.ring.gz')
-    with closing(GzipFile(object_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6010},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6020}], 30),
-                    f)
+    # Some storage-policy-specific fake rings.
+    policy = [StoragePolicy(0, 'zero'),
+              StoragePolicy(1, 'one', is_default=True)]
+    policies = StoragePolicyCollection(policy)
+    for pol in policies:
+        obj_ring_path = \
+            os.path.join(tmpdir, pol.ring_name + '.ring.gz')
+        with closing(GzipFile(obj_ring_path, 'wb')) as f:
+            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                        [{'id': 0, 'zone': 0, 'device': 'sda1',
+                          'ip': '127.0.0.1',
+                          'port': 6010},
+                         {'id': 1, 'zone': 1, 'device': 'sdb1',
+                          'ip': '127.0.0.1',
+                          'port': 6020}], 30), f)
 
 
 class TestWSGI(unittest.TestCase):
