@@ -3,12 +3,18 @@
 # bind_port = 6001
 # bind_timeout = 30
 # backlog = 4096
-# workers = 1
 # user = swift
 # swift_dir = /etc/swift
 # devices = /srv/node
 # mount_check = true
 # disable_fallocate = false
+#
+# Use an integer to override the number of pre-forked processes that will
+# accept connections.
+# workers = auto
+#
+# Maximum concurrent requests per worker
+# max_clients = 1024
 #
 # This is a comma separated list of hosts allowed in the X-Container-Sync-To
 # field for containers.
@@ -62,7 +68,6 @@ use = egg:swift#container
 # conn_timeout = 0.5
 # allow_versions = false
 # auto_create_account_prefix = .
-# max_clients = 1024
 #
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify

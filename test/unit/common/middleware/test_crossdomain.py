@@ -15,7 +15,7 @@
 
 import unittest
 
-from swift.common.swob import Request, Response
+from swift.common.swob import Request
 
 from swift.common.middleware import crossdomain
 

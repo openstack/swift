@@ -26,6 +26,13 @@ from swift.common import constraints
 
 class TestConstraints(unittest.TestCase):
 
+    def assertIn(self, member, container, msg=None):
+        """Copied from 2.7"""
+        if member not in container:
+            standardMsg = '%s not found in %s' % (safe_repr(member),
+                                                  safe_repr(container))
+            self.fail(self._formatMessage(msg, standardMsg))
+
     def test_check_metadata_empty(self):
         headers = {}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
@@ -50,6 +57,9 @@ class TestConstraints(unittest.TestCase):
         headers = {'X-Object-Meta-%s' % name: 'v'}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
             headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
+        self.assertIn(('X-Object-Meta-%s' % name).lower(),
+            constraints.check_metadata(Request.blank('/', headers=headers),
+                                                     'object').body.lower())
 
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
@@ -60,6 +70,12 @@ class TestConstraints(unittest.TestCase):
         headers = {'X-Object-Meta-Name': value}
         self.assertEquals(constraints.check_metadata(Request.blank('/',
             headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
+        self.assertIn('x-object-meta-name',
+            constraints.check_metadata(Request.blank('/', headers=headers),
+                                                     'object').body.lower())
+        self.assertIn(str(constraints.MAX_META_VALUE_LENGTH),
+            constraints.check_metadata(Request.blank('/', headers=headers),
+                                                     'object').body)
 
     def test_check_metadata_count(self):
         headers = {}
@@ -210,6 +226,8 @@ class TestConstraints(unittest.TestCase):
                      'ab' * constraints.MAX_HEADER_SIZE})
         self.assertEquals(constraints.check_metadata(req, 'object').status_int,
                           HTTP_BAD_REQUEST)
+        self.assertIn('x-object-meta-hello', constraints.check_metadata(req,
+                      'object').body.lower())
 
     def test_validate_constraints(self):
         c = constraints

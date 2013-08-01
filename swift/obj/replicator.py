@@ -20,6 +20,7 @@ import shutil
 import time
 import itertools
 import cPickle as pickle
+from gettext import gettext as _
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
@@ -34,7 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
-from swift.obj.base import get_hashes
+from swift.obj.diskfile import get_hashes
 
 
 hubs.use_hub(get_hub())
@@ -111,7 +112,7 @@ class ObjectReplicator(Daemon):
             else:
                 self.logger.error(result)
         if ret_val:
-            self.logger.error(_('Bad rsync return code: %(args)s -> %(ret)d'),
+            self.logger.error(_('Bad rsync return code: %(ret)d <- %(args)s'),
                               {'args': str(args), 'ret': ret_val})
         elif results:
             self.logger.info(

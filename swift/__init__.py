@@ -1,6 +1,3 @@
-import gettext
-
-
 class Version(object):
     def __init__(self, canonical_version, final):
         self.canonical_version = canonical_version
@@ -17,5 +14,3 @@ class Version(object):
 _version = Version('1.9.1', False)
 __version__ = _version.pretty_version
 __canonical_version__ = _version.canonical_version
-
-gettext.install('swift')

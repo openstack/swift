@@ -98,6 +98,7 @@ from urlparse import parse_qs
 
 from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict
+from swift.common.utils import split_path
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -318,16 +319,13 @@ class TempURL(object):
         :param env: The WSGI environment for the request.
         :returns: Account str or None.
         """
-        account = None
         if env['REQUEST_METHOD'] in self.methods:
-            parts = env['PATH_INFO'].split('/', 4)
-            # Must be five parts, ['', 'v1', 'a', 'c', 'o'], must be a v1
-            # request, have account, container, and object values, and the
-            # object value can't just have '/'s.
-            if len(parts) == 5 and not parts[0] and parts[1] == 'v1' and \
-                    parts[2] and parts[3] and parts[4].strip('/'):
-                account = parts[2]
-        return account
+            try:
+                ver, acc, cont, obj = split_path(env['PATH_INFO'], 4, 4, True)
+            except ValueError:
+                return None
+            if ver == 'v1' and obj.strip('/'):
+                return acc
 
     def _get_temp_url_info(self, env):
         """

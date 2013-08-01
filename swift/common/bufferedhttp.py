@@ -26,6 +26,7 @@ BufferedHTTPResponse.
     make all calls through httplib.
 """
 
+from gettext import gettext as _
 from urllib import quote
 import logging
 import time

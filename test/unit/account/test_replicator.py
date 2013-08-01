@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import unittest
-from swift.account import replicator
 
 
 class TestReplicator(unittest.TestCase):

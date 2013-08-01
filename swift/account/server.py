@@ -18,6 +18,7 @@ from __future__ import with_statement
 import os
 import time
 import traceback
+from gettext import gettext as _
 
 from eventlet import Timeout
 
@@ -25,7 +26,8 @@ import swift.common.db
 from swift.account.utils import account_listing_response, \
     account_listing_content_type
 from swift.common.db import AccountBroker, DatabaseConnectionError
-from swift.common.utils import get_logger, get_param, hash_path, public, \
+from swift.common.request_helpers import get_param
+from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
     validate_device_partition, json, timing_stats, replication
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
@@ -35,7 +37,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
-    HTTPInsufficientStorage, HTTPNotAcceptable
+    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException
 
 
 DATADIR = 'accounts'
@@ -176,11 +178,7 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        try:
-            query_format = get_param(req, 'format')
-        except UnicodeDecodeError:
-            return HTTPBadRequest(body='parameters not utf8',
-                                  content_type='text/plain', request=req)
+        query_format = get_param(req, 'format')
         if query_format:
             req.accept = FORMAT2CONTENT_TYPE.get(
                 query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
@@ -218,25 +216,21 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        try:
-            prefix = get_param(req, 'prefix')
-            delimiter = get_param(req, 'delimiter')
-            if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
-                # delimiters can be made more flexible later
-                return HTTPPreconditionFailed(body='Bad delimiter')
-            limit = ACCOUNT_LISTING_LIMIT
-            given_limit = get_param(req, 'limit')
-            if given_limit and given_limit.isdigit():
-                limit = int(given_limit)
-                if limit > ACCOUNT_LISTING_LIMIT:
-                    return HTTPPreconditionFailed(request=req,
-                                                  body='Maximum limit is %d' %
-                                                  ACCOUNT_LISTING_LIMIT)
-            marker = get_param(req, 'marker', '')
-            end_marker = get_param(req, 'end_marker')
-        except UnicodeDecodeError, err:
-            return HTTPBadRequest(body='parameters not utf8',
-                                  content_type='text/plain', request=req)
+        prefix = get_param(req, 'prefix')
+        delimiter = get_param(req, 'delimiter')
+        if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
+            # delimiters can be made more flexible later
+            return HTTPPreconditionFailed(body='Bad delimiter')
+        limit = ACCOUNT_LISTING_LIMIT
+        given_limit = get_param(req, 'limit')
+        if given_limit and given_limit.isdigit():
+            limit = int(given_limit)
+            if limit > ACCOUNT_LISTING_LIMIT:
+                return HTTPPreconditionFailed(request=req,
+                                              body='Maximum limit is %d' %
+                                              ACCOUNT_LISTING_LIMIT)
+        marker = get_param(req, 'marker', '')
+        end_marker = get_param(req, 'end_marker')
         out_content_type, error = account_listing_content_type(req)
         if error:
             return error
@@ -326,6 +320,8 @@ class AccountController(object):
                     res = HTTPMethodNotAllowed()
                 else:
                     res = method(req)
+            except HTTPException as error_response:
+                res = error_response
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR __call__ error with %(method)s'
                                         ' %(path)s '),

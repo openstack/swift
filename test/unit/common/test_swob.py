@@ -526,7 +526,7 @@ class TestRequest(unittest.TestCase):
         req.query_string = u'x=\u2661'
         self.assertEquals(req.params['x'], u'\u2661'.encode('utf-8'))
 
-    def test_url(self):
+    def test_url2(self):
         pi = '/hi/there'
         path = pi
         req = swift.common.swob.Request.blank(path)
@@ -595,7 +595,7 @@ class TestRequest(unittest.TestCase):
 
         req.headers['Content-Length'] = 'abc'
         try:
-            l = req.message_length()
+            req.message_length()
         except ValueError as e:
             self.assertEquals(str(e), "Invalid Content-Length header value")
         else:
@@ -611,7 +611,7 @@ class TestRequest(unittest.TestCase):
 
         req.headers['Transfer-Encoding'] = 'gzip,chunked'
         try:
-            l = req.message_length()
+            req.message_length()
         except AttributeError as e:
             self.assertEquals(str(e), "Unsupported Transfer-Coding header"
                               " value specified in Transfer-Encoding header")
@@ -620,7 +620,7 @@ class TestRequest(unittest.TestCase):
 
         req.headers['Transfer-Encoding'] = 'gzip'
         try:
-            l = req.message_length()
+            req.message_length()
         except ValueError as e:
             self.assertEquals(str(e), "Invalid Transfer-Encoding header value")
         else:
@@ -628,7 +628,7 @@ class TestRequest(unittest.TestCase):
 
         req.headers['Transfer-Encoding'] = 'gzip,identity'
         try:
-            l = req.message_length()
+            req.message_length()
         except AttributeError as e:
             self.assertEquals(str(e), "Unsupported Transfer-Coding header"
                               " value specified in Transfer-Encoding header")

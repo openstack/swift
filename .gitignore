@@ -1,12 +1,16 @@
 *.py[co]
 *.sw?
+*~
 doc/build/*
 dist
 build
+cover
 ChangeLog
 .coverage
-swift.egg-info
+*.egg
+*.egg-info
 .DS_Store
 .tox
 pycscope.*
 .idea
+MANIFEST

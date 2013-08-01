@@ -27,6 +27,7 @@
 import mimetypes
 import os
 from ConfigParser import ConfigParser
+from gettext import gettext as _
 from random import shuffle
 from time import time
 

@@ -16,7 +16,6 @@
 import hmac
 import unittest
 from hashlib import sha1
-from contextlib import contextmanager
 from StringIO import StringIO
 from time import time
 
@@ -1203,6 +1202,7 @@ class TestFormPost(unittest.TestCase):
 
         status = [None]
         headers = [None]
+
         def start_response(s, h, e=None):
             status[0] = s
             headers[0] = h

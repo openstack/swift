@@ -125,13 +125,17 @@ from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
 from swift.proxy.controllers.base import get_container_info
 
 
+def ensure_utf8_bytes(value):
+    if isinstance(value, unicode):
+        value = value.encode('utf-8')
+    return value
+
+
 def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf-8 strings before quoting
     """
-    if isinstance(value, unicode):
-        value = value.encode('utf-8')
-    return urllib_quote(value, safe)
+    return urllib_quote(ensure_utf8_bytes(value), safe)
 
 
 class _StaticWebContext(WSGIContext):
@@ -272,10 +276,7 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n'
         for item in listing:
             if 'subdir' in item:
-                if isinstance(item['subdir'], unicode):
-                    subdir = item['subdir'].encode('utf-8')
-                else:
-                    subdir = item['subdir']
+                subdir = ensure_utf8_bytes(item['subdir'])
                 if prefix:
                     subdir = subdir[len(prefix):]
                 body += '   <tr class="item subdir">\n' \
@@ -286,23 +287,22 @@ class _StaticWebContext(WSGIContext):
                         (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
-                if isinstance(item['name'], unicode):
-                    name = item['name'].encode('utf-8')
-                else:
-                    name = item['name']
+                name = ensure_utf8_bytes(item['name'])
                 if prefix:
                     name = name[len(prefix):]
+                content_type = ensure_utf8_bytes(item['content_type'])
+                bytes = ensure_utf8_bytes(human_readable(item['bytes']))
+                last_modified = (cgi.escape(item['last_modified']).
+                                 split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
                         '    <td class="colname"><a href="%s">%s</a></td>\n' \
                         '    <td class="colsize">%s</td>\n' \
                         '    <td class="coldate">%s</td>\n' \
                         '   </tr>\n' % \
                         (' '.join('type-' + cgi.escape(t.lower(), quote=True)
-                                  for t in item['content_type'].split('/')),
+                                  for t in content_type.split('/')),
                          quote(name), cgi.escape(name),
-                         human_readable(item['bytes']),
-                         cgi.escape(item['last_modified']).split('.')[0].
-                            replace('T', ' '))
+                         bytes, ensure_utf8_bytes(last_modified))
         body += '  </table>\n' \
                 ' </body>\n' \
                 '</html>\n'
@@ -349,7 +349,7 @@ class _StaticWebContext(WSGIContext):
         status_int = self._get_status_int()
         if status_int == HTTP_NOT_FOUND:
             return self._listing(env, start_response)
-        elif not is_success(self._get_status_int()) or \
+        elif not is_success(self._get_status_int()) and \
                 not is_redirection(self._get_status_int()):
             return self._error_response(resp, env, start_response)
         start_response(self._response_status, self._response_headers,

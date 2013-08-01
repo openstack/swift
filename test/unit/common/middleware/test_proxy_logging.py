@@ -541,8 +541,7 @@ class TestProxyLogging(unittest.TestCase):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], '-')
 
@@ -550,8 +549,7 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = []
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], '-')
 
@@ -560,8 +558,7 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = ['one']
-        resp = app(req.environ, start_response)
-        resp_body = ''.join(resp)
+        list(app(req.environ, start_response))
         log_parts = self._log_parts(app)
         self.assertEquals(log_parts[17], 'one')
 
@@ -570,10 +567,80 @@ class TestProxyLogging(unittest.TestCase):
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         req.environ['swift.log_info'] = ['one', 'and two']
+        list(app(req.environ, start_response))
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[17], 'one%2Cand%20two')
+
+    def test_log_auth_token(self):
+        auth_token = 'b05bf940-0464-4c0e-8c70-87717d2d73e8'
+
+        # Default - no reveal_sensitive_prefix in config
+        # No x-auth-token header
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
         resp_body = ''.join(resp)
         log_parts = self._log_parts(app)
-        self.assertEquals(log_parts[17], 'one%2Cand%20two')
+        self.assertEquals(log_parts[9], '-')
+        # Has x-auth-token header
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'HTTP_X_AUTH_TOKEN': auth_token})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], auth_token)
+
+        # Truncate to first 8 characters
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'reveal_sensitive_prefix': '8'})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], '-')
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'reveal_sensitive_prefix': '8'})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'HTTP_X_AUTH_TOKEN': auth_token})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], 'b05bf940...')
+
+        # Token length and reveal_sensitive_prefix are same (no truncate)
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'reveal_sensitive_prefix': str(len(auth_token))})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'HTTP_X_AUTH_TOKEN': auth_token})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], auth_token)
+
+        # Don't log x-auth-token
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'reveal_sensitive_prefix': '0'})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], '-')
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
+            'reveal_sensitive_prefix': '0'})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'HTTP_X_AUTH_TOKEN': auth_token})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[9], '...')
 
 
 if __name__ == '__main__':

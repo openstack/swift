@@ -17,9 +17,9 @@ import time
 from xml.sax import saxutils
 
 from swift.common.constraints import FORMAT2CONTENT_TYPE
-from swift.common.swob import HTTPOk, HTTPNoContent, HTTPNotAcceptable, \
-    HTTPBadRequest
-from swift.common.utils import get_param, json, normalize_timestamp
+from swift.common.swob import HTTPOk, HTTPNoContent, HTTPNotAcceptable
+from swift.common.request_helpers import get_param
+from swift.common.utils import json, normalize_timestamp
 
 
 class FakeAccountBroker(object):
@@ -50,11 +50,7 @@ def account_listing_content_type(req):
     Returns a 2-tuple: (content_type, error). Only one of them will be set;
     the other will be None.
     """
-    try:
-        query_format = get_param(req, 'format')
-    except UnicodeDecodeError:
-        return (None, HTTPBadRequest(body='parameters not utf8',
-                                     content_type='text/plain', request=req))
+    query_format = get_param(req, 'format')
     if query_format:
         req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
                                              FORMAT2CONTENT_TYPE['plain'])

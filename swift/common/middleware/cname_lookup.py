@@ -28,6 +28,7 @@ rewritten and the request is passed further down the WSGI chain.
 """
 
 import socket
+from gettext import gettext as _
 
 try:
     import dns.resolver

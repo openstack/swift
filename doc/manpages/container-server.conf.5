@@ -60,7 +60,16 @@ TCP port the container server should bind to. The default is 6001.
 .IP \fBbacklog\fR
 TCP backlog.  Maximum number of allowed pending connections. The default value is 4096.
 .IP \fBworkers\fR
-Number of container server workers to fork. The default is 1.
+The number of pre-forked processes that will accept connections.  Zero means
+no fork.  The default is auto which will make the server try to match the
+number of effective cpu cores if python multiprocessing is available (included
+with most python distributions >= 2.6) or fallback to one.  It's worth noting
+that individual workers will use many eventlet co-routines to service multiple
+concurrent requests.
+.IP \fBmax_clients\fR
+Maximum number of clients one worker can process simultaneously (it will
+actually accept(2) N + 1). Setting this to one (1) will only handle one request
+at a time, without accepting another request concurrently.  The default is 1024.
 .IP \fBuser\fR
 The system user that the container server will run as. The default is swift.
 .IP \fBswift_dir\fR
@@ -120,12 +129,6 @@ Logging address. The default is /dev/log.
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR
 Connection timeout to external services. The default is 0.5 seconds.
-.IP \fBmax_clients\fR
-Maximum number of clients one worker can process simultaneously (it will
-actually accept(2) N + 1). Setting this to one (1) will only handle one request
-at a time, without accepting another request concurrently. By increasing the
-number of workers to a much higher value, one can reduce the impact of slow file system
-operations in one request from negatively impacting other requests. The default is 1024.
 .RE
 .PD
 

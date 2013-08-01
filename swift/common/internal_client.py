@@ -20,6 +20,7 @@ import struct
 from sys import exc_info
 from urllib import quote
 import zlib
+from gettext import gettext as _
 from zlib import compressobj
 
 from swift.common.http import HTTP_NOT_FOUND

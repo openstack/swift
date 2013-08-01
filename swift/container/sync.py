@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from gettext import gettext as _
 from time import ctime, time
 from random import random, shuffle
 from struct import unpack_from

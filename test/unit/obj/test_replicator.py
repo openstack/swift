@@ -32,8 +32,7 @@ from test.unit import FakeLogger
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
-from swift.obj import base as object_base, replicator as object_replicator
-from swift.obj.server import DiskFile
+from swift.obj import diskfile, replicator as object_replicator
 
 
 def _ips():
@@ -169,8 +168,8 @@ class TestObjectReplicator(unittest.TestCase):
         was_connector = object_replicator.http_connect
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
-        df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
-                      FakeLogger())
+        df = diskfile.DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
+                               FakeLogger())
         mkdirs(df.datadir)
         f = open(os.path.join(df.datadir,
                               normalize_timestamp(time.time()) + '.data'),
@@ -288,7 +287,8 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.logger.log_dict['warning'])
 
     def test_delete_partition(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        df = diskfile.DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
+                               FakeLogger())
         mkdirs(df.datadir)
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
@@ -296,7 +296,8 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_delete_partition_override_params(self):
-        df = DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o', FakeLogger())
+        df = diskfile.DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
+                               FakeLogger())
         mkdirs(df.datadir)
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
@@ -318,8 +319,8 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitoins and then node should get deleted.
             cur_part = '1'
-            df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
-                          FakeLogger())
+            df = diskfile.DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
+                                   FakeLogger())
             mkdirs(df.datadir)
             f = open(os.path.join(df.datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -348,7 +349,7 @@ class TestObjectReplicator(unittest.TestCase):
                               ('2', True), ('3', True)]:
                 self.assertEquals(os.access(
                         os.path.join(self.objects,
-                                     i, object_base.HASH_FILE),
+                                     i, diskfile.HASH_FILE),
                         os.F_OK), result)
         finally:
             object_replicator.http_connect = was_connector
@@ -382,8 +383,8 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitions and then node should get deleted.
             cur_part = '1'
-            df = DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
-                          FakeLogger())
+            df = diskfile.DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
+                                   FakeLogger())
             mkdirs(df.datadir)
             f = open(os.path.join(df.datadir,
                                   normalize_timestamp(time.time()) + '.data'),

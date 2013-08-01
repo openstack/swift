@@ -418,6 +418,7 @@ class TestDBReplicator(unittest.TestCase):
         replicator = TestReplicator({})
         replicator._zero_stats()
         replicator._report_stats()
+
     def test_replicate_object(self):
         db_replicator.ring = FakeRingWithNodes()
         replicator = TestReplicator({})
@@ -431,6 +432,7 @@ class TestDBReplicator(unittest.TestCase):
                     '/a/b/c/d/e/hey')
         self._patch(patch.object, replicator.brokerclass,
                     'get_repl_missing_table', True)
+
         def mock_renamer(was, new, cause_colision=False):
             if cause_colision and '-' not in new:
                 raise OSError(errno.EEXIST, "File already exists")
@@ -499,7 +501,6 @@ class TestDBReplicator(unittest.TestCase):
             replicator.logger.log_dict['error'],
             [(('Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
                'be on partition 0; will replicate out and remove.',), {})])
-
 
     def test_delete_db(self):
         db_replicator.lock_parent_directory = lock_parent_directory
@@ -775,12 +776,11 @@ class TestReplToNode(unittest.TestCase):
                      'created_at': 100, 'put_timestamp': 0,
                      'delete_timestamp': 0, 'count': 0,
                      'metadata': {'Test': ('Value', normalize_timestamp(1))}}
-        self.replicator.logger= mock.Mock()
+        self.replicator.logger = mock.Mock()
         self.replicator._rsync_db = mock.Mock(return_value=True)
         self.replicator._usync_db = mock.Mock(return_value=True)
         self.http = ReplHttp('{"id": 3, "point": -1}')
         self.replicator._http_connect = lambda *args: self.http
-
 
     def test_repl_to_node_usync_success(self):
         rinfo = {"id": 3, "point": -1, "max_row": 5, "hash": "c"}
@@ -796,7 +796,7 @@ class TestReplToNode(unittest.TestCase):
     def test_repl_to_node_rsync_success(self):
         rinfo = {"id": 3, "point": -1, "max_row": 4, "hash": "c"}
         self.http = ReplHttp(simplejson.dumps(rinfo))
-        local_sync = self.broker.get_sync()
+        self.broker.get_sync()
         self.assertEquals(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.replicator.logger.increment.assert_has_calls([
@@ -811,13 +811,13 @@ class TestReplToNode(unittest.TestCase):
     def test_repl_to_node_already_in_sync(self):
         rinfo = {"id": 3, "point": -1, "max_row": 10, "hash": "b"}
         self.http = ReplHttp(simplejson.dumps(rinfo))
-        local_sync = self.broker.get_sync()
+        self.broker.get_sync()
         self.assertEquals(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.assertEquals(self.replicator._rsync_db.call_count, 0)
         self.assertEquals(self.replicator._usync_db.call_count, 0)
 
-    def  test_repl_to_node_not_found(self):
+    def test_repl_to_node_not_found(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=404)
         self.assertEquals(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)

@@ -15,6 +15,7 @@
 
 import os
 import time
+from gettext import gettext as _
 from random import random
 
 from eventlet import Timeout
@@ -102,7 +103,7 @@ class ContainerAuditor(Daemon):
         self.logger.info(
             _('Container audit "once" mode completed: %.02fs'), elapsed)
         dump_recon_cache({'container_auditor_pass_completed': elapsed},
-                         self.recon_container)
+                         self.rcache, self.logger)
 
     def container_audit(self, path):
         """

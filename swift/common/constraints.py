@@ -80,7 +80,9 @@ def check_metadata(req, target_type):
     meta_size = 0
     for key, value in req.headers.iteritems():
         if isinstance(value, basestring) and len(value) > MAX_HEADER_SIZE:
-            return HTTPBadRequest('Header Line Too Long')
+            return HTTPBadRequest(body='Header value too long: %s' %
+                                  key[:MAX_META_NAME_LENGTH],
+                                  request=req, content_type='text/plain')
         if not key.lower().startswith(prefix):
             continue
         key = key[len(prefix):]
@@ -91,11 +93,12 @@ def check_metadata(req, target_type):
         meta_size += len(key) + len(value)
         if len(key) > MAX_META_NAME_LENGTH:
             return HTTPBadRequest(
-                body='Metadata name too long; max %d' % MAX_META_NAME_LENGTH,
+                body='Metadata name too long: %s%s' % (prefix, key),
                 request=req, content_type='text/plain')
         elif len(value) > MAX_META_VALUE_LENGTH:
             return HTTPBadRequest(
-                body='Metadata value too long; max %d' % MAX_META_VALUE_LENGTH,
+                body='Metadata value longer than %d: %s%s' % (
+                    MAX_META_VALUE_LENGTH, prefix, key),
                 request=req, content_type='text/plain')
         elif meta_count > MAX_META_COUNT:
             return HTTPBadRequest(

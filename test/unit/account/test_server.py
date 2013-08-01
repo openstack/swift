@@ -145,9 +145,9 @@ class TestAccountController(unittest.TestCase):
         self.controller.PUT(req)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
                                                   'HTTP_X_TIMESTAMP': '1'})
-        resp = self.controller.DELETE(req)
+        resp = req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 404)
         self.assertEquals(resp.headers['X-Account-Status'], 'Deleted')
 
@@ -231,7 +231,7 @@ class TestAccountController(unittest.TestCase):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
         req = Request.blank('/sda1/p/a?format=' + format,
                             environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 400)
 
     def test_PUT_not_found(self):
@@ -1251,7 +1251,7 @@ class TestAccountController(unittest.TestCase):
         for format in ('xml', 'json'):
             req = Request.blank('/sda1/p/a?format=%s' % format,
                                 environ={'REQUEST_METHOD': 'GET'})
-            resp = self.controller.GET(req)
+            resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 200)
 
     def test_params_utf8(self):
@@ -1260,7 +1260,7 @@ class TestAccountController(unittest.TestCase):
                       'format'):
             req = Request.blank('/sda1/p/a?%s=\xce' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
-            resp = self.controller.GET(req)
+            resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 400,
                               "%d on param %s" % (resp.status_int, param))
         # Good UTF8 sequence for delimiter, too long (1 byte delimiters only)
