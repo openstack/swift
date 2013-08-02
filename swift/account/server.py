@@ -118,10 +118,12 @@ class AccountController(object):
                                   request=req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account)
         if container:   # put account container
+            pending_timeout = None
             if 'x-trans-id' in req.headers:
-                broker.pending_timeout = 3
+                pending_timeout = 3
+            broker = self._get_account_broker(drive, part, account,
+                                              pending_timeout=pending_timeout)
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
                 try:
@@ -142,6 +144,7 @@ class AccountController(object):
             else:
                 return HTTPCreated(request=req)
         else:   # put account
+            broker = self._get_account_broker(drive, part, account)
             timestamp = normalize_timestamp(req.headers['x-timestamp'])
             if not os.path.exists(broker.db_file):
                 try:
@@ -189,8 +192,8 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
+                                          pending_timeout=0.1,
                                           stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
         info = broker.get_info()
@@ -238,8 +241,8 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
+                                          pending_timeout=0.1,
                                           stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
         return account_listing_response(account, req, out_content_type, broker,

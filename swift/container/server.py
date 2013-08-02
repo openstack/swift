@@ -311,8 +311,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
+                                            pending_timeout=0.1,
                                             stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -399,8 +399,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
+                                            pending_timeout=0.1,
                                             stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
