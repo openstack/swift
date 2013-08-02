@@ -49,7 +49,7 @@ conf_exists = constraints_conf.read('/etc/swift/swift.conf')
 # Constraints are set first from the test config, then from
 # /etc/swift/swift.conf if it exists. If swift.conf doesn't exist,
 # then limit test coverage. This allows SAIO tests to work fine but
-# requires remote funtional testing to know something about the cluster
+# requires remote functional testing to know something about the cluster
 # that is being tested.
 config = get_config('func_test')
 for k in default_constraints:
