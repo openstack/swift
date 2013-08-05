@@ -37,6 +37,7 @@ unmounted = []
 notfound = []
 json_output = False
 debug = False
+insecure = False
 
 
 def get_error_log(prefix):
@@ -314,6 +315,9 @@ Usage: %%prog [options] [conf_file]
                       help='Only run container report')
     parser.add_option('--object-only', action='store_true', default=False,
                       help='Only run object report')
+    parser.add_option('--insecure', action='store_true', default=False,
+                      help='Allow accessing insecure keystone server. '
+                           'The keystone\'s certificate will not be verified.')
     options, args = parser.parse_args()
 
     if args:
@@ -335,6 +339,8 @@ Usage: %%prog [options] [conf_file]
         and not options.container_only
     if not (object_report or container_report):
         exit("Neither container or object report is set to run")
+    insecure = options.insecure \
+        or config_true_value(conf.get('keystone_api_insecure', 'no'))
     if options.debug:
         debug = True
 
@@ -345,12 +351,14 @@ Usage: %%prog [options] [conf_file]
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],
                           auth_version=conf.get('auth_version', '1.0'),
-                          os_options=os_options)
+                          os_options=os_options,
+                          insecure=insecure)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
     connpool.create = lambda: Connection(
         conf['auth_url'], conf['auth_user'], conf['auth_key'], retries=retries,
-        preauthurl=url, preauthtoken=token, os_options=os_options)
+        preauthurl=url, preauthtoken=token, os_options=os_options,
+        insecure=insecure)
 
     container_ring = Ring(swift_dir, ring_name='container')
     object_ring = Ring(swift_dir, ring_name='object')

@@ -17,7 +17,8 @@
 import traceback
 from ConfigParser import ConfigParser
 from cStringIO import StringIO
-from sys import exit, argv, stdout
+from optparse import OptionParser
+from sys import exit, stdout
 from time import time
 from uuid import uuid4
 
@@ -26,7 +27,10 @@ from eventlet.pools import Pool
 
 from swiftclient import Connection, get_auth
 from swift.common.ring import Ring
-from swift.common.utils import compute_eta, get_time_units
+from swift.common.utils import compute_eta, get_time_units, config_true_value
+
+
+insecure = False
 
 
 def put_container(connpool, container, report):
@@ -78,10 +82,19 @@ if __name__ == '__main__':
     patcher.monkey_patch()
 
     conffile = '/etc/swift/dispersion.conf'
-    if len(argv) == 2:
-        conffile = argv[1]
-    elif len(argv) > 2:
-        exit('Syntax: %s [conffile]' % argv[0])
+
+    parser = OptionParser(usage='''
+Usage: %%prog [options] [conf_file]
+
+[conf_file] defaults to %s'''.strip() % conffile)
+    parser.add_option('--insecure', action='store_true', default=False,
+                      help='Allow accessing insecure keystone server. '
+                           'The keystone\'s certificate will not be verified.')
+    options, args = parser.parse_args()
+
+    if args:
+        conffile = args.pop(0)
+
     c = ConfigParser()
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
@@ -91,6 +104,8 @@ if __name__ == '__main__':
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
+    insecure = options.insecure \
+        or config_true_value(conf.get('keystone_api_insecure', 'no'))
 
     coropool = GreenPool(size=concurrency)
     retries_done = 0
@@ -100,14 +115,16 @@ if __name__ == '__main__':
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],
                           auth_version=conf.get('auth_version', '1.0'),
-                          os_options=os_options)
+                          os_options=os_options,
+                          insecure=insecure)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
     connpool.create = lambda: Connection(conf['auth_url'],
                                          conf['auth_user'], conf['auth_key'],
                                          retries=retries,
                                          preauthurl=url, preauthtoken=token,
-                                         os_options=os_options)
+                                         os_options=os_options,
+                                         insecure=insecure)
 
     container_ring = Ring(swift_dir, ring_name='container')
     parts_left = dict((x, x) for x in xrange(container_ring.partition_count))
