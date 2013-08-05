@@ -419,11 +419,15 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_run(self):
         with _mock_process([(0, '')] * 100):
-            self.replicator.replicate()
+            with mock.patch('swift.obj.replicator.http_connect',
+                            mock_http_connect(200)):
+                self.replicator.replicate()
 
     def test_run_withlog(self):
         with _mock_process([(0, "stuff in log")] * 100):
-            self.replicator.replicate()
+            with mock.patch('swift.obj.replicator.http_connect',
+                            mock_http_connect(200)):
+                self.replicator.replicate()
 
     @mock.patch('swift.obj.replicator.tpool_reraise', autospec=True)
     @mock.patch('swift.obj.replicator.http_connect', autospec=True)
