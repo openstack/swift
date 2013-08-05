@@ -2224,7 +2224,8 @@ def parse_content_type(content_type):
     """
     Parse a content-type and its parameters into values.
     RFC 2616 sec 14.17 and 3.7 are pertinent.
-    Examples:
+
+    **Examples**::
 
         'text/plain; charset=UTF-8' -> ('text/plain', [('charset, 'UTF-8')])
         'text/plain; charset=UTF-8; level=1' ->
