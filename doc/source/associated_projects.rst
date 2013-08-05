@@ -26,6 +26,7 @@ Authentication
 
 * `Keystone <https://github.com/openstack/keystone>`_ - Official Identity Service for OpenStack.
 * `Swauth <https://github.com/gholt/swauth>`_ - Older Swift authentication service that only requires Swift itself.
+* `Basicauth <https://github.com/CloudVPS/swift-basicauth>`_ - HTTP Basic authentication support (keystone backed).
 
 
 Command Line Access
@@ -70,3 +71,4 @@ Other
 -----
 
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
+* `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
