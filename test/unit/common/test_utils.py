@@ -432,10 +432,16 @@ class TestUtils(unittest.TestCase):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
-            self.assertEquals([
-                ((), {'address': '/dev/log',
-                      'facility': orig_sysloghandler.LOG_LOCAL3})],
-                syslog_handler_args)
+            expected_args = [((), {'address': '/dev/log',
+                                   'facility': orig_sysloghandler.LOG_LOCAL3})]
+            if not os.path.exists('/dev/log') or \
+                    os.path.isfile('/dev/log') or \
+                    os.path.isdir('/dev/log'):
+                # Since socket on OSX is in /var/run/syslog, there will be
+                # a fallback to UDP.
+                expected_args.append(((),
+                                  {'facility': orig_sysloghandler.LOG_LOCAL3}))
+            self.assertEquals(expected_args, syslog_handler_args)
 
             syslog_handler_args = []
             utils.get_logger({
