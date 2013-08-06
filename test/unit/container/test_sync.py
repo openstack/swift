@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-
 import re
+import unittest
+from contextlib import nested
+
+import mock
+
 from test.unit import FakeLogger
 from swift.container import sync
 from swift.common import utils
@@ -407,26 +410,23 @@ class TestContainerSync(unittest.TestCase):
         cring = FakeRing()
         oring = FakeRing()
         cs = sync.ContainerSync({}, container_ring=cring, object_ring=oring)
-        orig_ContainerBroker = sync.ContainerBroker
-        orig_hash_path = sync.hash_path
-        orig_delete_object = sync.delete_object
-        try:
 
-            def fake_hash_path(account, container, obj, raw_digest=False):
-                # Ensures that no rows match for full syncing, ordinal is 0 and
-                # all hashes are 0
-                return '\x00' * 16
-
-            sync.hash_path = fake_hash_path
-            fcb = FakeContainerBroker(
-                'path',
-                info={'account': 'a', 'container': 'c',
-                      'x_container_sync_point1': 2,
-                      'x_container_sync_point2': -1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                items_since=[{'ROWID': 1, 'name': 'o'}])
-            sync.ContainerBroker = lambda p: fcb
+        def fake_hash_path(account, container, obj, raw_digest=False):
+            # Ensures that no rows match for full syncing, ordinal is 0 and
+            # all hashes are 0
+            return '\x00' * 16
+        fcb = FakeContainerBroker(
+            'path',
+            info={'account': 'a', 'container': 'c',
+                  'x_container_sync_point1': 2,
+                  'x_container_sync_point2': -1},
+            metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
+                      'x-container-sync-key': ('key', 1)},
+            items_since=[{'ROWID': 1, 'name': 'o'}])
+        with nested(
+                mock.patch('swift.container.sync.ContainerBroker',
+                           lambda p: fcb),
+                mock.patch('swift.container.sync.hash_path', fake_hash_path)):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -437,21 +437,23 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, -1)
 
-            def fake_hash_path(account, container, obj, raw_digest=False):
-                # Ensures that all rows match for full syncing, ordinal is 0
-                # and all hashes are 1
-                return '\x01' * 16
-
-            sync.hash_path = fake_hash_path
-            fcb = FakeContainerBroker(
-                'path',
-                info={'account': 'a', 'container': 'c',
-                      'x_container_sync_point1': 1,
-                      'x_container_sync_point2': 1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                items_since=[{'ROWID': 1, 'name': 'o'}])
-            sync.ContainerBroker = lambda p: fcb
+        def fake_hash_path(account, container, obj, raw_digest=False):
+            # Ensures that all rows match for full syncing, ordinal is 0
+            # and all hashes are 1
+            return '\x01' * 16
+        fcb = FakeContainerBroker('path', info={'account': 'a',
+                                                'container': 'c',
+                                                'x_container_sync_point1': 1,
+                                                'x_container_sync_point2': 1},
+                                  metadata={'x-container-sync-to':
+                                            ('http://127.0.0.1/a/c', 1),
+                                            'x-container-sync-key':
+                                            ('key', 1)},
+                                  items_since=[{'ROWID': 1, 'name': 'o'}])
+        with nested(
+                mock.patch('swift.container.sync.ContainerBroker',
+                           lambda p: fcb),
+                mock.patch('swift.container.sync.hash_path', fake_hash_path)):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -462,15 +464,15 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(fcb.sync_point1, -1)
             self.assertEquals(fcb.sync_point2, -1)
 
-            fcb = FakeContainerBroker(
-                'path',
-                info={'account': 'a', 'container': 'c',
-                      'x_container_sync_point1': 2,
-                      'x_container_sync_point2': -1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                items_since=[{'ROWID': 1, 'name': 'o'}])
-            sync.ContainerBroker = lambda p: fcb
+        fcb = FakeContainerBroker(
+            'path',
+            info={'account': 'a', 'container': 'c',
+                  'x_container_sync_point1': 2,
+                  'x_container_sync_point2': -1},
+            metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
+                      'x-container-sync-key': ('key', 1)},
+            items_since=[{'ROWID': 1, 'name': 'o'}])
+        with mock.patch('swift.container.sync.ContainerBroker', lambda p: fcb):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -482,16 +484,22 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, -1)
 
-            fcb = FakeContainerBroker(
-                'path',
-                info={'account': 'a', 'container': 'c',
-                      'x_container_sync_point1': 2,
-                      'x_container_sync_point2': -1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
-                              'deleted': True}])
-            sync.ContainerBroker = lambda p: fcb
+        def fake_delete_object(*args, **kwargs):
+            raise ClientException
+        fcb = FakeContainerBroker(
+            'path',
+            info={'account': 'a', 'container': 'c',
+                  'x_container_sync_point1': 2,
+                  'x_container_sync_point2': -1},
+            metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
+                      'x-container-sync-key': ('key', 1)},
+            items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
+                          'deleted': True}])
+        with nested(
+                mock.patch('swift.container.sync.ContainerBroker',
+                           lambda p: fcb),
+                mock.patch('swift.container.sync.delete_object',
+                           fake_delete_object)):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -502,20 +510,20 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, -1)
 
-            def fake_delete_object(*args, **kwargs):
-                pass
-
-            sync.delete_object = fake_delete_object
-            fcb = FakeContainerBroker(
-                'path',
-                info={'account': 'a', 'container': 'c',
-                      'x_container_sync_point1': 2,
-                      'x_container_sync_point2': -1},
-                metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
-                          'x-container-sync-key': ('key', 1)},
-                items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
-                              'deleted': True}])
-            sync.ContainerBroker = lambda p: fcb
+        fcb = FakeContainerBroker(
+            'path',
+            info={'account': 'a', 'container': 'c',
+                  'x_container_sync_point1': 2,
+                  'x_container_sync_point2': -1},
+            metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
+                      'x-container-sync-key': ('key', 1)},
+            items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
+                          'deleted': True}])
+        with nested(
+                mock.patch('swift.container.sync.ContainerBroker',
+                           lambda p: fcb),
+                mock.patch('swift.container.sync.delete_object',
+                           lambda *x, **y: None)):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -525,10 +533,6 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(cs.container_skips, 0)
             self.assertEquals(fcb.sync_point1, None)
             self.assertEquals(fcb.sync_point2, 1)
-        finally:
-            sync.ContainerBroker = orig_ContainerBroker
-            sync.hash_path = orig_hash_path
-            sync.delete_object = orig_delete_object
 
     def test_container_second_loop(self):
         cring = FakeRing()
