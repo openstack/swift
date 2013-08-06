@@ -97,6 +97,9 @@ class TestDatabaseBroker(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
 
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
+
     def test_DB_PREALLOCATION_setting(self):
         u = uuid4().hex
         b = DatabaseBroker(u)
@@ -104,9 +107,6 @@ class TestDatabaseBroker(unittest.TestCase):
         b._preallocate()
         swift.common.db.DB_PREALLOCATION = True
         self.assertRaises(OSError, b._preallocate)
-
-    def tearDown(self):
-        rmtree(self.testdir, ignore_errors=1)
 
     def test_memory_db_init(self):
         broker = DatabaseBroker(':memory:')
@@ -119,6 +119,21 @@ class TestDatabaseBroker(unittest.TestCase):
         broker = DatabaseBroker(db_file)
         self.assertEqual(broker.db_file, db_file)
         self.assert_(broker.conn is None)
+
+    def test_disk_preallocate(self):
+        test_size = [-1]
+        def fallocate_stub(fd, size):
+            test_size[0] = size
+        with patch('swift.common.db.fallocate', fallocate_stub):
+            db_file = os.path.join(self.testdir, 'pre.db')
+            # Write 1 byte and hope that the fs will allocate less than 1 MB.
+            f = open(db_file, "w")
+            f.write('@')
+            f.close()
+            b = DatabaseBroker(db_file)
+            b._preallocate()
+            # We only wrote 1 byte, so we should end with the 1st step or 1 MB.
+            self.assertEquals(test_size[0], 1024*1024)
 
     def test_initialize(self):
         self.assertRaises(AttributeError,
@@ -235,9 +250,7 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             self.assertEquals(
                 [r[0] for r in conn.execute('SELECT * FROM test')], ['1'])
-        orig_renamer = swift.common.db.renamer
-        try:
-            swift.common.db.renamer = lambda a, b: b
+        with patch('swift.common.db.renamer', lambda a, b: b):
             qpath = os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.dirname(self.testdir))))
             if qpath:
@@ -274,8 +287,6 @@ class TestDatabaseBroker(unittest.TestCase):
             self.assertEquals(str(exc),
                 'Quarantined %s to %s due to corrupted database' %
                 (self.testdir, qpath))
-        finally:
-            swift.common.db.renamer = orig_renamer
 
     def test_lock(self):
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
