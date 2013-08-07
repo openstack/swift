@@ -3629,6 +3629,53 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 2'  # 2xx response
         self.assertEquals(headers[:len(exp)], exp)
 
+    def test_conditional_range_get(self):
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
+            _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        # make a container
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/con HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 201'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # put an object in it
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 10\r\n'
+                 'Content-Type: text/plain\r\n'
+                 '\r\n'
+                 'abcdefghij\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 201'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # request with both If-None-Match and Range
+        etag = md5("abcdefghij").hexdigest()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o HTTP/1.1\r\n' +
+                 'Host: localhost\r\n' +
+                 'Connection: close\r\n' +
+                 'X-Storage-Token: t\r\n' +
+                 'If-None-Match: "' + etag + '"\r\n' +
+                 'Range: bytes=3-8\r\n' +
+                 '\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 304'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
     def test_chunked_put_lobjects_with_nonzero_size_manifest_file(self):
         # Create a container for our segmented/manifest object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
