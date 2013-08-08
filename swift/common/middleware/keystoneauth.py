@@ -38,9 +38,9 @@ class KeystoneAuth(object):
     installing keystone.
 
     If support is required for unvalidated users (as with anonymous
-    access) or for tempurl/formpost middleware, authtoken will need
-    to be configured with ``delay_auth_decision`` set to 1.  See the
-    Keystone documentation for more detail on how to configure the
+    access) or for formpost/staticweb/tempurl middleware, authtoken will
+    need to be configured with ``delay_auth_decision`` set to true.  See
+    the Keystone documentation for more detail on how to configure the
     authtoken middleware.
 
     In proxy-server.conf you will need to have the setting account
