@@ -35,6 +35,7 @@ import time
 import unittest
 import fcntl
 import shutil
+from contextlib import nested
 
 from Queue import Queue, Empty
 from getpass import getuser
@@ -42,7 +43,7 @@ from shutil import rmtree
 from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
-
+from netifaces import AF_INET6
 from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
@@ -643,6 +644,36 @@ class TestUtils(unittest.TestCase):
         myips = utils.whataremyips()
         self.assert_(len(myips) > 1)
         self.assert_('127.0.0.1' in myips)
+
+    def test_whataremyips_error(self):
+        def my_interfaces():
+            return ['eth0']
+
+        def my_ifaddress_error(interface):
+            raise ValueError
+
+        with nested(
+                patch('netifaces.interfaces', my_interfaces),
+                patch('netifaces.ifaddresses', my_ifaddress_error)):
+            self.assertEquals(utils.whataremyips(), [])
+
+    def test_whataremyips_ipv6(self):
+        test_ipv6_address = '2001:6b0:dead:beef:2::32'
+        test_interface = 'eth0'
+
+        def my_ipv6_interfaces():
+            return ['eth0']
+
+        def my_ipv6_ifaddresses(interface):
+            return {AF_INET6:
+                    [{'netmask': 'ffff:ffff:ffff:ffff::',
+                      'addr': '%s%%%s' % (test_ipv6_address, test_interface)}]}
+        with nested(
+                patch('netifaces.interfaces', my_ipv6_interfaces),
+                patch('netifaces.ifaddresses', my_ipv6_ifaddresses)):
+            myips = utils.whataremyips()
+            self.assertEquals(len(myips), 1)
+            self.assertEquals(myips[0], test_ipv6_address)
 
     def test_hash_path(self):
         _prefix = utils.HASH_PATH_PREFIX
