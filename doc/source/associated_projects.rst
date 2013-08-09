@@ -20,6 +20,8 @@ Application Bindings
     * `Go language bindings <https://github.com/ncw/swift>`_
     * `supload <https://github.com/selectel/supload>`_ - Bash script to upload file to cloud storage based on OpenStack Swift API.
     * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
+    * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
+    * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
 
 Authentication
 --------------
