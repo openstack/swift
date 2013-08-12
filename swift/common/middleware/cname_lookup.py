@@ -41,7 +41,7 @@ else:  # executed if the try block finishes with no errors
     MODULE_DEPENDENCY_MET = True
 
 from swift.common.swob import Request, HTTPBadRequest
-from swift.common.utils import cache_from_env, get_logger
+from swift.common.utils import cache_from_env, get_logger, list_from_csv
 
 
 def lookup_cname(domain):  # pragma: no cover
@@ -89,12 +89,21 @@ class CNAMELookupMiddleware(object):
             # reraise the exception if the dependency wasn't met
             raise ImportError('dnspython is required for this module')
         self.app = app
-        self.storage_domain = conf.get('storage_domain', 'example.com')
-        if self.storage_domain and self.storage_domain[0] != '.':
-            self.storage_domain = '.' + self.storage_domain
+        storage_domain = conf.get('storage_domain', 'example.com')
+        self.storage_domain = ['.' + s for s in
+                               list_from_csv(storage_domain)
+                               if not s.startswith('.')]
+        self.storage_domain += [s for s in list_from_csv(storage_domain)
+                                if s.startswith('.')]
         self.lookup_depth = int(conf.get('lookup_depth', '1'))
         self.memcache = None
         self.logger = get_logger(conf, log_route='cname-lookup')
+
+    def _domain_endswith_in_storage_domain(self, a_domain):
+        for domain in self.storage_domain:
+            if a_domain.endswith(domain):
+                return True
+        return False
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -111,7 +120,7 @@ class CNAMELookupMiddleware(object):
         if is_ip(given_domain):
             return self.app(env, start_response)
         a_domain = given_domain
-        if not a_domain.endswith(self.storage_domain):
+        if not self._domain_endswith_in_storage_domain(a_domain):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
             error = True
@@ -131,7 +140,7 @@ class CNAMELookupMiddleware(object):
                     error = True
                     found_domain = None
                     break
-                elif found_domain.endswith(self.storage_domain):
+                elif self._domain_endswith_in_storage_domain(found_domain):
                     # Found it!
                     self.logger.info(
                         _('Mapped %(given_domain)s to %(found_domain)s') %
