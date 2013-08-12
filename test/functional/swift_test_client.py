@@ -314,21 +314,21 @@ class Account(Base):
         return Container(self.conn, self.name, container_name)
 
     def containers(self, hdrs={}, parms={}, cfg={}):
-        format = parms.get('format', None)
-        if format not in [None, 'json', 'xml']:
-            raise RequestError('Invalid format: %s' % format)
-        if format is None and 'format' in parms:
+        format_type = parms.get('format', None)
+        if format_type not in [None, 'json', 'xml']:
+            raise RequestError('Invalid format: %s' % format_type)
+        if format_type is None and 'format' in parms:
             del parms['format']
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
                                         parms=parms, cfg=cfg)
         if status == 200:
-            if format == 'json':
+            if format_type == 'json':
                 conts = json.loads(self.conn.response.read())
                 for cont in conts:
                     cont['name'] = cont['name'].encode('utf-8')
                 return conts
-            elif format == 'xml':
+            elif format_type == 'xml':
                 conts = []
                 tree = minidom.parseString(self.conn.response.read())
                 for x in tree.getElementsByTagName('container'):
@@ -391,8 +391,8 @@ class Container(Base):
 
     def delete_files(self):
         for f in listing_items(self.files):
-            file = self.file(f)
-            if not file.delete():
+            file_item = self.file(f)
+            if not file_item.delete():
                 return False
 
         return listing_empty(self.files)
@@ -404,37 +404,39 @@ class Container(Base):
         return File(self.conn, self.account, self.name, file_name)
 
     def files(self, hdrs={}, parms={}, cfg={}):
-        format = parms.get('format', None)
-        if format not in [None, 'json', 'xml']:
-            raise RequestError('Invalid format: %s' % format)
-        if format is None and 'format' in parms:
+        format_type = parms.get('format', None)
+        if format_type not in [None, 'json', 'xml']:
+            raise RequestError('Invalid format: %s' % format_type)
+        if format_type is None and 'format' in parms:
             del parms['format']
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
                                         parms=parms, cfg=cfg)
         if status == 200:
-            if format == 'json':
+            if format_type == 'json':
                 files = json.loads(self.conn.response.read())
 
-                for file in files:
-                    file['name'] = file['name'].encode('utf-8')
-                    file['content_type'] = file['content_type'].encode('utf-8')
+                for file_item in files:
+                    file_item['name'] = file_item['name'].encode('utf-8')
+                    file_item['content_type'] = file_item['content_type'].\
+                        encode('utf-8')
                 return files
-            elif format == 'xml':
+            elif format_type == 'xml':
                 files = []
                 tree = minidom.parseString(self.conn.response.read())
                 for x in tree.getElementsByTagName('object'):
-                    file = {}
+                    file_item = {}
                     for key in ['name', 'hash', 'bytes', 'content_type',
                                 'last_modified']:
 
-                        file[key] = x.getElementsByTagName(key)[0].\
+                        file_item[key] = x.getElementsByTagName(key)[0].\
                             childNodes[0].nodeValue
-                    files.append(file)
+                    files.append(file_item)
 
-                for file in files:
-                    file['name'] = file['name'].encode('utf-8')
-                    file['content_type'] = file['content_type'].encode('utf-8')
+                for file_item in files:
+                    file_item['name'] = file_item['name'].encode('utf-8')
+                    file_item['content_type'] = file_item['content_type'].\
+                        encode('utf-8')
                 return files
             else:
                 content = self.conn.response.read()
@@ -601,11 +603,11 @@ class File(Base):
              callback=None, cfg={}):
 
         if size > 0:
-            range = 'bytes=%d-%d' % (offset, (offset + size) - 1)
+            range_string = 'bytes=%d-%d' % (offset, (offset + size) - 1)
             if hdrs:
-                hdrs['Range'] = range
+                hdrs['Range'] = range_string
             else:
-                hdrs = {'Range': range}
+                hdrs = {'Range': range_string}
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
                                         cfg=cfg)

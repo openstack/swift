@@ -7,6 +7,7 @@ auth_key = testing
 # auth_key = testing
 # auth_version = 2.0
 # endpoint_type = publicURL
+# keystone_api_insecure = no
 #
 # swift_dir = /etc/swift
 # dispersion_coverage = 1.0

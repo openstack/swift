@@ -1022,6 +1022,11 @@ class Response(object):
             self.headers.update(headers)
         for key, value in kw.iteritems():
             setattr(self, key, value)
+        # When specifying both 'content_type' and 'charset' in the kwargs,
+        # charset needs to be applied *after* content_type, otherwise charset
+        # can get wiped out when content_type sorts later in dict order.
+        if 'charset' in kw and 'content_type' in kw:
+            self.charset = kw['charset']
 
     def _prepare_for_ranges(self, ranges):
         """

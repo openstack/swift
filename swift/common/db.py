@@ -173,13 +173,13 @@ class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
-                 account=None, container=None, pending_timeout=10,
+                 account=None, container=None, pending_timeout=None,
                  stale_reads_ok=False):
         """Encapsulates working with a database."""
         self.conn = None
         self.db_file = db_file
         self.pending_file = self.db_file + '.pending'
-        self.pending_timeout = pending_timeout
+        self.pending_timeout = pending_timeout or 10
         self.stale_reads_ok = stale_reads_ok
         self.db_dir = os.path.dirname(db_file)
         self.timeout = timeout
@@ -928,8 +928,8 @@ class ContainerBroker(DatabaseBroker):
         if pending_size > PENDING_CAP:
             self._commit_puts([record])
         else:
-            with lock_parent_directory(
-                    self.pending_file, self.pending_timeout):
+            with lock_parent_directory(self.pending_file,
+                                       self.pending_timeout):
                 with open(self.pending_file, 'a+b') as fp:
                     # Colons aren't used in base64 encoding; so they are our
                     # delimiter

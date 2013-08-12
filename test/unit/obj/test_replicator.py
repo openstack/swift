@@ -287,13 +287,15 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.logger.log_dict['warning'])
 
     def test_delete_partition(self):
-        df = diskfile.DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
-                               FakeLogger())
-        mkdirs(df.datadir)
-        part_path = os.path.join(self.objects, '1')
-        self.assertTrue(os.access(part_path, os.F_OK))
-        self.replicator.replicate()
-        self.assertFalse(os.access(part_path, os.F_OK))
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = diskfile.DiskFile(self.devices,
+                                   'sda', '0', 'a', 'c', 'o', FakeLogger())
+            mkdirs(df.datadir)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_delete_partition_override_params(self):
         df = diskfile.DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
@@ -417,11 +419,15 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_run(self):
         with _mock_process([(0, '')] * 100):
-            self.replicator.replicate()
+            with mock.patch('swift.obj.replicator.http_connect',
+                            mock_http_connect(200)):
+                self.replicator.replicate()
 
     def test_run_withlog(self):
         with _mock_process([(0, "stuff in log")] * 100):
-            self.replicator.replicate()
+            with mock.patch('swift.obj.replicator.http_connect',
+                            mock_http_connect(200)):
+                self.replicator.replicate()
 
     @mock.patch('swift.obj.replicator.tpool_reraise', autospec=True)
     @mock.patch('swift.obj.replicator.http_connect', autospec=True)

@@ -432,10 +432,16 @@ class TestUtils(unittest.TestCase):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
-            self.assertEquals([
-                ((), {'address': '/dev/log',
-                      'facility': orig_sysloghandler.LOG_LOCAL3})],
-                syslog_handler_args)
+            expected_args = [((), {'address': '/dev/log',
+                                   'facility': orig_sysloghandler.LOG_LOCAL3})]
+            if not os.path.exists('/dev/log') or \
+                    os.path.isfile('/dev/log') or \
+                    os.path.isdir('/dev/log'):
+                # Since socket on OSX is in /var/run/syslog, there will be
+                # a fallback to UDP.
+                expected_args.append(((),
+                                  {'facility': orig_sysloghandler.LOG_LOCAL3}))
+            self.assertEquals(expected_args, syslog_handler_args)
 
             syslog_handler_args = []
             utils.get_logger({
@@ -1528,6 +1534,27 @@ log_name = %(yarr)s'''
                     pass
         finally:
             shutil.rmtree(tmpdir)
+
+    def test_parse_content_type(self):
+        self.assertEquals(utils.parse_content_type('text/plain'),
+                          ('text/plain', []))
+        self.assertEquals(utils.parse_content_type('text/plain;charset=utf-8'),
+                          ('text/plain', [('charset', 'utf-8')]))
+        self.assertEquals(
+            utils.parse_content_type('text/plain;hello="world";charset=utf-8'),
+            ('text/plain', [('hello', '"world"'), ('charset', 'utf-8')]))
+        self.assertEquals(
+            utils.parse_content_type('text/plain; hello="world"; a=b'),
+            ('text/plain', [('hello', '"world"'), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x="\""; a=b'),
+            ('text/plain', [('x', r'"\""'), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x; a=b'),
+            ('text/plain', [('x', ''), ('a', 'b')]))
+        self.assertEquals(
+            utils.parse_content_type(r'text/plain; x="\""; a'),
+            ('text/plain', [('x', r'"\""'), ('a', '')]))
 
 
 class TestFileLikeIter(unittest.TestCase):

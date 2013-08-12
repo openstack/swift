@@ -43,7 +43,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
-    HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict
+    HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
+    HTTPConflict
 from swift.obj.diskfile import DiskFile, get_hashes
 
 
@@ -317,6 +318,9 @@ class ObjectController(object):
         except (DiskFileError, DiskFileNotExist):
             disk_file.quarantine()
             return HTTPNotFound(request=request)
+        orig_timestamp = disk_file.metadata.get('X-Timestamp', '0')
+        if orig_timestamp >= request.headers['x-timestamp']:
+            return HTTPConflict(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
                         if val[0].startswith('X-Object-Meta-'))
@@ -364,6 +368,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
         orig_timestamp = disk_file.metadata.get('X-Timestamp')
+        if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
+            return HTTPConflict(request=request)
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
         elapsed_time = 0
@@ -563,25 +569,26 @@ class ObjectController(object):
             return HTTPPreconditionFailed(
                 request=request,
                 body='X-If-Delete-At and X-Delete-At do not match')
-        orig_timestamp = disk_file.metadata.get('X-Timestamp')
-        if disk_file.is_deleted() or disk_file.is_expired():
-            response_class = HTTPNotFound
-        else:
-            response_class = HTTPNoContent
-        metadata = {
-            'X-Timestamp': request.headers['X-Timestamp'], 'deleted': True,
-        }
         old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
         if old_delete_at:
             self.delete_at_update('DELETE', old_delete_at, account,
                                   container, obj, request, device)
-        disk_file.put_metadata(metadata, tombstone=True)
-        disk_file.unlinkold(metadata['X-Timestamp'])
-        if not orig_timestamp or \
-                orig_timestamp < request.headers['x-timestamp']:
+        orig_timestamp = disk_file.metadata.get('X-Timestamp', 0)
+        req_timestamp = request.headers['X-Timestamp']
+        if disk_file.is_deleted() or disk_file.is_expired():
+            response_class = HTTPNotFound
+        else:
+            if orig_timestamp < req_timestamp:
+                response_class = HTTPNoContent
+            else:
+                response_class = HTTPConflict
+        if orig_timestamp < req_timestamp:
+            disk_file.put_metadata({'X-Timestamp': req_timestamp},
+                                   tombstone=True)
+            disk_file.unlinkold(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
-                HeaderKeyDict({'x-timestamp': metadata['X-Timestamp']}),
+                HeaderKeyDict({'x-timestamp': req_timestamp}),
                 device)
         resp = response_class(request=request)
         return resp

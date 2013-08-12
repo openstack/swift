@@ -18,9 +18,9 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-from xml.sax import saxutils
 from datetime import datetime
 from gettext import gettext as _
+from xml.etree.cElementTree import Element, SubElement, tostring
 
 from eventlet import Timeout
 
@@ -30,7 +30,7 @@ from swift.common.request_helpers import get_param
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, validate_device_partition, json, timing_stats, \
-    replication
+    replication, parse_content_type
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
 from swift.common.bufferedhttp import http_connect
@@ -311,8 +311,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
+                                            pending_timeout=0.1,
                                             stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -330,25 +330,37 @@ class ContainerController(object):
         headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
-    def derive_content_type_metadata(self, content_type, size):
+    def update_data_record(self, record):
         """
-        Will check the last parameter and if it starts with 'swift_bytes=' will
-        strip it off. Returns either the passed in content_type and size
-        or the content_type without the swift_bytes param and its value as
-        the new size.
-        :params content_type: Content Type from db
-        :params size: # bytes from db, an int
-        :returns: tuple: content_type, size
+        Perform any mutations to container listing records that are common to
+        all serialization formats, and returns it as a dict.
+
+        Converts created time to iso timestamp.
+        Replaces size with 'swift_bytes' content type parameter.
+
+        :params record: object entry record
+        :returns: modified record
         """
-        if ';' in content_type:
-            new_content_type, param = content_type.rsplit(';', 1)
-            if param.lstrip().startswith('swift_bytes='):
-                key, value = param.split('=')
+        (name, created, size, content_type, etag) = record
+        if content_type is None:
+            return {'subdir': name}
+        response = {'bytes': size, 'hash': etag, 'name': name}
+        last_modified = datetime.utcfromtimestamp(float(created)).isoformat()
+        # python isoformat() doesn't include msecs when zero
+        if len(last_modified) < len("1970-01-01T00:00:00.000000"):
+            last_modified += ".000000"
+        response['last_modified'] = last_modified + 'Z'
+        content_type, params = parse_content_type(content_type)
+        for key, value in params:
+            if key == 'swift_bytes':
                 try:
-                    return new_content_type, int(value)
+                    response['bytes'] = int(value)
                 except ValueError:
                     self.logger.exception("Invalid swift_bytes")
-        return content_type, size
+            else:
+                content_type += ';%s=%s' % (key, value)
+        response['content_type'] = content_type
+        return response
 
     @public
     @timing_stats()
@@ -387,8 +399,8 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
+                                            pending_timeout=0.1,
                                             stale_reads_ok=True)
-        broker.pending_timeout = 0.1
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
@@ -398,65 +410,39 @@ class ContainerController(object):
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
-        resp_headers.update(
-            (key, value)
-            for key, (value, timestamp) in broker.metadata.iteritems()
-            if value != '' and (key.lower() in self.save_headers or
-                                key.lower().startswith('x-container-meta-')))
+        for key, (value, timestamp) in broker.metadata.iteritems():
+            if value and (key.lower() in self.save_headers or
+                          key.lower().startswith('x-container-meta-')):
+                resp_headers[key] = value
+        ret = Response(request=req, headers=resp_headers,
+                       content_type=out_content_type, charset='utf-8')
         container_list = broker.list_objects_iter(limit, marker, end_marker,
                                                   prefix, delimiter, path)
         if out_content_type == 'application/json':
-            data = []
-            for (name, created_at, size, content_type, etag) in container_list:
-                if content_type is None:
-                    data.append({"subdir": name})
-                else:
-                    created_at = datetime.utcfromtimestamp(
-                        float(created_at)).isoformat()
-                    # python isoformat() doesn't include msecs when zero
-                    if len(created_at) < len("1970-01-01T00:00:00.000000"):
-                        created_at += ".000000"
-                    created_at += 'Z'
-                    content_type, size = self.derive_content_type_metadata(
-                        content_type, size)
-                    data.append({'last_modified': created_at, 'bytes': size,
-                                'content_type': content_type, 'hash': etag,
-                                'name': name})
-            container_list = json.dumps(data)
+            ret.body = json.dumps([self.update_data_record(record)
+                                   for record in container_list])
         elif out_content_type.endswith('/xml'):
-            xml_output = []
-            for (name, created_at, size, content_type, etag) in container_list:
-                created_at = datetime.utcfromtimestamp(
-                    float(created_at)).isoformat()
-                # python isoformat() doesn't include msecs when zero
-                if len(created_at) < len("1970-01-01T00:00:00.000000"):
-                    created_at += ".000000"
-                created_at += 'Z'
-                if content_type is None:
-                    xml_output.append(
-                        '<subdir name=%s><name>%s</name></subdir>' %
-                        (saxutils.quoteattr(name), saxutils.escape(name)))
+            doc = Element('container', name=container.decode('utf-8'))
+            for obj in container_list:
+                record = self.update_data_record(obj)
+                if 'subdir' in record:
+                    name = record['subdir'].decode('utf-8')
+                    sub = SubElement(doc, 'subdir', name=name)
+                    SubElement(sub, 'name').text = name
                 else:
-                    content_type, size = self.derive_content_type_metadata(
-                        content_type, size)
-                    content_type = saxutils.escape(content_type)
-                    xml_output.append(
-                        '<object><name>%s</name><hash>%s</hash>'
-                        '<bytes>%d</bytes><content_type>%s</content_type>'
-                        '<last_modified>%s</last_modified></object>' %
-                        (saxutils.escape(name), etag, size, content_type,
-                         created_at))
-            container_list = ''.join([
-                '<?xml version="1.0" encoding="UTF-8"?>\n',
-                '<container name=%s>' % saxutils.quoteattr(container),
-                ''.join(xml_output), '</container>'])
+                    obj_element = SubElement(doc, 'object')
+                    for field in ["name", "hash", "bytes", "content_type",
+                                  "last_modified"]:
+                        SubElement(obj_element, field).text = str(
+                            record.pop(field)).decode('utf-8')
+                    for field in sorted(record.keys()):
+                        SubElement(obj_element, field).text = str(
+                            record[field]).decode('utf-8')
+            ret.body = tostring(doc, encoding='UTF-8')
         else:
             if not container_list:
                 return HTTPNoContent(request=req, headers=resp_headers)
-            container_list = '\n'.join(r[0] for r in container_list) + '\n'
-        ret = Response(body=container_list, request=req, headers=resp_headers)
-        ret.content_type = out_content_type
-        ret.charset = 'utf-8'
+            ret.body = '\n'.join(rec[0] for rec in container_list) + '\n'
         return ret
 
     @public

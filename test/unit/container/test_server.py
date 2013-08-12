@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from shutil import rmtree
 from StringIO import StringIO
 from tempfile import mkdtemp
+from xml.dom import minidom
 
 from eventlet import spawn, Timeout, listen
 import simplejson
@@ -890,7 +891,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             resp = self.controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
-        xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
+        xml_body = "<?xml version='1.0' encoding='UTF-8'?>\n" \
             '<container name="xmlc">' \
                 '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
@@ -905,6 +906,7 @@ class TestContainerController(unittest.TestCase):
                     '<last_modified>1970-01-01T00:00:01.000000Z' \
                     '</last_modified></object>' \
             '</container>'
+
         # tests
         req = Request.blank('/sda1/p/a/xmlc?format=xml',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -961,7 +963,8 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
             'HTTP_X_TIMESTAMP': '0'})
         resp = self.controller.PUT(req)
-        for i, ctype in enumerate((snowman.encode('utf-8'), 'text/plain; "utf-8"')):
+        for i, ctype in enumerate((snowman.encode('utf-8'),
+                                  'text/plain; charset="utf-8"')):
             req = Request.blank('/sda1/p/a/c/%s' % i, environ={
                     'REQUEST_METHOD': 'PUT',
                     'HTTP_X_TIMESTAMP': '1', 'HTTP_X_CONTENT_TYPE': ctype,
@@ -971,7 +974,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?format=json', environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
         result = [x['content_type'] for x in simplejson.loads(resp.body)]
-        self.assertEquals(result, [u'\u2603', 'text/plain; "utf-8"'])
+        self.assertEquals(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -1071,7 +1074,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?prefix=US-&delimiter=-&format=xml',
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
-        self.assertEquals(resp.body, '<?xml version="1.0" encoding="UTF-8"?>'
+        self.assertEquals(resp.body, "<?xml version='1.0' encoding='UTF-8'?>"
             '\n<container name="c"><subdir name="US-OK-"><name>US-OK-</name></subdir>'
             '<subdir name="US-TX-"><name>US-TX-</name></subdir>'
             '<subdir name="US-UT-"><name>US-UT-</name></subdir></container>')
@@ -1090,11 +1093,17 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?delimiter=/&format=xml',
                 environ={'REQUEST_METHOD': 'GET'})
         resp = self.controller.GET(req)
-        self.assertEquals(
-            resp.body,
-            '<?xml version="1.0" encoding="UTF-8"?>\n<container name="c">'
-            '<subdir name="&lt;\'sub\' &quot;dir&quot;&gt;/">'
-            '<name>&lt;\'sub\' "dir"&gt;/</name></subdir></container>')
+        dom = minidom.parseString(resp.body)
+        self.assert_(len(dom.getElementsByTagName('container')) == 1)
+        container = dom.getElementsByTagName('container')[0]
+        self.assert_(len(container.getElementsByTagName('subdir')) == 1)
+        subdir = container.getElementsByTagName('subdir')[0]
+        self.assertEquals(unicode(subdir.attributes['name'].value),
+                          u'<\'sub\' "dir">/')
+        self.assert_(len(subdir.getElementsByTagName('name')) == 1)
+        name = subdir.getElementsByTagName('name')[0]
+        self.assertEquals(unicode(name.childNodes[0].data),
+                          u'<\'sub\' "dir">/')
 
     def test_GET_path(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',

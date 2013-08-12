@@ -16,8 +16,11 @@
 """
 This StaticWeb WSGI middleware will serve container data as a static web site
 with index file and error file resolution and optional file listings. This mode
-is normally only active for anonymous requests. If you want to use it with
-authenticated requests, set the ``X-Web-Mode: true`` header on the request.
+is normally only active for anonymous requests. When using keystone for
+authentication set ``delay_auth_decision = true`` in the authtoken middleware
+configuration in your ``/etc/swift/proxy-server.conf`` file.  If you want to
+use it with authenticated requests, set the ``X-Web-Mode: true`` header on the
+request.
 
 The ``staticweb`` filter should be added to the pipeline in your
 ``/etc/swift/proxy-server.conf`` file just after any auth middleware. Also, the
