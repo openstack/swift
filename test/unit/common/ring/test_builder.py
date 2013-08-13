@@ -259,6 +259,33 @@ class TestRingBuilder(unittest.TestCase):
             max_run = run
         return max_run > len(parts) / 2
 
+    def test_initial_balance(self):
+        # 2 boxes, 2 drives each in zone 1
+        # 1 box, 2 drives in zone 2
+        #
+        # This is balanceable, but there used to be some nondeterminism in
+        # rebalance() that would sometimes give you an imbalanced ring.
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.2', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'region': 1, 'zone': 2, 'weight': 4000.0,
+                    'ip': '10.1.1.3', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 2, 'weight': 4000.0,
+                    'ip': '10.1.1.3', 'port': 10000, 'device': 'sdb'})
+
+        _, balance = rb.rebalance(seed=2)
+
+        # maybe not *perfect*, but should be close
+        self.assert_(balance <= 1)
+
     def test_multitier_partial(self):
         # Multitier test, nothing full
         rb = ring.RingBuilder(8, 3, 1)
