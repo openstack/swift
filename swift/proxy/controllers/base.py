@@ -311,7 +311,7 @@ def _set_info_cache(app, env, account, container, resp):
     else:
         info = headers_to_account_info(resp.headers, resp.status_int)
     if memcache:
-        memcache.set(cache_key, info, cache_time)
+        memcache.set(cache_key, info, time=cache_time)
     env[env_key] = info
 
 
