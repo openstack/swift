@@ -23,21 +23,20 @@ from gettext import gettext as _
 from eventlet import Timeout
 
 import swift.common.db
-from swift.account.utils import account_listing_response, \
-    account_listing_content_type
+from swift.account.utils import account_listing_response
 from swift.common.db import AccountBroker, DatabaseConnectionError
-from swift.common.request_helpers import get_param
+from swift.common.request_helpers import get_param, get_listing_content_type
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
     validate_device_partition, json, timing_stats, replication
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
+    check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
-    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException
+    HTTPInsufficientStorage, HTTPException
 
 
 DATADIR = 'accounts'
@@ -181,14 +180,7 @@ class AccountController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(
-                query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
@@ -234,9 +226,7 @@ class AccountController(object):
                                               ACCOUNT_LISTING_LIMIT)
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        out_content_type, error = account_listing_content_type(req)
-        if error:
-            return error
+        out_content_type = get_listing_content_type(req)
 
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)

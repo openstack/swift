@@ -27,8 +27,8 @@
 from gettext import gettext as _
 from urllib import unquote
 
-from swift.account.utils import account_listing_response, \
-    account_listing_content_type
+from swift.account.utils import account_listing_response
+from swift.common.request_helpers import get_listing_content_type
 from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
 from swift.common.http import HTTP_NOT_FOUND
@@ -60,11 +60,8 @@ class AccountController(Controller):
             req, _('Account'), self.app.account_ring, partition,
             req.path_info.rstrip('/'))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            content_type, error = account_listing_content_type(req)
-            if error:
-                return error
             resp = account_listing_response(self.account_name, req,
-                                            content_type)
+                                            get_listing_content_type(req))
         if not req.environ.get('swift_owner', False):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:
