@@ -323,12 +323,18 @@ use = egg:swift#ratelimit
 # account_blacklist = c,d
 
 # with container_limit_x = r
-# for containers of size x limit requests per second to r.  The container
+# for containers of size x limit write requests per second to r.  The container
 # rate will be linearly interpolated from the values given. With the values
 # below, a container of size 5 will get a rate of 75.
 # container_ratelimit_0 = 100
 # container_ratelimit_10 = 50
 # container_ratelimit_50 = 20
+
+# Similarly to the above container-level write limits, the following will limit
+# container GET (listing) requests.
+# container_listing_ratelimit_0 = 100
+# container_listing_ratelimit_10 = 50
+# container_listing_ratelimit_50 = 20
 
 [filter:domain_remap]
 use = egg:swift#domain_remap
