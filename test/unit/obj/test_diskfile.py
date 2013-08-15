@@ -648,7 +648,7 @@ class TestDiskFile(unittest.TestCase):
         def err():
             raise Exception("bad")
 
-        df = self._get_disk_file(fsize=1024 * 1024 * 2)
+        df = self._get_disk_file(fsize=1024 * 2)
         df._handle_close_quarantine = err
         for chunk in df:
             pass
