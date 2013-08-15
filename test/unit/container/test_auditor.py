@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unittest
+import mock
 import time
 import os
 import random
@@ -56,6 +57,7 @@ class TestAuditor(unittest.TestCase):
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
+    @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_run_forever(self):
         sleep_times = random.randint(5, 10)
         call_times = sleep_times - 1
@@ -77,23 +79,22 @@ class TestAuditor(unittest.TestCase):
 
         conf = {}
         test_auditor = auditor.ContainerAuditor(conf)
-        auditor.ContainerBroker = FakeContainerBroker
-        auditor.time = FakeTime()
 
-        def fake_audit_location_generator(*args, **kwargs):
-            files = os.listdir(self.testdir)
-            return [(os.path.join(self.testdir, f), '', '') for f in files]
+        with mock.patch('swift.container.auditor.time', FakeTime()):
+            def fake_audit_location_generator(*args, **kwargs):
+                files = os.listdir(self.testdir)
+                return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-        auditor.audit_location_generator = fake_audit_location_generator
+            auditor.audit_location_generator = fake_audit_location_generator
 
-        self.assertRaises(ValueError, test_auditor.run_forever)
+            self.assertRaises(ValueError, test_auditor.run_forever)
         self.assertEquals(test_auditor.container_failures, 2 * call_times)
         self.assertEquals(test_auditor.container_passes, 3 * call_times)
 
+    @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_run_once(self):
         conf = {}
         test_auditor = auditor.ContainerAuditor(conf)
-        auditor.ContainerBroker = FakeContainerBroker
 
         def fake_audit_location_generator(*args, **kwargs):
             files = os.listdir(self.testdir)
@@ -105,10 +106,10 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(test_auditor.container_failures, 2)
         self.assertEquals(test_auditor.container_passes, 3)
 
+    @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_container_auditor(self):
         conf = {}
         test_auditor = auditor.ContainerAuditor(conf)
-        auditor.ContainerBroker = FakeContainerBroker
         files = os.listdir(self.testdir)
         for f in files:
             path = os.path.join(self.testdir, f)
