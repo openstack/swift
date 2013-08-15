@@ -1411,14 +1411,14 @@ log_name = %(yarr)s'''
     def test_ismount_path_does_not_exist(self):
         tmpdir = mkdtemp()
         try:
-            assert utils.ismount(os.path.join(tmpdir, 'bar')) is False
+            self.assertFalse(utils.ismount(os.path.join(tmpdir, 'bar')))
         finally:
             shutil.rmtree(tmpdir)
 
     def test_ismount_path_not_mount(self):
         tmpdir = mkdtemp()
         try:
-            assert utils.ismount(tmpdir) is False
+            self.assertFalse(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1430,12 +1430,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    pass
-                else:
-                    self.fail("Expected OSError")
+                self.assertRaises(OSError, utils.ismount, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1444,12 +1439,12 @@ log_name = %(yarr)s'''
         try:
             link = os.path.join(tmpdir, "tmp")
             os.symlink("/tmp", link)
-            assert utils.ismount(link) is False
+            self.assertFalse(utils.ismount(link))
         finally:
             shutil.rmtree(tmpdir)
 
     def test_ismount_path_is_root(self):
-        assert utils.ismount('/') is True
+        self.assertTrue(utils.ismount('/'))
 
     def test_ismount_parent_path_error(self):
 
@@ -1464,12 +1459,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    pass
-                else:
-                    self.fail("Expected OSError")
+                self.assertRaises(OSError, utils.ismount, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1494,12 +1484,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    self.fail("Unexpected exception")
-                else:
-                    pass
+                self.assertTrue(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1526,12 +1511,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    self.fail("Unexpected exception")
-                else:
-                    pass
+                self.assertTrue(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 
