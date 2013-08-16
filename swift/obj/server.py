@@ -108,12 +108,11 @@ class ObjectController(object):
         kwargs.setdefault('mount_check', self.mount_check)
         kwargs.setdefault('bytes_per_sync', self.bytes_per_sync)
         kwargs.setdefault('disk_chunk_size', self.disk_chunk_size)
-        kwargs.setdefault('logger', self.logger)
         kwargs.setdefault('threadpool', self.threadpools[device])
         kwargs.setdefault('obj_dir', DATADIR)
         kwargs.setdefault('disallowed_metadata_keys', DISALLOWED_HEADERS)
         return DiskFile(self.devices, device, partition, account,
-                        container, obj, **kwargs)
+                        container, obj, self.logger, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice):
