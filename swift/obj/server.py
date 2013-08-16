@@ -55,6 +55,22 @@ MAX_OBJECT_NAME_LENGTH = 1024
 DISALLOWED_HEADERS = set('content-length content-type deleted etag'.split())
 
 
+def _parse_path(request, minsegs=5, maxsegs=5):
+    """
+    Utility function to split and validate the request path.
+
+    :returns: result of split_path if everything's okay
+    :raises: HTTPBadRequest if something's not okay
+    """
+    try:
+        segs = split_path(unquote(request.path), minsegs, maxsegs, True)
+        validate_device_partition(segs[0], segs[1])
+        return segs
+    except ValueError as err:
+        raise HTTPBadRequest(body=str(err), request=request,
+                             content_type='text/plain')
+
+
 class ObjectController(object):
     """Implements the WSGI application for the Swift Object Server."""
 
@@ -276,26 +292,11 @@ class ObjectController(object):
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice)
 
-    def _parse_path(self, request, minsegs=5, maxsegs=5):
-        """
-        Utility function to split and validate the request path.
-
-        :returns: result of split_path if everything's okay
-        :raises: HTTPBadRequest if something's not okay
-        """
-        try:
-            segs = split_path(unquote(request.path), minsegs, maxsegs, True)
-            validate_device_partition(segs[0], segs[1])
-            return segs
-        except ValueError as err:
-            raise HTTPBadRequest(body=str(err), request=request,
-                                 content_type='text/plain')
-
     @public
     @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
-        device, partition, account, container, obj = self._parse_path(request)
+        device, partition, account, container, obj = _parse_path(request)
 
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
@@ -342,7 +343,7 @@ class ObjectController(object):
     @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
-        device, partition, account, container, obj = self._parse_path(request)
+        device, partition, account, container, obj = _parse_path(request)
 
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
@@ -438,7 +439,7 @@ class ObjectController(object):
     @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
-        device, partition, account, container, obj = self._parse_path(request)
+        device, partition, account, container, obj = _parse_path(request)
 
         try:
             disk_file = self._diskfile(device, partition, account, container,
@@ -512,7 +513,7 @@ class ObjectController(object):
     @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
-        device, partition, account, container, obj = self._parse_path(request)
+        device, partition, account, container, obj = _parse_path(request)
 
         try:
             disk_file = self._diskfile(device, partition, account, container,
@@ -546,13 +547,8 @@ class ObjectController(object):
     @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
-        try:
-            device, partition, account, container, obj = \
-                split_path(unquote(request.path), 5, 5, True)
-            validate_device_partition(device, partition)
-        except ValueError, e:
-            return HTTPBadRequest(body=str(e), request=request,
-                                  content_type='text/plain')
+        device, partition, account, container, obj = _parse_path(request)
+
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -600,7 +596,7 @@ class ObjectController(object):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix = self._parse_path(request, 2, 3)
+        device, partition, suffix = _parse_path(request, 2, 3)
 
         if self.mount_check and not check_mount(self.devices, device):
             return HTTPInsufficientStorage(drive=device, request=request)
