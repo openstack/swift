@@ -836,6 +836,13 @@ request_node_count            2 * replicas     Set to the number of nodes to
                                                given times the number of
                                                replicas for the ring being used
                                                for the request.
+swift_owner_headers           <see the sample  These are the headers whose
+                              conf file for    values will only be shown to
+                              the list of      swift_owners. The exact
+                              default          definition of a swift_owner is
+                              headers>         up to the auth system in use,
+                                               but usually indicates
+                                               administrative responsibilities.
 ============================  ===============  =============================
 
 [tempauth]
