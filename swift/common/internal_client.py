@@ -18,11 +18,11 @@ import json
 from paste.deploy import loadapp
 import struct
 from sys import exc_info
-from urllib import quote
 import zlib
 from gettext import gettext as _
 from zlib import compressobj
 
+from swift.common.utils import quote
 from swift.common.http import HTTP_NOT_FOUND
 from swift.common.swob import Request
 
@@ -219,10 +219,7 @@ class InternalClient(object):
         :raises Exception: Exception is raised when code fails in an
                            unexpected way.
         """
-        if isinstance(marker, unicode):
-            marker = marker.encode('utf8')
-        if isinstance(end_marker, unicode):
-            end_marker = end_marker.encode('utf8')
+
         while True:
             resp = self.make_request(
                 'GET', '%s?format=json&marker=%s&end_marker=%s' %
@@ -249,15 +246,6 @@ class InternalClient(object):
         :raises ValueError: Is raised if obj is specified and container is
                             not.
         """
-
-        if isinstance(account, unicode):
-            account = account.encode('utf-8')
-
-        if isinstance(container, unicode):
-            container = container.encode('utf-8')
-
-        if isinstance(obj, unicode):
-            obj = obj.encode('utf-8')
 
         path = '/v1/%s' % quote(account)
         if container:

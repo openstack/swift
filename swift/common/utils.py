@@ -28,7 +28,7 @@ import uuid
 import functools
 from hashlib import md5
 from random import random, shuffle
-from urllib import quote
+from urllib import quote as _quote
 from contextlib import contextmanager, closing
 from gettext import gettext as _
 import ctypes
@@ -2253,3 +2253,10 @@ def parse_content_type(content_type):
             value = m[1].strip()
             parm_list.append((key, value))
     return content_type, parm_list
+
+
+def quote(value, safe='/'):
+    """
+    Patched version of urllib.quote that encodes utf-8 strings before quoting
+    """
+    return _quote(get_valid_utf8_str(value), safe)

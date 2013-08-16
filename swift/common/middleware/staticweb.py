@@ -118,27 +118,13 @@ Example usage of this middleware via ``swift``:
 
 import cgi
 import time
-from urllib import quote as urllib_quote
 
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    json
+    json, quote, get_valid_utf8_str
 from swift.common.wsgi import make_pre_authed_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
 from swift.proxy.controllers.base import get_container_info
-
-
-def ensure_utf8_bytes(value):
-    if isinstance(value, unicode):
-        value = value.encode('utf-8')
-    return value
-
-
-def quote(value, safe='/'):
-    """
-    Patched version of urllib.quote that encodes utf-8 strings before quoting
-    """
-    return urllib_quote(ensure_utf8_bytes(value), safe)
 
 
 class _StaticWebContext(WSGIContext):
@@ -279,7 +265,7 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n'
         for item in listing:
             if 'subdir' in item:
-                subdir = ensure_utf8_bytes(item['subdir'])
+                subdir = get_valid_utf8_str(item['subdir'])
                 if prefix:
                     subdir = subdir[len(prefix):]
                 body += '   <tr class="item subdir">\n' \
@@ -290,11 +276,11 @@ class _StaticWebContext(WSGIContext):
                         (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
-                name = ensure_utf8_bytes(item['name'])
+                name = get_valid_utf8_str(item['name'])
                 if prefix:
                     name = name[len(prefix):]
-                content_type = ensure_utf8_bytes(item['content_type'])
-                bytes = ensure_utf8_bytes(human_readable(item['bytes']))
+                content_type = get_valid_utf8_str(item['content_type'])
+                bytes = get_valid_utf8_str(human_readable(item['bytes']))
                 last_modified = (cgi.escape(item['last_modified']).
                                  split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
@@ -305,7 +291,7 @@ class _StaticWebContext(WSGIContext):
                         (' '.join('type-' + cgi.escape(t.lower(), quote=True)
                                   for t in content_type.split('/')),
                          quote(name), cgi.escape(name),
-                         bytes, ensure_utf8_bytes(last_modified))
+                         bytes, get_valid_utf8_str(last_modified))
         body += '  </table>\n' \
                 ' </body>\n' \
                 '</html>\n'
