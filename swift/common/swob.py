@@ -918,7 +918,6 @@ class Request(object):
             ['a', 'c'] = split_path('/a/c', 1, 2)
             ['a', 'c', 'o/r'] = split_path('/a/c/o/r', 1, 3, True)
 
-        :param path: HTTP Request path to be split
         :param minsegs: Minimum number of segments to be extracted
         :param maxsegs: Maximum number of segments to be extracted
         :param rest_with_last: If True, trailing data will be returned as part

@@ -22,6 +22,8 @@ from swob in here without creating circular imports.
 
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
+from swift.common.utils import split_path, validate_device_partition
+from urllib import unquote
 
 
 def get_param(req, name, default=None):
@@ -67,3 +69,21 @@ def get_listing_content_type(req):
     if not out_content_type:
         raise HTTPNotAcceptable(request=req)
     return out_content_type
+
+
+def split_and_validate_path(request, minsegs=1, maxsegs=None,
+                            rest_with_last=False):
+    """
+    Utility function to split and validate the request path.
+
+    :returns: result of split_path if everything's okay
+    :raises: HTTPBadRequest if something's not okay
+    """
+    try:
+        segs = split_path(unquote(request.path),
+                          minsegs, maxsegs, rest_with_last)
+        validate_device_partition(segs[0], segs[1])
+        return segs
+    except ValueError as err:
+        raise HTTPBadRequest(body=str(err), request=request,
+                             content_type='text/plain')
