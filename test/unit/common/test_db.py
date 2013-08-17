@@ -555,6 +555,10 @@ class TestDatabaseBroker(unittest.TestCase):
         return broker
 
     def test_metadata(self):
+        def reclaim(broker, timestamp):
+            with broker.get() as conn:
+                broker._reclaim(conn, timestamp)
+                conn.commit()
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
         # Add our first item
@@ -595,7 +599,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEquals(broker.metadata['Second'],
                           [second_value, second_timestamp])
         # Reclaim at point before second item was deleted
-        broker.reclaim(normalize_timestamp(3))
+        reclaim(broker, normalize_timestamp(3))
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
@@ -603,7 +607,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEquals(broker.metadata['Second'],
                           [second_value, second_timestamp])
         # Reclaim at point second item was deleted
-        broker.reclaim(normalize_timestamp(4))
+        reclaim(broker, normalize_timestamp(4))
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
@@ -611,7 +615,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEquals(broker.metadata['Second'],
                           [second_value, second_timestamp])
         # Reclaim after point second item was deleted
-        broker.reclaim(normalize_timestamp(5))
+        reclaim(broker, normalize_timestamp(5))
         self.assert_('First' in broker.metadata)
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
