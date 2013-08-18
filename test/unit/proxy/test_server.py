@@ -6716,6 +6716,65 @@ class TestSegmentedIterable(unittest.TestCase):
         self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
 
 
+class TestProxyObjectPerformance(unittest.TestCase):
+
+    def setUp(self):
+        # This is just a simple test that can be used to verify and debug the
+        # various data paths between the proxy server and the object
+        # server. Used as a play ground to debug buffer sizes for sockets.
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        # Client is transmitting in 2 MB chunks
+        fd = sock.makefile('wb', 2 * 1024 * 1024)
+        # Small, fast for testing
+        obj_len = 2 * 64 * 1024
+        # Use 1 GB or more for measurements
+        #obj_len = 2 * 512 * 1024 * 1024
+        self.path = '/v1/a/c/o.large'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n' % (self.path, str(obj_len)))
+        fd.write('a' * obj_len)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.obj_len = obj_len
+
+    def test_GET_debug_large_file(self):
+        for i in range(0, 10):
+            start = time.time()
+
+            prolis = _test_sockets[0]
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            # Client is reading in 2 MB chunks
+            fd = sock.makefile('wb', 2 * 1024 * 1024)
+            fd.write('GET %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n' % self.path)
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+
+            total = 0
+            while True:
+                buf = fd.read(100000)
+                if not buf:
+                    break
+                total += len(buf)
+            self.assertEqual(total, self.obj_len)
+
+            end = time.time()
+            print "Run %02d took %07.03f" % (i, end - start)
+
+
 if __name__ == '__main__':
     setup()
     try:
