@@ -4394,7 +4394,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         # Remember Request instance count, make sure the GC is run for pythons
         # without reference counting.
-        for i in xrange(3):
+        for i in xrange(4):
             gc.collect()
         before_request_instances = len(_request_instances)
         # GET test file, but disconnect early
@@ -4413,7 +4413,7 @@ class TestObjectController(unittest.TestCase):
         fd.close()
         sock.close()
         # Make sure the GC is run again for pythons without reference counting
-        for i in xrange(3):
+        for i in xrange(4):
             gc.collect()
         self.assertEquals(before_request_instances, len(_request_instances))
 
