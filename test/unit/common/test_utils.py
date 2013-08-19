@@ -30,6 +30,7 @@ import sys
 
 from textwrap import dedent
 
+import tempfile
 import threading
 import time
 import unittest
@@ -681,9 +682,10 @@ foo = bar
 [section2]
 log_name = yarr'''
         # setup a real file
-        with open('/tmp/test', 'wb') as f:
+        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        with os.fdopen(fd, 'wb') as f:
             f.write(conf)
-        make_filename = lambda: '/tmp/test'
+        make_filename = lambda: temppath
         # setup a file stream
         make_fp = lambda: StringIO(conf)
         for conf_object_maker in (make_filename, make_fp):
@@ -715,9 +717,9 @@ log_name = yarr'''
             expected = {'__file__': conffile, 'log_name': 'section1',
                         'foo': 'bar', 'bar': 'baz'}
             self.assertEquals(result, expected)
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test', 'section3')
-        os.unlink('/tmp/test')
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
+        self.assertRaises(SystemExit, utils.readconf, temppath, 'section3')
+        os.unlink(temppath)
+        self.assertRaises(SystemExit, utils.readconf, temppath)
 
     def test_readconf_raw(self):
         conf = '''[section1]
@@ -726,9 +728,10 @@ foo = bar
 [section2]
 log_name = %(yarr)s'''
         # setup a real file
-        with open('/tmp/test', 'wb') as f:
+        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        with os.fdopen(fd, 'wb') as f:
             f.write(conf)
-        make_filename = lambda: '/tmp/test'
+        make_filename = lambda: temppath
         # setup a file stream
         make_fp = lambda: StringIO(conf)
         for conf_object_maker in (make_filename, make_fp):
@@ -739,8 +742,8 @@ log_name = %(yarr)s'''
                         'section1': {'foo': 'bar'},
                         'section2': {'log_name': '%(yarr)s'}}
             self.assertEquals(result, expected)
-        os.unlink('/tmp/test')
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
+        os.unlink(temppath)
+        self.assertRaises(SystemExit, utils.readconf, temppath)
 
     def test_readconf_dir(self):
         config_dir = {
