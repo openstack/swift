@@ -1099,7 +1099,7 @@ class ObjectController(Controller):
             for conn in conns:
                 if not conn in conn_good_status:
                     try:
-                        with Timeout(self.app.node_timeout_split):
+                        with Timeout(self.app.node_timeout_slice):
                             if conn.resp:
                                 response = conn.resp
                             else:
@@ -1119,7 +1119,7 @@ class ObjectController(Controller):
                                 etags.add(response.getheader('etag').strip('"'))
                                 conn_good_status.append(conn)
                     except (Exception, Timeout):
-                        conn_timeout_increaser += self.app.node_timeout_piece
+                        conn_timeout_increaser += self.app.node_timeout_slice
                         if conn_timeout_increaser >= self.app.node_timeout:
                             statuses.append(HTTP_SERVICE_UNAVAILABLE)
                             self.exception_occurred(
