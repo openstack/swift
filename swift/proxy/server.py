@@ -58,6 +58,8 @@ class Application(object):
             self.logger = logger
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.rate_put_replicas = float(conf.get('rate_put_replicas', 0.5))
+        self.node_timeout_slice = float(conf.get('node_timeout_slice', 0.01))
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))

@@ -32,6 +32,7 @@ from datetime import datetime
 from gettext import gettext as _
 from urllib import unquote, quote
 from hashlib import md5
+from math import ceil
 
 from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
@@ -47,7 +48,7 @@ from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError, SegmentError
 from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
-    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_CONFLICT, \
+    HTTP_CREATED, HTTP_ACCEPTED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_OK
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -1087,36 +1088,50 @@ class ObjectController(Controller):
         reasons = []
         bodies = []
         etags = set()
-        for conn in conns:
-            try:
-                with Timeout(self.app.node_timeout):
-                    if conn.resp:
-                        response = conn.resp
-                    else:
-                        response = conn.getresponse()
-                    statuses.append(response.status)
-                    reasons.append(response.reason)
-                    bodies.append(response.read())
-                    if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                        self.error_occurred(
-                            conn.node,
-                            _('ERROR %(status)d %(body)s From Object Server '
-                              're: %(path)s') %
-                            {'status': response.status,
-                             'body': bodies[-1][:1024], 'path': req.path})
-                    elif is_success(response.status):
-                        etags.add(response.getheader('etag').strip('"'))
-            except (Exception, Timeout):
-                self.exception_occurred(
-                    conn.node, _('Object'),
-                    _('Trying to get final status of PUT to %s') % req.path)
+        conn_good_status = []
+        conn_timeout_increaser = 0
+        
+        for i in range(len(nodes) - len(conns)):
+            statuses.append(HTTP_SERVICE_UNAVAILABLE)
+        #return the final response after half of the conns return the response with successful status. 
+        #In fact, it's enough to make true the PUT is sucessful when half of conns return success.
+        while len(conn_good_status) < ceil(len(conns) * self.app.rate_put_replicas) and len(statuses) < len(conns):
+            for conn in conns:
+                if not conn in conn_good_status:
+                    try:
+                        with Timeout(self.app.node_timeout_slice):
+                            if conn.resp:
+                                response = conn.resp
+                            else:
+                                response = conn.getresponse()
+                            statuses.append(response.status)
+                            reasons.append(response.reason)
+                            bodies.append(response.read())
+                            if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+                                statuses.append(HTTP_SERVICE_UNAVAILABLE)
+                                self.error_occurred(
+                                    conn.node,
+                                    _('ERROR %(status)d %(body)s From Object Server '
+                                    're: %(path)s') %
+                                    {'status': response.status,
+                                    'body': bodies[-1][:1024], 'path': req.path})
+                            elif is_success(response.status):
+                                etags.add(response.getheader('etag').strip('"'))
+                                conn_good_status.append(conn)
+                    except (Exception, Timeout):
+                        conn_timeout_increaser += self.app.node_timeout_slice
+                        if conn_timeout_increaser >= self.app.node_timeout:
+                            statuses.append(HTTP_SERVICE_UNAVAILABLE)
+                            self.exception_occurred(
+                                conn.node, _('Object'),
+                                _('Trying to get final status of PUT to %s') % req.path)
         if len(etags) > 1:
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
         while len(statuses) < len(nodes):
-            statuses.append(HTTP_SERVICE_UNAVAILABLE)
+            statuses.append(HTTP_ACCEPTED)
             reasons.append('')
             bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies,
