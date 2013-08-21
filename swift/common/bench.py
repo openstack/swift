@@ -369,6 +369,7 @@ class BenchController(object):
         sys.exit('Final SIGINT received.')
 
     def run(self):
+        eventlet.patcher.monkey_patch(socket=True)
         signal.signal(signal.SIGINT, self.sigint1)
         puts = BenchPUT(self.logger, self.conf, self.names)
         self.running = puts
