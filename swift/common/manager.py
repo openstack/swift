@@ -615,6 +615,8 @@ class Server():
                     #TODO(clayg): should I check if self.cmd exists earlier?
                     print _("%s does not exist") % self.cmd
                     break
+                else:
+                    raise
             pids[pid] = conf_file
 
         return pids
