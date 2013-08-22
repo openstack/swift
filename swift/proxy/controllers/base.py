@@ -987,7 +987,7 @@ class Controller(object):
             source, node = sources.pop()
             for src, _junk in sources:
                 self.close_swift_conn(src)
-            res = Response(request=req, conditional_response=True)
+            res = Response(request=req)
             if req.method == 'GET' and \
                     source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
                 res.app_iter = self._make_app_iter(node, source)
