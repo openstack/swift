@@ -518,6 +518,101 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'hi')
 
+    def test_401_unauthorized(self):
+        # No request environment
+        resp = swift.common.swob.HTTPUnauthorized()
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        # Request environment
+        req = swift.common.swob.Request.blank('/')
+        resp = swift.common.swob.HTTPUnauthorized(request=req)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+
+    def test_401_valid_account_path(self):
+
+        def test_app(environ, start_response):
+            start_response('401 Unauthorized', [])
+            return ['hi']
+
+        # Request environment contains valid account in path
+        req = swift.common.swob.Request.blank('/v1/account-name')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="account-name"',
+                          resp.headers['Www-Authenticate'])
+
+        # Request environment contains valid account/container in path
+        req = swift.common.swob.Request.blank('/v1/account-name/c')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="account-name"',
+                          resp.headers['Www-Authenticate'])
+
+    def test_401_invalid_path(self):
+
+        def test_app(environ, start_response):
+            start_response('401 Unauthorized', [])
+            return ['hi']
+
+        # Request environment contains bad path
+        req = swift.common.swob.Request.blank('/random')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="unknown"',
+                          resp.headers['Www-Authenticate'])
+
+    def test_401_non_keystone_auth_path(self):
+
+        def test_app(environ, start_response):
+            start_response('401 Unauthorized', [])
+            return ['no creds in request']
+
+        # Request to get token
+        req = swift.common.swob.Request.blank('/v1.0/auth')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="unknown"',
+                          resp.headers['Www-Authenticate'])
+
+        # Other form of path
+        req = swift.common.swob.Request.blank('/auth/v1.0')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="unknown"',
+                          resp.headers['Www-Authenticate'])
+
+    def test_401_www_authenticate_exists(self):
+
+        def test_app(environ, start_response):
+            start_response('401 Unauthorized', {
+                           'Www-Authenticate': 'Me realm="whatever"'})
+            return ['no creds in request']
+
+        # Auth middleware sets own Www-Authenticate
+        req = swift.common.swob.Request.blank('/auth/v1.0')
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Me realm="whatever"',
+                          resp.headers['Www-Authenticate'])
+
+    def test_not_401(self):
+
+        # Other status codes should not have WWW-Authenticate in response
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            return ['hi']
+
+        req = swift.common.swob.Request.blank('/')
+        resp = req.get_response(test_app)
+        self.assert_('Www-Authenticate' not in resp.headers)
+
     def test_properties(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
 

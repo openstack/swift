@@ -214,6 +214,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_put_valid(self):
         method = 'PUT'
@@ -246,6 +247,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_missing_sig(self):
         method = 'GET'
@@ -260,6 +262,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_missing_expires(self):
         method = 'GET'
@@ -274,6 +277,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_bad_path(self):
         method = 'GET'
@@ -289,6 +293,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_no_key(self):
         method = 'GET'
@@ -304,6 +309,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_head_allowed_by_get(self):
         method = 'GET'
@@ -356,6 +362,7 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_post_not_allowed(self):
         method = 'POST'
@@ -372,6 +379,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_delete_not_allowed(self):
         method = 'DELETE'
@@ -388,6 +396,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_delete_allowed_with_conf(self):
         self.tempurl.methods.append('DELETE')
@@ -420,6 +429,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_changed_path_invalid(self):
         method = 'GET'
@@ -435,6 +445,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_changed_sig_invalid(self):
         method = 'GET'
@@ -454,6 +465,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_changed_expires_invalid(self):
         method = 'GET'
@@ -469,6 +481,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_different_key_invalid(self):
         method = 'GET'
@@ -484,6 +497,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_removed_incoming_header(self):
         self.tempurl = tempurl.filter_factory({
@@ -652,6 +666,26 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals('', ''.join(
             self.tempurl._invalid({'REQUEST_METHOD': 'HEAD'},
                                   _start_response)))
+
+    def test_auth_scheme_value(self):
+        # Passthrough
+        environ = {}
+        resp = self._make_request('/v1/a/c/o', environ=environ).get_response(
+            self.tempurl)
+        self.assertEquals(resp.status_int, 401)
+        self.assertTrue('Temp URL invalid' not in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertTrue('swift.auth_scheme' not in environ)
+
+        # Rejected by TempURL
+        req = self._make_request('/v1/a/c/o', keys=['abc'],
+                                 environ={'REQUEST_METHOD': 'PUT',
+                                 'QUERY_STRING':
+                                 'temp_url_sig=dummy&temp_url_expires=1234'})
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 401)
+        self.assertTrue('Temp URL invalid' in resp.body)
+        self.assert_('Www-Authenticate' in resp.headers)
 
     def test_clean_incoming_headers(self):
         irh = ''

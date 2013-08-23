@@ -99,6 +99,7 @@ from urlparse import parse_qs
 from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict
 from swift.common.utils import split_path
+from swift.common.swob import HTTPUnauthorized
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -412,13 +413,11 @@ class TempURL(object):
         :param start_response: The WSGI start_response hook.
         :returns: 401 response as per WSGI.
         """
-        body = '401 Unauthorized: Temp URL invalid\n'
-        start_response('401 Unauthorized',
-                       [('Content-Type', 'text/plain'),
-                        ('Content-Length', str(len(body)))])
         if env['REQUEST_METHOD'] == 'HEAD':
-            return []
-        return [body]
+            body = None
+        else:
+            body = '401 Unauthorized: Temp URL invalid\n'
+        return HTTPUnauthorized(body=body)(env, start_response)
 
     def _clean_incoming_headers(self, env):
         """
