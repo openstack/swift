@@ -296,3 +296,5 @@ class ContainerUpdater(Daemon):
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 return HTTP_INTERNAL_SERVER_ERROR
+            finally:
+                conn.close()

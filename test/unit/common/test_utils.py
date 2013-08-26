@@ -30,11 +30,13 @@ import sys
 
 from textwrap import dedent
 
+import tempfile
 import threading
 import time
 import unittest
 import fcntl
 import shutil
+from contextlib import nested
 
 from Queue import Queue, Empty
 from getpass import getuser
@@ -42,7 +44,7 @@ from shutil import rmtree
 from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
-
+from netifaces import AF_INET6
 from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
@@ -644,6 +646,36 @@ class TestUtils(unittest.TestCase):
         self.assert_(len(myips) > 1)
         self.assert_('127.0.0.1' in myips)
 
+    def test_whataremyips_error(self):
+        def my_interfaces():
+            return ['eth0']
+
+        def my_ifaddress_error(interface):
+            raise ValueError
+
+        with nested(
+                patch('netifaces.interfaces', my_interfaces),
+                patch('netifaces.ifaddresses', my_ifaddress_error)):
+            self.assertEquals(utils.whataremyips(), [])
+
+    def test_whataremyips_ipv6(self):
+        test_ipv6_address = '2001:6b0:dead:beef:2::32'
+        test_interface = 'eth0'
+
+        def my_ipv6_interfaces():
+            return ['eth0']
+
+        def my_ipv6_ifaddresses(interface):
+            return {AF_INET6:
+                    [{'netmask': 'ffff:ffff:ffff:ffff::',
+                      'addr': '%s%%%s' % (test_ipv6_address, test_interface)}]}
+        with nested(
+                patch('netifaces.interfaces', my_ipv6_interfaces),
+                patch('netifaces.ifaddresses', my_ipv6_ifaddresses)):
+            myips = utils.whataremyips()
+            self.assertEquals(len(myips), 1)
+            self.assertEquals(myips[0], test_ipv6_address)
+
     def test_hash_path(self):
         _prefix = utils.HASH_PATH_PREFIX
         utils.HASH_PATH_PREFIX = ''
@@ -681,9 +713,10 @@ foo = bar
 [section2]
 log_name = yarr'''
         # setup a real file
-        with open('/tmp/test', 'wb') as f:
+        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        with os.fdopen(fd, 'wb') as f:
             f.write(conf)
-        make_filename = lambda: '/tmp/test'
+        make_filename = lambda: temppath
         # setup a file stream
         make_fp = lambda: StringIO(conf)
         for conf_object_maker in (make_filename, make_fp):
@@ -715,9 +748,9 @@ log_name = yarr'''
             expected = {'__file__': conffile, 'log_name': 'section1',
                         'foo': 'bar', 'bar': 'baz'}
             self.assertEquals(result, expected)
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test', 'section3')
-        os.unlink('/tmp/test')
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
+        self.assertRaises(SystemExit, utils.readconf, temppath, 'section3')
+        os.unlink(temppath)
+        self.assertRaises(SystemExit, utils.readconf, temppath)
 
     def test_readconf_raw(self):
         conf = '''[section1]
@@ -726,9 +759,10 @@ foo = bar
 [section2]
 log_name = %(yarr)s'''
         # setup a real file
-        with open('/tmp/test', 'wb') as f:
+        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        with os.fdopen(fd, 'wb') as f:
             f.write(conf)
-        make_filename = lambda: '/tmp/test'
+        make_filename = lambda: temppath
         # setup a file stream
         make_fp = lambda: StringIO(conf)
         for conf_object_maker in (make_filename, make_fp):
@@ -739,8 +773,8 @@ log_name = %(yarr)s'''
                         'section1': {'foo': 'bar'},
                         'section2': {'log_name': '%(yarr)s'}}
             self.assertEquals(result, expected)
-        os.unlink('/tmp/test')
-        self.assertRaises(SystemExit, utils.readconf, '/tmp/test')
+        os.unlink(temppath)
+        self.assertRaises(SystemExit, utils.readconf, temppath)
 
     def test_readconf_dir(self):
         config_dir = {
@@ -1411,14 +1445,14 @@ log_name = %(yarr)s'''
     def test_ismount_path_does_not_exist(self):
         tmpdir = mkdtemp()
         try:
-            assert utils.ismount(os.path.join(tmpdir, 'bar')) is False
+            self.assertFalse(utils.ismount(os.path.join(tmpdir, 'bar')))
         finally:
             shutil.rmtree(tmpdir)
 
     def test_ismount_path_not_mount(self):
         tmpdir = mkdtemp()
         try:
-            assert utils.ismount(tmpdir) is False
+            self.assertFalse(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1430,12 +1464,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    pass
-                else:
-                    self.fail("Expected OSError")
+                self.assertRaises(OSError, utils.ismount, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1444,12 +1473,12 @@ log_name = %(yarr)s'''
         try:
             link = os.path.join(tmpdir, "tmp")
             os.symlink("/tmp", link)
-            assert utils.ismount(link) is False
+            self.assertFalse(utils.ismount(link))
         finally:
             shutil.rmtree(tmpdir)
 
     def test_ismount_path_is_root(self):
-        assert utils.ismount('/') is True
+        self.assertTrue(utils.ismount('/'))
 
     def test_ismount_parent_path_error(self):
 
@@ -1464,12 +1493,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    pass
-                else:
-                    self.fail("Expected OSError")
+                self.assertRaises(OSError, utils.ismount, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1494,12 +1518,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    self.fail("Unexpected exception")
-                else:
-                    pass
+                self.assertTrue(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1526,12 +1545,7 @@ log_name = %(yarr)s'''
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                try:
-                    utils.ismount(tmpdir)
-                except OSError:
-                    self.fail("Unexpected exception")
-                else:
-                    pass
+                self.assertTrue(utils.ismount(tmpdir))
         finally:
             shutil.rmtree(tmpdir)
 

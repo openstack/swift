@@ -393,7 +393,9 @@ class _StaticWebContext(WSGIContext):
             self._error = None
             return self._error_response(resp, env, start_response)
         if not self._listings and not self._index:
-            return self.app(env, start_response)
+            start_response(self._response_status, self._response_headers,
+                           self._response_exc_info)
+            return resp
         status_int = HTTP_NOT_FOUND
         if self._index:
             tmp_env = dict(env)

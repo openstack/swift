@@ -1124,7 +1124,13 @@ def whataremyips():
                 if family not in (netifaces.AF_INET, netifaces.AF_INET6):
                     continue
                 for address in iface_data[family]:
-                    addresses.append(address['addr'])
+                    addr = address['addr']
+
+                    # If we have an ipv6 address remove the
+                    # %ether_interface at the end
+                    if family == netifaces.AF_INET6:
+                        addr = addr.split('%')[0]
+                    addresses.append(addr)
         except ValueError:
             pass
     return addresses

@@ -1351,7 +1351,7 @@ class TestFile(Base):
 
         for i in range(10):
             metadata = {}
-            for i in range(10):
+            for j in range(10):
                 metadata[Utils.create_ascii_name()] = Utils.create_name()
 
             file_item.metadata = metadata

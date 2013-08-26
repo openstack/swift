@@ -653,13 +653,37 @@ class DatabaseBroker(object):
                          (json.dumps(md),))
             conn.commit()
 
-    def reclaim(self, timestamp):
-        """Removes any empty metadata values older than the timestamp"""
-        if not self.metadata:
-            return
+    def reclaim(self, age_timestamp, sync_timestamp):
+        """
+        Delete rows from the db_contains_type table that are marked deleted
+        and whose created_at timestamp is < age_timestamp.  Also deletes rows
+        from incoming_sync and outgoing_sync where the updated_at timestamp is
+        < sync_timestamp.
+
+        In addition, this calls the DatabaseBroker's :func:_reclaim method.
+
+        :param age_timestamp: max created_at timestamp of object rows to delete
+        :param sync_timestamp: max update_at timestamp of sync rows to delete
+        """
+        self._commit_puts()
         with self.get() as conn:
-            if self._reclaim(conn, timestamp):
-                conn.commit()
+            conn.execute('''
+                DELETE FROM %s WHERE deleted = 1 AND %s < ?
+            ''' % (self.db_contains_type, self.db_reclaim_timestamp),
+                (age_timestamp,))
+            try:
+                conn.execute('''
+                    DELETE FROM outgoing_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+                conn.execute('''
+                    DELETE FROM incoming_sync WHERE updated_at < ?
+                ''', (sync_timestamp,))
+            except sqlite3.OperationalError, err:
+                # Old dbs didn't have updated_at in the _sync tables.
+                if 'no such column: updated_at' not in str(err):
+                    raise
+            DatabaseBroker._reclaim(self, conn, age_timestamp)
+            conn.commit()
 
     def _reclaim(self, conn, timestamp):
         """
@@ -699,6 +723,7 @@ class ContainerBroker(DatabaseBroker):
     """Encapsulates working with a container database."""
     db_type = 'container'
     db_contains_type = 'object'
+    db_reclaim_timestamp = 'created_at'
 
     def _initialize(self, conn, put_timestamp):
         """Creates a brand new database (tables, indices, triggers, etc.)"""
@@ -856,39 +881,6 @@ class ContainerBroker(DatabaseBroker):
             row = conn.execute(
                 'SELECT object_count from container_stat').fetchone()
             return (row[0] == 0)
-
-    def reclaim(self, object_timestamp, sync_timestamp):
-        """
-        Delete rows from the object table that are marked deleted and
-        whose created_at timestamp is < object_timestamp.  Also deletes rows
-        from incoming_sync and outgoing_sync where the updated_at timestamp is
-        < sync_timestamp.
-
-        In addition, this calls the DatabaseBroker's :func:_reclaim method.
-
-        :param object_timestamp: max created_at timestamp of object rows to
-                                 delete
-        :param sync_timestamp: max update_at timestamp of sync rows to delete
-        """
-        self._commit_puts()
-        with self.get() as conn:
-            conn.execute("""
-                    DELETE FROM object
-                    WHERE deleted = 1
-                    AND created_at < ?""", (object_timestamp,))
-            try:
-                conn.execute('''
-                    DELETE FROM outgoing_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-                conn.execute('''
-                    DELETE FROM incoming_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-            except sqlite3.OperationalError, err:
-                # Old dbs didn't have updated_at in the _sync tables.
-                if 'no such column: updated_at' not in str(err):
-                    raise
-            DatabaseBroker._reclaim(self, conn, object_timestamp)
-            conn.commit()
 
     def delete_object(self, name, timestamp):
         """
@@ -1210,6 +1202,7 @@ class AccountBroker(DatabaseBroker):
     """Encapsulates working with a account database."""
     db_type = 'account'
     db_contains_type = 'container'
+    db_reclaim_timestamp = 'delete_timestamp'
 
     def _initialize(self, conn, put_timestamp):
         """
@@ -1366,40 +1359,6 @@ class AccountBroker(DatabaseBroker):
             row = conn.execute(
                 'SELECT container_count from account_stat').fetchone()
             return (row[0] == 0)
-
-    def reclaim(self, container_timestamp, sync_timestamp):
-        """
-        Delete rows from the container table that are marked deleted and
-        whose created_at timestamp is < container_timestamp.  Also deletes rows
-        from incoming_sync and outgoing_sync where the updated_at timestamp is
-        < sync_timestamp.
-
-        In addition, this calls the DatabaseBroker's :func:_reclaim method.
-
-        :param container_timestamp: max created_at timestamp of container rows
-                                    to delete
-        :param sync_timestamp: max update_at timestamp of sync rows to delete
-        """
-
-        self._commit_puts()
-        with self.get() as conn:
-            conn.execute('''
-                DELETE FROM container WHERE
-                deleted = 1 AND delete_timestamp < ?
-            ''', (container_timestamp,))
-            try:
-                conn.execute('''
-                    DELETE FROM outgoing_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-                conn.execute('''
-                    DELETE FROM incoming_sync WHERE updated_at < ?
-                ''', (sync_timestamp,))
-            except sqlite3.OperationalError, err:
-                # Old dbs didn't have updated_at in the _sync tables.
-                if 'no such column: updated_at' not in str(err):
-                    raise
-            DatabaseBroker._reclaim(self, conn, container_timestamp)
-            conn.commit()
 
     def put_container(self, name, put_timestamp, delete_timestamp,
                       object_count, bytes_used):

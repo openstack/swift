@@ -24,10 +24,12 @@ import signal
 from contextlib import contextmanager, nested, closing
 from gzip import GzipFile
 from shutil import rmtree
+import gc
 import time
 from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
+import weakref
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen
@@ -59,22 +61,15 @@ logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 STATIC_TIME = time.time()
-_request_instances = 0
+_request_instances = weakref.WeakKeyDictionary()
 _test_coros = _test_servers = _test_sockets = _orig_container_listing_limit = \
     _testdir = _orig_SysLogHandler = None
 
 
 def request_init(self, *args, **kwargs):
-    global _request_instances
     self._orig_init(*args, **kwargs)
-    _request_instances += 1
 
-
-def request_del(self):
-    global _request_instances
-    if self._orig_del:
-        self._orig_del()
-    _request_instances -= 1
+    _request_instances[self] = None
 
 
 def setup():
@@ -85,8 +80,6 @@ def setup():
     utils.SysLogHandler = mock.MagicMock()
     Request._orig_init = Request.__init__
     Request.__init__ = request_init
-    Request._orig_del = getattr(Request, '__del__', None)
-    Request.__del__ = request_del
     monkey_patch_mimetools()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
@@ -188,8 +181,6 @@ def teardown():
         _orig_container_listing_limit
     rmtree(os.path.dirname(_testdir))
     Request.__init__ = Request._orig_init
-    if Request._orig_del:
-        Request.__del__ = Request._orig_del
     utils.SysLogHandler = _orig_SysLogHandler
 
 
@@ -3629,6 +3620,53 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 2'  # 2xx response
         self.assertEquals(headers[:len(exp)], exp)
 
+    def test_conditional_range_get(self):
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
+            _test_sockets
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        # make a container
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/con HTTP/1.1\r\nHost: localhost\r\n'
+                 'Connection: close\r\nX-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 201'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # put an object in it
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 10\r\n'
+                 'Content-Type: text/plain\r\n'
+                 '\r\n'
+                 'abcdefghij\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 201'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
+        # request with both If-None-Match and Range
+        etag = md5("abcdefghij").hexdigest()
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o HTTP/1.1\r\n' +
+                 'Host: localhost\r\n' +
+                 'Connection: close\r\n' +
+                 'X-Storage-Token: t\r\n' +
+                 'If-None-Match: "' + etag + '"\r\n' +
+                 'Range: bytes=3-8\r\n' +
+                 '\r\n')
+        fd.flush()
+        exp = 'HTTP/1.1 304'
+        headers = readuntil2crlfs(fd)
+        self.assertEquals(headers[:len(exp)], exp)
+
     def test_chunked_put_lobjects_with_nonzero_size_manifest_file(self):
         # Create a container for our segmented/manifest object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
@@ -4384,7 +4422,6 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_leak_1(self):
-        global _request_instances
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
         obj_len = prosrv.client_chunk_size * 2
@@ -4402,8 +4439,11 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
-        # Remember Request instance count
-        before_request_instances = _request_instances
+        # Remember Request instance count, make sure the GC is run for pythons
+        # without reference counting.
+        for i in xrange(4):
+            gc.collect()
+        before_request_instances = len(_request_instances)
         # GET test file, but disconnect early
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -4419,7 +4459,10 @@ class TestObjectController(unittest.TestCase):
         fd.read(1)
         fd.close()
         sock.close()
-        self.assertEquals(before_request_instances, _request_instances)
+        # Make sure the GC is run again for pythons without reference counting
+        for i in xrange(4):
+            gc.collect()
+        self.assertEquals(before_request_instances, len(_request_instances))
 
     def test_OPTIONS(self):
         with save_globals():

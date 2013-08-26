@@ -46,6 +46,9 @@ PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
 METADATA_KEY = 'user.swift.metadata'
+# These are system-set metadata keys that cannot be changed with a POST.
+# They should be lowercase.
+DATAFILE_SYSTEM_META = set('content-length content-type deleted etag'.split())
 
 
 def read_metadata(fd):
@@ -350,8 +353,7 @@ class DiskFile(object):
     def __init__(self, path, device, partition, account, container, obj,
                  logger, keep_data_fp=False, disk_chunk_size=65536,
                  bytes_per_sync=(512 * 1024 * 1024), iter_hook=None,
-                 threadpool=None, obj_dir='objects', mount_check=False,
-                 disallowed_metadata_keys=None):
+                 threadpool=None, obj_dir='objects', mount_check=False):
         if mount_check and not check_mount(path, device):
             raise DiskFileDeviceUnavailable()
         self.disk_chunk_size = disk_chunk_size
@@ -364,7 +366,6 @@ class DiskFile(object):
         self.device_path = join(path, device)
         self.tmpdir = join(path, device, 'tmp')
         self.logger = logger
-        self.disallowed_metadata_keys = disallowed_metadata_keys or []
         self.metadata = {}
         self.data_file = None
         self.fp = None
@@ -394,15 +395,20 @@ class DiskFile(object):
         if not self.data_file:
             return
         self.fp = open(self.data_file, 'rb')
-        self.metadata = read_metadata(self.fp)
+        datafile_metadata = read_metadata(self.fp)
         if not keep_data_fp:
             self.close(verify_file=False)
+
         if meta_file:
             with open(meta_file) as mfp:
-                for key in self.metadata.keys():
-                    if key.lower() not in self.disallowed_metadata_keys:
-                        del self.metadata[key]
-                self.metadata.update(read_metadata(mfp))
+                self.metadata = read_metadata(mfp)
+            sys_metadata = dict(
+                [(key, val) for key, val in datafile_metadata.iteritems()
+                 if key.lower() in DATAFILE_SYSTEM_META])
+            self.metadata.update(sys_metadata)
+        else:
+            self.metadata = datafile_metadata
+
         if 'name' in self.metadata:
             if self.metadata['name'] != self.name:
                 self.logger.error(_('Client path %(client)s does not match '

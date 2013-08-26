@@ -155,6 +155,14 @@ class Application(object):
         else:
             raise ValueError(
                 'Invalid write_affinity_node_count value: %r' % ''.join(value))
+        swift_owner_headers = conf.get(
+            'swift_owner_headers',
+            'x-container-read, x-container-write, '
+            'x-container-sync-key, x-container-sync-to, '
+            'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2')
+        self.swift_owner_headers = [
+            name.strip()
+            for name in swift_owner_headers.split(',') if name.strip()]
 
     def get_controller(self, path):
         """

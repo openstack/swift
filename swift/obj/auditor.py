@@ -64,8 +64,8 @@ class AuditorWorker(object):
             [(s, 0) for s in self.stats_sizes + ['OVER']])
 
     def audit_all_objects(self, mode='once'):
-        self.logger.info(_('Begin object audit "%s" mode (%s)' %
-                           (mode, self.auditor_type)))
+        self.logger.info(_('Begin object audit "%s" mode (%s)') %
+                         (mode, self.auditor_type))
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0

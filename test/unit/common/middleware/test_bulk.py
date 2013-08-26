@@ -105,12 +105,11 @@ class TestUntar(unittest.TestCase):
     def setUp(self):
         self.app = FakeApp()
         self.bulk = bulk.filter_factory({})(self.app)
-        self.testdir = os.path.join(mkdtemp(), 'tmp_test_bulk')
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp(suffix='tmp_test_bulk')
 
     def tearDown(self):
         self.app.calls = 0
-        rmtree(self.testdir)
+        rmtree(self.testdir, ignore_errors=1)
 
     def handle_extract_and_iter(self, req, compress_format,
                                 out_content_type='application/json'):
