@@ -81,6 +81,23 @@ class TestHeaderKeyDict(unittest.TestCase):
         self.assertEquals(headers['content-length'], '20')
         self.assertEquals(headers['CONTENT-LENGTH'], '20')
 
+    def test_setdefault(self):
+        headers = swift.common.swob.HeaderKeyDict()
+
+        # it gets set
+        headers.setdefault('x-rubber-ducky', 'the one')
+        self.assertEquals(headers['X-Rubber-Ducky'], 'the one')
+
+        # it has the right return value
+        ret = headers.setdefault('x-boat', 'dinghy')
+        self.assertEquals(ret, 'dinghy')
+
+        ret = headers.setdefault('x-boat', 'yacht')
+        self.assertEquals(ret, 'dinghy')
+
+        # shouldn't crash
+        headers.setdefault('x-sir-not-appearing-in-this-request', None)
+
     def test_del_contains(self):
         headers = swift.common.swob.HeaderKeyDict()
         headers['Content-Length'] = 0
