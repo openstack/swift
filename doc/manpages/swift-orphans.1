@@ -14,31 +14,31 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-orphans 1 "3/15/2012" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-orphans
 \- Openstack-swift orphans tool
 
 .SH SYNOPSIS
 .LP
-.B swift-orphans 
+.B swift-orphans
 [-h|--help] [-a|--age] [-k|--kill] [-w|--wide] [-r|--run-dir]
 
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
 Lists and optionally kills orphaned Swift processes. This is done by scanning
-/var/run/swift or the directory specified to the -r switch for .pid files and
+/var/run/swift or the directory specified to the \-r switch for .pid files and
 listing any processes that look like Swift processes but aren't associated with
 the pids in those .pid files. Any Swift processes running with the 'once'
 parameter are ignored, as those are usually for full-speed audit scans and
 such.
 
-Example (sends SIGTERM to all orphaned Swift processes older than two hours): 
-swift-orphans -a 2 -k TERM
+Example (sends SIGTERM to all orphaned Swift processes older than two hours):
+swift-orphans \-a 2 \-k TERM
 
 The options are as follows:
 
@@ -62,9 +62,9 @@ The options are as follows:
 .PD
 .RE
 
-    
+
 .SH DOCUMENTATION
 .LP
-More documentation about Openstack-Swift can be found at 
+More documentation about Openstack-Swift can be found at
 .BI http://swift.openstack.org/index.html
 
