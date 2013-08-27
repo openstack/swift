@@ -281,6 +281,11 @@ class HeaderKeyDict(dict):
     def get(self, key, default=None):
         return dict.get(self, key.title(), default)
 
+    def setdefault(self, key, value=None):
+        if key not in self:
+            self[key] = value
+        return self[key]
+
 
 def _resp_status_property():
     """

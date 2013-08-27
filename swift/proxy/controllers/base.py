@@ -473,8 +473,7 @@ class Controller(object):
         headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
         if transfer:
             self.transfer_headers(orig_req.headers, headers)
-        if 'x-timestamp' not in headers:
-            headers['x-timestamp'] = normalize_timestamp(time.time())
+        headers.setdefault('x-timestamp', normalize_timestamp(time.time()))
         if orig_req:
             referer = orig_req.as_referer()
         else:
