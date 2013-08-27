@@ -20,8 +20,8 @@ Why not swift.common.utils, you ask? Because this way we can import things
 from swob in here without creating circular imports.
 """
 
-
-from swift.common.swob import HTTPBadRequest
+from swift.common.constraints import FORMAT2CONTENT_TYPE
+from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
 
 
 def get_param(req, name, default=None):
@@ -45,3 +45,25 @@ def get_param(req, name, default=None):
                 request=req, content_type='text/plain',
                 body='"%s" parameter not valid UTF-8' % name)
     return value
+
+
+def get_listing_content_type(req):
+    """
+    Determine the content type to use for an account or container listing
+    response.
+
+    :param req: request object
+    :returns: content type as a string (e.g. text/plain, application/json)
+    :raises: HTTPNotAcceptable if the requested content type is not acceptable
+    :raises: HTTPBadRequest if the 'format' query param is provided and
+             not valid UTF-8
+    """
+    query_format = get_param(req, 'format')
+    if query_format:
+        req.accept = FORMAT2CONTENT_TYPE.get(
+            query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
+    out_content_type = req.accept.best_match(
+        ['text/plain', 'application/json', 'application/xml', 'text/xml'])
+    if not out_content_type:
+        raise HTTPNotAcceptable(request=req)
+    return out_content_type

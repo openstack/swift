@@ -129,7 +129,7 @@ class TestAccountController(unittest.TestCase):
     def test_HEAD_not_found(self):
         # Test the case in which account does not exist (can be recreated)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 404)
         self.assertTrue('X-Account-Status' not in resp.headers)
 
@@ -156,7 +156,7 @@ class TestAccountController(unittest.TestCase):
             'HTTP_X_TIMESTAMP': '0'})
         self.controller.PUT(req)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['x-account-container-count'], '0')
         self.assertEquals(resp.headers['x-account-object-count'], '0')
@@ -181,7 +181,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Timestamp': normalize_timestamp(0)})
         self.controller.PUT(req)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['x-account-container-count'], '2')
         self.assertEquals(resp.headers['x-account-object-count'], '0')
@@ -202,7 +202,7 @@ class TestAccountController(unittest.TestCase):
         self.controller.PUT(req)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD',
             'HTTP_X_TIMESTAMP': '5'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['x-account-container-count'], '2')
         self.assertEquals(resp.headers['x-account-object-count'], '4')
@@ -211,20 +211,20 @@ class TestAccountController(unittest.TestCase):
     def test_HEAD_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'HEAD',
                                                   'HTTP_X_TIMESTAMP': '1'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 400)
 
     def test_HEAD_invalid_content_type(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'Accept': 'application/plain'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 406)
 
     def test_HEAD_insufficient_storage(self):
         self.controller = AccountController({'devices': self.testdir})
         req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'HEAD',
                                                       'HTTP_X_TIMESTAMP': '1'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 507)
 
     def test_HEAD_invalid_format(self):
@@ -349,7 +349,7 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.POST(req)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
         # Update metadata header
@@ -359,7 +359,7 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.POST(req)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Send old update to metadata header
@@ -369,7 +369,7 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.POST(req)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Remove metadata header (by setting it to empty)
@@ -379,7 +379,7 @@ class TestAccountController(unittest.TestCase):
         resp = self.controller.POST(req)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assert_('x-account-meta-test' not in resp.headers)
 
@@ -974,14 +974,14 @@ class TestAccountController(unittest.TestCase):
         self.controller.PUT(req)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/xml*'
-        resp = self.controller.GET(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 406)
 
     def test_GET_delimiter_too_long(self):
         req = Request.blank('/sda1/p/a?delimiter=xx',
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_X_TIMESTAMP': '0'})
-        resp = self.controller.GET(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 412)
 
     def test_GET_prefix_delimiter_plain(self):
@@ -1306,22 +1306,22 @@ class TestAccountController(unittest.TestCase):
         env = {'REQUEST_METHOD': 'HEAD'}
 
         req = Request.blank('/sda1/p/a?format=xml', environ=env)
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.content_type, 'application/xml')
 
         req = Request.blank('/sda1/p/a?format=json', environ=env)
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.content_type, 'application/json')
         self.assertEquals(resp.charset, 'utf-8')
 
         req = Request.blank('/sda1/p/a', environ=env)
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.content_type, 'text/plain')
         self.assertEquals(resp.charset, 'utf-8')
 
         req = Request.blank(
             '/sda1/p/a', headers={'Accept': 'application/json'}, environ=env)
-        resp = self.controller.HEAD(req)
+        resp = req.get_response(self.controller)
         self.assertEquals(resp.content_type, 'application/json')
         self.assertEquals(resp.charset, 'utf-8')
 

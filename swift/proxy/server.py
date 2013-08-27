@@ -42,7 +42,7 @@ from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPServerError, Request
+    HTTPServerError, HTTPException, Request
 
 
 class Application(object):
@@ -293,6 +293,8 @@ class Application(object):
             # method the client actually sent.
             req.environ['swift.orig_req_method'] = req.method
             return handler(req)
+        except HTTPException as error_response:
+            return error_response
         except (Exception, Timeout):
             self.logger.exception(_('ERROR Unhandled exception in request'))
             return HTTPServerError(request=req)

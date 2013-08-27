@@ -5772,7 +5772,6 @@ class TestAccountController(unittest.TestCase):
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
-            print resp.headers['Allow']
             for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['Allow'])
@@ -6140,20 +6139,20 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
     have to match the responses for empty accounts that really exist.
     """
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache(),
+        conf = {'account_autocreate': 'yes'}
+        self.app = proxy_server.Application(conf, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing)
         self.app.memcache = FakeMemcacheReturnsNone()
-        self.controller = proxy_server.AccountController(self.app, 'acc')
-        self.controller.app.account_autocreate = True
 
     def test_GET_autocreate_accept_json(self):
         with save_globals():
-            set_http_connect(404)  # however many backends we ask, they all 404
-            req = Request.blank('/a', headers={'Accept': 'application/json'})
-
-            resp = self.controller.GET(req)
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a', headers={'Accept': 'application/json'},
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a'})
+            resp = req.get_response(self.app)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/json; charset=utf-8',
                              resp.headers['Content-Type'])
@@ -6161,10 +6160,12 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
 
     def test_GET_autocreate_format_json(self):
         with save_globals():
-            set_http_connect(404)  # however many backends we ask, they all 404
-            req = Request.blank('/a?format=json')
-
-            resp = self.controller.GET(req)
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a?format=json',
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a',
+                                         'QUERY_STRING': 'format=json'})
+            resp = req.get_response(self.app)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/json; charset=utf-8',
                              resp.headers['Content-Type'])
@@ -6172,29 +6173,53 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
 
     def test_GET_autocreate_accept_xml(self):
         with save_globals():
-            set_http_connect(404)  # however many backends we ask, they all 404
-            req = Request.blank('/a', headers={"Accept": "text/xml"})
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a', headers={"Accept": "text/xml"},
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a'})
 
-            resp = self.controller.GET(req)
+            resp = req.get_response(self.app)
             self.assertEqual(200, resp.status_int)
+
             self.assertEqual('text/xml; charset=utf-8',
                              resp.headers['Content-Type'])
             empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-                                 '<account name="acc">\n</account>')
+                                 '<account name="a">\n</account>')
             self.assertEqual(empty_xml_listing, resp.body)
 
     def test_GET_autocreate_format_xml(self):
         with save_globals():
-            set_http_connect(404)  # however many backends we ask, they all 404
-            req = Request.blank('/a?format=xml')
-
-            resp = self.controller.GET(req)
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a?format=xml',
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a',
+                                         'QUERY_STRING': 'format=xml'})
+            resp = req.get_response(self.app)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('application/xml; charset=utf-8',
                              resp.headers['Content-Type'])
             empty_xml_listing = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-                                 '<account name="acc">\n</account>')
+                                 '<account name="a">\n</account>')
             self.assertEqual(empty_xml_listing, resp.body)
+
+    def test_GET_autocreate_accept_unknown(self):
+        with save_globals():
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a', headers={"Accept": "mystery/meat"},
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a'})
+            resp = req.get_response(self.app)
+            self.assertEqual(406, resp.status_int)
+
+    def test_GET_autocreate_format_invalid_utf8(self):
+        with save_globals():
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a?format=\xff\xfe',
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a',
+                                         'QUERY_STRING': 'format=\xff\xfe'})
+            resp = req.get_response(self.app)
+            self.assertEqual(400, resp.status_int)
 
 
 class FakeObjectController(object):

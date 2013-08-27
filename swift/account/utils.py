@@ -16,9 +16,7 @@
 import time
 from xml.sax import saxutils
 
-from swift.common.constraints import FORMAT2CONTENT_TYPE
-from swift.common.swob import HTTPOk, HTTPNoContent, HTTPNotAcceptable
-from swift.common.request_helpers import get_param
+from swift.common.swob import HTTPOk, HTTPNoContent
 from swift.common.utils import json, normalize_timestamp
 
 
@@ -41,25 +39,6 @@ class FakeAccountBroker(object):
     @property
     def metadata(self):
         return {}
-
-
-def account_listing_content_type(req):
-    """
-    Figure out the content type of an account-listing response.
-
-    Returns a 2-tuple: (content_type, error). Only one of them will be set;
-    the other will be None.
-    """
-    query_format = get_param(req, 'format')
-    if query_format:
-        req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
-                                             FORMAT2CONTENT_TYPE['plain'])
-    content_type = req.accept.best_match(
-        ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-    if not content_type:
-        return (None, HTTPNotAcceptable(request=req))
-    else:
-        return (content_type, None)
 
 
 def account_listing_response(account, req, response_content_type, broker=None,

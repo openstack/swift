@@ -26,13 +26,13 @@ from eventlet import Timeout
 
 import swift.common.db
 from swift.common.db import ContainerBroker
-from swift.common.request_helpers import get_param
+from swift.common.request_helpers import get_param, get_listing_content_type
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, validate_device_partition, json, timing_stats, \
     replication, parse_content_type
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
+    check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
@@ -40,7 +40,7 @@ from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException, HeaderKeyDict
+    HTTPInsufficientStorage, HTTPException, HeaderKeyDict
 
 DATADIR = 'containers'
 
@@ -300,14 +300,7 @@ class ContainerController(object):
         except ValueError, err:
             return HTTPBadRequest(body=str(err), content_type='text/plain',
                                   request=req)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(
-                query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
@@ -388,14 +381,7 @@ class ContainerController(object):
                 return HTTPPreconditionFailed(
                     request=req,
                     body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
-                                                 FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
