@@ -102,7 +102,7 @@ def quarantine_renamer(device_path, corrupted_file_path):
     invalidate_hash(dirname(from_dir))
     try:
         renamer(from_dir, to_dir)
-    except OSError, e:
+    except OSError as e:
         if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
             raise
         to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
@@ -156,7 +156,7 @@ def hash_suffix(path, reclaim_age):
     md5 = hashlib.md5()
     try:
         path_contents = sorted(os.listdir(path))
-    except OSError, err:
+    except OSError as err:
         if err.errno in (errno.ENOTDIR, errno.ENOENT):
             raise PathNotDir()
         raise
@@ -164,7 +164,7 @@ def hash_suffix(path, reclaim_age):
         hsh_path = join(path, hsh)
         try:
             files = hash_cleanup_listdir(hsh_path, reclaim_age)
-        except OSError, err:
+        except OSError as err:
             if err.errno == errno.ENOTDIR:
                 partition_path = dirname(path)
                 objects_path = dirname(partition_path)
@@ -601,7 +601,7 @@ class DiskFile(object):
             try:
                 if verify_file:
                     self._handle_close_quarantine()
-            except (Exception, Timeout), e:
+            except (Exception, Timeout) as e:
                 self.logger.error(_(
                     'ERROR DiskFile %(data_file)s in '
                     '%(data_dir)s close failure: %(exc)s : %(stack)s'),
@@ -720,7 +720,7 @@ class DiskFile(object):
                             'Content-Length of %s does not match file size '
                             'of %s' % (metadata_size, file_size))
                 return file_size
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
         raise DiskFileNotExist('Data File does not exist.')

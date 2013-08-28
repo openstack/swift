@@ -41,7 +41,7 @@ class TestAccountController(unittest.TestCase):
         """Tear down for testing swift.account.server.AccountController"""
         try:
             rmtree(self.testdir)
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
 

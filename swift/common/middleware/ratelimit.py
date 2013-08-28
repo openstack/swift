@@ -231,7 +231,7 @@ class RateLimitMiddleware(object):
                          'container': container_name, 'object': obj_name})
                 if need_to_sleep > 0:
                     eventlet.sleep(need_to_sleep)
-            except MaxSleepTimeHitError, e:
+            except MaxSleepTimeHitError as e:
                 self.logger.error(
                     _('Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s '
                       '. Ratelimit (Max Sleep) %(e)s'),

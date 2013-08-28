@@ -60,13 +60,13 @@ if conf:
                 '%s:' % conf['account2'] if 'account2' in conf else '',
                 conf['username2'])
             swift_test_key[1] = conf['password2']
-        except KeyError, err:
+        except KeyError as err:
             pass  # old conf, no second account tests can be run
         try:
             swift_test_user[2] = '%s%s' % ('%s:' % conf['account'] if 'account'
                                            in conf else '', conf['username3'])
             swift_test_key[2] = conf['password3']
-        except KeyError, err:
+        except KeyError as err:
             pass  # old conf, no third account tests can be run
 
         for _ in range(3):

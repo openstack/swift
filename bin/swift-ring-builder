@@ -251,7 +251,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         backup_dir = pathjoin(dirname(argv[1]), 'backups')
         try:
             mkdir(backup_dir)
-        except OSError, err:
+        except OSError as err:
             if err.errno != EEXIST:
                 raise
         builder.save(pathjoin(backup_dir, '%d.' % time() + basename(argv[1])))
@@ -612,7 +612,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
             for dev in devs:
                 try:
                     builder.remove_dev(dev['id'])
-                except exceptions.RingBuilderError, e:
+                except exceptions.RingBuilderError as e:
                     print '-' * 79
                     print(
                         "An error occurred while removing device with id %d\n"
@@ -647,7 +647,7 @@ swift-ring-builder <builder_file> rebalance <seed>
         try:
             last_balance = builder.get_balance()
             parts, balance = builder.rebalance(seed=get_seed(3))
-        except exceptions.RingBuilderError, e:
+        except exceptions.RingBuilderError as e:
             print '-' * 79
             print ("An error has occurred during ring validation. Common\n"
                    "causes of failure are rings that are empty or do not\n"
@@ -672,7 +672,7 @@ swift-ring-builder <builder_file> rebalance <seed>
             exit(EXIT_WARNING)
         try:
             builder.validate()
-        except exceptions.RingValidationError, e:
+        except exceptions.RingValidationError as e:
             print '-' * 79
             print ("An error has occurred during ring validation. Common\n"
                    "causes of failure are rings that are empty or do not\n"
@@ -813,7 +813,7 @@ if __name__ == '__main__':
     backup_dir = pathjoin(dirname(argv[1]), 'backups')
     try:
         mkdir(backup_dir)
-    except OSError, err:
+    except OSError as err:
         if err.errno != EEXIST:
             raise
 

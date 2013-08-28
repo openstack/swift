@@ -241,11 +241,11 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(utils.split_path('/a/c/', 2, 3), ['a', 'c', ''])
         try:
             utils.split_path('o\nn e', 2)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
         try:
             utils.split_path('o\nn e', 2, 3, True)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
     def test_validate_device_partition(self):
@@ -271,11 +271,11 @@ class TestUtils(unittest.TestCase):
                           utils.validate_device_partition, 'foo', '..')
         try:
             utils.validate_device_partition('o\nn e', 'foo')
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid device: o%0An%20e')
         try:
             utils.validate_device_partition('foo', 'o\nn e')
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
 
     def test_NullLogger(self):
@@ -1182,7 +1182,7 @@ log_name = %(yarr)s'''
         for (value, default), expected in expectations.items():
             try:
                 rv = utils.config_auto_int_value(value, default)
-            except Exception, e:
+            except Exception as e:
                 if e.__class__ is not expected:
                     raise
             else:
@@ -1245,7 +1245,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
             # Want 1024 reserved, have 512 * 2 free, so fails
@@ -1255,7 +1255,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
             # Want 2048 reserved, have 1024 * 1 free, so fails
@@ -1265,7 +1265,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
             # Want 2048 reserved, have 512 * 2 free, so fails
@@ -1275,7 +1275,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
             # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
@@ -1286,7 +1286,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(1))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1023 <= 1023')
             # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
@@ -1309,7 +1309,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
         finally:
@@ -2038,7 +2038,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                 if payload and 'STOP' in payload:
                     return 42
                 self.queue.put(payload)
-            except Exception, e:
+            except Exception as e:
                 sys.stderr.write('statsd_reader thread: %r' % (e,))
                 break
 

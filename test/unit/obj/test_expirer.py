@@ -577,7 +577,7 @@ class TestObjectExpirer(TestCase):
             expirer.sleep = not_sleep
             x.run_once = raise_system_exit
             x.run_forever()
-        except SystemExit, err:
+        except SystemExit as err:
             pass
         finally:
             expirer.random = orig_random
@@ -601,7 +601,7 @@ class TestObjectExpirer(TestCase):
             expirer.sleep = not_sleep
             x.run_once = raise_exceptions
             x.run_forever()
-        except SystemExit, err:
+        except SystemExit as err:
             pass
         finally:
             expirer.sleep = orig_sleep
@@ -680,7 +680,7 @@ class TestObjectExpirer(TestCase):
         exc = None
         try:
             x.delete_actual_object('/path/to/object', '1234')
-        except Exception, err:
+        except Exception as err:
             exc = err
         finally:
             pass

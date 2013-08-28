@@ -35,7 +35,7 @@ class CatchErrorsContext(WSGIContext):
         try:
             # catch any errors in the pipeline
             resp = self._app_call(env)
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             self.logger.exception(_('Error: %s'), err)
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',

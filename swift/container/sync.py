@@ -323,7 +323,7 @@ class ContainerSync(Daemon):
                                   headers={'x-timestamp': row['created_at'],
                                            'x-container-sync-key': sync_key},
                                   proxy=self.proxy)
-                except ClientException, err:
+                except ClientException as err:
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
                 self.container_deletes += 1
@@ -348,14 +348,14 @@ class ContainerSync(Daemon):
                             timestamp = this_timestamp
                             headers = these_headers
                             body = this_body
-                    except ClientException, err:
+                    except ClientException as err:
                         # If any errors are not 404, make sure we report the
                         # non-404 one. We don't want to mistakenly assume the
                         # object no longer exists just because one says so and
                         # the others errored for some other reason.
                         if not exc or exc.http_status == HTTP_NOT_FOUND:
                             exc = err
-                    except (Exception, Timeout), err:
+                    except (Exception, Timeout) as err:
                         exc = err
                 if timestamp < looking_for_timestamp:
                     if exc:
@@ -380,7 +380,7 @@ class ContainerSync(Daemon):
                 self.container_puts += 1
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
-        except ClientException, err:
+        except ClientException as err:
             if err.http_status == HTTP_UNAUTHORIZED:
                 self.logger.info(
                     _('Unauth %(sync_from)r => %(sync_to)r'),
@@ -401,7 +401,7 @@ class ContainerSync(Daemon):
             self.container_failures += 1
             self.logger.increment('failures')
             return False
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             self.logger.exception(
                 _('ERROR Syncing %(db_file)s %(row)s'),
                 {'db_file': broker.db_file, 'row': row})

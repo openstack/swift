@@ -158,7 +158,7 @@ def get_socket(conf, default_port=8080):
                 warn_ssl = True
                 sock = ssl.wrap_socket(sock, certfile=conf['cert_file'],
                                        keyfile=conf['key_file'])
-        except socket.error, err:
+        except socket.error as err:
             if err.args[0] != errno.EADDRINUSE:
                 raise
             sleep(0.1)
@@ -225,7 +225,7 @@ def run_server(conf, logger, sock):
     pool = RestrictedGreenPool(size=max_clients)
     try:
         wsgi.server(sock, app, NullLogger(), custom_pool=pool)
-    except socket.error, err:
+    except socket.error as err:
         if err[0] != errno.EINVAL:
             raise
     pool.waitall()
@@ -243,7 +243,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     try:
         (conf, logger, log_name) = \
             _initrp(conf_path, app_section, *args, **kwargs)
-    except ConfigFileError, e:
+    except ConfigFileError as e:
         print e
         return
 
@@ -303,7 +303,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                 logger.error('Removing dead child %s' % pid)
                 children.remove(pid)
-        except OSError, err:
+        except OSError as err:
             if err.errno not in (errno.EINTR, errno.ECHILD):
                 raise
         except KeyboardInterrupt:
@@ -321,7 +321,7 @@ class ConfigFileError(Exception):
 def _initrp(conf_path, app_section, *args, **kwargs):
     try:
         conf = appconfig(conf_path, name=app_section)
-    except Exception, e:
+    except Exception as e:
         raise ConfigFileError("Error trying to load config from %s: %s" %
                               (conf_path, e))
 

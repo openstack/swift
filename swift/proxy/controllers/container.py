@@ -64,7 +64,7 @@ class ContainerController(Controller):
                         req.headers[header] = \
                             req.environ['swift.clean_acl'](header,
                                                            req.headers[header])
-                    except ValueError, err:
+                    except ValueError as err:
                         return HTTPBadRequest(request=req, body=str(err))
         return None
 

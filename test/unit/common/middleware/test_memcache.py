@@ -76,7 +76,7 @@ class TestCacheMiddleware(unittest.TestCase):
         exc = None
         try:
             memcache.MemcacheMiddleware(FakeApp(), {})
-        except Exception, err:
+        except Exception as err:
             exc = err
         finally:
             memcache.ConfigParser = orig_parser
@@ -91,7 +91,7 @@ class TestCacheMiddleware(unittest.TestCase):
             memcache.MemcacheMiddleware(
                 FakeApp(), {'memcache_servers': '1.2.3.4:5',
                             'memcache_serialization_support': '2'})
-        except Exception, err:
+        except Exception as err:
             exc = err
         finally:
             memcache.ConfigParser = orig_parser

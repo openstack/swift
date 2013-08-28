@@ -228,7 +228,7 @@ class ReconMiddleware(object):
                             md5sum.update(block)
                             block = f.read(4096)
                     sums[ringfile] = md5sum.hexdigest()
-                except IOError, err:
+                except IOError as err:
                     sums[ringfile] = None
                     if err.errno != errno.ENOENT:
                         self.logger.exception(_('Error reading ringfile'))

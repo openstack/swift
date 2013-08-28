@@ -174,7 +174,7 @@ class MemcacheRing(object):
                     sock.connect((host, int(port)))
                     sock.settimeout(self._io_timeout)
                     yield server, sock.makefile(), sock
-                except Exception, e:
+                except Exception as e:
                     self._exception_occurred(
                         server, e, action='connecting', sock=sock)
 
@@ -221,7 +221,7 @@ class MemcacheRing(object):
                              (key, flags, timeout, len(value), value))
                 self._return_conn(server, fp, sock)
                 return
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def get(self, key):
@@ -254,7 +254,7 @@ class MemcacheRing(object):
                     line = fp.readline().strip().split()
                 self._return_conn(server, fp, sock)
                 return value
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def incr(self, key, delta=1, time=0, timeout=0):
@@ -306,7 +306,7 @@ class MemcacheRing(object):
                     ret = int(line[0].strip())
                 self._return_conn(server, fp, sock)
                 return ret
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
         raise MemcacheConnectionError("No Memcached connections succeeded.")
 
@@ -343,7 +343,7 @@ class MemcacheRing(object):
                 sock.sendall('delete %s noreply\r\n' % key)
                 self._return_conn(server, fp, sock)
                 return
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def set_multi(self, mapping, server_key, serialize=True, timeout=0,
@@ -391,7 +391,7 @@ class MemcacheRing(object):
                 sock.sendall(msg)
                 self._return_conn(server, fp, sock)
                 return
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def get_multi(self, keys, server_key):
@@ -432,5 +432,5 @@ class MemcacheRing(object):
                         values.append(None)
                 self._return_conn(server, fp, sock)
                 return values
-            except Exception, e:
+            except Exception as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)

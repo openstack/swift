@@ -46,7 +46,7 @@ class TestBufferedHTTP(unittest.TestCase):
                     self.assertEquals(headers['content-length'], '7')
                     self.assertEquals(headers['x-header'], 'value')
                     self.assertEquals(fp.readline(), 'REQUEST\r\n')
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
         for par in ('par', 1357):

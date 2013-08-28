@@ -272,7 +272,7 @@ class TestDatabaseBroker(unittest.TestCase):
             try:
                 with broker.get() as conn:
                     conn.execute('SELECT * FROM test')
-            except Exception, err:
+            except Exception as err:
                 exc = err
             self.assertEquals(
                 str(exc),
@@ -288,7 +288,7 @@ class TestDatabaseBroker(unittest.TestCase):
             try:
                 with broker.get() as conn:
                     conn.execute('SELECT * FROM test')
-            except Exception, err:
+            except Exception as err:
                 exc = err
             self.assertEquals(
                 str(exc),
@@ -1727,7 +1727,7 @@ class TestContainerBrokerBeforeMetadata(TestContainerBroker):
         with broker.get() as conn:
             try:
                 conn.execute('SELECT metadata FROM container_stat')
-            except BaseException, err:
+            except BaseException as err:
                 exc = err
         self.assert_('no such column: metadata' in str(exc))
 
@@ -1802,7 +1802,7 @@ class TestContainerBrokerBeforeXSync(TestContainerBroker):
             try:
                 conn.execute('''SELECT x_container_sync_point1
                                 FROM container_stat''')
-            except BaseException, err:
+            except BaseException as err:
                 exc = err
         self.assert_('no such column: x_container_sync_point1' in str(exc))
 
@@ -2318,7 +2318,7 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
         with broker.get() as conn:
             try:
                 conn.execute('SELECT metadata FROM account_stat')
-            except BaseException, err:
+            except BaseException as err:
                 exc = err
         self.assert_('no such column: metadata' in str(exc))
 

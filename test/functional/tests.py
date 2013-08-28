@@ -100,7 +100,7 @@ def timeout(seconds, method, *args, **kwargs):
         def run(self):
             try:
                 self.method(*self.args, **self.kwargs)
-            except Exception, e:
+            except Exception as e:
                 self.exception = e
 
     t = TimeoutThread(method, *args, **kwargs)

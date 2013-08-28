@@ -107,7 +107,7 @@ class TestContainerFailures(TestCase):
             try:
                 direct_client.direct_get_container(cnode, cpart, self.account,
                                                    container1)
-            except client.ClientException, err:
+            except client.ClientException as err:
                 exc = err
             self.assertEquals(exc.http_status, 404)
         headers, containers = client.get_account(self.url, self.token)
@@ -147,7 +147,7 @@ class TestContainerFailures(TestCase):
                 exc = None
                 try:
                     client.delete_container(self.url, self.token, container)
-                except client.ClientException, err:
+                except client.ClientException as err:
                     exc = err
                 self.assertEquals(exc.http_status, 503)
             else:
@@ -160,7 +160,7 @@ class TestContainerFailures(TestCase):
                 pool.spawn(run_test, 2, True)
                 pool.spawn(run_test, 3, True)
                 pool.waitall()
-        except Timeout, err:
+        except Timeout as err:
             raise Exception(
                 "The server did not return a 503 on container db locks, "
                 "it just hangs: %s" % err)

@@ -458,7 +458,7 @@ class TestContainerController(unittest.TestCase):
                         line = inc.readline()
                     self.assertEquals(headers['x-put-timestamp'],
                                       expected_timestamp)
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 
@@ -512,7 +512,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-        except BaseException, err:
+        except BaseException as err:
             got_exc = True
         finally:
             err = event.wait()
@@ -679,7 +679,7 @@ class TestContainerController(unittest.TestCase):
                         line = inc.readline()
                     self.assertEquals(headers['x-delete-timestamp'],
                                       expected_timestamp)
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 
@@ -742,7 +742,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-        except BaseException, err:
+        except BaseException as err:
             got_exc = True
         finally:
             err = event.wait()

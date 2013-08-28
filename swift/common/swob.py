@@ -1184,7 +1184,7 @@ def wsgify(func):
         def _wsgify_self(self, env, start_response):
             try:
                 return func(self, Request(env))(env, start_response)
-            except HTTPException, err_resp:
+            except HTTPException as err_resp:
                 return err_resp(env, start_response)
         return _wsgify_self
     else:
@@ -1192,7 +1192,7 @@ def wsgify(func):
         def _wsgify_bare(env, start_response):
             try:
                 return func(Request(env))(env, start_response)
-            except HTTPException, err_resp:
+            except HTTPException as err_resp:
                 return err_resp(env, start_response)
         return _wsgify_bare
 
