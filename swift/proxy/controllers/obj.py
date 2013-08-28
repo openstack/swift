@@ -806,7 +806,7 @@ class ObjectController(Controller):
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.error_limit(node, _('ERROR Insufficient Storage'))
-            except Exception:
+            except (Exception, Timeout):
                 self.exception_occurred(node, _('Object'),
                                         _('Expect: 100-continue on %s') % path)
 
