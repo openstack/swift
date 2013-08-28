@@ -718,6 +718,20 @@ class DatabaseBroker(object):
                 raise
         return False
 
+    def update_put_timestamp(self, timestamp):
+        """
+        Update the put_timestamp.  Only modifies it if it is greater than
+        the current timestamp.
+
+        :param timestamp: put timestamp
+        """
+        with self.get() as conn:
+            conn.execute(
+                'UPDATE %s_stat SET put_timestamp = ?'
+                ' WHERE put_timestamp < ?' % self.db_type,
+                (timestamp, timestamp))
+            conn.commit()
+
 
 class ContainerBroker(DatabaseBroker):
     """Encapsulates working with a container database."""
@@ -832,19 +846,6 @@ class ContainerBroker(DatabaseBroker):
             UPDATE container_stat
             SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
                 reported_object_count = 0, reported_bytes_used = 0''')
-
-    def update_put_timestamp(self, timestamp):
-        """
-        Update the put_timestamp.  Only modifies it if it is greater than
-        the current timestamp.
-
-        :param timestamp: put timestamp
-        """
-        with self.get() as conn:
-            conn.execute('''
-                UPDATE container_stat SET put_timestamp = ?
-                WHERE put_timestamp < ? ''', (timestamp, timestamp))
-            conn.commit()
 
     def _delete_db(self, conn, timestamp):
         """
@@ -1308,19 +1309,6 @@ class AccountBroker(DatabaseBroker):
                     WHERE name = 'ix_container_deleted_name' '''):
                 self._db_version = 1
         return self._db_version
-
-    def update_put_timestamp(self, timestamp):
-        """
-        Update the put_timestamp.  Only modifies it if it is greater than
-        the current timestamp.
-
-        :param timestamp: put timestamp
-        """
-        with self.get() as conn:
-            conn.execute('''
-                UPDATE account_stat SET put_timestamp = ?
-                WHERE put_timestamp < ? ''', (timestamp, timestamp))
-            conn.commit()
 
     def _delete_db(self, conn, timestamp, force=False):
         """
