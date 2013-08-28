@@ -118,3 +118,7 @@ class ListingIterNotAuthorized(ListingIterError):
 
 class SegmentError(SwiftException):
     pass
+
+
+class ReplicationException(Exception):
+    pass

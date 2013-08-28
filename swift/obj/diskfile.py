@@ -53,7 +53,7 @@ from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
-    config_true_value, listdir
+    config_true_value, listdir, split_path
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir
@@ -381,6 +381,7 @@ class DiskFileManager(object):
         self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
+        self.reclaim_age = int(conf.get('reclaim_age', ONE_WEEK))
         threads_per_disk = int(conf.get('threads_per_disk', '0'))
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=threads_per_disk))
@@ -443,6 +444,47 @@ class DiskFileManager(object):
             self, audit_location.path, dev_path,
             audit_location.partition)
 
+    def get_diskfile_from_hash(self, device, partition, object_hash, **kwargs):
+        """
+        Returns a DiskFile instance for an object at the given
+        object_hash. Just in case someone thinks of refactoring, be
+        sure DiskFileDeleted is *not* raised, but the DiskFile
+        instance representing the tombstoned object is returned
+        instead.
+
+        :raises DiskFileNotExist: if the object does not exist
+        """
+        dev_path = self.get_dev_path(device)
+        if not dev_path:
+            raise DiskFileDeviceUnavailable()
+        object_path = os.path.join(
+            dev_path, DATADIR, partition, object_hash[-3:], object_hash)
+        try:
+            filenames = hash_cleanup_listdir(object_path, self.reclaim_age)
+        except OSError as err:
+            if err.errno == errno.ENOTDIR:
+                quar_path = quarantine_renamer(dev_path, object_path)
+                logging.exception(
+                    _('Quarantined %s to %s because it is not a '
+                      'directory') % (object_path, quar_path))
+                raise DiskFileNotExist()
+            if err.errno != errno.ENOENT:
+                raise
+            raise DiskFileNotExist()
+        if not filenames:
+            raise DiskFileNotExist()
+        try:
+            metadata = read_metadata(os.path.join(object_path, filenames[-1]))
+        except EOFError:
+            raise DiskFileNotExist()
+        try:
+            account, container, obj = split_path(
+                metadata.get('name', ''), 3, 3, True)
+        except ValueError:
+            raise DiskFileNotExist()
+        return DiskFile(self, dev_path, self.threadpools[device],
+                        partition, account, container, obj, **kwargs)
+
     def get_hashes(self, device, partition, suffix):
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -454,6 +496,62 @@ class DiskFileManager(object):
         _junk, hashes = self.threadpools[device].force_run_in_thread(
             get_hashes, partition_path, recalculate=suffixes)
         return hashes
+
+    def _listdir(self, path):
+        try:
+            return os.listdir(path)
+        except OSError as err:
+            if err.errno != errno.ENOENT:
+                self.logger.error(
+                    'ERROR: Skipping %r due to error with listdir attempt: %s',
+                    path, err)
+        return []
+
+    def yield_suffixes(self, device, partition):
+        """
+        Yields tuples of (full_path, suffix_only) for suffixes stored
+        on the given device and partition.
+        """
+        dev_path = self.get_dev_path(device)
+        if not dev_path:
+            raise DiskFileDeviceUnavailable()
+        partition_path = os.path.join(dev_path, DATADIR, partition)
+        for suffix in self._listdir(partition_path):
+            if len(suffix) != 3:
+                continue
+            try:
+                int(suffix, 16)
+            except ValueError:
+                continue
+            yield (os.path.join(partition_path, suffix), suffix)
+
+    def yield_hashes(self, device, partition, suffixes=None):
+        """
+        Yields tuples of (full_path, hash_only, timestamp) for object
+        information stored for the given device, partition, and
+        (optionally) suffixes. If suffixes is None, all stored
+        suffixes will be searched for object hashes. Note that if
+        suffixes is not None but empty, such as [], then nothing will
+        be yielded.
+        """
+        dev_path = self.get_dev_path(device)
+        if not dev_path:
+            raise DiskFileDeviceUnavailable()
+        if suffixes is None:
+            suffixes = self.yield_suffixes(device, partition)
+        else:
+            partition_path = os.path.join(dev_path, DATADIR, partition)
+            suffixes = (
+                (os.path.join(partition_path, suffix), suffix)
+                for suffix in suffixes)
+        for suffix_path, suffix in suffixes:
+            for object_hash in self._listdir(suffix_path):
+                object_path = os.path.join(suffix_path, object_hash)
+                for name in hash_cleanup_listdir(
+                        object_path, self.reclaim_age):
+                    ts, ext = name.rsplit('.', 1)
+                    yield (object_path, object_hash, ts)
+                    break
 
 
 class DiskFileWriter(object):
@@ -775,21 +873,55 @@ class DiskFile(object):
         self._bytes_per_sync = mgr.bytes_per_sync
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
+            self._account = account
+            self._container = container
+            self._obj = obj
+            name_hash = hash_path(account, container, obj)
+            self._datadir = join(
+                device_path, storage_directory(DATADIR, partition, name_hash))
         else:
             # gets populated when we read the metadata
             self._name = None
+            self._account = None
+            self._container = None
+            self._obj = None
+            self._datadir = None
         self._tmpdir = join(device_path, 'tmp')
         self._metadata = None
         self._data_file = None
         self._fp = None
         self._quarantined_dir = None
-
+        self._content_length = None
         if _datadir:
             self._datadir = _datadir
         else:
             name_hash = hash_path(account, container, obj)
             self._datadir = join(
                 device_path, storage_directory(DATADIR, partition, name_hash))
+
+    @property
+    def account(self):
+        return self._account
+
+    @property
+    def container(self):
+        return self._container
+
+    @property
+    def obj(self):
+        return self._obj
+
+    @property
+    def content_length(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._content_length
+
+    @property
+    def timestamp(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metadata.get('X-Timestamp')
 
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition):
@@ -1036,6 +1168,7 @@ class DiskFile(object):
                 data_file, "metadata content-length %s does"
                 " not match actual object size %s" % (
                     metadata_size, statbuf.st_size))
+        self._content_length = obj_size
         return obj_size
 
     def _failsafe_read_metadata(self, source, quarantine_filename=None):

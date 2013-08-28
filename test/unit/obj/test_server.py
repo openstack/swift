@@ -2819,6 +2819,26 @@ class TestObjectController(unittest.TestCase):
         finally:
             diskfile.fallocate = orig_fallocate
 
+    def test_global_conf_callback_does_nothing(self):
+        preloaded_app_conf = {}
+        global_conf = {}
+        object_server.global_conf_callback(preloaded_app_conf, global_conf)
+        self.assertEqual(preloaded_app_conf, {})
+        self.assertEqual(global_conf.keys(), ['replication_semaphore'])
+        self.assertEqual(
+            global_conf['replication_semaphore'][0].get_value(), 4)
+
+    def test_global_conf_callback_replication_semaphore(self):
+        preloaded_app_conf = {'replication_concurrency': 123}
+        global_conf = {}
+        with mock.patch.object(
+                object_server.multiprocessing, 'BoundedSemaphore',
+                return_value='test1') as mocked_Semaphore:
+            object_server.global_conf_callback(preloaded_app_conf, global_conf)
+        self.assertEqual(preloaded_app_conf, {'replication_concurrency': 123})
+        self.assertEqual(global_conf, {'replication_semaphore': ['test1']})
+        mocked_Semaphore.assert_called_once_with(123)
+
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
@@ -2836,7 +2856,7 @@ class TestObjectController(unittest.TestCase):
     def test_list_allowed_methods(self):
         # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
-        repl_methods = ['REPLICATE']
+        repl_methods = ['REPLICATE', 'REPLICATION']
         for method_name in obj_methods:
             method = getattr(self.object_controller, method_name)
             self.assertFalse(hasattr(method, 'replication'))

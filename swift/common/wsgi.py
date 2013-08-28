@@ -196,7 +196,7 @@ class RestrictedGreenPool(GreenPool):
             self.waitall()
 
 
-def run_server(conf, logger, sock):
+def run_server(conf, logger, sock, global_conf=None):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to the timezone in which
     # the server first starts running in locations that periodically change
@@ -216,11 +216,13 @@ def run_server(conf, logger, sock):
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     # utils.LogAdapter stashes name in server; fallback on unadapted loggers
-    if hasattr(logger, 'server'):
-        log_name = logger.server
-    else:
-        log_name = logger.name
-    app = loadapp(conf['__file__'], global_conf={'log_name': log_name})
+    if not global_conf:
+        if hasattr(logger, 'server'):
+            log_name = logger.server
+        else:
+            log_name = logger.name
+        global_conf = {'log_name': log_name}
+    app = loadapp(conf['__file__'], global_conf=global_conf)
     max_clients = int(conf.get('max_clients', '1024'))
     pool = RestrictedGreenPool(size=max_clients)
     try:
@@ -252,8 +254,11 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
 
-    # Ensure the application can be loaded before proceeding.
-    loadapp(conf_path, global_conf={'log_name': log_name})
+    # Ensure the configuration and application can be loaded before proceeding.
+    global_conf = {'log_name': log_name}
+    if 'global_conf_callback' in kwargs:
+        kwargs['global_conf_callback'](conf, global_conf)
+    loadapp(conf_path, global_conf=global_conf)
 
     # set utils.FALLOCATE_RESERVE if desired
     reserve = int(conf.get('fallocate_reserve', 0))
@@ -266,7 +271,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     # Useful for profiling [no forks].
     if worker_count == 0:
-        run_server(conf, logger, sock)
+        run_server(conf, logger, sock, global_conf=global_conf)
         return
 
     def kill_children(*args):

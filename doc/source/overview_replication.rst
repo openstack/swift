@@ -93,6 +93,28 @@ systems, it was designed so that around 2% of the hash space on a normal node
 will be invalidated per day, which has experimentally given us acceptable
 replication speeds.
 
+Work continues with a new ssync method where rsync is not used at all and
+instead all-Swift code is used to transfer the objects. At first, this ssync
+will just strive to emulate the rsync behavior. Once deemed stable it will open
+the way for future improvements in replication since we'll be able to easily
+add code in the replication path instead of trying to alter the rsync code
+base and distributing such modifications.
+
+One of the first improvements planned is an "index.db" that will replace the
+hashes.pkl. This will allow quicker updates to that data as well as more
+streamlined queries. Quite likely we'll implement a better scheme than the
+current one hashes.pkl uses (hash-trees, that sort of thing).
+
+Another improvement planned all along the way is separating the local disk
+structure from the protocol path structure. This separation will allow ring
+resizing at some point, or at least ring-doubling.
+
+FOR NOW, IT IS NOT RECOMMENDED TO USE SSYNC ON PRODUCTION CLUSTERS. Some of us
+will be in a limited fashion to look for any subtle issues, tuning, etc. but
+generally ssync is an experimental feature. In its current implementation it is
+probably going to be a bit slower than RSync, but if all goes according to plan
+it will end up much faster.
+
 
 -----------------------------
 Dedicated replication network
