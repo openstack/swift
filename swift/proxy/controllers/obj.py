@@ -861,7 +861,7 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req.headers['X-Timestamp'] = \
-                    normalize_timestamp(float(req.headers['x-timestamp']))
+                    normalize_timestamp(req.headers['x-timestamp'])
                 if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
                     float(hresp.environ['swift_x_timestamp']) >= \
                         float(req.headers['x-timestamp']):
@@ -1210,7 +1210,7 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req.headers['X-Timestamp'] = \
-                    normalize_timestamp(float(req.headers['x-timestamp']))
+                    normalize_timestamp(req.headers['x-timestamp'])
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',

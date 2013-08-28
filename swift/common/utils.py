@@ -425,7 +425,11 @@ def drop_buffer_cache(fd, offset, length):
 def normalize_timestamp(timestamp):
     """
     Format a timestamp (string or numeric) into a standardized
-    xxxxxxxxxx.xxxxx format.
+    xxxxxxxxxx.xxxxx (10.5) format.
+
+    Note that timestamps using values greater than or equal to November 20th,
+    2286 at 17:46 UTC will use 11 digits to represent the number of
+    seconds.
 
     :param timestamp: unix timestamp
     :returns: normalized timestamp as a string
