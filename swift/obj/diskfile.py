@@ -389,29 +389,109 @@ class DiskFile(object):
         self.keep_cache = False
         self.suppress_file_closing = False
         self.threadpool = threadpool or ThreadPool(nthreads=0)
-        if not exists(self.datadir):
-            return
-        files = sorted(os.listdir(self.datadir), reverse=True)
-        meta_file = None
-        for afile in files:
-            if afile.endswith('.ts'):
-                self.data_file = None
-                with open(join(self.datadir, afile)) as mfp:
-                    self.metadata = read_metadata(mfp)
-                self.metadata['deleted'] = True
-                break
-            if afile.endswith('.meta') and not meta_file:
-                meta_file = join(self.datadir, afile)
-            if afile.endswith('.data') and not self.data_file:
-                self.data_file = join(self.datadir, afile)
-                break
-        if not self.data_file:
-            return
-        self.fp = open(self.data_file, 'rb')
-        datafile_metadata = read_metadata(self.fp)
-        if not keep_data_fp:
-            self.close(verify_file=False)
 
+        data_file, meta_file, ts_file = self._get_ondisk_file()
+        if not data_file:
+            if ts_file:
+                self._construct_from_ts_file(ts_file)
+        else:
+            fp = self._construct_from_data_file(data_file, meta_file)
+            if keep_data_fp:
+                self.fp = fp
+            else:
+                fp.close()
+
+    def _get_ondisk_file(self):
+        """
+        Do the work to figure out if the data directory exists, and if so,
+        determine the on-disk files to use.
+
+        :returns: a tuple of data, meta and ts (tombstone) files, in one of
+                  three states:
+
+                  1. all three are None
+
+                     data directory does not exist, or there are no files in
+                     that directory
+
+                  2. ts_file is not None, data_file is None, meta_file is None
+
+                     object is considered deleted
+
+                  3. data_file is not None, ts_file is None
+
+                     object exists, and optionally has fast-POST metadata
+        """
+        data_file = meta_file = ts_file = None
+        try:
+            files = sorted(os.listdir(self.datadir), reverse=True)
+        except OSError as err:
+            if err.errno != errno.ENOENT:
+                raise
+            # The data directory does not exist, so the object cannot exist.
+        else:
+            for afile in files:
+                assert ts_file is None, "On-disk file search loop" \
+                    " continuing after tombstone, %s, encountered" % ts_file
+                assert data_file is None, "On-disk file search loop" \
+                    " continuing after data file, %s, encountered" % data_file
+                if afile.endswith('.ts'):
+                    meta_file = None
+                    ts_file = join(self.datadir, afile)
+                    break
+                if afile.endswith('.meta') and not meta_file:
+                    meta_file = join(self.datadir, afile)
+                    # NOTE: this does not exit this loop, since a fast-POST
+                    # operation just updates metadata, writing one or more
+                    # .meta files, the data file will have an older timestamp,
+                    # so we keep looking.
+                    continue
+                if afile.endswith('.data'):
+                    data_file = join(self.datadir, afile)
+                    break
+        assert ((data_file is None and meta_file is None and ts_file is None)
+                or (ts_file is not None and data_file is None
+                    and meta_file is None)
+                or (data_file is not None and ts_file is None)), \
+            "On-disk file search algorithm contract is broken: data_file:" \
+            " %s, meta_file: %s, ts_file: %s" % (data_file, meta_file, ts_file)
+        return data_file, meta_file, ts_file
+
+    def _construct_from_ts_file(self, ts_file):
+        """
+        A tombstone means the object is considered deleted. We just need to
+        pull the metadata from the tombstone file which has the timestamp.
+        """
+        with open(ts_file) as fp:
+            self.metadata = read_metadata(fp)
+        self.metadata['deleted'] = True
+
+    def _verify_name(self):
+        """
+        Verify the metadata's name value matches what we think the object is
+        named.
+        """
+        try:
+            mname = self.metadata['name']
+        except KeyError:
+            pass
+        else:
+            if mname != self.name:
+                self.logger.error(_('Client path %(client)s does not match '
+                                    'path stored in object metadata %(meta)s'),
+                                  {'client': self.name, 'meta': mname})
+                raise DiskFileCollision('Client path does not match path '
+                                        'stored in object metadata')
+
+    def _construct_from_data_file(self, data_file, meta_file):
+        """
+        Open the data file to fetch its metadata, and fetch the metadata from
+        the fast-POST .meta file as well if it exists, merging them properly.
+
+        :returns: the opened data file pointer
+        """
+        fp = open(data_file, 'rb')
+        datafile_metadata = read_metadata(fp)
         if meta_file:
             with open(meta_file) as mfp:
                 self.metadata = read_metadata(mfp)
@@ -421,15 +501,9 @@ class DiskFile(object):
             self.metadata.update(sys_metadata)
         else:
             self.metadata = datafile_metadata
-
-        if 'name' in self.metadata:
-            if self.metadata['name'] != self.name:
-                self.logger.error(_('Client path %(client)s does not match '
-                                    'path stored in object metadata %(meta)s'),
-                                  {'client': self.name,
-                                   'meta': self.metadata['name']})
-                raise DiskFileCollision('Client path does not match path '
-                                        'stored in object metadata')
+        self._verify_name()
+        self.data_file = data_file
+        return fp
 
     def __iter__(self):
         """Returns an iterator over the data file."""
