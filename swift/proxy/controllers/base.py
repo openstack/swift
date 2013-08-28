@@ -238,7 +238,8 @@ def get_object_info(env, app, path=None, swift_source=None):
     """
     (version, account, container, obj) = \
         split_path(path or env['PATH_INFO'], 4, 4, True)
-    info = _get_object_info(app, env, account, container, obj)
+    info = _get_object_info(app, env, account, container, obj,
+                            swift_source=swift_source)
     if not info:
         info = headers_to_object_info({}, 0)
     return info
@@ -253,7 +254,8 @@ def get_container_info(env, app, swift_source=None):
     """
     (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
-    info = get_info(app, env, account, container, ret_not_found=True)
+    info = get_info(app, env, account, container, ret_not_found=True,
+                    swift_source=swift_source)
     if not info:
         info = headers_to_container_info({}, 0)
     return info
@@ -268,7 +270,8 @@ def get_account_info(env, app, swift_source=None):
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
-    info = get_info(app, env, account, ret_not_found=True)
+    info = get_info(app, env, account, ret_not_found=True,
+                    swift_source=swift_source)
     if not info:
         info = headers_to_account_info({}, 0)
     if info.get('container_count') is None:
@@ -421,22 +424,24 @@ def _get_info_cache(app, env, account, container=None):
     return None
 
 
-def _prepare_pre_auth_info_request(env, path):
+def _prepare_pre_auth_info_request(env, path, swift_source):
     """
     Prepares a pre authed request to obtain info using a HEAD.
 
     :param env: the environment used by the current request
     :param path: The unquoted request path
+    :param swift_source: value for swift.source in WSGI environment
     :returns: the pre authed request
     """
     # Set the env for the pre_authed call without a query string
     newenv = make_pre_authed_env(env, 'HEAD', path, agent='Swift',
-                                 query_string='', swift_source='GET_INFO')
+                                 query_string='', swift_source=swift_source)
     # Note that Request.blank expects quoted path
     return Request.blank(quote(path), environ=newenv)
 
 
-def get_info(app, env, account, container=None, ret_not_found=False):
+def get_info(app, env, account, container=None, ret_not_found=False,
+             swift_source=None):
     """
     Get the info about accounts or containers
 
@@ -462,7 +467,8 @@ def get_info(app, env, account, container=None, ret_not_found=False):
             return None
         path += '/' + container
 
-    req = _prepare_pre_auth_info_request(env, path)
+    req = _prepare_pre_auth_info_request(
+        env, path, (swift_source or 'GET_INFO'))
     # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
     # the environment under environ[env_key] and in memcache. We will
     # pick the one from environ[env_key] and use it to set the caller env
@@ -478,7 +484,7 @@ def get_info(app, env, account, container=None, ret_not_found=False):
     return None
 
 
-def _get_object_info(app, env, account, container, obj):
+def _get_object_info(app, env, account, container, obj, swift_source=None):
     """
     Get the info about object
 
@@ -498,7 +504,7 @@ def _get_object_info(app, env, account, container, obj):
         return info
     # Not in cached, let's try the object servers
     path = '/v1/%s/%s/%s' % (account, container, obj)
-    req = _prepare_pre_auth_info_request(env, path)
+    req = _prepare_pre_auth_info_request(env, path, swift_source)
     # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
     # the environment under environ[env_key]. We will
     # pick the one from environ[env_key] and use it to set the caller env

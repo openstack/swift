@@ -48,19 +48,23 @@ class FakeResponse(object):
 
 
 class FakeRequest(object):
-    def __init__(self, env, path):
+    def __init__(self, env, path, swift_source=None):
         self.environ = env
         (version, account, container, obj) = split_path(path, 2, 4, True)
         self.account = account
         self.container = container
         self.obj = obj
         if obj:
+            stype = 'object'
             self.headers = {'content-length': 5555,
                             'content-type': 'text/plain'}
         else:
             stype = container and 'container' or 'account'
             self.headers = {'x-%s-object-count' % (stype): 1000,
                             'x-%s-bytes-used' % (stype): 6666}
+        if swift_source:
+            meta = 'x-%s-meta-fakerequest-swift-source' % stype
+            self.headers[meta] = swift_source
 
     def get_response(self, app):
         return FakeResponse(self.headers, self.environ, self.account,
@@ -127,7 +131,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_a['bytes'], 6666)
         self.assertEquals(info_a['total_object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env, {'swift.account/a': info_a})
+        self.assertEquals(env.get('swift.account/a'), info_a)
 
         # Do an env cached call to account
         info_a = get_info(None, env, 'a')
@@ -136,7 +140,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_a['bytes'], 6666)
         self.assertEquals(info_a['total_object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env, {'swift.account/a': info_a})
+        self.assertEquals(env.get('swift.account/a'), info_a)
 
         # This time do env cached call to account and non cached to container
         with patch('swift.proxy.controllers.base.'
@@ -147,8 +151,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_c['bytes'], 6666)
         self.assertEquals(info_c['object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env['swift.account/a'], info_a)
-        self.assertEquals(env['swift.container/a/c'], info_c)
+        self.assertEquals(env.get('swift.account/a'), info_a)
+        self.assertEquals(env.get('swift.container/a/c'), info_c)
 
         # This time do a non cached call to account than non cached to
         # container
@@ -161,8 +165,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_c['bytes'], 6666)
         self.assertEquals(info_c['object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env['swift.account/a'], info_a)
-        self.assertEquals(env['swift.container/a/c'], info_c)
+        self.assertEquals(env.get('swift.account/a'), info_a)
+        self.assertEquals(env.get('swift.container/a/c'), info_c)
 
         # This time do an env cached call to container while account is not
         # cached
@@ -173,7 +177,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_c['bytes'], 6666)
         self.assertEquals(info_c['object_count'], 1000)
         # Make sure the env cache is set and account still not cached
-        self.assertEquals(env, {'swift.container/a/c': info_c})
+        self.assertEquals(env.get('swift.container/a/c'), info_c)
 
         # Do a non cached call to account not found with ret_not_found
         env = {}
@@ -189,7 +193,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_a['bytes'], 6666)
         self.assertEquals(info_a['total_object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env, {'swift.account/a': info_a})
+        self.assertEquals(env.get('swift.account/a'), info_a)
 
         # Do a cached call to account not found with ret_not_found
         info_a = get_info(None, env, 'a', ret_not_found=True)
@@ -198,7 +202,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(info_a['bytes'], 6666)
         self.assertEquals(info_a['total_object_count'], 1000)
         # Make sure the env cache is set
-        self.assertEquals(env, {'swift.account/a': info_a})
+        self.assertEquals(env.get('swift.account/a'), info_a)
 
         # Do a non cached call to account not found without ret_not_found
         env = {}
@@ -218,6 +222,21 @@ class TestFuncs(unittest.TestCase):
         # Check that you got proper info
         self.assertEquals(info_a, None)
         self.assertEquals(env['swift.account/a']['status'], 404)
+
+    def test_get_container_info_swift_source(self):
+        req = Request.blank("/v1/a/c", environ={'swift.cache': FakeCache({})})
+        with patch('swift.proxy.controllers.base.'
+                   '_prepare_pre_auth_info_request', FakeRequest):
+            resp = get_container_info(req.environ, 'app', swift_source='MC')
+        self.assertEquals(resp['meta']['fakerequest-swift-source'], 'MC')
+
+    def test_get_object_info_swift_source(self):
+        req = Request.blank("/v1/a/c/o",
+                            environ={'swift.cache': FakeCache({})})
+        with patch('swift.proxy.controllers.base.'
+                   '_prepare_pre_auth_info_request', FakeRequest):
+            resp = get_object_info(req.environ, 'app', swift_source='LU')
+        self.assertEquals(resp['meta']['fakerequest-swift-source'], 'LU')
 
     def test_get_container_info_no_cache(self):
         req = Request.blank("/v1/AUTH_account/cont",
@@ -249,6 +268,13 @@ class TestFuncs(unittest.TestCase):
                                      'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, 'xxx')
         self.assertEquals(resp['bytes'], 3867)
+
+    def test_get_account_info_swift_source(self):
+        req = Request.blank("/v1/a", environ={'swift.cache': FakeCache({})})
+        with patch('swift.proxy.controllers.base.'
+                   '_prepare_pre_auth_info_request', FakeRequest):
+            resp = get_account_info(req.environ, 'a', swift_source='MC')
+        self.assertEquals(resp['meta']['fakerequest-swift-source'], 'MC')
 
     def test_get_account_info_no_cache(self):
         req = Request.blank("/v1/AUTH_account",
