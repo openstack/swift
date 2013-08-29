@@ -110,6 +110,41 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
+def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
+    """
+    List contents of a hash directory and clean up any old files.
+
+    :param hsh_path: object hash path
+    :param reclaim_age: age in seconds at which to remove tombstones
+    :returns: list of files remaining in the directory, reverse sorted
+    """
+    files = os.listdir(hsh_path)
+    if len(files) == 1:
+        if files[0].endswith('.ts'):
+            # remove tombstones older than reclaim_age
+            ts = files[0].rsplit('.', 1)[0]
+            if (time.time() - float(ts)) > reclaim_age:
+                os.unlink(join(hsh_path, files[0]))
+                files.remove(files[0])
+    elif files:
+        files.sort(reverse=True)
+        meta = data = tomb = None
+        for filename in list(files):
+            if not meta and filename.endswith('.meta'):
+                meta = filename
+            if not data and filename.endswith('.data'):
+                data = filename
+            if not tomb and filename.endswith('.ts'):
+                tomb = filename
+            if (filename < tomb or       # any file older than tomb
+                filename < data or       # any file older than data
+                (filename.endswith('.meta') and
+                 filename < meta)):      # old meta
+                os.unlink(join(hsh_path, filename))
+                files.remove(filename)
+    return files
+
+
 def hash_suffix(path, reclaim_age):
     """
     Performs reclamation and returns an md5 of all (remaining) files.
@@ -128,7 +163,7 @@ def hash_suffix(path, reclaim_age):
     for hsh in path_contents:
         hsh_path = join(path, hsh)
         try:
-            files = os.listdir(hsh_path)
+            files = hash_cleanup_listdir(hsh_path, reclaim_age)
         except OSError, err:
             if err.errno == errno.ENOTDIR:
                 partition_path = dirname(path)
@@ -140,29 +175,6 @@ def hash_suffix(path, reclaim_age):
                     (hsh_path, quar_path))
                 continue
             raise
-        if len(files) == 1:
-            if files[0].endswith('.ts'):
-                # remove tombstones older than reclaim_age
-                ts = files[0].rsplit('.', 1)[0]
-                if (time.time() - float(ts)) > reclaim_age:
-                    os.unlink(join(hsh_path, files[0]))
-                    files.remove(files[0])
-        elif files:
-            files.sort(reverse=True)
-            meta = data = tomb = None
-            for filename in list(files):
-                if not meta and filename.endswith('.meta'):
-                    meta = filename
-                if not data and filename.endswith('.data'):
-                    data = filename
-                if not tomb and filename.endswith('.ts'):
-                    tomb = filename
-                if (filename < tomb or       # any file older than tomb
-                    filename < data or       # any file older than data
-                    (filename.endswith('.meta') and
-                     filename < meta)):      # old meta
-                    os.unlink(join(hsh_path, filename))
-                    files.remove(filename)
         if not files:
             os.rmdir(hsh_path)
         for filename in files:
@@ -326,6 +338,7 @@ class DiskWriter(object):
             # other requests to reference.
             renamer(self.tmppath, join(self.disk_file.datadir,
                                        timestamp + extension))
+            hash_cleanup_listdir(self.disk_file.datadir)
 
         self.threadpool.force_run_in_thread(finalize_put)
         self.disk_file.metadata = metadata
@@ -581,25 +594,6 @@ class DiskFile(object):
         extension = '.ts' if tombstone else '.meta'
         with self.writer() as writer:
             writer.put(metadata, extension=extension)
-
-    def unlinkold(self, timestamp):
-        """
-        Remove any older versions of the object file.  Any file that has an
-        older timestamp than timestamp will be deleted.
-
-        :param timestamp: timestamp to compare with each file
-        """
-        timestamp = normalize_timestamp(timestamp)
-
-        def _unlinkold():
-            for fname in os.listdir(self.datadir):
-                if fname < timestamp:
-                    try:
-                        os.unlink(join(self.datadir, fname))
-                    except OSError, err:    # pragma: no cover
-                        if err.errno != errno.ENOENT:
-                            raise
-        self.threadpool.run_in_thread(_unlinkold)
 
     def _drop_cache(self, fd, offset, length):
         """Method for no-oping buffer cache drop method."""
