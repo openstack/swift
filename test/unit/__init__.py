@@ -457,6 +457,8 @@ def fake_http_connect(*code_iter, **kwargs):
         body_iter = iter(body_iter)
 
     def connect(*args, **ckwargs):
+        if kwargs.get('slow_connect', False):
+            sleep(0.1)
         if 'give_content_type' in kwargs:
             if len(args) >= 7 and 'Content-Type' in args[6]:
                 kwargs['give_content_type'](args[6]['Content-Type'])
