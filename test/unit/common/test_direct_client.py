@@ -72,14 +72,6 @@ def mock_http_connect(status, fake_headers=None, body=None):
 
 class TestDirectClient(unittest.TestCase):
 
-    def test_quote(self):
-        res = direct_client.quote('123')
-        assert res == '123'
-        res = direct_client.quote('1&2&/3')
-        assert res == '1%262%26/3'
-        res = direct_client.quote('1&2&3', safe='&')
-        assert res == '1&2&3'
-
     def test_gen_headers(self):
         hdrs = direct_client.gen_headers()
         assert 'user-agent' in hdrs

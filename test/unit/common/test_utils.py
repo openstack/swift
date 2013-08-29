@@ -1570,6 +1570,23 @@ log_name = %(yarr)s'''
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
 
+    def test_quote(self):
+        res = utils.quote('/v1/a/c3/subdirx/')
+        assert res == '/v1/a/c3/subdirx/'
+        res = utils.quote('/v1/a&b/c3/subdirx/')
+        assert res == '/v1/a%26b/c3/subdirx/'
+        res = utils.quote('/v1/a&b/c3/subdirx/', safe='&')
+        assert res == '%2Fv1%2Fa&b%2Fc3%2Fsubdirx%2F'
+        unicode_sample = u'\uc77c\uc601'
+        account = 'abc_' + unicode_sample
+        valid_utf8_str = utils.get_valid_utf8_str(account)
+        account = 'abc_' + unicode_sample.encode('utf-8')[::-1]
+        invalid_utf8_str = utils.get_valid_utf8_str(account)
+        self.assertEquals('abc_%EC%9D%BC%EC%98%81',
+                          utils.quote(valid_utf8_str))
+        self.assertEquals('abc_%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
+                          utils.quote(invalid_utf8_str))
+
 
 class TestFileLikeIter(unittest.TestCase):
 
