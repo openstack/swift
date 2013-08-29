@@ -107,14 +107,16 @@ class TestManagerModule(unittest.TestCase):
                                         manager.MAX_MEMORY)),
             ]
             self.assertEquals(manager.resource.called_with_args, expected)
-            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+            self.assertTrue(
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
 
             # test error condition
             manager.resource = MockResource(error=ValueError())
             manager.os.environ = {}
             manager.setup_env()
             self.assertEquals(manager.resource.called_with_args, [])
-            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+            self.assertTrue(
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
 
             manager.resource = MockResource(error=OSError())
             manager.os.environ = {}
