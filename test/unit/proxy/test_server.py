@@ -1739,7 +1739,7 @@ class TestObjectController(unittest.TestCase):
             def test_status_map(statuses, expected):
                 set_http_connect(*statuses)
                 self.app.memcache.store = {}
-                req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
+                req = Request.blank('/v1/a/c/o', {}, method='POST',
                                     headers={'Content-Type': 'foo/bar'})
                 self.app.update_request(req)
                 res = req.get_response(self.app)

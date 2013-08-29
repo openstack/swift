@@ -314,6 +314,110 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
 
+    def test_blank_req_environ_property_args(self):
+        blank = swift.common.swob.Request.blank
+        req = blank('/', method='PATCH')
+        self.assertEquals(req.method, 'PATCH')
+        self.assertEquals(req.environ['REQUEST_METHOD'], 'PATCH')
+        req = blank('/', referer='http://example.com')
+        self.assertEquals(req.referer, 'http://example.com')
+        self.assertEquals(req.referrer, 'http://example.com')
+        self.assertEquals(req.environ['HTTP_REFERER'], 'http://example.com')
+        self.assertEquals(req.headers['Referer'], 'http://example.com')
+        req = blank('/', script_name='/application')
+        self.assertEquals(req.script_name, '/application')
+        self.assertEquals(req.environ['SCRIPT_NAME'], '/application')
+        req = blank('/', host='www.example.com')
+        self.assertEquals(req.host, 'www.example.com')
+        self.assertEquals(req.environ['HTTP_HOST'], 'www.example.com')
+        self.assertEquals(req.headers['Host'], 'www.example.com')
+        req = blank('/', remote_addr='127.0.0.1')
+        self.assertEquals(req.remote_addr, '127.0.0.1')
+        self.assertEquals(req.environ['REMOTE_ADDR'], '127.0.0.1')
+        req = blank('/', remote_user='username')
+        self.assertEquals(req.remote_user, 'username')
+        self.assertEquals(req.environ['REMOTE_USER'], 'username')
+        req = blank('/', user_agent='curl/7.22.0 (x86_64-pc-linux-gnu)')
+        self.assertEquals(req.user_agent, 'curl/7.22.0 (x86_64-pc-linux-gnu)')
+        self.assertEquals(req.environ['HTTP_USER_AGENT'],
+                          'curl/7.22.0 (x86_64-pc-linux-gnu)')
+        self.assertEquals(req.headers['User-Agent'],
+                          'curl/7.22.0 (x86_64-pc-linux-gnu)')
+        req = blank('/', query_string='a=b&c=d')
+        self.assertEquals(req.query_string, 'a=b&c=d')
+        self.assertEquals(req.environ['QUERY_STRING'], 'a=b&c=d')
+        req = blank('/', if_match='*')
+        self.assertEquals(req.if_match, '*')
+        self.assertEquals(req.environ['HTTP_IF_MATCH'], '*')
+        self.assertEquals(req.headers['If-Match'], '*')
+
+        # multiple environ property kwargs
+        req = blank('/', method='PATCH', referer='http://example.com',
+                    script_name='/application', host='www.example.com',
+                    remote_addr='127.0.0.1', remote_user='username',
+                    user_agent='curl/7.22.0 (x86_64-pc-linux-gnu)',
+                    query_string='a=b&c=d', if_match='*')
+        self.assertEquals(req.method, 'PATCH')
+        self.assertEquals(req.referer, 'http://example.com')
+        self.assertEquals(req.script_name, '/application')
+        self.assertEquals(req.host, 'www.example.com')
+        self.assertEquals(req.remote_addr, '127.0.0.1')
+        self.assertEquals(req.remote_user, 'username')
+        self.assertEquals(req.user_agent, 'curl/7.22.0 (x86_64-pc-linux-gnu)')
+        self.assertEquals(req.query_string, 'a=b&c=d')
+        self.assertEquals(req.environ['QUERY_STRING'], 'a=b&c=d')
+        self.assertEquals(req.if_match, '*')
+
+    def test_invalid_req_environ_property_args(self):
+        # getter only property
+        try:
+            req = swift.common.swob.Request.blank('/', params={'a': 'b'})
+        except TypeError as e:
+            self.assertEquals("got unexpected keyword argument 'params'", str(e))
+        else:
+            self.assert_(False, "invalid req_environ_property "
+                         "didn't raise error!")
+        # regular attribute
+        try:
+            req = swift.common.swob.Request.blank('/', _params_cache={'a': 'b'})
+        except TypeError as e:
+            self.assertEquals("got unexpected keyword "
+                              "argument '_params_cache'", str(e))
+        else:
+            self.assert_(False, "invalid req_environ_property "
+                         "didn't raise error!")
+        # non-existant attribute
+        try:
+            req = swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
+        except TypeError as e:
+            self.assertEquals("got unexpected keyword "
+                              "argument 'params_cache'", str(e))
+        else:
+            self.assert_(False, "invalid req_environ_property "
+                         "didn't raise error!")
+        # method
+        try:
+            req = swift.common.swob.Request.blank(
+                '/', as_referer='GET http://example.com')
+        except TypeError as e:
+            self.assertEquals("got unexpected keyword "
+                              "argument 'as_referer'", str(e))
+        else:
+            self.assert_(False, "invalid req_environ_property "
+                         "didn't raise error!")
+
+
+    def test_blank_path_info_precedence(self):
+        blank = swift.common.swob.Request.blank
+        req = blank('/a')
+        self.assertEquals(req.path_info, '/a')
+        req = blank('/a', environ={'PATH_INFO': '/a/c'})
+        self.assertEquals(req.path_info, '/a/c')
+        req = blank('/a', environ={'PATH_INFO': '/a/c'}, path_info='/a/c/o')
+        self.assertEquals(req.path_info, '/a/c/o')
+        req = blank('/a', path_info='/a/c/o')
+        self.assertEquals(req.path_info, '/a/c/o')
+
     def test_blank_body_precedence(self):
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
@@ -323,6 +427,20 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.body, 'hi')
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
+        body_file = StringIO('asdf')
+        req = swift.common.swob.Request.blank(
+            '/', environ={'REQUEST_METHOD': 'POST',
+                          'wsgi.input': StringIO('')},
+            headers={'Content-Type': 'text/plain'}, body='hi',
+            body_file=body_file)
+        self.assert_(req.body_file is body_file)
+        req = swift.common.swob.Request.blank(
+            '/', environ={'REQUEST_METHOD': 'POST',
+                          'wsgi.input': StringIO('')},
+            headers={'Content-Type': 'text/plain'}, body='hi',
+            content_length=3)
+        self.assertEquals(req.content_length, 3)
+        self.assertEquals(len(req.body), 2)
 
     def test_blank_parsing(self):
         req = swift.common.swob.Request.blank('http://test.com/')

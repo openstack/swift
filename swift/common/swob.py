@@ -767,10 +767,16 @@ class Request(object):
         self.headers = HeaderEnvironProxy(self.environ)
 
     @classmethod
-    def blank(cls, path, environ=None, headers=None, body=None):
+    def blank(cls, path, environ=None, headers=None, body=None, **kwargs):
         """
         Create a new request object with the given parameters, and an
         environment otherwise filled in with non-surprising default values.
+
+        :param path: encoded, parsed, and unquoted into PATH_INFO
+        :param environ: WSGI environ dictionary
+        :param headers: HTTP headers
+        :param body: stuffed in a StringIO and hung on wsgi.input
+        :param kwargs: any environ key with an property setter
         """
         headers = headers or {}
         environ = environ or {}
@@ -811,6 +817,16 @@ class Request(object):
         req = Request(env)
         for key, val in headers.iteritems():
             req.headers[key] = val
+        for key, val in kwargs.items():
+            prop = getattr(Request, key, None)
+            if prop and isinstance(prop, property):
+                try:
+                    setattr(req, key, val)
+                except AttributeError:
+                    pass
+                else:
+                    continue
+            raise TypeError("got unexpected keyword argument %r" % key)
         return req
 
     @property
