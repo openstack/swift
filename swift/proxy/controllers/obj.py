@@ -217,24 +217,24 @@ class SegmentedIterable(object):
                         if sub_etag != self.segment_dict['hash']:
                             raise SegmentError(_(
                                 'Object segment does not match sub-slo: '
-                                '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
+                                '%(path)s etag: %(r_etag)s != %(s_etag)s.') %
                                 {'path': path, 'r_etag': sub_etag,
-                                 's_etag': self.segment_dict['hash']}))
+                                 's_etag': self.segment_dict['hash']})
                         return self._load_next_segment()
                     except ValueError:
                         raise SegmentError(_(
-                            'Sub SLO has invalid manifest: %s' % path))
+                            'Sub SLO has invalid manifest: %s') % path)
 
                 elif resp.etag != self.segment_dict['hash'] or \
                         resp.content_length != self.segment_dict['bytes']:
                     raise SegmentError(_(
                         'Object segment no longer valid: '
                         '%(path)s etag: %(r_etag)s != %(s_etag)s or '
-                        '%(r_size)s != %(s_size)s.' %
+                        '%(r_size)s != %(s_size)s.') %
                         {'path': path, 'r_etag': resp.etag,
                          'r_size': resp.content_length,
                          's_etag': self.segment_dict['hash'],
-                         's_size': self.segment_dict['bytes']}))
+                         's_size': self.segment_dict['bytes']})
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)

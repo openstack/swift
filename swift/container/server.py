@@ -119,9 +119,9 @@ class ContainerController(object):
             # but if there is, we want to know about it.
             self.logger.error(_('ERROR Account update failed: different  '
                                 'numbers of hosts and devices in request: '
-                                '"%s" vs "%s"' %
-                                (req.headers.get('X-Account-Host', ''),
-                                 req.headers.get('X-Account-Device', ''))))
+                                '"%s" vs "%s"') %
+                               (req.headers.get('X-Account-Host', ''),
+                                req.headers.get('X-Account-Device', '')))
             return HTTPBadRequest(req=req)
 
         if account_partition:
