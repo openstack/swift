@@ -26,7 +26,6 @@
 
 import mimetypes
 import os
-from ConfigParser import ConfigParser
 from gettext import gettext as _
 from random import shuffle
 from time import time
@@ -77,8 +76,6 @@ class Application(object):
             config_true_value(conf.get('allow_account_management', 'no'))
         self.object_post_as_copy = \
             config_true_value(conf.get('object_post_as_copy', 'true'))
-        self.resellers_conf = ConfigParser()
-        self.resellers_conf.read(os.path.join(swift_dir, 'resellers.conf'))
         self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
