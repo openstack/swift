@@ -484,10 +484,10 @@ class Controller(object):
             referer = orig_req.as_referer()
         else:
             referer = ''
-        headers.update({'x-trans-id': self.trans_id,
-                        'connection': 'close',
-                        'user-agent': 'proxy-server %s' % os.getpid(),
-                        'referer': referer})
+        headers['x-trans-id'] = self.trans_id
+        headers['connection'] = 'close'
+        headers['user-agent'] = 'proxy-server %s' % os.getpid()
+        headers['referer'] = referer
         return headers
 
     def error_occurred(self, node, msg):
@@ -937,12 +937,11 @@ class Controller(object):
         source_headers = []
         sources = []
         newest = config_true_value(req.headers.get('x-newest', 'f'))
+        headers = self.generate_request_headers(req, additional=req.headers)
         for node in self.iter_nodes(ring, partition):
             start_node_timing = time.time()
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
-                    headers = self.generate_request_headers(
-                        req, additional=req.headers)
                     conn = http_connect(
                         node['ip'], node['port'], node['device'], partition,
                         req.method, path, headers=headers,
