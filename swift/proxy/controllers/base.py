@@ -422,11 +422,17 @@ class Controller(object):
         self.account_name = None
         self.app = app
         self.trans_id = '-'
-        self.allowed_methods = set()
-        all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
-        for name, m in all_methods:
-            if getattr(m, 'publicly_accessible', False):
-                self.allowed_methods.add(name)
+        self._allowed_methods = None
+
+    @property
+    def allowed_methods(self):
+        if self._allowed_methods is None:
+            self._allowed_methods = set()
+            all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
+            for name, m in all_methods:
+                if getattr(m, 'publicly_accessible', False):
+                    self._allowed_methods.add(name)
+        return self._allowed_methods
 
     def _x_remove_headers(self):
         """
