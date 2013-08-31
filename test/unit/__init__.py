@@ -188,22 +188,31 @@ class NullLoggingHandler(logging.Handler):
         pass
 
 
-class FakeLogger(object):
+class FakeLogger(logging.Logger):
     # a thread safe logger
 
     def __init__(self, *args, **kwargs):
         self._clear()
+        self.name = 'swift.unit.fake_logger'
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
 
     def _clear(self):
         self.log_dict = defaultdict(list)
+        self.lines_dict = defaultdict(list)
 
     def _store_in(store_name):
         def stub_fn(self, *args, **kwargs):
             self.log_dict[store_name].append((args, kwargs))
         return stub_fn
+
+    def get_lines_for_level(self, level):
+        for log_args in self.log_dict[level]:
+            args, kwargs = log_args
+            msg, args = args[0], args[1:]
+            self._log(level, msg, *args, **kwargs)
+        return self.lines_dict[level]
 
     error = _store_in('error')
     info = _store_in('info')
@@ -256,7 +265,7 @@ class FakeLogger(object):
         pass
 
     def handle(self, record):
-        pass
+        self.lines_dict[record.levelno].append(record.getMessage())
 
     def flush(self):
         pass

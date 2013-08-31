@@ -603,7 +603,7 @@ class DiskFile(object):
             except (Exception, Timeout), e:
                 self.logger.error(_(
                     'ERROR DiskFile %(data_file)s in '
-                    '%(data_dir)s close failure: %(exc)s : %(stack)'),
+                    '%(data_dir)s close failure: %(exc)s : %(stack)s'),
                     {'exc': e, 'stack': ''.join(traceback.format_stack()),
                      'data_file': self.data_file, 'data_dir': self.datadir})
             finally:
