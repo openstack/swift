@@ -38,6 +38,10 @@ class DiskFileError(SwiftException):
     pass
 
 
+class DiskFileNotOpenError(DiskFileError):
+    pass
+
+
 class DiskFileCollision(DiskFileError):
     pass
 

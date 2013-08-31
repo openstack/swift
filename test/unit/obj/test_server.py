@@ -361,7 +361,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         objfile = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
+                                    FakeLogger())
+        objfile.open()
 
         file_name = os.path.basename(objfile.data_file)
         with open(objfile.data_file) as fp:
@@ -718,7 +719,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         objfile = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
+                                    FakeLogger())
+        objfile.open()
 
         file_name = os.path.basename(objfile.data_file)
         with open(objfile.data_file) as fp:
@@ -1016,7 +1018,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         objfile = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
+                                    FakeLogger())
+        objfile.open()
         file_name = os.path.basename(objfile.data_file)
         etag = md5()
         etag.update('VERIF')
@@ -1048,7 +1051,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         objfile = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
+                                    FakeLogger())
+        objfile.open()
         file_name = os.path.basename(objfile.data_file)
         with open(objfile.data_file) as fp:
             metadata = diskfile.read_metadata(fp)
@@ -1076,7 +1080,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         objfile = diskfile.DiskFile(self.testdir, 'sda1', 'p', 'a', 'c', 'o',
-                                    FakeLogger(), keep_data_fp=True)
+                                    FakeLogger())
+        objfile.open()
         file_name = os.path.basename(objfile.data_file)
         etag = md5()
         etag.update('VERIF')
