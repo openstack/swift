@@ -42,21 +42,24 @@ from mock import patch
 
 
 def _fake_rings(tmpdir):
-    with closing(GzipFile(os.path.join(tmpdir, 'account.ring.gz'), 'wb')) as f:
+    account_ring_path = os.path.join(tmpdir, 'account.ring.gz')
+    with closing(GzipFile(account_ring_path, 'wb')) as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': 6012},
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': 6022}], 30),
                     f)
-    with closing(GzipFile(os.path.join(tmpdir, 'container.ring.gz'), 'wb')) as f:
+    container_ring_path = os.path.join(tmpdir, 'container.ring.gz')
+    with closing(GzipFile(container_ring_path, 'wb')) as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': 6011},
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': 6021}], 30),
                     f)
-    with closing(GzipFile(os.path.join(tmpdir, 'object.ring.gz'), 'wb')) as f:
+    object_ring_path = os.path.join(tmpdir, 'object.ring.gz')
+    with closing(GzipFile(object_ring_path, 'wb')) as f:
         pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
                     [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
                       'port': 6010},
@@ -534,6 +537,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(r.path, '/override')
         self.assertEquals(r.environ['SCRIPT_NAME'], '')
         self.assertEquals(r.environ['PATH_INFO'], '/override')
+
 
 class TestWSGIContext(unittest.TestCase):
 

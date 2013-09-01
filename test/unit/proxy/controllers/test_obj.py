@@ -21,6 +21,7 @@ import swift
 from swift.proxy import server as proxy_server
 from test.unit import FakeRing, FakeMemcache, fake_http_connect
 
+
 @contextmanager
 def set_http_connect(*args, **kwargs):
     old_connect = swift.proxy.controllers.base.http_connect
@@ -34,7 +35,6 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.obj.http_connect = old_connect
     swift.proxy.controllers.account.http_connect = old_connect
     swift.proxy.controllers.container.http_connect = old_connect
-
 
 
 class TestObjControllerWriteAffinity(unittest.TestCase):
@@ -61,7 +61,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
 
     def test_iter_nodes_local_first_moves_locals_first(self):
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
-        self.app.write_affinity_is_local_fn = (lambda node: node['region'] == 1)
+        self.app.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
         self.app.write_affinity_node_count = lambda ring: 4
 
         all_nodes = self.app.object_ring.get_part_nodes(1)
@@ -80,8 +81,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         self.app.conn_timeout = 0.1
         with set_http_connect(200, slow_connect=True):
-            nodes = [dict(ip='', port='', device=''),]
-            res = controller._connect_put_node(nodes, '', '', {}, ('',''))
+            nodes = [dict(ip='', port='', device='')]
+            res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
         self.assertTrue(res is None)
 
 if __name__ == '__main__':

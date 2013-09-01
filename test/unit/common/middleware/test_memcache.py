@@ -58,6 +58,7 @@ class SetConfigParser(object):
 def start_response(*args):
     pass
 
+
 class TestCacheMiddleware(unittest.TestCase):
 
     def setUp(self):
@@ -80,7 +81,7 @@ class TestCacheMiddleware(unittest.TestCase):
         finally:
             memcache.ConfigParser = orig_parser
         self.assertEquals(str(exc),
-            "read called with '/etc/swift/memcache.conf'")
+                          "read called with '/etc/swift/memcache.conf'")
 
     def test_conf_set_no_read(self):
         orig_parser = memcache.ConfigParser
@@ -88,8 +89,8 @@ class TestCacheMiddleware(unittest.TestCase):
         exc = None
         try:
             memcache.MemcacheMiddleware(
-                    FakeApp(), {'memcache_servers': '1.2.3.4:5',
-                                'memcache_serialization_support': '2'})
+                FakeApp(), {'memcache_servers': '1.2.3.4:5',
+                            'memcache_serialization_support': '2'})
         except Exception, err:
             exc = err
         finally:
@@ -123,9 +124,9 @@ class TestCacheMiddleware(unittest.TestCase):
         memcache.ConfigParser = SetConfigParser
         try:
             app = memcache.MemcacheMiddleware(
-                    FakeApp(),
-                    {'memcache_servers': '6.7.8.9:10',
-                     'serialization_format': '0'})
+                FakeApp(),
+                {'memcache_servers': '6.7.8.9:10',
+                 'serialization_format': '0'})
         finally:
             memcache.ConfigParser = orig_parser
         self.assertEquals(app.memcache_servers, '6.7.8.9:10')

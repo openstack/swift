@@ -371,15 +371,16 @@ class TestRequest(unittest.TestCase):
     def test_invalid_req_environ_property_args(self):
         # getter only property
         try:
-            req = swift.common.swob.Request.blank('/', params={'a': 'b'})
+            swift.common.swob.Request.blank('/', params={'a': 'b'})
         except TypeError as e:
-            self.assertEquals("got unexpected keyword argument 'params'", str(e))
+            self.assertEquals("got unexpected keyword argument 'params'",
+                              str(e))
         else:
             self.assert_(False, "invalid req_environ_property "
                          "didn't raise error!")
         # regular attribute
         try:
-            req = swift.common.swob.Request.blank('/', _params_cache={'a': 'b'})
+            swift.common.swob.Request.blank('/', _params_cache={'a': 'b'})
         except TypeError as e:
             self.assertEquals("got unexpected keyword "
                               "argument '_params_cache'", str(e))
@@ -388,7 +389,7 @@ class TestRequest(unittest.TestCase):
                          "didn't raise error!")
         # non-existant attribute
         try:
-            req = swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
+            swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
         except TypeError as e:
             self.assertEquals("got unexpected keyword "
                               "argument 'params_cache'", str(e))
@@ -397,7 +398,7 @@ class TestRequest(unittest.TestCase):
                          "didn't raise error!")
         # method
         try:
-            req = swift.common.swob.Request.blank(
+            swift.common.swob.Request.blank(
                 '/', as_referer='GET http://example.com')
         except TypeError as e:
             self.assertEquals("got unexpected keyword "
@@ -405,7 +406,6 @@ class TestRequest(unittest.TestCase):
         else:
             self.assert_(False, "invalid req_environ_property "
                          "didn't raise error!")
-
 
     def test_blank_path_info_precedence(self):
         blank = swift.common.swob.Request.blank
@@ -725,7 +725,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank(
             u'/',
             environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'},
-            body='x'*42)
+            body='x' * 42)
         self.assertEquals(req.message_length(), 42)
 
         req.headers['Content-Length'] = 'abc'
@@ -741,7 +741,7 @@ class TestRequest(unittest.TestCase):
             u'/',
             environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'},
             headers={'transfer-encoding': 'chunked'},
-            body='x'*42)
+            body='x' * 42)
         self.assertEquals(req.message_length(), None)
 
         req.headers['Transfer-Encoding'] = 'gzip,chunked'

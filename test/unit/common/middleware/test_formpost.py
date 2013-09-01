@@ -466,7 +466,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -577,7 +578,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -691,7 +693,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -801,7 +804,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,

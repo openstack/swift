@@ -41,11 +41,12 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(self.testdir)
         ring_file = os.path.join(self.testdir, 'account.ring.gz')
         with closing(GzipFile(ring_file, 'wb')) as f:
-            pickle.dump(RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                [{'id': 0, 'ip': '127.0.0.1', 'port': 12345, 'device': 'sda1',
-                  'zone': 0},
-                 {'id': 1, 'ip': '127.0.0.1', 'port': 12345, 'device': 'sda1',
-                  'zone': 2}], 30),
+            pickle.dump(
+                RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                         [{'id': 0, 'ip': '127.0.0.1', 'port': 12345,
+                           'device': 'sda1', 'zone': 0},
+                          {'id': 1, 'ip': '127.0.0.1', 'port': 12345,
+                           'device': 'sda1', 'zone': 2}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
@@ -63,7 +64,7 @@ class TestContainerUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '2',
             'node_timeout': '5',
-            })
+        })
         self.assert_(hasattr(cu, 'logger'))
         self.assert_(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
@@ -81,7 +82,7 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15',
             'account_suppression_time': 0
-            })
+        })
         cu.run_once()
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
         os.mkdir(containers_dir)
@@ -134,12 +135,14 @@ class TestContainerUpdater(unittest.TestCase):
                 return err
             return None
         bindsock = listen(('127.0.0.1', 0))
+
         def spawn_accepts():
             events = []
             for _junk in xrange(2):
                 sock, addr = bindsock.accept()
                 events.append(spawn(accept, sock, addr, 201))
             return events
+
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
@@ -163,7 +166,7 @@ class TestContainerUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '1',
             'node_timeout': '15',
-            })
+        })
         containers_dir = os.path.join(self.sda1, container_server.DATADIR)
         os.mkdir(containers_dir)
         subdir = os.path.join(containers_dir, 'subdir')
@@ -173,6 +176,7 @@ class TestContainerUpdater(unittest.TestCase):
         cb.initialize(normalize_timestamp(1))
         cb.put_object('\xce\xa9', normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
+
         def accept(sock, addr):
             try:
                 with Timeout(3):
@@ -186,7 +190,9 @@ class TestContainerUpdater(unittest.TestCase):
                 traceback.print_exc()
                 return err
             return None
+
         bindsock = listen(('127.0.0.1', 0))
+
         def spawn_accepts():
             events = []
             for _junk in xrange(2):
@@ -194,6 +200,7 @@ class TestContainerUpdater(unittest.TestCase):
                     sock, addr = bindsock.accept()
                     events.append(spawn(accept, sock, addr))
             return events
+
         spawned = spawn(spawn_accepts)
         for dev in cu.get_account_ring().devs:
             if dev is not None:
