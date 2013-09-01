@@ -64,7 +64,8 @@ class TestContainerController(unittest.TestCase):
         # Ensure no acl by default
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '0'})
-        req.get_response(self.controller)
+        resp = req.get_response(self.controller)
+        self.assert_(resp.status.startswith('201'))
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assert_(response.status.startswith('204'))
@@ -75,6 +76,7 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': '1', 'X-Container-Read': '.r:*',
                      'X-Container-Write': 'account:user'})
         resp = req.get_response(self.controller)
+        self.assert_(resp.status.startswith('204'))
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assert_(response.status.startswith('204'))
@@ -86,6 +88,7 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': '3', 'X-Container-Read': '',
                      'X-Container-Write': ''})
         resp = req.get_response(self.controller)
+        self.assert_(resp.status.startswith('204'))
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assert_(response.status.startswith('204'))
@@ -96,6 +99,7 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': '4', 'X-Container-Read': '.r:*',
                      'X-Container-Write': 'account:user'})
         resp = req.get_response(self.controller)
+        self.assert_(resp.status.startswith('201'))
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assert_(response.status.startswith('204'))
