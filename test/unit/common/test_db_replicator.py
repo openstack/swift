@@ -238,7 +238,7 @@ class TestDBReplicator(unittest.TestCase):
         node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
                 'device': 'sdb1'}
         conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
-                    logging.getLogger())
+                                            logging.getLogger())
 
         def req(method, path, body, headers):
             self.assertEquals(method, 'REPLICATE')
@@ -260,11 +260,13 @@ class TestDBReplicator(unittest.TestCase):
     def test_rsync_file(self):
         replicator = TestReplicator({})
         with _mock_process(-1):
-            self.assertEquals(False,
-                    replicator._rsync_file('/some/file', 'remote:/some/file'))
+            self.assertEquals(
+                False,
+                replicator._rsync_file('/some/file', 'remote:/some/file'))
         with _mock_process(0):
-            self.assertEquals(True,
-                    replicator._rsync_file('/some/file', 'remote:/some/file'))
+            self.assertEquals(
+                True,
+                replicator._rsync_file('/some/file', 'remote:/some/file'))
 
     def test_rsync_file_popen_args(self):
         replicator = TestReplicator({})
@@ -383,7 +385,8 @@ class TestDBReplicator(unittest.TestCase):
             with patch('os.path.getmtime', ChangingMtimesOs()):
                 broker = FakeBroker()
                 replicator = MyTestReplicator(broker)
-                fake_device = {'ip': '127.0.0.1', 'replication_ip': '127.0.0.1',
+                fake_device = {'ip': '127.0.0.1',
+                               'replication_ip': '127.0.0.1',
                                'device': 'sda1'}
                 replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
                 self.assertEquals(2, replicator._rsync_file_call_count)
@@ -518,7 +521,7 @@ class TestDBReplicator(unittest.TestCase):
             os.mkdir(temp_hash_dir)
             temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
             temp_hash_dir2 = os.path.join(temp_suf_dir,
-                                         '266e33924a08ede4204871468c11e16e')
+                                          '266e33924a08ede4204871468c11e16e')
             os.mkdir(temp_hash_dir2)
             temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
 
@@ -773,9 +776,10 @@ class TestReplToNode(unittest.TestCase):
         self.replicator = TestReplicator({})
         self.fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
         self.fake_info = {'id': 'a', 'point': -1, 'max_row': 10, 'hash': 'b',
-                     'created_at': 100, 'put_timestamp': 0,
-                     'delete_timestamp': 0, 'count': 0,
-                     'metadata': {'Test': ('Value', normalize_timestamp(1))}}
+                          'created_at': 100, 'put_timestamp': 0,
+                          'delete_timestamp': 0, 'count': 0,
+                          'metadata': {
+                              'Test': ('Value', normalize_timestamp(1))}}
         self.replicator.logger = mock.Mock()
         self.replicator._rsync_db = mock.Mock(return_value=True)
         self.replicator._usync_db = mock.Mock(return_value=True)
@@ -790,7 +794,7 @@ class TestReplToNode(unittest.TestCase):
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.replicator._usync_db.assert_has_calls([
             mock.call(max(rinfo['point'], local_sync), self.broker,
-                       self.http, rinfo['id'], self.fake_info['id'])
+                      self.http, rinfo['id'], self.fake_info['id'])
         ])
 
     def test_repl_to_node_rsync_success(self):
@@ -803,9 +807,10 @@ class TestReplToNode(unittest.TestCase):
             mock.call.increment('remote_merges')
         ])
         self.replicator._rsync_db.assert_has_calls([
-            mock.call(self.broker, self.fake_node, self.http, self.fake_info['id'],
-                       replicate_method='rsync_then_merge',
-                       replicate_timeout=(self.fake_info['count'] / 2000))
+            mock.call(self.broker, self.fake_node, self.http,
+                      self.fake_info['id'],
+                      replicate_method='rsync_then_merge',
+                      replicate_timeout=(self.fake_info['count'] / 2000))
         ])
 
     def test_repl_to_node_already_in_sync(self):
@@ -825,14 +830,15 @@ class TestReplToNode(unittest.TestCase):
             mock.call.increment('rsyncs')
         ])
         self.replicator._rsync_db.assert_has_calls([
-            mock.call(self.broker, self.fake_node, self.http, self.fake_info['id'])
+            mock.call(self.broker, self.fake_node, self.http,
+                      self.fake_info['id'])
         ])
 
     def test_repl_to_node_drive_not_mounted(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=507)
 
         self.assertRaises(DriveNotMounted, self.replicator._repl_to_node,
-            self.fake_node, FakeBroker(), '0', self.fake_info)
+                          self.fake_node, FakeBroker(), '0', self.fake_info)
 
     def test_repl_to_node_300_status(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=300)

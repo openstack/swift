@@ -114,7 +114,8 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, fake_headers, body)
 
-        resp_headers, resp = direct_client.direct_get_account(node, part, account)
+        resp_headers, resp = direct_client.direct_get_account(node, part,
+                                                              account)
 
         fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(fake_headers, resp_headers)
@@ -122,7 +123,8 @@ class TestDirectClient(unittest.TestCase):
 
         direct_client.http_connect = mock_http_connect(204, fake_headers, body)
 
-        resp_headers, resp = direct_client.direct_get_account(node, part, account)
+        resp_headers, resp = direct_client.direct_get_account(node, part,
+                                                              account)
 
         fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(fake_headers, resp_headers)
@@ -140,7 +142,8 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, headers)
 
-        resp = direct_client.direct_head_container(node, part, account, container)
+        resp = direct_client.direct_head_container(node, part, account,
+                                                   container)
 
         headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp)
@@ -219,7 +222,8 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(200, body=contents)
 
         resp_header, obj_body = (
-            direct_client.direct_get_object(node, part, account, container, name))
+            direct_client.direct_get_object(node, part, account, container,
+                                            name))
         self.assertEqual(obj_body, contents)
 
         direct_client.http_connect = was_http_connector
@@ -240,7 +244,7 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(200, fake_headers)
 
         direct_client.direct_post_object(node, part, account,
-                                        container, name, headers)
+                                         container, name, headers)
         self.assertEqual(headers['Key'], fake_headers[0].get('Key'))
 
         direct_client.http_connect = was_http_connector
@@ -255,7 +259,8 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200)
 
-        direct_client.direct_delete_object(node, part, account, container, name)
+        direct_client.direct_delete_object(node, part, account, container,
+                                           name)
 
         direct_client.http_connect = was_http_connector
 
@@ -271,7 +276,7 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(200)
 
         resp = direct_client.direct_put_object(node, part, account,
-                                                container, name, contents, 6)
+                                               container, name, contents, 6)
         self.assertEqual(md5('123456').hexdigest(), resp)
 
         direct_client.http_connect = was_http_connector
@@ -288,8 +293,8 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(500)
 
         self.assertRaises(direct_client.ClientException,
-            direct_client.direct_put_object, node, part, account,
-            container, name, contents)
+                          direct_client.direct_put_object, node, part, account,
+                          container, name, contents)
 
         direct_client.http_connect = was_http_connector
 
@@ -305,7 +310,7 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(200)
 
         resp = direct_client.direct_put_object(node, part, account,
-                container, name, contents)
+                                               container, name, contents)
         self.assertEqual(md5('6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
 
         direct_client.http_connect = was_http_connector
@@ -322,7 +327,8 @@ class TestDirectClient(unittest.TestCase):
         direct_client.http_connect = mock_http_connect(200, headers)
 
         attempts, resp = direct_client.retry(direct_client.direct_head_object,
-            node, part, account, container, name)
+                                             node, part, account, container,
+                                             name)
         headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp)
         self.assertEqual(attempts, 1)

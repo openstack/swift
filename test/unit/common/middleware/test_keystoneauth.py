@@ -36,7 +36,7 @@ class FakeApp(object):
                 return resp(env, start_response)
         status, headers, body = self.status_headers_body_iter.next()
         return Response(status=status, headers=headers,
-                              body=body)(env, start_response)
+                        body=body)(env, start_response)
 
 
 class SwiftAuth(unittest.TestCase):
@@ -174,7 +174,8 @@ class TestAuthorize(unittest.TestCase):
     def _get_account(self, identity=None):
         if not identity:
             identity = self._get_identity()
-        return self.test_auth._get_account_for_tenant(identity['HTTP_X_TENANT_ID'])
+        return self.test_auth._get_account_for_tenant(
+            identity['HTTP_X_TENANT_ID'])
 
     def _get_identity(self, tenant_id='tenant_id', tenant_name='tenant_name',
                       user_id='user_id', user_name='user_name', roles=[]):
@@ -244,7 +245,8 @@ class TestAuthorize(unittest.TestCase):
         self.assertTrue(req.environ.get('swift_owner'))
 
     def _check_authorize_for_tenant_owner_match(self, exception=None):
-        identity = self._get_identity(user_name='same_name', tenant_name='same_name')
+        identity = self._get_identity(user_name='same_name',
+                                      tenant_name='same_name')
         req = self._check_authenticate(identity=identity, exception=exception)
         expected = bool(exception is None)
         self.assertEqual(bool(req.environ.get('swift_owner')), expected)
@@ -314,30 +316,55 @@ class TestAuthorize(unittest.TestCase):
             self._check_authenticate(identity=identity, acl=acl)
 
     def test_cross_tenant_authorization_success(self):
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantID:userA']), 'tenantID:userA')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:userA']), 'tenantNAME:userA')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['*:userA']), '*:userA')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME',
+                ['tenantID:userA']),
+            'tenantID:userA')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME',
+                ['tenantNAME:userA']),
+            'tenantNAME:userA')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME', ['*:userA']),
+            '*:userA')
 
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantID:userID']), 'tenantID:userID')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:userID']), 'tenantNAME:userID')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['*:userID']), '*:userID')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME',
+                ['tenantID:userID']),
+            'tenantID:userID')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME',
+                ['tenantNAME:userID']),
+            'tenantNAME:userID')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME', ['*:userID']),
+            '*:userID')
 
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantID:*']), 'tenantID:*')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantNAME:*']), 'tenantNAME:*')
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['*:*']), '*:*')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME', ['tenantID:*']),
+            'tenantID:*')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME', ['tenantNAME:*']),
+            'tenantNAME:*')
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME', ['*:*']),
+            '*:*')
 
     def test_cross_tenant_authorization_failure(self):
-        self.assertEqual(self.test_auth._authorize_cross_tenant('userID',
-            'userA', 'tenantID', 'tenantNAME', ['tenantXYZ:userA']), None)
+        self.assertEqual(
+            self.test_auth._authorize_cross_tenant(
+                'userID', 'userA', 'tenantID', 'tenantNAME',
+                ['tenantXYZ:userA']),
+            None)
 
     def test_delete_own_account_not_allowed(self):
         roles = self.test_auth.operator_roles.split(',')
