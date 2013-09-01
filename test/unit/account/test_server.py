@@ -32,7 +32,8 @@ class TestAccountController(unittest.TestCase):
     """Test swift.account.server.AccountController"""
     def setUp(self):
         """Set up for testing swift.account.server.AccountController"""
-        self.testdir = os.path.join(os.path.dirname(__file__), 'account_server')
+        self.testdir = os.path.join(os.path.dirname(__file__),
+                                    'account_server')
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'})
 
@@ -46,24 +47,24 @@ class TestAccountController(unittest.TestCase):
 
     def test_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 404)
         self.assertTrue('X-Account-Status' not in resp.headers)
 
     def test_DELETE_empty(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
-            'HTTP_X_TIMESTAMP': '1'})
+                                                  'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['X-Account-Status'], 'Deleted')
 
     def test_DELETE_not_empty(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -72,7 +73,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
-            'HTTP_X_TIMESTAMP': '1'})
+                                                  'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         # We now allow deleting non-empty accounts
         self.assertEquals(resp.status_int, 204)
@@ -80,7 +81,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_DELETE_now_empty(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -89,7 +90,8 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         req.get_response(self.controller)
-        req = Request.blank('/sda1/p/a/c1',
+        req = Request.blank(
+            '/sda1/p/a/c1',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Put-Timestamp': '1',
                      'X-Delete-Timestamp': '2',
@@ -99,7 +101,7 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
-            'HTTP_X_TIMESTAMP': '1'})
+                                                  'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['X-Account-Status'], 'Deleted')
@@ -121,8 +123,9 @@ class TestAccountController(unittest.TestCase):
 
     def test_DELETE_insufficient_storage(self):
         self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'DELETE',
-                                                  'HTTP_X_TIMESTAMP': '1'})
+        req = Request.blank(
+            '/sda-null/p/a', environ={'REQUEST_METHOD': 'DELETE',
+                                      'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 507)
 
@@ -153,7 +156,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_HEAD_empty_account(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
@@ -201,7 +204,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Timestamp': normalize_timestamp(0)})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD',
-            'HTTP_X_TIMESTAMP': '5'})
+                                                  'HTTP_X_TIMESTAMP': '5'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['x-account-container-count'], '2')
@@ -235,7 +238,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 400)
 
     def test_PUT_not_found(self):
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-PUT-Timestamp': normalize_timestamp(1),
                      'X-DELETE-Timestamp': normalize_timestamp(0),
                      'X-Object-Count': '1',
@@ -247,11 +251,11 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '1'})
+                                                  'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 202)
 
@@ -273,7 +277,8 @@ class TestAccountController(unittest.TestCase):
 
     def test_PUT_GET_metadata(self):
         # Set metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(1),
                      'X-Account-Meta-Test': 'Value'})
         resp = req.get_response(self.controller)
@@ -283,7 +288,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
         # Set another metadata header, ensuring old one doesn't disappear
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(1),
                      'X-Account-Meta-Test2': 'Value2'})
         resp = req.get_response(self.controller)
@@ -294,7 +300,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
         self.assertEquals(resp.headers.get('x-account-meta-test2'), 'Value2')
         # Update metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(3),
                      'X-Account-Meta-Test': 'New Value'})
         resp = req.get_response(self.controller)
@@ -304,7 +311,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Send old update to metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(2),
                      'X-Account-Meta-Test': 'Old Value'})
         resp = req.get_response(self.controller)
@@ -314,7 +322,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Remove metadata header (by setting it to empty)
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(4),
                      'X-Account-Meta-Test': ''})
         resp = req.get_response(self.controller)
@@ -338,12 +347,14 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 507)
 
     def test_POST_HEAD_metadata(self):
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(1)})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         # Set metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(1),
                      'X-Account-Meta-Test': 'Value'})
         resp = req.get_response(self.controller)
@@ -353,7 +364,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'Value')
         # Update metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(3),
                      'X-Account-Meta-Test': 'New Value'})
         resp = req.get_response(self.controller)
@@ -363,7 +375,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Send old update to metadata header
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(2),
                      'X-Account-Meta-Test': 'Old Value'})
         resp = req.get_response(self.controller)
@@ -373,7 +386,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers.get('x-account-meta-test'), 'New Value')
         # Remove metadata header (by setting it to empty)
-        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(4),
                      'X-Account-Meta-Test': ''})
         resp = req.get_response(self.controller)
@@ -455,7 +469,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_empty_account_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
@@ -465,7 +479,8 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_empty_account_json(self):
         req = Request.blank('/sda1/p/a?format=json',
-            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '0'})
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -476,7 +491,8 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_empty_account_xml(self):
         req = Request.blank('/sda1/p/a?format=xml',
-            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '0'})
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -486,14 +502,15 @@ class TestAccountController(unittest.TestCase):
                           'application/xml; charset=utf-8')
 
     def test_GET_over_limit(self):
-        req = Request.blank('/sda1/p/a?limit=%d' %
-            (ACCOUNT_LISTING_LIMIT + 1), environ={'REQUEST_METHOD': 'GET'})
+        req = Request.blank(
+            '/sda1/p/a?limit=%d' % (ACCOUNT_LISTING_LIMIT + 1),
+            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 412)
 
     def test_GET_with_containers_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -545,7 +562,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_with_containers_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -594,7 +611,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_with_containers_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -675,7 +692,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEquals(node.firstChild.nodeValue, '2')
         self.assertEquals(listing[-1].nodeName, 'container')
-        container = [n for n in listing[-1].childNodes if n.nodeName != '#text']
+        container = [
+            n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEquals(sorted([n.nodeName for n in container]),
                           ['bytes', 'count', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
@@ -748,16 +766,17 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_limit_marker_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         for c in xrange(5):
-            req = Request.blank('/sda1/p/a/c%d' % c,
-                                environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Put-Timestamp': str(c + 1),
-                                         'X-Delete-Timestamp': '0',
-                                         'X-Object-Count': '2',
-                                         'X-Bytes-Used': '3',
-                                         'X-Timestamp': normalize_timestamp(0)})
+            req = Request.blank(
+                '/sda1/p/a/c%d' % c,
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Put-Timestamp': str(c + 1),
+                         'X-Delete-Timestamp': '0',
+                         'X-Object-Count': '2',
+                         'X-Bytes-Used': '3',
+                         'X-Timestamp': normalize_timestamp(0)})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -772,16 +791,17 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_limit_marker_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         for c in xrange(5):
-            req = Request.blank('/sda1/p/a/c%d' % c,
-                                environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Put-Timestamp': str(c + 1),
-                                         'X-Delete-Timestamp': '0',
-                                         'X-Object-Count': '2',
-                                         'X-Bytes-Used': '3',
-                                         'X-Timestamp': normalize_timestamp(0)})
+            req = Request.blank(
+                '/sda1/p/a/c%d' % c,
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Put-Timestamp': str(c + 1),
+                         'X-Delete-Timestamp': '0',
+                         'X-Object-Count': '2',
+                         'X-Bytes-Used': '3',
+                         'X-Timestamp': normalize_timestamp(0)})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -801,16 +821,17 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_limit_marker_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         for c in xrange(5):
-            req = Request.blank('/sda1/p/a/c%d' % c,
-                                environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'X-Put-Timestamp': str(c + 1),
-                                         'X-Delete-Timestamp': '0',
-                                         'X-Object-Count': '2',
-                                         'X-Bytes-Used': '3',
-                                         'X-Timestamp': normalize_timestamp(c)})
+            req = Request.blank(
+                '/sda1/p/a/c%d' % c,
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Put-Timestamp': str(c + 1),
+                         'X-Delete-Timestamp': '0',
+                         'X-Object-Count': '2',
+                         'X-Bytes-Used': '3',
+                         'X-Timestamp': normalize_timestamp(c)})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -832,7 +853,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEquals(node.firstChild.nodeValue, '3')
         self.assertEquals(listing[-1].nodeName, 'container')
-        container = [n for n in listing[-1].childNodes if n.nodeName != '#text']
+        container = [
+            n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEquals(sorted([n.nodeName for n in container]),
                           ['bytes', 'count', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
@@ -861,7 +883,8 @@ class TestAccountController(unittest.TestCase):
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEquals(node.firstChild.nodeValue, '3')
         self.assertEquals(listing[-1].nodeName, 'container')
-        container = [n for n in listing[-1].childNodes if n.nodeName != '#text']
+        container = [
+            n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEquals(sorted([n.nodeName for n in container]),
                           ['bytes', 'count', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
@@ -873,7 +896,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -890,7 +913,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_application_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -907,7 +930,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -924,7 +947,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -945,7 +968,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_conflicting(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -963,7 +986,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
@@ -986,10 +1009,11 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_prefix_delimiter_plain(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         for first in range(3):
-            req = Request.blank('/sda1/p/a/sub.%s' % first,
+            req = Request.blank(
+                '/sda1/p/a/sub.%s' % first,
                 environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Put-Timestamp': '1',
                          'X-Delete-Timestamp': '0',
@@ -998,7 +1022,8 @@ class TestAccountController(unittest.TestCase):
                          'X-Timestamp': normalize_timestamp(0)})
             req.get_response(self.controller)
             for second in range(3):
-                req = Request.blank('/sda1/p/a/sub.%s.%s' % (first, second),
+                req = Request.blank(
+                    '/sda1/p/a/sub.%s.%s' % (first, second),
                     environ={'REQUEST_METHOD': 'PUT'},
                     headers={'X-Put-Timestamp': '1',
                              'X-Delete-Timestamp': '0',
@@ -1007,29 +1032,31 @@ class TestAccountController(unittest.TestCase):
                              'X-Timestamp': normalize_timestamp(0)})
                 req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?delimiter=.',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body.strip().split('\n'), ['sub.'])
         req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body.strip().split('\n'),
+        self.assertEquals(
+            resp.body.strip().split('\n'),
             ['sub.0', 'sub.0.', 'sub.1', 'sub.1.', 'sub.2', 'sub.2.'])
         req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body.strip().split('\n'),
-            ['sub.1.0', 'sub.1.1', 'sub.1.2'])
+                          ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
     def test_GET_prefix_delimiter_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-                'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         for first in range(3):
-            req = Request.blank('/sda1/p/a/sub.%s' % first,
+            req = Request.blank(
+                '/sda1/p/a/sub.%s' % first,
                 environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Put-Timestamp': '1',
                          'X-Delete-Timestamp': '0',
@@ -1038,7 +1065,8 @@ class TestAccountController(unittest.TestCase):
                          'X-Timestamp': normalize_timestamp(0)})
             req.get_response(self.controller)
             for second in range(3):
-                req = Request.blank('/sda1/p/a/sub.%s.%s' % (first, second),
+                req = Request.blank(
+                    '/sda1/p/a/sub.%s.%s' % (first, second),
                     environ={'REQUEST_METHOD': 'PUT'},
                     headers={'X-Put-Timestamp': '1',
                              'X-Delete-Timestamp': '0',
@@ -1047,32 +1075,35 @@ class TestAccountController(unittest.TestCase):
                              'X-Timestamp': normalize_timestamp(0)})
                 req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?delimiter=.&format=json',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals([n.get('name', 's:' + n.get('subdir', 'error'))
                            for n in simplejson.loads(resp.body)], ['s:sub.'])
         req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.&format=json',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals([n.get('name', 's:' + n.get('subdir', 'error'))
-                           for n in simplejson.loads(resp.body)],
+        self.assertEquals(
+            [n.get('name', 's:' + n.get('subdir', 'error'))
+             for n in simplejson.loads(resp.body)],
             ['sub.0', 's:sub.0.', 'sub.1', 's:sub.1.', 'sub.2', 's:sub.2.'])
         req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.&format=json',
-            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
-        self.assertEquals([n.get('name', 's:' + n.get('subdir', 'error'))
-                           for n in simplejson.loads(resp.body)],
+        self.assertEquals(
+            [n.get('name', 's:' + n.get('subdir', 'error'))
+             for n in simplejson.loads(resp.body)],
             ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
     def test_GET_prefix_delimiter_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+                                                  'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         for first in range(3):
-            req = Request.blank('/sda1/p/a/sub.%s' % first,
+            req = Request.blank(
+                '/sda1/p/a/sub.%s' % first,
                 environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Put-Timestamp': '1',
                          'X-Delete-Timestamp': '0',
@@ -1081,7 +1112,8 @@ class TestAccountController(unittest.TestCase):
                          'X-Timestamp': normalize_timestamp(0)})
             req.get_response(self.controller)
             for second in range(3):
-                req = Request.blank('/sda1/p/a/sub.%s.%s' % (first, second),
+                req = Request.blank(
+                    '/sda1/p/a/sub.%s.%s' % (first, second),
                     environ={'REQUEST_METHOD': 'PUT'},
                     headers={'X-Put-Timestamp': '1',
                              'X-Delete-Timestamp': '0',
@@ -1089,7 +1121,8 @@ class TestAccountController(unittest.TestCase):
                              'X-Bytes-Used': '0',
                              'X-Timestamp': normalize_timestamp(0)})
                 req.get_response(self.controller)
-        req = Request.blank('/sda1/p/a?delimiter=.&format=xml',
+        req = Request.blank(
+            '/sda1/p/a?delimiter=.&format=xml',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
@@ -1103,7 +1136,8 @@ class TestAccountController(unittest.TestCase):
                     if node2.nodeName == 'name':
                         listing.append(node2.firstChild.nodeValue)
         self.assertEquals(listing, ['s:sub.'])
-        req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.&format=xml',
+        req = Request.blank(
+            '/sda1/p/a?prefix=sub.&delimiter=.&format=xml',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
@@ -1116,9 +1150,11 @@ class TestAccountController(unittest.TestCase):
                 for node2 in node1.childNodes:
                     if node2.nodeName == 'name':
                         listing.append(node2.firstChild.nodeValue)
-        self.assertEquals(listing,
+        self.assertEquals(
+            listing,
             ['sub.0', 's:sub.0.', 'sub.1', 's:sub.1.', 'sub.2', 's:sub.2.'])
-        req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.&format=xml',
+        req = Request.blank(
+            '/sda1/p/a?prefix=sub.1.&delimiter=.&format=xml',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 200)
@@ -1369,8 +1405,9 @@ class TestAccountController(unittest.TestCase):
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = AccountController(
-                {'devices': self.testdir, 'mount_check': 'false',
-                 'replication_server': 'false'})
+            {'devices': self.testdir,
+             'mount_check': 'false',
+             'replication_server': 'false'})
 
         def start_response(*args):
             """Sends args to outbuf"""
