@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.obj.diskfile """
+"""Tests for swift.obj.diskfile"""
 
 from __future__ import with_statement
 
@@ -353,14 +353,14 @@ class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
 
     def setUp(self):
-        """ Set up for testing swift.obj.diskfile"""
+        """Set up for testing swift.obj.diskfile"""
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
 
     def tearDown(self):
-        """ Tear down for testing swift.obj.diskfile"""
+        """Tear down for testing swift.obj.diskfile"""
         rmtree(os.path.dirname(self.testdir))
         tpool.execute = self._orig_tpool_exc
 

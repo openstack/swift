@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Test kill_children signal handlers
+# TODO(clayg): Test kill_children signal handlers
 
 import os
 import unittest
@@ -83,9 +83,7 @@ class TestRunDaemon(unittest.TestCase):
         self.assertEquals(d.once_called, True)
 
     def test_run_daemon(self):
-        sample_conf = """[my-daemon]
-user = %s
-""" % getuser()
+        sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file:
             with patch.dict('os.environ', {'TZ': ''}):
                 daemon.run_daemon(MyDaemon, conf_file)

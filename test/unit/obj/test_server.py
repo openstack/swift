@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.obj.server """
+"""Tests for swift.obj.server"""
 
 import cPickle as pickle
 import operator
@@ -42,10 +42,10 @@ from swift.common.swob import Request, HeaderKeyDict
 
 
 class TestObjectController(unittest.TestCase):
-    """ Test swift.obj.server.ObjectController """
+    """Test swift.obj.server.ObjectController"""
 
     def setUp(self):
-        """ Set up for testing swift.object_server.ObjectController """
+        """Set up for testing swift.object.server.ObjectController"""
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
         self.testdir = \
@@ -58,7 +58,7 @@ class TestObjectController(unittest.TestCase):
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
 
     def tearDown(self):
-        """ Tear down for testing swift.object_server.ObjectController """
+        """Tear down for testing swift.object.server.ObjectController"""
         rmtree(os.path.dirname(self.testdir))
         tpool.execute = self._orig_tpool_exc
 
@@ -110,7 +110,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
 
     def test_POST_update_meta(self):
-        """ Test swift.object_server.ObjectController.POST """
+        # Test swift.obj.server.ObjectController.POST
         original_headers = self.object_controller.allowed_headers
         test_headers = 'content-encoding foo bar'.split()
         self.object_controller.allowed_headers = set(test_headers)
@@ -348,7 +348,7 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = old_http_connect
 
     def test_POST_quarantine_zbyte(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -613,7 +613,7 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = old_http_connect
 
     def test_HEAD(self):
-        """ Test swift.object_server.ObjectController.HEAD """
+        # Test swift.obj.server.ObjectController.HEAD
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
@@ -678,7 +678,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
 
     def test_HEAD_quarantine_zbyte(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -706,7 +706,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
 
     def test_GET(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
@@ -967,7 +967,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
 
     def test_GET_quarantine(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -998,7 +998,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
 
     def test_GET_quarantine_zbyte(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -1025,7 +1025,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
 
     def test_GET_quarantine_range(self):
-        """ Test swift.object_server.ObjectController.GET """
+        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -1077,7 +1077,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
 
     def test_DELETE(self):
-        # Test swift.object_server.ObjectController.DELETE
+        # Test swift.obj.server.ObjectController.DELETE
         req = Request.blank('/sda1/p/a/c',
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
@@ -1157,7 +1157,7 @@ class TestObjectController(unittest.TestCase):
         self.assert_(os.path.isfile(objfile))
 
     def test_DELETE_container_updates(self):
-        # Test swift.object_server.ObjectController.DELETE and container
+        # Test swift.obj.server.ObjectController.DELETE and container
         # updates, making sure container update is called in the correct
         # state.
         timestamp = normalize_timestamp(time())
@@ -1254,13 +1254,13 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.container_update = orig_cu
 
     def test_call(self):
-        """ Test swift.object_server.ObjectController.__call__ """
+        # Test swift.obj.server.ObjectController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            """Sends args to outbuf"""
             outbuf.writelines(args)
 
         self.object_controller.__call__({'REQUEST_METHOD': 'PUT',
@@ -2623,10 +2623,7 @@ class TestObjectController(unittest.TestCase):
             diskfile.fallocate = orig_fallocate
 
     def test_serv_reserv(self):
-        """
-        Test replication_server flag
-        was set from configuration file.
-        """
+        # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.assertEquals(
             object_server.ObjectController(conf).replication_server, None)
@@ -2640,7 +2637,7 @@ class TestObjectController(unittest.TestCase):
                 object_server.ObjectController(conf).replication_server)
 
     def test_list_allowed_methods(self):
-        """ Test list of allowed_methods """
+        # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         repl_methods = ['REPLICATE']
         for method_name in obj_methods:
@@ -2651,10 +2648,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
-        """
-        Test correct work for allowed method using
-        swift.object_server.ObjectController.__call__
-        """
+        # Test correct work for allowed method using
+        # swift.obj.server.ObjectController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -2663,7 +2658,7 @@ class TestObjectController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            # Sends args to outbuf
             outbuf.writelines(args)
 
         method = 'PUT'
@@ -2690,10 +2685,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
-        """
-        Test correct work for NOT allowed method using
-        swift.object_server.ObjectController.__call__
-        """
+        # Test correct work for NOT allowed method using
+        # swift.obj.server.ObjectController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -2702,7 +2695,7 @@ class TestObjectController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            # Sends args to outbuf
             outbuf.writelines(args)
 
         method = 'PUT'

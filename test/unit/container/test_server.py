@@ -44,9 +44,9 @@ def save_globals():
 
 
 class TestContainerController(unittest.TestCase):
-    """ Test swift.container_server.ContainerController """
+    """Test swift.container.server.ContainerController"""
     def setUp(self):
-        """ Set up for testing swift.object_server.ObjectController """
+        """Set up for testing swift.object_server.ObjectController"""
         self.testdir = os.path.join(mkdtemp(),
                                     'tmp_test_object_server_ObjectController')
         mkdirs(self.testdir)
@@ -57,7 +57,7 @@ class TestContainerController(unittest.TestCase):
             {'devices': self.testdir, 'mount_check': 'false'})
 
     def tearDown(self):
-        """ Tear down for testing swift.object_server.ObjectController """
+        """Tear down for testing swift.object_server.ObjectController"""
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
     def test_acl_container(self):
@@ -1468,10 +1468,7 @@ class TestContainerController(unittest.TestCase):
                          'x-trans-id': '-'})})
 
     def test_serv_reserv(self):
-        """
-        Test replication_server flag
-        was set from configuration file.
-        """
+        # Test replication_server flag was set from configuration file.
         container_controller = container_server.ContainerController
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.assertEquals(container_controller(conf).replication_server, None)
@@ -1483,7 +1480,7 @@ class TestContainerController(unittest.TestCase):
             self.assertFalse(container_controller(conf).replication_server)
 
     def test_list_allowed_methods(self):
-        """ Test list of allowed_methods """
+        # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         repl_methods = ['REPLICATE']
         for method_name in obj_methods:
@@ -1494,10 +1491,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
-        """
-        Test correct work for allowed method using
-        swift.container_server.ContainerController.__call__
-        """
+        # Test correct work for allowed method using
+        # swift.container.server.ContainerController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -1506,7 +1501,7 @@ class TestContainerController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            """Sends args to outbuf"""
             outbuf.writelines(args)
 
         method = 'PUT'
@@ -1533,10 +1528,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
-        """
-        Test correct work for NOT allowed method using
-        swift.container_server.ContainerController.__call__
-        """
+        # Test correct work for NOT allowed method using
+        # swift.container.server.ContainerController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -1545,7 +1538,7 @@ class TestContainerController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            """Sends args to outbuf"""
             outbuf.writelines(args)
 
         method = 'PUT'

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.common.utils """
+"""Tests for swift.common.utils"""
 
 from __future__ import with_statement
 from test.unit import temptree
@@ -130,14 +130,14 @@ def reset_loggers():
 
 
 class TestUtils(unittest.TestCase):
-    """ Tests for swift.common.utils """
+    """Tests for swift.common.utils """
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
 
     def test_normalize_timestamp(self):
-        """ Test swift.common.utils.normalize_timestamp """
+        # Test swift.common.utils.normalize_timestamp
         self.assertEquals(utils.normalize_timestamp('1253327593.48174'),
                           "1253327593.48174")
         self.assertEquals(utils.normalize_timestamp(1253327593.48174),
@@ -158,7 +158,7 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
 
     def test_backwards(self):
-        """ Test swift.common.utils.backward """
+        # Test swift.common.utils.backward
 
         # The lines are designed so that the function would encounter
         # all of the boundary conditions and typical conditions.
@@ -215,7 +215,7 @@ class TestUtils(unittest.TestCase):
         os.unlink(testroot)
 
     def test_split_path(self):
-        """ Test swift.common.utils.split_account_path """
+        # Test swift.common.utils.split_account_path
         self.assertRaises(ValueError, utils.split_path, '')
         self.assertRaises(ValueError, utils.split_path, '/')
         self.assertRaises(ValueError, utils.split_path, '//')
@@ -249,7 +249,7 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
     def test_validate_device_partition(self):
-        """ Test swift.common.utils.validate_device_partition """
+        # Test swift.common.utils.validate_device_partition
         utils.validate_device_partition('foo', 'bar')
         self.assertRaises(ValueError,
                           utils.validate_device_partition, '', '')
@@ -279,7 +279,7 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
 
     def test_NullLogger(self):
-        """ Test swift.common.utils.NullLogger """
+        # Test swift.common.utils.NullLogger
         sio = StringIO()
         nl = utils.NullLogger()
         nl.write('test')

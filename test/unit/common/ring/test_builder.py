@@ -565,7 +565,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(counts[3], 256)
 
     def test_add_rebalance_add_rebalance_delete_rebalance(self):
-        """ Test for https://bugs.launchpad.net/swift/+bug/845952 """
+        # Test for https://bugs.launchpad.net/swift/+bug/845952
         # min_part of 0 to allow for rapid rebalancing
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,

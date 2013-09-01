@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.common.wsgi """
+"""Tests for swift.common.wsgi"""
 
 from __future__ import with_statement
 import errno
@@ -66,7 +66,7 @@ def _fake_rings(tmpdir):
 
 
 class TestWSGI(unittest.TestCase):
-    """ Tests for swift.common.wsgi """
+    """Tests for swift.common.wsgi"""
 
     def setUp(self):
         utils.HASH_PATH_PREFIX = 'startcap'

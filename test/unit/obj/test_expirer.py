@@ -123,7 +123,7 @@ class TestObjectExpirer(TestCase):
                 self.deleted_objects = {}
 
             def delete_object(self, actual_obj, timestamp, container, obj):
-                if not container in self.deleted_objects:
+                if container not in self.deleted_objects:
                     self.deleted_objects[container] = set()
                 self.deleted_objects[container].add(obj)
 

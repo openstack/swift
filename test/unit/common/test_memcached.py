@@ -1,4 +1,4 @@
- # -*- coding: utf8 -*-
+# -*- coding:utf-8 -*-
 # Copyright (c) 2010-2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.common.utils """
+"""Tests for swift.common.utils"""
 
 from __future__ import with_statement
 import logging
@@ -44,6 +44,7 @@ class ExplodingMockMemcached(object):
 
     def close(self):
         pass
+
 
 class MockMemcached(object):
 
@@ -139,7 +140,7 @@ class MockMemcached(object):
 
 
 class TestMemcached(unittest.TestCase):
-    """ Tests for swift.common.memcached"""
+    """Tests for swift.common.memcached"""
 
     def test_get_conns(self):
         sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
