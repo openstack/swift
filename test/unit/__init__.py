@@ -189,6 +189,7 @@ class NullLoggingHandler(logging.Handler):
     def emit(self, record):
         pass
 
+
 class UnmockTimeModule(object):
     """
     Even if a test mocks time.time - you can restore unmolested behavior in a
@@ -197,7 +198,6 @@ class UnmockTimeModule(object):
     """
 
     _orig_time = time.time
-
 
     def __getattribute__(self, name):
         if name == 'time':

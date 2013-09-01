@@ -798,8 +798,10 @@ class TestDiskFile(unittest.TestCase):
 
     def test_exception_in_handle_close_quarantine(self):
         df = self._get_disk_file()
+
         def blow_up():
             raise Exception('a very special error')
+
         df._handle_close_quarantine = blow_up
         df.close()
         log_lines = df.logger.get_lines_for_level('error')
