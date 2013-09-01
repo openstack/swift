@@ -144,7 +144,7 @@ def get_ring(server, force_validate=None):
         ring.serialized_path, len(ring.devs))
     # map server to config by port
     port_to_config = {}
-    for node_id in range(1,5):
+    for node_id in range(1, 5):
         conf = readconf('/etc/swift/%s-server/%d.conf' % (server, node_id),
                         section_name='%s-replicator' % server)
         port_to_config[int(conf['bind_port'])] = conf
@@ -154,13 +154,14 @@ def get_ring(server, force_validate=None):
         for device in os.listdir(conf['devices']):
             if device == dev['device']:
                 full_path = path.realpath(path.join(conf['devices'], device))
-                assert path.ismount(full_path), 'device %s in %s was not ' \
-                        'mounted (%s)' % (device, conf['devices'], full_path)
+                assert path.ismount(full_path), \
+                    'device %s in %s was not mounted (%s)' % (
+                        device, conf['devices'], full_path)
                 break
         else:
-            assert False, "unable to find ring device %s " \
-                    "under %s's devices (%s)" % (
-                        dev['device'], server, conf['devices'])
+            raise AssertionError(
+                "unable to find ring device %s under %s's devices (%s)" % (
+                    dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
         rsync_export = '%s%s' % (server, dev['replication_port'])
         cmd = "rsync rsync://localhost/%s" % rsync_export
@@ -173,9 +174,9 @@ def get_ring(server, force_validate=None):
             if line.rsplit(None, 1)[-1] == dev['device']:
                 break
         else:
-            assert False, "unable to find ring device %s under rsync's " \
-                    "exported devices for %s (%s)" % (
-                        dev['device'], rsync_export, cmd)
+            raise AssertionError("unable to find ring device %s under rsync's "
+                                 "exported devices for %s (%s)" % (
+                                     dev['device'], rsync_export, cmd))
     return ring
 
 
@@ -206,7 +207,7 @@ def reset_environment():
     except BaseException:
         try:
             raise
-        except AssertionError, e:
+        except AssertionError as e:
             print >>sys.stderr, 'ERROR: %s' % e
             os._exit(1)
         finally:

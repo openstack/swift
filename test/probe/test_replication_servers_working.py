@@ -166,7 +166,7 @@ class TestReplicatorFunctions(TestCase):
             # Check behavior by deleting hashes.pkl file
             for directory in os.listdir(os.path.join(test_node, 'objects')):
                 for input_dir in os.listdir(os.path.join(
-                        test_node, 'objects',  directory)):
+                        test_node, 'objects', directory)):
                     if os.path.isdir(os.path.join(
                             test_node, 'objects', directory, input_dir)):
                         shutil.rmtree(os.path.join(

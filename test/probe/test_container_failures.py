@@ -31,6 +31,7 @@ from test.probe.common import get_to_final_state, kill_nonprimary_server, \
 
 eventlet.monkey_patch(all=False, socket=True)
 
+
 def get_db_file_path(obj_dir):
     files = sorted(listdir(obj_dir), reverse=True)
     for filename in files:
