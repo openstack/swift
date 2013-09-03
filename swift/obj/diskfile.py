@@ -713,12 +713,11 @@ class DiskFileReader(object):
     :param device_path: on-disk device path, used when quarantining an obj
     :param logger: logger caller wants this object to use
     :param quarantine_hook: 1-arg callable called w/reason when quarantined
-    :param iter_hook: called when __iter__ returns a chunk
     :param keep_cache: should resulting reads be kept in the buffer cache
     """
     def __init__(self, fp, data_file, obj_size, etag, threadpool,
                  disk_chunk_size, keep_cache_size, device_path, logger,
-                 quarantine_hook, iter_hook=None, keep_cache=False):
+                 quarantine_hook, keep_cache=False):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
@@ -729,7 +728,6 @@ class DiskFileReader(object):
         self._device_path = device_path
         self._logger = logger
         self._quarantine_hook = quarantine_hook
-        self._iter_hook = iter_hook
         if keep_cache:
             # Caller suggests we keep this in cache, only do it if the
             # object's size is less than the maximum.
@@ -767,8 +765,6 @@ class DiskFileReader(object):
                                          self._bytes_read - dropped_cache)
                         dropped_cache = self._bytes_read
                     yield chunk
-                    if self._iter_hook:
-                        self._iter_hook()
                 else:
                     self._read_to_eof = True
                     self._drop_cache(self._fp.fileno(), dropped_cache,
@@ -1259,7 +1255,7 @@ class DiskFile(object):
         with self.open():
             return self.get_metadata()
 
-    def reader(self, iter_hook=None, keep_cache=False,
+    def reader(self, keep_cache=False,
                _quarantine_hook=lambda m: None):
         """
         Return a :class:`swift.common.swob.Response` class compatible
@@ -1269,7 +1265,6 @@ class DiskFile(object):
         For this implementation, the responsibility of closing the open file
         is passed to the :class:`swift.obj.diskfile.DiskFileReader` object.
 
-        :param iter_hook: called when __iter__ returns a chunk
         :param keep_cache: caller's preference for keeping data read in the
                            OS buffer cache
         :param _quarantine_hook: 1-arg callable called when obj quarantined;
@@ -1282,8 +1277,7 @@ class DiskFile(object):
             self._fp, self._data_file, int(self._metadata['Content-Length']),
             self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
             self._mgr.keep_cache_size, self._device_path, self._logger,
-            quarantine_hook=_quarantine_hook,
-            iter_hook=iter_hook, keep_cache=keep_cache)
+            quarantine_hook=_quarantine_hook, keep_cache=keep_cache)
         # At this point the reader object is now responsible for closing
         # the file pointer.
         self._fp = None

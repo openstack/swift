@@ -407,7 +407,6 @@ class ObjectController(object):
                         return HTTPRequestTimeout(request=request)
                     etag.update(chunk)
                     upload_size = writer.write(chunk)
-                    sleep()
                     elapsed_time += time.time() - start_time
                 if upload_size:
                     self.logger.transfer_rate(
@@ -505,8 +504,7 @@ class ObjectController(object):
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
                 response = Response(
-                    app_iter=disk_file.reader(
-                        iter_hook=sleep, keep_cache=keep_cache),
+                    app_iter=disk_file.reader(keep_cache=keep_cache),
                     request=request, conditional_response=True)
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')

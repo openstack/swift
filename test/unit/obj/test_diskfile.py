@@ -790,19 +790,6 @@ class TestDiskFile(unittest.TestCase):
         df.unit_test_len = fsize
         return df
 
-    def test_iter_hook(self):
-        hook_call_count = [0]
-
-        def hook():
-            hook_call_count[0] += 1
-
-        df = self._get_open_disk_file(fsize=65, csize=8)
-        with df.open():
-            for _ in df.reader(iter_hook=hook):
-                pass
-
-        self.assertEquals(hook_call_count[0], 9)
-
     def test_keep_cache(self):
         df = self._get_open_disk_file(fsize=65)
         with mock.patch("swift.obj.diskfile.drop_buffer_cache") as foo:
