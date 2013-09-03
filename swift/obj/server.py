@@ -362,7 +362,7 @@ class ObjectController(object):
         etag = md5()
         elapsed_time = 0
         try:
-            with disk_file.writer(size=fsize) as writer:
+            with disk_file.create(size=fsize) as writer:
                 reader = request.environ['wsgi.input'].read
                 for chunk in iter(lambda: reader(self.network_chunk_size), ''):
                     start_time = time.time()

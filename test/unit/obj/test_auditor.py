@@ -63,7 +63,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -92,7 +92,7 @@ class TestAuditor(unittest.TestCase):
         data = '0' * 1024
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -117,7 +117,7 @@ class TestAuditor(unittest.TestCase):
         etag = etag.hexdigest()
         metadata['ETag'] = etag
 
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             writer.put(metadata)
 
@@ -147,7 +147,7 @@ class TestAuditor(unittest.TestCase):
         pre_errors = self.auditor.errors
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -169,7 +169,7 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -190,7 +190,7 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -210,7 +210,7 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = self.auditor.quarantines
         data = '0' * 10
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -225,7 +225,7 @@ class TestAuditor(unittest.TestCase):
                                   'ob', self.logger)
         data = '1' * 10
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -244,7 +244,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor.log_time = 0
         data = '0' * 1024
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
@@ -284,7 +284,7 @@ class TestAuditor(unittest.TestCase):
             fp.close()
 
         etag = md5()
-        with self.disk_file.writer() as writer:
+        with self.disk_file.create() as writer:
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,

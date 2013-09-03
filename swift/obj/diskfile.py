@@ -274,7 +274,7 @@ def get_hashes(partition_dir, recalculate=None, do_listdir=False,
 class DiskWriter(object):
     """
     Encapsulation of the write context for servicing PUT REST API
-    requests. Serves as the context manager object for DiskFile's writer()
+    requests. Serves as the context manager object for DiskFile's create()
     method.
     """
     def __init__(self, disk_file, fd, tmppath, threadpool):
@@ -629,9 +629,9 @@ class DiskFile(object):
                 int(self.metadata['X-Delete-At']) <= time.time())
 
     @contextmanager
-    def writer(self, size=None):
+    def create(self, size=None):
         """
-        Context manager to write a file. We create a temporary file first, and
+        Context manager to create a file. We create a temporary file first, and
         then return a DiskWriter object to encapsulate the state.
 
         :param size: optional initial size of file to explicitly allocate on
@@ -666,7 +666,7 @@ class DiskFile(object):
         :param tombstone: whether or not we are writing a tombstone
         """
         extension = '.ts' if tombstone else '.meta'
-        with self.writer() as writer:
+        with self.create() as writer:
             writer.put(metadata, extension=extension)
 
     def _drop_cache(self, fd, offset, length):

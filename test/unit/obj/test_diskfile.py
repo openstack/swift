@@ -486,7 +486,7 @@ class TestDiskFile(unittest.TestCase):
         tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
         os.rmdir(tmpdir)
         with diskfile.DiskFile(self.testdir, 'sda1', '0', 'a', 'c',
-                               'o', FakeLogger()).writer():
+                               'o', FakeLogger()).create():
             self.assert_(os.path.exists(tmpdir))
 
     def test_iter_hook(self):
@@ -538,7 +538,7 @@ class TestDiskFile(unittest.TestCase):
             timestamp = ts
         else:
             timestamp = str(normalize_timestamp(time()))
-        with df.writer() as writer:
+        with df.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
