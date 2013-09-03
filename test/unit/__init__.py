@@ -18,6 +18,7 @@ from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
 
+
 class FakeRing(object):
 
     def __init__(self, replicas=3, max_more_nodes=0):

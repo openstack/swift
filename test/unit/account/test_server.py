@@ -29,15 +29,15 @@ from swift.common.utils import normalize_timestamp, replication, public
 
 
 class TestAccountController(unittest.TestCase):
-    """ Test swift.account_server.AccountController """
+    """Test swift.account.server.AccountController"""
     def setUp(self):
-        """ Set up for testing swift.account_server.AccountController """
+        """Set up for testing swift.account.server.AccountController"""
         self.testdir = os.path.join(os.path.dirname(__file__), 'account_server')
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'})
 
     def tearDown(self):
-        """ Tear down for testing swift.account_server.AccountController """
+        """Tear down for testing swift.account.server.AccountController"""
         try:
             rmtree(self.testdir)
         except OSError, err:
@@ -1341,10 +1341,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(resp.charset, 'utf-8')
 
     def test_serv_reserv(self):
-        """
-        Test replication_server flag
-        was set from configuration file.
-        """
+        # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.assertEquals(AccountController(conf).replication_server, None)
         for val in [True, '1', 'True', 'true']:
@@ -1355,7 +1352,7 @@ class TestAccountController(unittest.TestCase):
             self.assertFalse(AccountController(conf).replication_server)
 
     def test_list_allowed_methods(self):
-        """ Test list of allowed_methods """
+        # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
         repl_methods = ['REPLICATE']
         for method_name in obj_methods:
@@ -1366,10 +1363,8 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(method.replication, True)
 
     def test_correct_allowed_method(self):
-        """
-        Test correct work for allowed method using
-        swift.account_server.AccountController.__call__
-        """
+        # Test correct work for allowed method using
+        # swift.account.server.AccountController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -1378,7 +1373,7 @@ class TestAccountController(unittest.TestCase):
                  'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            """Sends args to outbuf"""
             outbuf.writelines(args)
 
         method = 'PUT'
@@ -1406,10 +1401,8 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
-        """
-        Test correct work for NOT allowed method using
-        swift.account_server.AccountController.__call__
-        """
+        # Test correct work for NOT allowed method using
+        # swift.account.server.AccountController.__call__
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
@@ -1418,7 +1411,7 @@ class TestAccountController(unittest.TestCase):
              'replication_server': 'false'})
 
         def start_response(*args):
-            """ Sends args to outbuf """
+            """Sends args to outbuf"""
             outbuf.writelines(args)
 
         method = 'PUT'

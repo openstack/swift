@@ -623,7 +623,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
 
 class TestContainerBroker(unittest.TestCase):
-    """ Tests for swift.common.db.ContainerBroker """
+    """Tests for swift.common.db.ContainerBroker"""
 
     def test_creation(self):
         # Test swift.common.db.ContainerBroker.__init__
@@ -1781,7 +1781,7 @@ class TestContainerBrokerBeforeXSync(TestContainerBroker):
 
 
 class TestAccountBroker(unittest.TestCase):
-    """ Tests for swift.common.db.AccountBroker """
+    """Tests for swift.common.db.AccountBroker"""
 
     def test_creation(self):
         # Test swift.common.db.AccountBroker.__init__

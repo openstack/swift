@@ -338,7 +338,7 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_admin',
                                  headers={'X-Auth-Token': 'AUTH_t'})
         cache_key = 'AUTH_/token/AUTH_t'
-        cache_entry = (time()+3600, '.reseller_admin')
+        cache_entry = (time() + 3600, '.reseller_admin')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         req.get_response(self.test_auth)
         self.assertTrue(req.environ.get('reseller_request', False))

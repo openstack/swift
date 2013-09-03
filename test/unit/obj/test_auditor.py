@@ -274,8 +274,9 @@ class TestAuditor(unittest.TestCase):
         if with_ts:
 
             name_hash = hash_path('a', 'c', 'o')
-            dir_path = os.path.join(self.devices, 'sda',
-                               storage_directory(DATADIR, '0', name_hash))
+            dir_path = os.path.join(
+                self.devices, 'sda',
+                storage_directory(DATADIR, '0', name_hash))
             ts_file_path = os.path.join(dir_path, '99999.ts')
             if not os.path.exists(dir_path):
                 mkdirs(dir_path)
