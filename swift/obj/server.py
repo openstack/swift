@@ -565,8 +565,7 @@ class ObjectController(object):
             else:
                 response_class = HTTPConflict
         if orig_timestamp < req_timestamp:
-            disk_file.put_metadata({'X-Timestamp': req_timestamp},
-                                   tombstone=True)
+            disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp}),

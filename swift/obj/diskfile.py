@@ -669,6 +669,15 @@ class DiskFile(object):
         with self.create() as writer:
             writer.put(metadata, extension=extension)
 
+    def delete(self, timestamp):
+        """
+        Simple short hand for marking an object as deleted. Provides
+        a layer of abstraction.
+
+        :param timestamp: time stamp to mark the object deleted at
+        """
+        self.put_metadata({'X-Timestamp': timestamp}, tombstone=True)
+
     def _drop_cache(self, fd, offset, length):
         """Method for no-oping buffer cache drop method."""
         if not self.keep_cache:
