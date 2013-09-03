@@ -131,12 +131,10 @@ class Connection(object):
         auth_netloc = "%s:%d" % (self.auth_host, self.auth_port)
         auth_url = auth_scheme + auth_netloc + auth_path
 
-        (storage_url, storage_token) = get_auth(auth_url,
-              auth_user, self.password,
-              snet=False,
-              tenant_name=self.account,
-              auth_version=self.auth_version,
-              os_options={})
+        (storage_url, storage_token) = get_auth(
+            auth_url, auth_user, self.password, snet=False,
+            tenant_name=self.account, auth_version=self.auth_version,
+            os_options={})
 
         if not (storage_url and storage_token):
             raise AuthenticationFailed()
