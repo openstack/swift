@@ -792,3 +792,12 @@ class TestDiskFile(unittest.TestCase):
             self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
             self.assertRaises(OSError, diskfile.DiskFile, self.testdir, 'sda1',
                               '0', 'a', 'c', 'o', FakeLogger())
+
+    def test_exception_in_handle_close_quarantine(self):
+        df = self._get_disk_file()
+        def blow_up():
+            raise Exception('a very special error')
+        df._handle_close_quarantine = blow_up
+        df.close()
+        log_lines = df.logger.get_lines_for_level('error')
+        self.assert_('a very special error' in log_lines[-1])
