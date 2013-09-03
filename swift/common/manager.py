@@ -63,7 +63,8 @@ def setup_env():
         print _("WARNING: Unable to increase file descriptor limit.  "
                 "Running as non-root?")
 
-    os.environ['PYTHON_EGG_CACHE'] = '/tmp'
+    # Set PYTHON_EGG_CACHE if it isn't already set
+    os.environ.setdefault('PYTHON_EGG_CACHE', '/tmp')
 
 
 def command(func):
