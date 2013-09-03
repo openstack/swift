@@ -743,17 +743,17 @@ class TestContainerController(unittest.TestCase):
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000Z"},
+                    "last_modified":"1970-01-01T00:00:01.000000"},
                     {"name":"1",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000Z"},
+                    "last_modified":"1970-01-01T00:00:01.000000"},
                     {"name":"2",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000Z"}]
+                    "last_modified":"1970-01-01T00:00:01.000000"}]
 
         req = Request.blank('/sda1/p/a/jsonc?format=json',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -875,12 +875,12 @@ class TestContainerController(unittest.TestCase):
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.500000Z"},
+                    "last_modified":"1970-01-01T00:00:01.500000"},
                     {"name":"1",
                     "hash":"x",
                     "bytes":0,
                     "content_type":"text/plain",
-                    "last_modified":"1970-01-01T00:00:01.000000Z"}, ]
+                    "last_modified":"1970-01-01T00:00:01.000000"}, ]
 
         req = Request.blank('/sda1/p/a/jsonc?format=json',
                 environ={'REQUEST_METHOD': 'GET'})
@@ -905,19 +905,19 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
-        xml_body = "<?xml version='1.0' encoding='UTF-8'?>\n" \
+        xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
             '<container name="xmlc">' \
                 '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000Z' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
                 '<object><name>1</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000Z' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
                 '<object><name>2</name><hash>x</hash><bytes>0</bytes>' \
                     '<content_type>text/plain</content_type>' \
-                    '<last_modified>1970-01-01T00:00:01.000000Z' \
+                    '<last_modified>1970-01-01T00:00:01.000000' \
                     '</last_modified></object>' \
             '</container>'
 
@@ -1095,7 +1095,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?prefix=US-&delimiter=-&format=xml',
                 environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.body, "<?xml version='1.0' encoding='UTF-8'?>"
+        self.assertEquals(resp.body, '<?xml version="1.0" encoding="UTF-8"?>'
             '\n<container name="c"><subdir name="US-OK-"><name>US-OK-</name></subdir>'
             '<subdir name="US-TX-"><name>US-TX-</name></subdir>'
             '<subdir name="US-UT-"><name>US-UT-</name></subdir></container>')
@@ -1143,9 +1143,9 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEquals(simplejson.loads(resp.body),
             [{"name":"US/OK", "hash":"x", "bytes":0, "content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01.000000Z"},
+              "last_modified":"1970-01-01T00:00:01.000000"},
              {"name":"US/TX", "hash":"x", "bytes":0, "content_type":"text/plain",
-              "last_modified":"1970-01-01T00:00:01.000000Z"}])
+              "last_modified":"1970-01-01T00:00:01.000000"}])
 
     def test_GET_insufficient_storage(self):
         self.controller = container_server.ContainerController(

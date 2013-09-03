@@ -330,7 +330,7 @@ class ContainerController(object):
         # python isoformat() doesn't include msecs when zero
         if len(last_modified) < len("1970-01-01T00:00:00.000000"):
             last_modified += ".000000"
-        response['last_modified'] = last_modified + 'Z'
+        response['last_modified'] = last_modified
         content_type, params = parse_content_type(content_type)
         for key, value in params:
             if key == 'swift_bytes':
@@ -408,7 +408,9 @@ class ContainerController(object):
                     for field in sorted(record.keys()):
                         SubElement(obj_element, field).text = str(
                             record[field]).decode('utf-8')
-            ret.body = tostring(doc, encoding='UTF-8')
+            ret.body = tostring(doc, encoding='UTF-8').replace(
+                "<?xml version='1.0' encoding='UTF-8'?>",
+                '<?xml version="1.0" encoding="UTF-8"?>', 1)
         else:
             if not container_list:
                 return HTTPNoContent(request=req, headers=resp_headers)
