@@ -7,6 +7,7 @@ from sys import exc_info
 from contextlib import contextmanager
 from collections import defaultdict
 from tempfile import NamedTemporaryFile
+import time
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -187,6 +188,25 @@ class NullLoggingHandler(logging.Handler):
     def emit(self, record):
         pass
 
+class UnmockTimeModule(object):
+    """
+    Even if a test mocks time.time - you can restore unmolested behavior in a
+    another module who imports time directly by monkey patching it's imported
+    reference to the module with an instance of this class
+    """
+
+    _orig_time = time.time
+
+
+    def __getattribute__(self, name):
+        if name == 'time':
+            return UnmockTimeModule._orig_time
+        return getattr(time, name)
+
+
+# logging.LogRecord.__init__ calls time.time
+logging.time = UnmockTimeModule()
+
 
 class FakeLogger(logging.Logger):
     # a thread safe logger
@@ -207,17 +227,19 @@ class FakeLogger(logging.Logger):
             self.log_dict[store_name].append((args, kwargs))
         return stub_fn
 
+    def _store_and_log_in(store_name):
+        def stub_fn(self, *args, **kwargs):
+            self.log_dict[store_name].append((args, kwargs))
+            self._log(store_name, args[0], args[1:], **kwargs)
+        return stub_fn
+
     def get_lines_for_level(self, level):
-        for log_args in self.log_dict[level]:
-            args, kwargs = log_args
-            msg, args = args[0], args[1:]
-            self._log(level, msg, *args, **kwargs)
         return self.lines_dict[level]
 
-    error = _store_in('error')
-    info = _store_in('info')
-    warning = _store_in('warning')
-    debug = _store_in('debug')
+    error = _store_and_log_in('error')
+    info = _store_and_log_in('info')
+    warning = _store_and_log_in('warning')
+    debug = _store_and_log_in('debug')
 
     def exception(self, *args, **kwargs):
         self.log_dict['exception'].append((args, kwargs, str(exc_info()[1])))
@@ -265,7 +287,13 @@ class FakeLogger(logging.Logger):
         pass
 
     def handle(self, record):
-        self.lines_dict[record.levelno].append(record.getMessage())
+        try:
+            line = record.getMessage()
+        except TypeError:
+            print 'WARNING: unable to format log message %r %% %r' % (
+                record.msg, record.args)
+            raise
+        self.lines_dict[record.levelno].append(line)
 
     def flush(self):
         pass
