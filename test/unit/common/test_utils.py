@@ -2401,5 +2401,26 @@ class TestThreadpool(unittest.TestCase):
         self.assertTrue(caught)
 
 
+class TestAuditLocationGenerator(unittest.TestCase):
+    def test_non_dir_contents(self):
+        with temptree([]) as tmpdir:
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            with open(os.path.join(data, "partition1"), "w"):
+                pass
+            partition = os.path.join(data, "partition2")
+            os.makedirs(partition)
+            with open(os.path.join(partition, "suffix1"), "w"):
+                pass
+            suffix = os.path.join(partition, "suffix2")
+            os.makedirs(suffix)
+            with open(os.path.join(suffix, "hash1"), "w"):
+                pass
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=False
+            )
+            self.assertEqual(list(locations), [])
+
+
 if __name__ == '__main__':
     unittest.main()
