@@ -1190,8 +1190,8 @@ class TestServer(unittest.TestCase):
                             4: conf4,
                         }
                         self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.conf_files, [conf1, conf2,
-                                                                 conf3, conf4])
+                        self.assertEquals(mock_spawn.conf_files, [
+                            conf1, conf2, conf3, conf4])
                         expected = {
                             'once': True,
                         }
@@ -1312,7 +1312,7 @@ class TestManager(unittest.TestCase):
             self.assert_(server.server in manager.ALL_SERVERS)
         # test dedupe
         m = manager.Manager(['main', 'rest', 'proxy', 'object',
-                                           'container', 'account'])
+                             'container', 'account'])
         self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
         for server in m.servers:
             self.assert_(server.server in manager.ALL_SERVERS)

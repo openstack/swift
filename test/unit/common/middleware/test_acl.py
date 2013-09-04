@@ -49,7 +49,7 @@ class TestACL(unittest.TestCase):
         self.assertEquals(value, '.r:*')
         value = acl.clean_acl('header', '.referrer:*')
         self.assertEquals(value, '.r:*')
-        value = acl.clean_acl('header', 
+        value = acl.clean_acl('header',
                               ' .r : one , ,, .r:two , .r : - three ')
         self.assertEquals(value, '.r:one,.r:two,.r:-three')
         self.assertRaises(ValueError, acl.clean_acl, 'header', '.unknown:test')
@@ -105,13 +105,17 @@ class TestACL(unittest.TestCase):
             'http://user:pass@www.example.com:8080', ['.example.com']))
         self.assert_(acl.referrer_allowed('http://www.example.com',
                                           ['.example.com']))
-        self.assert_(not acl.referrer_allowed('http://thief.example.com',
+        self.assert_(not acl.referrer_allowed(
+            'http://thief.example.com',
             ['.example.com', '-thief.example.com']))
-        self.assert_(not acl.referrer_allowed('http://thief.example.com',
+        self.assert_(not acl.referrer_allowed(
+            'http://thief.example.com',
             ['*', '-thief.example.com']))
-        self.assert_(acl.referrer_allowed('http://www.example.com',
+        self.assert_(acl.referrer_allowed(
+            'http://www.example.com',
             ['.other.com', 'www.example.com']))
-        self.assert_(acl.referrer_allowed('http://www.example.com',
+        self.assert_(acl.referrer_allowed(
+            'http://www.example.com',
             ['-.example.com', 'www.example.com']))
         # This is considered a relative uri to the request uri, a mode not
         # currently supported.

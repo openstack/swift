@@ -53,38 +53,44 @@ class TestNameCheckMiddleware(unittest.TestCase):
     def test_invalid_character(self):
         for c in self.conf['forbidden_chars']:
             path = '/V1.0/1234' + c + '5'
-            resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
-                             ).get_response(self.test_check)
-            self.assertEquals(resp.body,
-                    ("Object/Container name contains forbidden chars from %s"
-                    % self.conf['forbidden_chars']))
+            resp = Request.blank(
+                path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
+                    self.test_check)
+            self.assertEquals(
+                resp.body,
+                ("Object/Container name contains forbidden chars from %s"
+                 % self.conf['forbidden_chars']))
             self.assertEquals(resp.status_int, 400)
 
     def test_invalid_length(self):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 5)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEquals(resp.body,
-                    ("Object/Container name longer than the allowed maximum %s"
-                    % self.conf['maximum_length']))
+        self.assertEquals(
+            resp.body,
+            ("Object/Container name longer than the allowed maximum %s"
+             % self.conf['maximum_length']))
         self.assertEquals(resp.status_int, 400)
 
     def test_invalid_regexp(self):
         for s in ['/.', '/..', '/./foo', '/../foo']:
             path = '/V1.0/' + s
-            resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
-                             ).get_response(self.test_check)
-            self.assertEquals(resp.body,
-                    ("Object/Container name contains a forbidden substring "
-                     "from regular expression %s"
-                     % self.conf['forbidden_regexp']))
+            resp = Request.blank(
+                path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
+                    self.test_check)
+            self.assertEquals(
+                resp.body,
+                ("Object/Container name contains a forbidden substring "
+                 "from regular expression %s"
+                 % self.conf['forbidden_regexp']))
             self.assertEquals(resp.status_int, 400)
 
     def test_valid_regexp(self):
         for s in ['/...', '/.\.', '/foo']:
             path = '/V1.0/' + s
-            resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
-                             ).get_response(self.test_check)
+            resp = Request.blank(
+                path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
+                    self.test_check)
             self.assertEquals(resp.body, 'OK')
 
 

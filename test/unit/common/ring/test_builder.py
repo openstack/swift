@@ -98,7 +98,6 @@ class TestRingBuilder(unittest.TestCase):
         r0 = rb0.get_ring()
         self.assertTrue(rb0.get_ring() is r0)
 
-
         rb0.rebalance()  # NO SEED
         rb1.rebalance(seed=10)
         rb2.rebalance(seed=10)
@@ -749,7 +748,8 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.save('some.builder')
         mock_open.assert_called_once_with('some.builder', 'wb')
-        mock_pickle_dump.assert_called_once_with(rb.to_dict(), mock_fh.__enter__(),
+        mock_pickle_dump.assert_called_once_with(rb.to_dict(),
+                                                 mock_fh.__enter__(),
                                                  protocol=2)
 
     def test_search_devs(self):

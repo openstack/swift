@@ -441,8 +441,8 @@ class TestUtils(unittest.TestCase):
                     os.path.isdir('/dev/log'):
                 # Since socket on OSX is in /var/run/syslog, there will be
                 # a fallback to UDP.
-                expected_args.append(((),
-                                  {'facility': orig_sysloghandler.LOG_LOCAL3}))
+                expected_args.append(
+                    ((), {'facility': orig_sysloghandler.LOG_LOCAL3}))
             self.assertEquals(expected_args, syslog_handler_args)
 
             syslog_handler_args = []
@@ -1395,9 +1395,11 @@ log_name = %(yarr)s'''
         with patch.object(utils.tpool, 'execute', lambda f: f()):
             self.assertTrue(
                 utils.tpool_reraise(MagicMock(return_value='test1')), 'test1')
-            self.assertRaises(Exception,
+            self.assertRaises(
+                Exception,
                 utils.tpool_reraise, MagicMock(side_effect=Exception('test2')))
-            self.assertRaises(BaseException,
+            self.assertRaises(
+                BaseException,
                 utils.tpool_reraise,
                 MagicMock(side_effect=BaseException('test3')))
 
@@ -1429,8 +1431,10 @@ log_name = %(yarr)s'''
 
             with utils.lock_file(nt.name, timeout=3, unlink=False) as f:
                 try:
-                    with utils.lock_file(nt.name, timeout=1, unlink=False) as f:
-                        self.assertTrue(False, "Expected LockTimeout exception")
+                    with utils.lock_file(
+                            nt.name, timeout=1, unlink=False) as f:
+                        self.assertTrue(
+                            False, "Expected LockTimeout exception")
                 except LockTimeout:
                     pass
 
@@ -1438,7 +1442,8 @@ log_name = %(yarr)s'''
                 self.assertEqual(f.read(), "test string\nanother string")
                 # we have a lock, now let's try to get a newer one
                 fd = os.open(nt.name, flags)
-                self.assertRaises(IOError, fcntl.flock, fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertRaises(
+                    IOError, fcntl.flock, fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             self.assertRaises(OSError, os.remove, nt.name)
 
@@ -1796,7 +1801,7 @@ class TestStatsdLogging(unittest.TestCase):
 
         payload = mock_socket.sent[0][0]
         self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                       payload)
+                        payload)
 
         effective_sample_rate = 0.587 * 0.91
         statsd_client.random = lambda: effective_sample_rate - 0.001
@@ -1805,7 +1810,7 @@ class TestStatsdLogging(unittest.TestCase):
 
         payload = mock_socket.sent[1][0]
         self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                       payload)
+                        payload)
 
     def test_timing_stats(self):
         class MockController(object):

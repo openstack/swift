@@ -18,7 +18,7 @@ from nose import SkipTest
 
 try:
     # this test requires the dnspython package to be installed
-    import dns.resolver
+    import dns.resolver  # noqa
 except ImportError:
     skip = True
 else:  # executed if the try has no errors
@@ -128,7 +128,7 @@ class TestCNAMELookup(unittest.TestCase):
 
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp,
-                         ['CNAME lookup failed to resolve to a valid domain'])
+                          ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_something_weird(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -140,7 +140,7 @@ class TestCNAMELookup(unittest.TestCase):
 
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp,
-                         ['CNAME lookup failed to resolve to a valid domain'])
+                          ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_with_memcache(self):
         def my_lookup(d):
@@ -178,12 +178,12 @@ class TestCNAMELookup(unittest.TestCase):
 
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp,
-                         ['CNAME lookup failed to resolve to a valid domain'])
+                          ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_cname_configured_with_empty_storage_domain(self):
         app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
-                                                {'storage_domain': '',
-                                                 'lookup_depth': 2})
+                                                 {'storage_domain': '',
+                                                  'lookup_depth': 2})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.a.example.com'})
 
