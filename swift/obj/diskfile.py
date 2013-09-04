@@ -586,8 +586,7 @@ class DiskFile(object):
             return
 
         if self.iter_etag and self.started_at_0 and self.read_to_eof and \
-                'ETag' in self._metadata and \
-                self.iter_etag.hexdigest() != self._metadata.get('ETag'):
+                self.iter_etag.hexdigest() != self._metadata['ETag']:
             self.quarantine()
 
     def close(self, verify_file=True):
