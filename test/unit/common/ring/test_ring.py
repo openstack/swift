@@ -53,8 +53,9 @@ class TestRingData(unittest.TestCase):
         self.assertEquals(rd._part_shift, s)
 
     def test_can_load_pickled_ring_data(self):
-        rd = ring.RingData([[0, 1, 0, 1], [0, 1, 0, 1]],
-                [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        rd = ring.RingData(
+            [[0, 1, 0, 1], [0, 1, 0, 1]],
+            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
         for p in xrange(pickle.HIGHEST_PROTOCOL):
             with closing(GzipFile(ring_fname, 'wb')) as f:
@@ -86,7 +87,7 @@ class TestRingData(unittest.TestCase):
         ring_fname1 = os.path.join(self.testdir, '1', 'the.ring.gz')
         ring_fname2 = os.path.join(self.testdir, '2', 'the.ring.gz')
         rd = ring.RingData(
-            [array.array('H', [0, 1, 0, 1]), array.array('H',[0, 1, 0, 1])],
+            [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
             [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         rd.save(ring_fname1)
         rd.save(ring_fname2)
@@ -127,9 +128,11 @@ class TestRing(unittest.TestCase):
                                'replication_port': 6066}]
         self.intended_part_shift = 30
         self.intended_reload_time = 15
-        ring.RingData(self.intended_replica2part2dev_id,
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
-        self.ring = ring.Ring(self.testdir,
+        self.ring = ring.Ring(
+            self.testdir,
             reload_time=self.intended_reload_time, ring_name='whatever')
 
     def tearDown(self):
@@ -161,11 +164,13 @@ class TestRing(unittest.TestCase):
     def test_reload(self):
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
-                    ring_name='whatever')
+                              ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 5)
-        self.intended_devs.append({'id': 3, 'region': 0, 'zone': 3, 'weight': 1.0})
-        ring.RingData(self.intended_replica2part2dev_id,
+        self.intended_devs.append(
+            {'id': 3, 'region': 0, 'zone': 3, 'weight': 1.0})
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_nodes('a')
@@ -174,11 +179,13 @@ class TestRing(unittest.TestCase):
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
-                    ring_name='whatever')
+                              ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 6)
-        self.intended_devs.append({'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
-        ring.RingData(self.intended_replica2part2dev_id,
+        self.intended_devs.append(
+            {'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_part_nodes(0)
@@ -187,12 +194,14 @@ class TestRing(unittest.TestCase):
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
-                    ring_name='whatever')
+                              ring_name='whatever')
         orig_mtime = self.ring._mtime
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(len(self.ring.devs), 7)
-        self.intended_devs.append({'id': 6, 'region': 0, 'zone': 5, 'weight': 1.0})
-        ring.RingData(self.intended_replica2part2dev_id,
+        self.intended_devs.append(
+            {'id': 6, 'region': 0, 'zone': 5, 'weight': 1.0})
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.ring.get_more_nodes(part).next()
@@ -201,11 +210,13 @@ class TestRing(unittest.TestCase):
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
-                    ring_name='whatever')
+                              ring_name='whatever')
         orig_mtime = self.ring._mtime
         self.assertEquals(len(self.ring.devs), 8)
-        self.intended_devs.append({'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
-        ring.RingData(self.intended_replica2part2dev_id,
+        self.intended_devs.append(
+            {'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0})
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.assertEquals(len(self.ring.devs), 9)
@@ -226,26 +237,28 @@ class TestRing(unittest.TestCase):
                                   'weight': 1.0, 'ip': '10.1.2.2',
                                   'port': 6000}]
         intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
-                           'replication_ip': '10.1.1.1',
-                           'replication_port': 6000},
-                          {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
-                           'replication_ip': '10.1.1.1',
-                           'replication_port': 6000},
-                          None,
-                          {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.1', 'port': 6000,
-                           'replication_ip': '10.1.2.1',
-                           'replication_port': 6000},
-                          {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.2', 'port': 6000,
-                           'replication_ip': '10.1.2.2',
-                           'replication_port': 6000}]
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'replication_ip': '10.1.1.1',
+                          'replication_port': 6000},
+                         {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'replication_ip': '10.1.1.1',
+                          'replication_port': 6000},
+                         None,
+                         {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.1', 'port': 6000,
+                          'replication_ip': '10.1.2.1',
+                          'replication_port': 6000},
+                         {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.2', 'port': 6000,
+                          'replication_ip': '10.1.2.2',
+                          'replication_port': 6000}]
         testgz = os.path.join(self.testdir, 'without_replication.ring.gz')
-        ring.RingData(self.intended_replica2part2dev_id,
+        ring.RingData(
+            self.intended_replica2part2dev_id,
             replication_less_devs, self.intended_part_shift).save(testgz)
-        self.ring = ring.Ring(self.testdir,
+        self.ring = ring.Ring(
+            self.testdir,
             reload_time=self.intended_reload_time,
             ring_name='without_replication')
         self.assertEquals(self.ring.devs, intended_devs)
@@ -380,7 +393,7 @@ class TestRing(unittest.TestCase):
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
         part, devs = r.get_nodes('a', 'c', 'o')
-        primary_zones = set(d['zone'] for d in devs)
+        primary_zones = set([d['zone'] for d in devs])
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
@@ -390,7 +403,7 @@ class TestRing(unittest.TestCase):
         # The first 6 replicas plus the 3 primary nodes should cover all 9
         # zones in this test
         seen_zones = set(primary_zones)
-        seen_zones.update(d['zone'] for d in devs[:6])
+        seen_zones.update([d['zone'] for d in devs[:6]])
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         # The first handoff nodes for each partition in the ring
@@ -412,7 +425,7 @@ class TestRing(unittest.TestCase):
         # We would change expectations here, but in this test no handoffs
         # changed at all.
         part, devs = r.get_nodes('a', 'c', 'o')
-        primary_zones = set(d['zone'] for d in devs)
+        primary_zones = set([d['zone'] for d in devs])
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
@@ -427,7 +440,7 @@ class TestRing(unittest.TestCase):
 
         # The handoffs still cover all the non-primary zones first
         seen_zones = set(primary_zones)
-        seen_zones.update(d['zone'] for d in devs[:6])
+        seen_zones.update([d['zone'] for d in devs[:6]])
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
@@ -438,7 +451,6 @@ class TestRing(unittest.TestCase):
                 devs[part], exp_first_handoffs[part],
                 'handoff for partitition %d is now device id %d' % (
                     part, devs[part]))
-
 
         # Remove a device.
         rb.remove_dev(0)
@@ -464,7 +476,7 @@ class TestRing(unittest.TestCase):
         exp_first_handoffs[228] = 38
         # Test
         part, devs = r.get_nodes('a', 'c', 'o')
-        primary_zones = set(d['zone'] for d in devs)
+        primary_zones = set([d['zone'] for d in devs])
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
@@ -478,7 +490,7 @@ class TestRing(unittest.TestCase):
                     index, dev_ids[index:], exp_handoffs[index:]))
 
         seen_zones = set(primary_zones)
-        seen_zones.update(d['zone'] for d in devs[:6])
+        seen_zones.update([d['zone'] for d in devs[:6]])
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
@@ -544,7 +556,7 @@ class TestRing(unittest.TestCase):
         exp_first_handoffs[119] = 7
         # Test
         part, devs = r.get_nodes('a', 'c', 'o')
-        primary_zones = set(d['zone'] for d in devs)
+        primary_zones = set([d['zone'] for d in devs])
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
@@ -559,7 +571,7 @@ class TestRing(unittest.TestCase):
                     index, dev_ids[index:], exp_handoffs[index:]))
 
         seen_zones = set(primary_zones)
-        seen_zones.update(d['zone'] for d in devs[:6])
+        seen_zones.update([d['zone'] for d in devs[:6]])
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
@@ -575,17 +587,17 @@ class TestRing(unittest.TestCase):
         exp_part2 = 136
         exp_devs2 = [52, 76, 97]
         exp_zones2 = set([9, 5, 7])
-        exp_handoffs2 = [2, 67, 37, 92, 33, 23, 107, 96, 63, 53, 44, 103, 108,
-                         85, 73, 51, 42, 98, 35, 36, 10, 89, 80, 84, 43, 4, 17,
-                         49, 104, 32, 12, 41, 58, 31, 65, 20, 25, 61, 1, 40, 9,
-                         94, 47, 69, 56, 74, 101, 95, 45, 5, 71, 86, 78, 30, 93,
-                         48, 28, 91, 15, 88, 39, 18, 57, 83, 72, 70, 27, 54, 16,
-                         24, 21, 14, 11, 8, 77, 62, 50, 6, 105, 26, 55, 29, 60,
-                         34, 13, 87, 59, 38, 99, 75, 106, 3, 82, 66, 79, 7, 46,
-                         64, 81, 22, 68, 19, 102, 90, 100]
+        exp_handoffs2 = [2, 67, 37, 92, 33, 23, 107, 96, 63, 53, 44, 103,
+                         108, 85, 73, 51, 42, 98, 35, 36, 10, 89, 80, 84, 43,
+                         4, 17, 49, 104, 32, 12, 41, 58, 31, 65, 20, 25, 61, 1,
+                         40, 9, 94, 47, 69, 56, 74, 101, 95, 45, 5, 71, 86, 78,
+                         30, 93, 48, 28, 91, 15, 88, 39, 18, 57, 83, 72, 70,
+                         27, 54, 16, 24, 21, 14, 11, 8, 77, 62, 50, 6, 105, 26,
+                         55, 29, 60, 34, 13, 87, 59, 38, 99, 75, 106, 3, 82,
+                         66, 79, 7, 46, 64, 81, 22, 68, 19, 102, 90, 100]
 
         part2, devs2 = r.get_nodes('a', 'c', 'o2')
-        primary_zones2 = set(d['zone'] for d in devs2)
+        primary_zones2 = set([d['zone'] for d in devs2])
         self.assertEquals(part2, exp_part2)
         self.assertEquals([d['id'] for d in devs2], exp_devs2)
         self.assertEquals(primary_zones2, exp_zones2)
@@ -600,7 +612,7 @@ class TestRing(unittest.TestCase):
                     index, dev_ids2[index:], exp_handoffs2[index:]))
 
         seen_zones = set(primary_zones2)
-        seen_zones.update(d['zone'] for d in devs2[:6])
+        seen_zones.update([d['zone'] for d in devs2[:6]])
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         # Test distribution across regions
@@ -620,19 +632,19 @@ class TestRing(unittest.TestCase):
         # There's 5 regions now, so the primary nodes + first 2 handoffs
         # should span all 5 regions
         part, devs = r.get_nodes('a1', 'c1', 'o1')
-        primary_regions = set(d['region'] for d in devs)
-        primary_zones = set((d['region'], d['zone']) for d in devs)
+        primary_regions = set([d['region'] for d in devs])
+        primary_zones = set([(d['region'], d['zone']) for d in devs])
         more_devs = list(r.get_more_nodes(part))
 
         seen_regions = set(primary_regions)
-        seen_regions.update(d['region'] for d in more_devs[:2])
+        seen_regions.update([d['region'] for d in more_devs[:2]])
         self.assertEquals(seen_regions, set(range(0, 5)))
 
         # There are 13 zones now, so the first 13 nodes should all have
         # distinct zones (that's r0z0, r0z1, ..., r0z8, r1z1, r2z1, r3z1, and
         # r4z1).
         seen_zones = set(primary_zones)
-        seen_zones.update((d['region'], d['zone']) for d in more_devs[:10])
+        seen_zones.update([(d['region'], d['zone']) for d in more_devs[:10]])
         self.assertEquals(13, len(seen_zones))
 
         # Here's a brittle canary-in-the-coalmine test to make sure the region
