@@ -1140,16 +1140,16 @@ def whataremyips():
     return addresses
 
 
-def storage_directory(datadir, partition, hash):
+def storage_directory(datadir, partition, name_hash):
     """
     Get the storage directory
 
     :param datadir: Base data directory
     :param partition: Partition
-    :param hash: Account, container or object hash
+    :param name_hash: Account, container or object name hash
     :returns: Storage directory
     """
-    return os.path.join(datadir, str(partition), hash[-3:], hash)
+    return os.path.join(datadir, str(partition), name_hash[-3:], name_hash)
 
 
 def hash_path(account, container=None, object=None, raw_digest=False):
