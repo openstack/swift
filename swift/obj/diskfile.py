@@ -307,6 +307,24 @@ class DiskWriter(object):
             drop_buffer_cache(self.fd, self.last_sync, diff)
             self.last_sync = self.upload_size
 
+    def _finalize_put(self, metadata, target_path):
+        # Write the metadata before calling fsync() so that both data and
+        # metadata are flushed to disk.
+        write_metadata(self.fd, metadata)
+        # We call fsync() before calling drop_cache() to lower the amount
+        # of redundant work the drop cache code will perform on the pages
+        # (now that after fsync the pages will be all clean).
+        fsync(self.fd)
+        # From the Department of the Redundancy Department, make sure
+        # we call drop_cache() after fsync() to avoid redundant work
+        # (pages all clean).
+        drop_buffer_cache(self.fd, 0, self.upload_size)
+        invalidate_hash(dirname(self.disk_file.datadir))
+        # After the rename completes, this object will be available for
+        # other requests to reference.
+        renamer(self.tmppath, target_path)
+        hash_cleanup_listdir(self.disk_file.datadir)
+
     def put(self, metadata, extension='.data'):
         """
         Finalize writing the file on disk, and renames it from the temp file
@@ -320,27 +338,10 @@ class DiskWriter(object):
             raise ValueError("tmppath is unusable.")
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         metadata['name'] = self.disk_file.name
+        target_path = join(self.disk_file.datadir, timestamp + extension)
 
-        def finalize_put():
-            # Write the metadata before calling fsync() so that both data and
-            # metadata are flushed to disk.
-            write_metadata(self.fd, metadata)
-            # We call fsync() before calling drop_cache() to lower the amount
-            # of redundant work the drop cache code will perform on the pages
-            # (now that after fsync the pages will be all clean).
-            fsync(self.fd)
-            # From the Department of the Redundancy Department, make sure
-            # we call drop_cache() after fsync() to avoid redundant work
-            # (pages all clean).
-            drop_buffer_cache(self.fd, 0, self.upload_size)
-            invalidate_hash(dirname(self.disk_file.datadir))
-            # After the rename completes, this object will be available for
-            # other requests to reference.
-            renamer(self.tmppath, join(self.disk_file.datadir,
-                                       timestamp + extension))
-            hash_cleanup_listdir(self.disk_file.datadir)
-
-        self.threadpool.force_run_in_thread(finalize_put)
+        self.threadpool.force_run_in_thread(
+            self._finalize_put, metadata, target_path)
         self.disk_file.metadata = metadata
 
 
