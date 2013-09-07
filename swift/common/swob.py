@@ -248,9 +248,9 @@ class HeaderKeyDict(dict):
     A dict that title-cases all keys on the way in, so as to be
     case-insensitive.
     """
-    def __init__(self, *args, **kwargs):
-        for arg in args:
-            self.update(arg)
+    def __init__(self, base_headers=None, **kwargs):
+        if base_headers:
+            self.update(base_headers)
         self.update(kwargs)
 
     def update(self, other):
