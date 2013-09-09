@@ -332,7 +332,7 @@ class RingBuilder(object):
         :returns: (number_of_partitions_altered, resulting_balance)
         """
 
-        if seed:
+        if seed is not None:
             random.seed(seed)
 
         self._ring = None
@@ -821,26 +821,35 @@ class RingBuilder(object):
                     #
                     # This used to be a cute, recursive function, but it's been
                     # unrolled for performance.
-                    candidate_tiers = tier2children[tier]
+
+                    # We sort the tiers here so that, when we look for a tier
+                    # with the lowest number of replicas, the first one we
+                    # find is the one with the hungriest drive (i.e. drive
+                    # with the largest sort_key value). This lets us
+                    # short-circuit the search while still ensuring we get the
+                    # right tier.
+                    candidate_tiers = sorted(
+                        tier2children[tier],
+                        key=lambda tier: tier2devs[tier][-1]['sort_key'],
+                        reverse=True)
                     candidates_with_replicas = \
                         unique_tiers_by_tier_len[len(tier) + 1]
                     if len(candidate_tiers) > len(candidates_with_replicas):
-                        # There exists at least one tier with 0 other replicas,
-                        # so work backward among the candidates, accepting the
-                        # first which isn't in other_replicas.
-                        #
-                        # This optimization is to avoid calling the min()
-                        # below, which is expensive if you've got thousands of
-                        # drives.
-                        for t in reversed(candidate_tiers):
-                            if other_replicas[t] == 0:
-                                tier = t
-                                break
+                        # There exists at least one tier with 0 other
+                        # replicas, so avoid calling the min() below, which is
+                        # expensive if you've got thousands of drives.
+                        min_replica_count = 0
                     else:
-                        min_count = min(other_replicas[t]
-                                        for t in candidate_tiers)
-                        tier = (t for t in reversed(candidate_tiers)
-                                if other_replicas[t] == min_count).next()
+                        min_replica_count = min(other_replicas[t]
+                                                for t in candidate_tiers)
+                    # Find the first tier with the minimal replica count.
+                    # Since they're sorted, this will also have the hungriest
+                    # drive among all the tiers with the minimal replica
+                    # count.
+                    for t in candidate_tiers:
+                        if other_replicas[t] == min_replica_count:
+                            tier = t
+                            break
                     depth += 1
                 dev = tier2devs[tier][-1]
                 dev['parts_wanted'] -= 1

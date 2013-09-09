@@ -382,7 +382,7 @@ def get_info(app, env, account, container=None, ret_not_found=False):
         if ret_not_found or is_success(info['status']):
             return info
         return None
-    # Not in cached, let's try the account servers
+    # Not in cache, let's try the account servers
     path = '/v1/%s' % account
     if container:
         # Stop and check if we have an account?
