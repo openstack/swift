@@ -380,7 +380,7 @@ class DiskFile(object):
         self.device_path = join(path, device)
         self.tmpdir = join(path, device, 'tmp')
         self.logger = logger
-        self.metadata = {}
+        self._metadata = {}
         self.data_file = None
         self.fp = None
         self.iter_etag = None
@@ -464,8 +464,8 @@ class DiskFile(object):
         pull the metadata from the tombstone file which has the timestamp.
         """
         with open(ts_file) as fp:
-            self.metadata = read_metadata(fp)
-        self.metadata['deleted'] = True
+            self._metadata = read_metadata(fp)
+        self._metadata['deleted'] = True
 
     def _verify_name(self):
         """
@@ -473,7 +473,7 @@ class DiskFile(object):
         named.
         """
         try:
-            mname = self.metadata['name']
+            mname = self._metadata['name']
         except KeyError:
             pass
         else:
@@ -495,13 +495,13 @@ class DiskFile(object):
         datafile_metadata = read_metadata(fp)
         if meta_file:
             with open(meta_file) as mfp:
-                self.metadata = read_metadata(mfp)
+                self._metadata = read_metadata(mfp)
             sys_metadata = dict(
                 [(key, val) for key, val in datafile_metadata.iteritems()
                  if key.lower() in DATAFILE_SYSTEM_META])
-            self.metadata.update(sys_metadata)
+            self._metadata.update(sys_metadata)
         else:
-            self.metadata = datafile_metadata
+            self._metadata = datafile_metadata
         self._verify_name()
         self.data_file = data_file
         return fp
@@ -586,8 +586,8 @@ class DiskFile(object):
             return
 
         if self.iter_etag and self.started_at_0 and self.read_to_eof and \
-                'ETag' in self.metadata and \
-                self.iter_etag.hexdigest() != self.metadata.get('ETag'):
+                'ETag' in self._metadata and \
+                self.iter_etag.hexdigest() != self._metadata.get('ETag'):
             self.quarantine()
 
     def close(self, verify_file=True):
@@ -611,6 +611,14 @@ class DiskFile(object):
                 self.fp.close()
                 self.fp = None
 
+    def get_metadata(self):
+        """
+        Provide the metadata for an object as a dictionary.
+
+        :returns: object's metadata dictionary
+        """
+        return self._metadata
+
     def is_deleted(self):
         """
         Check if the file is deleted.
@@ -618,7 +626,7 @@ class DiskFile(object):
         :returns: True if the file doesn't exist or has been flagged as
                   deleted.
         """
-        return not self.data_file or 'deleted' in self.metadata
+        return not self.data_file or 'deleted' in self._metadata
 
     def is_expired(self):
         """
@@ -626,8 +634,8 @@ class DiskFile(object):
 
         :returns: True if the file has an X-Delete-At in the past
         """
-        return ('X-Delete-At' in self.metadata and
-                int(self.metadata['X-Delete-At']) <= time.time())
+        return ('X-Delete-At' in self._metadata and
+                int(self._metadata['X-Delete-At']) <= time.time())
 
     @contextmanager
     def create(self, size=None):
@@ -713,8 +721,8 @@ class DiskFile(object):
             if self.data_file:
                 file_size = self.threadpool.run_in_thread(
                     getsize, self.data_file)
-                if 'Content-Length' in self.metadata:
-                    metadata_size = int(self.metadata['Content-Length'])
+                if 'Content-Length' in self._metadata:
+                    metadata_size = int(self._metadata['Content-Length'])
                     if file_size != metadata_size:
                         raise DiskFileError(
                             'Content-Length of %s does not match file size '

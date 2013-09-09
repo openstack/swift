@@ -305,7 +305,8 @@ class ObjectController(object):
         except (DiskFileError, DiskFileNotExist):
             disk_file.quarantine()
             return HTTPNotFound(request=request)
-        orig_timestamp = disk_file.metadata.get('X-Timestamp', '0')
+        orig_metadata = disk_file.get_metadata()
+        orig_timestamp = orig_metadata.get('X-Timestamp', '0')
         if orig_timestamp >= request.headers['x-timestamp']:
             return HTTPConflict(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
@@ -315,7 +316,7 @@ class ObjectController(object):
             if header_key in request.headers:
                 header_caps = header_key.title()
                 metadata[header_caps] = request.headers[header_key]
-        old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
+        old_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         if old_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
@@ -354,8 +355,9 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
-        old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
-        orig_timestamp = disk_file.metadata.get('X-Timestamp')
+        orig_metadata = disk_file.get_metadata()
+        old_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+        orig_timestamp = orig_metadata.get('X-Timestamp')
         if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
             return HTTPConflict(request=request)
         upload_expiration = time.time() + self.max_upload_time
@@ -414,10 +416,10 @@ class ObjectController(object):
             self.container_update(
                 'PUT', account, container, obj, request,
                 HeaderKeyDict({
-                    'x-size': disk_file.metadata['Content-Length'],
-                    'x-content-type': disk_file.metadata['Content-Type'],
-                    'x-timestamp': disk_file.metadata['X-Timestamp'],
-                    'x-etag': disk_file.metadata['ETag']}),
+                    'x-size': metadata['Content-Length'],
+                    'x-content-type': metadata['Content-Type'],
+                    'x-timestamp': metadata['X-Timestamp'],
+                    'x-etag': metadata['ETag']}),
                 device)
         resp = HTTPCreated(request=request, etag=etag)
         return resp
@@ -443,14 +445,15 @@ class ObjectController(object):
         except (DiskFileError, DiskFileNotExist):
             disk_file.quarantine()
             return HTTPNotFound(request=request)
+        metadata = disk_file.get_metadata()
         if request.headers.get('if-match') not in (None, '*') and \
-                disk_file.metadata['ETag'] not in request.if_match:
+                metadata['ETag'] not in request.if_match:
             disk_file.close()
             return HTTPPreconditionFailed(request=request)
         if request.headers.get('if-none-match') is not None:
-            if disk_file.metadata['ETag'] in request.if_none_match:
+            if metadata['ETag'] in request.if_none_match:
                 resp = HTTPNotModified(request=request)
-                resp.etag = disk_file.metadata['ETag']
+                resp.etag = metadata['ETag']
                 disk_file.close()
                 return resp
         try:
@@ -460,7 +463,7 @@ class ObjectController(object):
             return HTTPPreconditionFailed(request=request)
         if if_unmodified_since and \
                 datetime.fromtimestamp(
-                    float(disk_file.metadata['X-Timestamp']), UTC) > \
+                    float(metadata['X-Timestamp']), UTC) > \
                 if_unmodified_since:
             disk_file.close()
             return HTTPPreconditionFailed(request=request)
@@ -471,29 +474,29 @@ class ObjectController(object):
             return HTTPPreconditionFailed(request=request)
         if if_modified_since and \
                 datetime.fromtimestamp(
-                    float(disk_file.metadata['X-Timestamp']), UTC) < \
+                    float(metadata['X-Timestamp']), UTC) < \
                 if_modified_since:
             disk_file.close()
             return HTTPNotModified(request=request)
         response = Response(app_iter=disk_file,
                             request=request, conditional_response=True)
-        response.headers['Content-Type'] = disk_file.metadata.get(
+        response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
-        for key, value in disk_file.metadata.iteritems():
+        for key, value in metadata.iteritems():
             if key.lower().startswith('x-object-meta-') or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
-        response.etag = disk_file.metadata['ETag']
-        response.last_modified = float(disk_file.metadata['X-Timestamp'])
+        response.etag = metadata['ETag']
+        response.last_modified = float(metadata['X-Timestamp'])
         response.content_length = file_size
         if response.content_length < self.keep_cache_size and \
                 (self.keep_cache_private or
                  ('X-Auth-Token' not in request.headers and
                   'X-Storage-Token' not in request.headers)):
             disk_file.keep_cache = True
-        if 'Content-Encoding' in disk_file.metadata:
-            response.content_encoding = disk_file.metadata['Content-Encoding']
-        response.headers['X-Timestamp'] = disk_file.metadata['X-Timestamp']
+        if 'Content-Encoding' in metadata:
+            response.content_encoding = metadata['Content-Encoding']
+        response.headers['X-Timestamp'] = metadata['X-Timestamp']
         return request.get_response(response)
 
     @public
@@ -515,19 +518,20 @@ class ObjectController(object):
             disk_file.quarantine()
             return HTTPNotFound(request=request)
         response = Response(request=request, conditional_response=True)
-        response.headers['Content-Type'] = disk_file.metadata.get(
+        metadata = disk_file.get_metadata()
+        response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
-        for key, value in disk_file.metadata.iteritems():
+        for key, value in metadata.iteritems():
             if key.lower().startswith('x-object-meta-') or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
-        response.etag = disk_file.metadata['ETag']
-        response.last_modified = float(disk_file.metadata['X-Timestamp'])
+        response.etag = metadata['ETag']
+        response.last_modified = float(metadata['X-Timestamp'])
         # Needed for container sync feature
-        response.headers['X-Timestamp'] = disk_file.metadata['X-Timestamp']
+        response.headers['X-Timestamp'] = metadata['X-Timestamp']
         response.content_length = file_size
-        if 'Content-Encoding' in disk_file.metadata:
-            response.content_encoding = disk_file.metadata['Content-Encoding']
+        if 'Content-Encoding' in metadata:
+            response.content_encoding = metadata['Content-Encoding']
         return response
 
     @public
@@ -545,17 +549,18 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
+        orig_metadata = disk_file.get_metadata()
         if 'x-if-delete-at' in request.headers and \
                 int(request.headers['x-if-delete-at']) != \
-                int(disk_file.metadata.get('X-Delete-At') or 0):
+                int(orig_metadata.get('X-Delete-At') or 0):
             return HTTPPreconditionFailed(
                 request=request,
                 body='X-If-Delete-At and X-Delete-At do not match')
-        old_delete_at = int(disk_file.metadata.get('X-Delete-At') or 0)
+        old_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         if old_delete_at:
             self.delete_at_update('DELETE', old_delete_at, account,
                                   container, obj, request, device)
-        orig_timestamp = disk_file.metadata.get('X-Timestamp', 0)
+        orig_timestamp = orig_metadata.get('X-Timestamp', 0)
         req_timestamp = request.headers['X-Timestamp']
         if disk_file.is_deleted() or disk_file.is_expired():
             response_class = HTTPNotFound
