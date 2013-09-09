@@ -666,7 +666,7 @@ class TestRequest(unittest.TestCase):
         path = pi
         req = swift.common.swob.Request.blank(path)
         sche = 'http'
-        exp_url = '%(sche)s://localhost%(pi)s' % locals()
+        exp_url = '%s://localhost%s' % (sche, pi)
         self.assertEqual(req.url, exp_url)
 
         qs = 'hello=equal&acl'
@@ -676,14 +676,14 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': qs,
                                          'SERVER_NAME': s,
                                          'SERVER_PORT': p})
-        exp_url = '%(sche)s://%(s)s:%(p)s%(pi)s?%(qs)s' % locals()
+        exp_url = '%s://%s:%s%s?%s' % (sche, s, p, pi, qs)
         self.assertEqual(req.url, exp_url)
 
         host = 'unit.test.example.com'
         req = swift.common.swob.Request({'PATH_INFO': pi,
                                          'QUERY_STRING': qs,
                                          'HTTP_HOST': host + ':80'})
-        exp_url = '%(sche)s://%(host)s%(pi)s?%(qs)s' % locals()
+        exp_url = '%s://%s%s?%s' % (sche, host, pi, qs)
         self.assertEqual(req.url, exp_url)
 
         host = 'unit.test.example.com'
@@ -692,7 +692,7 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': qs,
                                          'HTTP_HOST': host + ':443',
                                          'wsgi.url_scheme': sche})
-        exp_url = '%(sche)s://%(host)s%(pi)s?%(qs)s' % locals()
+        exp_url = '%s://%s%s?%s' % (sche, host, pi, qs)
         self.assertEqual(req.url, exp_url)
 
         host = 'unit.test.example.com:81'
@@ -700,7 +700,7 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': qs,
                                          'HTTP_HOST': host,
                                          'wsgi.url_scheme': sche})
-        exp_url = '%(sche)s://%(host)s%(pi)s?%(qs)s' % locals()
+        exp_url = '%s://%s%s?%s' % (sche, host, pi, qs)
         self.assertEqual(req.url, exp_url)
 
     def test_as_referer(self):
@@ -713,7 +713,7 @@ class TestRequest(unittest.TestCase):
                                          'QUERY_STRING': qs,
                                          'HTTP_HOST': host,
                                          'wsgi.url_scheme': sche})
-        exp_url = '%(sche)s://%(host)s%(pi)s?%(qs)s' % locals()
+        exp_url = '%s://%s%s?%s' % (sche, host, pi, qs)
         self.assertEqual(req.as_referer(), 'POST ' + exp_url)
 
     def test_message_length_just_content_length(self):
