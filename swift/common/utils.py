@@ -1543,25 +1543,32 @@ def audit_location_generator(devices, datadir, suffix='',
                     _('Skipping %s as it is not mounted'), device)
             continue
         datadir_path = os.path.join(devices, device, datadir)
-        if not os.path.exists(datadir_path):
-            continue
         partitions = listdir(datadir_path)
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
-            if not os.path.isdir(part_path):
+            try:
+                suffixes = listdir(part_path)
+            except OSError as e:
+                if e.errno != errno.ENOTDIR:
+                    raise
                 continue
-            suffixes = listdir(part_path)
             for asuffix in suffixes:
                 suff_path = os.path.join(part_path, asuffix)
-                if not os.path.isdir(suff_path):
+                try:
+                    hashes = listdir(suff_path)
+                except OSError as e:
+                    if e.errno != errno.ENOTDIR:
+                        raise
                     continue
-                hashes = listdir(suff_path)
                 for hsh in hashes:
                     hash_path = os.path.join(suff_path, hsh)
-                    if not os.path.isdir(hash_path):
+                    try:
+                        files = sorted(listdir(hash_path), reverse=True)
+                    except OSError as e:
+                        if e.errno != errno.ENOTDIR:
+                            raise
                         continue
-                    for fname in sorted(listdir(hash_path),
-                                        reverse=True):
+                    for fname in files:
                         if suffix and not fname.endswith(suffix):
                             continue
                         path = os.path.join(hash_path, fname)
