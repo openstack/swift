@@ -842,9 +842,9 @@ class ObjectController(Controller):
             try:
                 x_delete_after = int(req.headers['x-delete-after'])
             except ValueError:
-                    return HTTPBadRequest(request=req,
-                                          content_type='text/plain',
-                                          body='Non-integer X-Delete-After')
+                return HTTPBadRequest(request=req,
+                                      content_type='text/plain',
+                                      body='Non-integer X-Delete-After')
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
