@@ -1328,14 +1328,13 @@ def unlink_older_than(path, mtime):
     :param path: path to remove file from
     :mtime: timestamp of oldest file to keep
     """
-    if os.path.exists(path):
-        for fname in listdir(path):
-            fpath = os.path.join(path, fname)
-            try:
-                if os.path.getmtime(fpath) < mtime:
-                    os.unlink(fpath)
-            except OSError:
-                pass
+    for fname in listdir(path):
+        fpath = os.path.join(path, fname)
+        try:
+            if os.path.getmtime(fpath) < mtime:
+                os.unlink(fpath)
+        except OSError:
+            pass
 
 
 def item_from_env(env, item_name):
