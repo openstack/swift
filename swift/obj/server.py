@@ -194,9 +194,9 @@ class ObjectController(object):
             # but if there is, we want to know about it.
             self.logger.error(_('ERROR Container update failed: different  '
                                 'numbers of hosts and devices in request: '
-                                '"%s" vs "%s"' %
-                                (headers_in.get('X-Container-Host', ''),
-                                 headers_in.get('X-Container-Device', ''))))
+                                '"%s" vs "%s"') %
+                               (headers_in.get('X-Container-Host', ''),
+                                headers_in.get('X-Container-Device', '')))
             return
 
         if contpartition:
