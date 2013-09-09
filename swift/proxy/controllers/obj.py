@@ -240,7 +240,7 @@ class SegmentedIterable(object):
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
         except StopIteration:
             raise
-        except SegmentError, err:
+        except SegmentError as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.error(_(
                     'ERROR: While processing manifest '
@@ -251,7 +251,7 @@ class SegmentedIterable(object):
                 err.swift_logged = True
                 self.response.status_int = HTTP_CONFLICT
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -298,7 +298,7 @@ class SegmentedIterable(object):
                 # created an invalid condition.
                 yield ' '
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -360,7 +360,7 @@ class SegmentedIterable(object):
                 self.segment_iter = None
         except StopIteration:
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -568,7 +568,7 @@ class ObjectController(Controller):
                                           self._remaining_items(pages_iter))
             except ListingIterNotFound:
                 return HTTPNotFound(request=req)
-            except ListingIterNotAuthorized, err:
+            except ListingIterNotAuthorized as err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
@@ -1068,7 +1068,7 @@ class ObjectController(Controller):
                     if conn.queue.unfinished_tasks:
                         conn.queue.join()
             conns = [conn for conn in conns if not conn.failed]
-        except ChunkReadTimeout, err:
+        except ChunkReadTimeout as err:
             self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
@@ -1156,7 +1156,7 @@ class ObjectController(Controller):
             except ListingIterNotFound:
                 # no worries, last_item is None
                 pass
-            except ListingIterNotAuthorized, err:
+            except ListingIterNotAuthorized as err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)

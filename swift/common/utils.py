@@ -447,7 +447,7 @@ def mkdirs(path):
     if not os.path.isdir(path):
         try:
             os.makedirs(path)
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.EEXIST or not os.path.isdir(path):
                 raise
 
@@ -924,7 +924,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_address = conf.get('log_address', '/dev/log')
         try:
             handler = SysLogHandler(address=log_address, facility=facility)
-        except socket.error, e:
+        except socket.error as e:
             # Either /dev/log isn't a UNIX socket or it does not exist at all
             if e.errno not in [errno.ENOTSOCK, errno.ENOENT]:
                 raise e
@@ -1200,7 +1200,7 @@ def lock_path(directory, timeout=10):
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
-                except IOError, err:
+                except IOError as err:
                     if err.errno != errno.EAGAIN:
                         raise
                 sleep(0.01)
@@ -1235,7 +1235,7 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
-                except IOError, err:
+                except IOError as err:
                     if err.errno != errno.EAGAIN:
                         raise
                 sleep(0.01)
@@ -1498,7 +1498,7 @@ def write_file(path, contents):
     if not os.path.exists(dirname):
         try:
             os.makedirs(dirname)
-        except OSError, err:
+        except OSError as err:
             if err.errno == errno.EACCES:
                 sys.exit('Unable to create %s.  Running as '
                          'non-root?' % dirname)
@@ -1820,7 +1820,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
             finally:
                 try:
                     os.unlink(tf.name)
-                except OSError, err:
+                except OSError as err:
                     if err.errno != errno.ENOENT:
                         raise
     except (Exception, Timeout):
@@ -1830,7 +1830,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
 def listdir(path):
     try:
         return os.listdir(path)
-    except OSError, err:
+    except OSError as err:
         if err.errno != errno.ENOENT:
             raise
     return []
@@ -2019,7 +2019,7 @@ def tpool_reraise(func, *args, **kwargs):
     def inner():
         try:
             return func(*args, **kwargs)
-        except BaseException, err:
+        except BaseException as err:
             return err
     resp = tpool.execute(inner)
     if isinstance(resp, BaseException):
@@ -2092,7 +2092,7 @@ class ThreadPool(object):
             try:
                 result = func(*args, **kwargs)
                 result_queue.put((ev, True, result))
-            except BaseException, err:
+            except BaseException as err:
                 result_queue.put((ev, False, err))
             finally:
                 work_queue.task_done()

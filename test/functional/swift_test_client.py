@@ -721,7 +721,7 @@ class File(Base):
                     callback(transferred, self.size)
 
             self.conn.put_end()
-        except socket.timeout, err:
+        except socket.timeout as err:
             raise err
 
         if (self.conn.response.status < 200) or \

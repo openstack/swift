@@ -645,11 +645,11 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(_test_split_path('/a/c/', 2, 3), ['a', 'c', ''])
         try:
             _test_split_path('o\nn e', 2)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
         try:
             _test_split_path('o\nn e', 2, 3, True)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
     def test_unicode_path(self):

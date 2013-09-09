@@ -331,7 +331,7 @@ class AccountReaper(Daemon):
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
                 self.logger.increment('return_codes.2')
-            except ClientException, err:
+            except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
@@ -374,7 +374,7 @@ class AccountReaper(Daemon):
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
                 self.logger.increment('return_codes.2')
-            except ClientException, err:
+            except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
@@ -433,7 +433,7 @@ class AccountReaper(Daemon):
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
                 self.logger.increment('return_codes.2')
-            except ClientException, err:
+            except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)

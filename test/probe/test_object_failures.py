@@ -80,7 +80,7 @@ class TestObjectFailures(TestCase):
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
             raise Exception("Did not quarantine object")
-        except client.ClientException, err:
+        except client.ClientException as err:
             self.assertEquals(err.http_status, 404)
 
     def run_quarantine_range_etag(self):
@@ -104,7 +104,7 @@ class TestObjectFailures(TestCase):
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
             raise Exception("Did not quarantine object")
-        except client.ClientException, err:
+        except client.ClientException as err:
             self.assertEquals(err.http_status, 404)
 
     def run_quarantine_zero_byte_get(self):
@@ -122,7 +122,7 @@ class TestObjectFailures(TestCase):
                                             container, obj, conn_timeout=1,
                                             response_timeout=1)
             raise Exception("Did not quarantine object")
-        except client.ClientException, err:
+        except client.ClientException as err:
             self.assertEquals(err.http_status, 404)
 
     def run_quarantine_zero_byte_head(self):
@@ -140,7 +140,7 @@ class TestObjectFailures(TestCase):
                                              container, obj, conn_timeout=1,
                                              response_timeout=1)
             raise Exception("Did not quarantine object")
-        except client.ClientException, err:
+        except client.ClientException as err:
             self.assertEquals(err.http_status, 404)
 
     def run_quarantine_zero_byte_post(self):
@@ -161,7 +161,7 @@ class TestObjectFailures(TestCase):
                 conn_timeout=1,
                 response_timeout=1)
             raise Exception("Did not quarantine object")
-        except client.ClientException, err:
+        except client.ClientException as err:
             self.assertEquals(err.http_status, 404)
 
     def test_runner(self):

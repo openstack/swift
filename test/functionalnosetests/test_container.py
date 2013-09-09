@@ -426,7 +426,7 @@ class TestContainer(unittest.TestCase):
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
-        except Exception, err:
+        except Exception as err:
             self.assert_(str(err).startswith('No result after '), err)
 
         def post(url, token, parsed, conn):
@@ -453,7 +453,7 @@ class TestContainer(unittest.TestCase):
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
-        except Exception, err:
+        except Exception as err:
             self.assert_(str(err).startswith('No result after '), err)
 
     def test_cross_account_container(self):

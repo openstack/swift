@@ -129,7 +129,7 @@ class TestContainerUpdater(unittest.TestCase):
                     self.assert_('x-delete-timestamp' in headers)
                     self.assert_('x-object-count' in headers)
                     self.assert_('x-bytes-used' in headers)
-            except BaseException, err:
+            except BaseException as err:
                 import traceback
                 traceback.print_exc()
                 return err
@@ -185,7 +185,7 @@ class TestContainerUpdater(unittest.TestCase):
                     out.write('HTTP/1.1 201 OK\r\nContent-Length: 0\r\n\r\n')
                     out.flush()
                     inc.read()
-            except BaseException, err:
+            except BaseException as err:
                 import traceback
                 traceback.print_exc()
                 return err

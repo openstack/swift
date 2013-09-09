@@ -343,7 +343,7 @@ class Bulk(object):
                 resp_dict['Response Status'] = HTTPBadRequest().status
                 resp_dict['Response Body'] = 'Invalid bulk delete.'
 
-        except HTTPException, err:
+        except HTTPException as err:
             resp_dict['Response Status'] = err.status
             resp_dict['Response Body'] = err.body
         except Exception:
@@ -436,7 +436,7 @@ class Bulk(object):
                                     raise HTTPBadRequest(
                                         'More than %d containers to create '
                                         'from tar.' % self.max_containers)
-                        except CreateContainerError, err:
+                        except CreateContainerError as err:
                             # the object PUT to this container still may
                             # succeed if acls are set
                             container_failure = [
@@ -483,10 +483,10 @@ class Bulk(object):
                 resp_dict['Response Status'] = HTTPBadRequest().status
                 resp_dict['Response Body'] = 'Invalid Tar File: No Valid Files'
 
-        except HTTPException, err:
+        except HTTPException as err:
             resp_dict['Response Status'] = err.status
             resp_dict['Response Body'] = err.body
-        except tarfile.TarError, tar_error:
+        except tarfile.TarError as tar_error:
             resp_dict['Response Status'] = HTTPBadRequest().status
             resp_dict['Response Body'] = 'Invalid Tar File: %s' % tar_error
         except Exception:

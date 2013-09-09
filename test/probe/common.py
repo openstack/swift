@@ -70,7 +70,7 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                     raise Exception(
                         'Unexpected status %s' % resp.status)
                 break
-            except Exception, err:
+            except Exception as err:
                 if time() > try_until:
                     print err
                     print 'Giving up on %s:%s after %s seconds.' % (
@@ -86,7 +86,7 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 account = url.split('/')[-1]
                 head_account(url, token)
                 return url, token, account
-            except Exception, err:
+            except Exception as err:
                 if time() > try_until:
                     print err
                     print 'Giving up on proxy:8080 after 30 seconds.'
@@ -98,7 +98,7 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
 def kill_server(port, port2server, pids):
     try:
         kill(pids[port2server[port]], SIGTERM)
-    except Exception, err:
+    except Exception as err:
         print err
     try_until = time() + 30
     while True:
@@ -106,7 +106,7 @@ def kill_server(port, port2server, pids):
             conn = HTTPConnection('127.0.0.1', port)
             conn.request('GET', '/')
             conn.getresponse()
-        except Exception, err:
+        except Exception as err:
             break
         if time() > try_until:
             raise Exception(

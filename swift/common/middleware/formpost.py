@@ -320,7 +320,7 @@ class FormPost(object):
                         env, attrs['boundary'])
                     start_response(status, headers)
                     return body
-            except (FormInvalid, EOFError), err:
+            except (FormInvalid, EOFError) as err:
                 body = 'FormPost: %s' % err
                 start_response(
                     '400 Bad Request',

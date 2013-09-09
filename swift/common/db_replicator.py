@@ -60,7 +60,7 @@ def quarantine_db(object_file, server_type):
                      server_type + 's', os.path.basename(object_dir)))
     try:
         renamer(object_dir, quarantine_dir)
-    except OSError, e:
+    except OSError as e:
         if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
             raise
         quarantine_dir = "%s-%s" % (quarantine_dir, uuid.uuid4().hex)
@@ -430,7 +430,7 @@ class Replicator(Daemon):
                 self.logger.error(
                     'Found %s for %s when it should be on partition %s; will '
                     'replicate out and remove.' % (object_file, name, bpart))
-        except (Exception, Timeout), e:
+        except (Exception, Timeout) as e:
             if 'no such table' in str(e):
                 self.logger.error(_('Quarantining DB %s'), object_file)
                 quarantine_db(broker.db_file, broker.db_type)
@@ -495,7 +495,7 @@ class Replicator(Daemon):
             shutil.rmtree(hash_dir, True)
         try:
             os.rmdir(suf_dir)
-        except OSError, err:
+        except OSError as err:
             if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
                 self.logger.exception(
                     _('ERROR while trying to clean up %s') % suf_dir)
@@ -604,7 +604,7 @@ class ReplicatorRpc(object):
         timemark = time.time()
         try:
             info = broker.get_replication_info()
-        except (Exception, Timeout), e:
+        except (Exception, Timeout) as e:
             if 'no such table' in str(e):
                 self.logger.error(_("Quarantining DB %s") % broker.db_file)
                 quarantine_db(broker.db_file, broker.db_type)

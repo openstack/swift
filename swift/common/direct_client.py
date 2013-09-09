@@ -469,12 +469,12 @@ def retry(func, *args, **kwargs):
         attempts += 1
         try:
             return attempts, func(*args, **kwargs)
-        except (socket.error, HTTPException, Timeout), err:
+        except (socket.error, HTTPException, Timeout) as err:
             if error_log:
                 error_log(err)
             if attempts > retries:
                 raise
-        except ClientException, err:
+        except ClientException as err:
             if error_log:
                 error_log(err)
             if attempts > retries or not is_server_error(err.http_status) or \

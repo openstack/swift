@@ -96,11 +96,11 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
                     container, error_log=error_log, retries=retries)
                 retries_done[0] += attempts - 1
                 found_count += 1
-            except ClientException, err:
+            except ClientException as err:
                 if err.http_status not in (404, 507):
                     error_log('Giving up on /%s/%s/%s: %s' % (part, account,
                               container, err))
-            except (Exception, Timeout), err:
+            except (Exception, Timeout) as err:
                 error_log('Giving up on /%s/%s/%s: %s' % (part, account,
                           container, err))
         if output_missing_partitions and \
@@ -170,7 +170,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         try:
             objects = [o['name'] for o in conn.get_container(
                 container, prefix='dispersion_', full_listing=True)[1]]
-        except ClientException, err:
+        except ClientException as err:
             if err.http_status != 404:
                 raise
             print >>stderr, 'No objects to query. Has ' \
@@ -201,11 +201,11 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                     container, obj, error_log=error_log, retries=retries)
                 retries_done[0] += attempts - 1
                 found_count += 1
-            except ClientException, err:
+            except ClientException as err:
                 if err.http_status not in (404, 507):
                     error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
                               container, obj, err))
-            except (Exception, Timeout), err:
+            except (Exception, Timeout) as err:
                 error_log('Giving up on /%s/%s/%s/%s: %s' % (part, account,
                           container, obj, err))
         if output_missing_partitions and \

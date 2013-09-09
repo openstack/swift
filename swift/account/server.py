@@ -234,7 +234,7 @@ class AccountController(object):
             return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = json.load(req.environ['wsgi.input'])
-        except ValueError, err:
+        except ValueError as err:
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req

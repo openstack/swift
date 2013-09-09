@@ -168,7 +168,7 @@ class TestObject(unittest.TestCase):
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
-        except Exception, err:
+        except Exception as err:
             self.assert_(str(err).startswith('No result after '))
 
         def post(url, token, parsed, conn):
@@ -193,7 +193,7 @@ class TestObject(unittest.TestCase):
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
-        except Exception, err:
+        except Exception as err:
             self.assert_(str(err).startswith('No result after '))
 
     def test_private_object(self):

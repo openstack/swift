@@ -175,7 +175,7 @@ class TestObjectUpdater(unittest.TestCase):
                             line.split(':')[1].strip()
                         line = inc.readline()
                     self.assert_('x-container-timestamp' in headers)
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 
@@ -192,7 +192,7 @@ class TestObjectUpdater(unittest.TestCase):
                     err = event.wait()
                     if err:
                         raise err
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 
