@@ -66,6 +66,7 @@ Developer Documentation
     development_guidelines
     development_saio
     development_auth
+    backends
 
 Administrator Documentation
 ===========================

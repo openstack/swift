@@ -25,7 +25,8 @@ from xml.etree.cElementTree import Element, SubElement, tostring
 from eventlet import Timeout
 
 import swift.common.db
-from swift.common.db import ContainerBroker
+from swift.container.backend import ContainerBroker
+from swift.common.db import DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
@@ -194,7 +195,7 @@ class ContainerController(object):
             try:
                 broker.initialize(normalize_timestamp(
                     req.headers.get('x-timestamp') or time.time()))
-            except swift.common.db.DatabaseAlreadyExists:
+            except DatabaseAlreadyExists:
                 pass
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
@@ -241,7 +242,7 @@ class ContainerController(object):
                     not os.path.exists(broker.db_file):
                 try:
                     broker.initialize(timestamp)
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
@@ -254,7 +255,7 @@ class ContainerController(object):
                 try:
                     broker.initialize(timestamp)
                     created = True
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             else:
                 created = broker.is_deleted()
