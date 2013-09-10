@@ -107,14 +107,16 @@ class TestManagerModule(unittest.TestCase):
                                         manager.MAX_MEMORY)),
             ]
             self.assertEquals(manager.resource.called_with_args, expected)
-            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+            self.assertTrue(
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
 
             # test error condition
             manager.resource = MockResource(error=ValueError())
             manager.os.environ = {}
             manager.setup_env()
             self.assertEquals(manager.resource.called_with_args, [])
-            self.assertEquals(manager.os.environ['PYTHON_EGG_CACHE'], '/tmp')
+            self.assertTrue(
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
 
             manager.resource = MockResource(error=OSError())
             manager.os.environ = {}
@@ -1188,8 +1190,8 @@ class TestServer(unittest.TestCase):
                             4: conf4,
                         }
                         self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.conf_files, [conf1, conf2,
-                                                                 conf3, conf4])
+                        self.assertEquals(mock_spawn.conf_files, [
+                            conf1, conf2, conf3, conf4])
                         expected = {
                             'once': True,
                         }
@@ -1310,7 +1312,7 @@ class TestManager(unittest.TestCase):
             self.assert_(server.server in manager.ALL_SERVERS)
         # test dedupe
         m = manager.Manager(['main', 'rest', 'proxy', 'object',
-                                           'container', 'account'])
+                             'container', 'account'])
         self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
         for server in m.servers:
             self.assert_(server.server in manager.ALL_SERVERS)
@@ -1602,7 +1604,7 @@ class TestManager(unittest.TestCase):
             manager.Server = _orig_server
             manager.watch_server_pids = _orig_watch_server_pids
 
-    # TODO: more tests
+    # TODO(clayg): more tests
     def test_shutdown(self):
         m = manager.Manager(['test'])
         m.stop_was_called = False

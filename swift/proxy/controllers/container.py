@@ -24,7 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-from gettext import gettext as _
+from swift import gettext_ as _
 from urllib import unquote
 
 from swift.common.utils import public, csv_append
@@ -64,7 +64,7 @@ class ContainerController(Controller):
                         req.headers[header] = \
                             req.environ['swift.clean_acl'](header,
                                                            req.headers[header])
-                    except ValueError, err:
+                    except ValueError as err:
                         return HTTPBadRequest(request=req, body=str(err))
         return None
 

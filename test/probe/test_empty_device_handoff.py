@@ -118,7 +118,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException, err:
+        except direct_client.ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
         self.assertFalse(os.path.exists(obj_dir))
@@ -147,7 +147,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException, err:
+        except direct_client.ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
 

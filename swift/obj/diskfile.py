@@ -24,7 +24,6 @@ import uuid
 import hashlib
 import logging
 import traceback
-from gettext import gettext as _
 from os.path import basename, dirname, exists, getmtime, getsize, join
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -32,6 +31,7 @@ from contextlib import contextmanager
 from xattr import getxattr, setxattr
 from eventlet import Timeout
 
+from swift import gettext_ as _
 from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
@@ -102,12 +102,47 @@ def quarantine_renamer(device_path, corrupted_file_path):
     invalidate_hash(dirname(from_dir))
     try:
         renamer(from_dir, to_dir)
-    except OSError, e:
+    except OSError as e:
         if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
             raise
         to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
         renamer(from_dir, to_dir)
     return to_dir
+
+
+def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
+    """
+    List contents of a hash directory and clean up any old files.
+
+    :param hsh_path: object hash path
+    :param reclaim_age: age in seconds at which to remove tombstones
+    :returns: list of files remaining in the directory, reverse sorted
+    """
+    files = os.listdir(hsh_path)
+    if len(files) == 1:
+        if files[0].endswith('.ts'):
+            # remove tombstones older than reclaim_age
+            ts = files[0].rsplit('.', 1)[0]
+            if (time.time() - float(ts)) > reclaim_age:
+                os.unlink(join(hsh_path, files[0]))
+                files.remove(files[0])
+    elif files:
+        files.sort(reverse=True)
+        meta = data = tomb = None
+        for filename in list(files):
+            if not meta and filename.endswith('.meta'):
+                meta = filename
+            if not data and filename.endswith('.data'):
+                data = filename
+            if not tomb and filename.endswith('.ts'):
+                tomb = filename
+            if (filename < tomb or       # any file older than tomb
+                filename < data or       # any file older than data
+                (filename.endswith('.meta') and
+                 filename < meta)):      # old meta
+                os.unlink(join(hsh_path, filename))
+                files.remove(filename)
+    return files
 
 
 def hash_suffix(path, reclaim_age):
@@ -121,15 +156,15 @@ def hash_suffix(path, reclaim_age):
     md5 = hashlib.md5()
     try:
         path_contents = sorted(os.listdir(path))
-    except OSError, err:
+    except OSError as err:
         if err.errno in (errno.ENOTDIR, errno.ENOENT):
             raise PathNotDir()
         raise
     for hsh in path_contents:
         hsh_path = join(path, hsh)
         try:
-            files = os.listdir(hsh_path)
-        except OSError, err:
+            files = hash_cleanup_listdir(hsh_path, reclaim_age)
+        except OSError as err:
             if err.errno == errno.ENOTDIR:
                 partition_path = dirname(path)
                 objects_path = dirname(partition_path)
@@ -140,29 +175,6 @@ def hash_suffix(path, reclaim_age):
                     (hsh_path, quar_path))
                 continue
             raise
-        if len(files) == 1:
-            if files[0].endswith('.ts'):
-                # remove tombstones older than reclaim_age
-                ts = files[0].rsplit('.', 1)[0]
-                if (time.time() - float(ts)) > reclaim_age:
-                    os.unlink(join(hsh_path, files[0]))
-                    files.remove(files[0])
-        elif files:
-            files.sort(reverse=True)
-            meta = data = tomb = None
-            for filename in list(files):
-                if not meta and filename.endswith('.meta'):
-                    meta = filename
-                if not data and filename.endswith('.data'):
-                    data = filename
-                if not tomb and filename.endswith('.ts'):
-                    tomb = filename
-                if (filename < tomb or       # any file older than tomb
-                    filename < data or       # any file older than data
-                    (filename.endswith('.meta') and
-                     filename < meta)):      # old meta
-                    os.unlink(join(hsh_path, filename))
-                    files.remove(filename)
         if not files:
             os.rmdir(hsh_path)
         for filename in files:
@@ -262,7 +274,7 @@ def get_hashes(partition_dir, recalculate=None, do_listdir=False,
 class DiskWriter(object):
     """
     Encapsulation of the write context for servicing PUT REST API
-    requests. Serves as the context manager object for DiskFile's writer()
+    requests. Serves as the context manager object for DiskFile's create()
     method.
     """
     def __init__(self, disk_file, fd, tmppath, threadpool):
@@ -295,6 +307,24 @@ class DiskWriter(object):
             drop_buffer_cache(self.fd, self.last_sync, diff)
             self.last_sync = self.upload_size
 
+    def _finalize_put(self, metadata, target_path):
+        # Write the metadata before calling fsync() so that both data and
+        # metadata are flushed to disk.
+        write_metadata(self.fd, metadata)
+        # We call fsync() before calling drop_cache() to lower the amount
+        # of redundant work the drop cache code will perform on the pages
+        # (now that after fsync the pages will be all clean).
+        fsync(self.fd)
+        # From the Department of the Redundancy Department, make sure
+        # we call drop_cache() after fsync() to avoid redundant work
+        # (pages all clean).
+        drop_buffer_cache(self.fd, 0, self.upload_size)
+        invalidate_hash(dirname(self.disk_file.datadir))
+        # After the rename completes, this object will be available for
+        # other requests to reference.
+        renamer(self.tmppath, target_path)
+        hash_cleanup_listdir(self.disk_file.datadir)
+
     def put(self, metadata, extension='.data'):
         """
         Finalize writing the file on disk, and renames it from the temp file
@@ -308,26 +338,10 @@ class DiskWriter(object):
             raise ValueError("tmppath is unusable.")
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         metadata['name'] = self.disk_file.name
+        target_path = join(self.disk_file.datadir, timestamp + extension)
 
-        def finalize_put():
-            # Write the metadata before calling fsync() so that both data and
-            # metadata are flushed to disk.
-            write_metadata(self.fd, metadata)
-            # We call fsync() before calling drop_cache() to lower the amount
-            # of redundant work the drop cache code will perform on the pages
-            # (now that after fsync the pages will be all clean).
-            fsync(self.fd)
-            # From the Department of the Redundancy Department, make sure
-            # we call drop_cache() after fsync() to avoid redundant work
-            # (pages all clean).
-            drop_buffer_cache(self.fd, 0, self.upload_size)
-            invalidate_hash(dirname(self.disk_file.datadir))
-            # After the rename completes, this object will be available for
-            # other requests to reference.
-            renamer(self.tmppath, join(self.disk_file.datadir,
-                                       timestamp + extension))
-
-        self.threadpool.force_run_in_thread(finalize_put)
+        self.threadpool.force_run_in_thread(
+            self._finalize_put, metadata, target_path)
         self.disk_file.metadata = metadata
 
 
@@ -366,7 +380,7 @@ class DiskFile(object):
         self.device_path = join(path, device)
         self.tmpdir = join(path, device, 'tmp')
         self.logger = logger
-        self.metadata = {}
+        self._metadata = {}
         self.data_file = None
         self.fp = None
         self.iter_etag = None
@@ -376,47 +390,121 @@ class DiskFile(object):
         self.keep_cache = False
         self.suppress_file_closing = False
         self.threadpool = threadpool or ThreadPool(nthreads=0)
-        if not exists(self.datadir):
-            return
-        files = sorted(os.listdir(self.datadir), reverse=True)
-        meta_file = None
-        for afile in files:
-            if afile.endswith('.ts'):
-                self.data_file = None
-                with open(join(self.datadir, afile)) as mfp:
-                    self.metadata = read_metadata(mfp)
-                self.metadata['deleted'] = True
-                break
-            if afile.endswith('.meta') and not meta_file:
-                meta_file = join(self.datadir, afile)
-            if afile.endswith('.data') and not self.data_file:
-                self.data_file = join(self.datadir, afile)
-                break
-        if not self.data_file:
-            return
-        self.fp = open(self.data_file, 'rb')
-        datafile_metadata = read_metadata(self.fp)
-        if not keep_data_fp:
-            self.close(verify_file=False)
 
+        data_file, meta_file, ts_file = self._get_ondisk_file()
+        if not data_file:
+            if ts_file:
+                self._construct_from_ts_file(ts_file)
+        else:
+            fp = self._construct_from_data_file(data_file, meta_file)
+            if keep_data_fp:
+                self.fp = fp
+            else:
+                fp.close()
+
+    def _get_ondisk_file(self):
+        """
+        Do the work to figure out if the data directory exists, and if so,
+        determine the on-disk files to use.
+
+        :returns: a tuple of data, meta and ts (tombstone) files, in one of
+                  three states:
+
+                  1. all three are None
+
+                     data directory does not exist, or there are no files in
+                     that directory
+
+                  2. ts_file is not None, data_file is None, meta_file is None
+
+                     object is considered deleted
+
+                  3. data_file is not None, ts_file is None
+
+                     object exists, and optionally has fast-POST metadata
+        """
+        data_file = meta_file = ts_file = None
+        try:
+            files = sorted(os.listdir(self.datadir), reverse=True)
+        except OSError as err:
+            if err.errno != errno.ENOENT:
+                raise
+            # The data directory does not exist, so the object cannot exist.
+        else:
+            for afile in files:
+                assert ts_file is None, "On-disk file search loop" \
+                    " continuing after tombstone, %s, encountered" % ts_file
+                assert data_file is None, "On-disk file search loop" \
+                    " continuing after data file, %s, encountered" % data_file
+                if afile.endswith('.ts'):
+                    meta_file = None
+                    ts_file = join(self.datadir, afile)
+                    break
+                if afile.endswith('.meta') and not meta_file:
+                    meta_file = join(self.datadir, afile)
+                    # NOTE: this does not exit this loop, since a fast-POST
+                    # operation just updates metadata, writing one or more
+                    # .meta files, the data file will have an older timestamp,
+                    # so we keep looking.
+                    continue
+                if afile.endswith('.data'):
+                    data_file = join(self.datadir, afile)
+                    break
+        assert ((data_file is None and meta_file is None and ts_file is None)
+                or (ts_file is not None and data_file is None
+                    and meta_file is None)
+                or (data_file is not None and ts_file is None)), \
+            "On-disk file search algorithm contract is broken: data_file:" \
+            " %s, meta_file: %s, ts_file: %s" % (data_file, meta_file, ts_file)
+        return data_file, meta_file, ts_file
+
+    def _construct_from_ts_file(self, ts_file):
+        """
+        A tombstone means the object is considered deleted. We just need to
+        pull the metadata from the tombstone file which has the timestamp.
+        """
+        with open(ts_file) as fp:
+            self._metadata = read_metadata(fp)
+        self._metadata['deleted'] = True
+
+    def _verify_name(self):
+        """
+        Verify the metadata's name value matches what we think the object is
+        named.
+        """
+        try:
+            mname = self._metadata['name']
+        except KeyError:
+            pass
+        else:
+            if mname != self.name:
+                self.logger.error(_('Client path %(client)s does not match '
+                                    'path stored in object metadata %(meta)s'),
+                                  {'client': self.name, 'meta': mname})
+                raise DiskFileCollision('Client path does not match path '
+                                        'stored in object metadata')
+
+    def _construct_from_data_file(self, data_file, meta_file):
+        """
+        Open the data file to fetch its metadata, and fetch the metadata from
+        the fast-POST .meta file as well if it exists, merging them properly.
+
+        :returns: the opened data file pointer
+        """
+        fp = open(data_file, 'rb')
+        datafile_metadata = read_metadata(fp)
         if meta_file:
             with open(meta_file) as mfp:
-                self.metadata = read_metadata(mfp)
+                self._metadata = read_metadata(mfp)
             sys_metadata = dict(
                 [(key, val) for key, val in datafile_metadata.iteritems()
                  if key.lower() in DATAFILE_SYSTEM_META])
-            self.metadata.update(sys_metadata)
+            self._metadata.update(sys_metadata)
         else:
-            self.metadata = datafile_metadata
-
-        if 'name' in self.metadata:
-            if self.metadata['name'] != self.name:
-                self.logger.error(_('Client path %(client)s does not match '
-                                    'path stored in object metadata %(meta)s'),
-                                  {'client': self.name,
-                                   'meta': self.metadata['name']})
-                raise DiskFileCollision('Client path does not match path '
-                                        'stored in object metadata')
+            self._metadata = datafile_metadata
+        self._verify_name()
+        self.data_file = data_file
+        return fp
 
     def __iter__(self):
         """Returns an iterator over the data file."""
@@ -498,8 +586,8 @@ class DiskFile(object):
             return
 
         if self.iter_etag and self.started_at_0 and self.read_to_eof and \
-                'ETag' in self.metadata and \
-                self.iter_etag.hexdigest() != self.metadata.get('ETag'):
+                'ETag' in self._metadata and \
+                self.iter_etag.hexdigest() != self._metadata.get('ETag'):
             self.quarantine()
 
     def close(self, verify_file=True):
@@ -513,15 +601,23 @@ class DiskFile(object):
             try:
                 if verify_file:
                     self._handle_close_quarantine()
-            except (Exception, Timeout), e:
+            except (Exception, Timeout) as e:
                 self.logger.error(_(
                     'ERROR DiskFile %(data_file)s in '
-                    '%(data_dir)s close failure: %(exc)s : %(stack)'),
+                    '%(data_dir)s close failure: %(exc)s : %(stack)s'),
                     {'exc': e, 'stack': ''.join(traceback.format_stack()),
                      'data_file': self.data_file, 'data_dir': self.datadir})
             finally:
                 self.fp.close()
                 self.fp = None
+
+    def get_metadata(self):
+        """
+        Provide the metadata for an object as a dictionary.
+
+        :returns: object's metadata dictionary
+        """
+        return self._metadata
 
     def is_deleted(self):
         """
@@ -530,7 +626,7 @@ class DiskFile(object):
         :returns: True if the file doesn't exist or has been flagged as
                   deleted.
         """
-        return not self.data_file or 'deleted' in self.metadata
+        return not self.data_file or 'deleted' in self._metadata
 
     def is_expired(self):
         """
@@ -538,13 +634,13 @@ class DiskFile(object):
 
         :returns: True if the file has an X-Delete-At in the past
         """
-        return ('X-Delete-At' in self.metadata and
-                int(self.metadata['X-Delete-At']) <= time.time())
+        return ('X-Delete-At' in self._metadata and
+                int(self._metadata['X-Delete-At']) <= time.time())
 
     @contextmanager
-    def writer(self, size=None):
+    def create(self, size=None):
         """
-        Context manager to write a file. We create a temporary file first, and
+        Context manager to create a file. We create a temporary file first, and
         then return a DiskWriter object to encapsulate the state.
 
         :param size: optional initial size of file to explicitly allocate on
@@ -579,27 +675,17 @@ class DiskFile(object):
         :param tombstone: whether or not we are writing a tombstone
         """
         extension = '.ts' if tombstone else '.meta'
-        with self.writer() as writer:
+        with self.create() as writer:
             writer.put(metadata, extension=extension)
 
-    def unlinkold(self, timestamp):
+    def delete(self, timestamp):
         """
-        Remove any older versions of the object file.  Any file that has an
-        older timestamp than timestamp will be deleted.
+        Simple short hand for marking an object as deleted. Provides
+        a layer of abstraction.
 
-        :param timestamp: timestamp to compare with each file
+        :param timestamp: time stamp to mark the object deleted at
         """
-        timestamp = normalize_timestamp(timestamp)
-
-        def _unlinkold():
-            for fname in os.listdir(self.datadir):
-                if fname < timestamp:
-                    try:
-                        os.unlink(join(self.datadir, fname))
-                    except OSError, err:    # pragma: no cover
-                        if err.errno != errno.ENOENT:
-                            raise
-        self.threadpool.run_in_thread(_unlinkold)
+        self.put_metadata({'X-Timestamp': timestamp}, tombstone=True)
 
     def _drop_cache(self, fd, offset, length):
         """Method for no-oping buffer cache drop method."""
@@ -635,14 +721,14 @@ class DiskFile(object):
             if self.data_file:
                 file_size = self.threadpool.run_in_thread(
                     getsize, self.data_file)
-                if 'Content-Length' in self.metadata:
-                    metadata_size = int(self.metadata['Content-Length'])
+                if 'Content-Length' in self._metadata:
+                    metadata_size = int(self._metadata['Content-Length'])
                     if file_size != metadata_size:
                         raise DiskFileError(
                             'Content-Length of %s does not match file size '
                             'of %s' % (metadata_size, file_size))
                 return file_size
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
         raise DiskFileNotExist('Data File does not exist.')

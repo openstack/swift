@@ -50,6 +50,7 @@ CONF_DEFAULTS = {
     'devices': 'sdb1',  # space-sep list
     'log_level': 'INFO',
     'timeout': '10',
+    'delay': '0',
     'bench_clients': [],
 }
 
@@ -117,6 +118,8 @@ if __name__ == '__main__':
                       help='If set, will not delete the objects created')
     parser.add_option('-V', '--auth_version', dest='auth_version',
                       help='Authentication version')
+    parser.add_option('-d', '--delay', dest='delay',
+                      help='Delay before delete requests in seconds')
 
     if len(sys.argv) == 1:
         parser.print_help()

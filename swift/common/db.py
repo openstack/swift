@@ -25,7 +25,7 @@ import sys
 import time
 import cPickle as pickle
 import errno
-from gettext import gettext as _
+from swift import gettext_ as _
 from tempfile import mkstemp
 
 from eventlet import sleep, Timeout
@@ -95,7 +95,7 @@ class GreenDBConnection(sqlite3.Connection):
             while True:
                 try:
                     return call()
-                except sqlite3.OperationalError, e:
+                except sqlite3.OperationalError as e:
                     if 'locked' not in str(e):
                         raise
                 sleep(0.05)
@@ -305,7 +305,7 @@ class DatabaseBroker(object):
                                  os.path.basename(self.db_dir))
         try:
             renamer(self.db_dir, quar_path)
-        except OSError, e:
+        except OSError as e:
             if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
@@ -480,7 +480,7 @@ class DatabaseBroker(object):
         with self.get() as conn:
             try:
                 curs = conn.execute(query_part1 + 'metadata' + query_part2)
-            except sqlite3.OperationalError, err:
+            except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise
                 curs = conn.execute(query_part1 + "'' as metadata" +
@@ -518,7 +518,7 @@ class DatabaseBroker(object):
                     self.merge_items(item_list)
                 try:
                     os.ftruncate(fp.fileno(), 0)
-                except OSError, err:
+                except OSError as err:
                     if err.errno != errno.ENOENT:
                         raise
 
@@ -605,7 +605,7 @@ class DatabaseBroker(object):
             try:
                 metadata = conn.execute('SELECT metadata FROM %s_stat' %
                                         self.db_type).fetchone()[0]
-            except sqlite3.OperationalError, err:
+            except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise
                 metadata = ''
@@ -638,7 +638,7 @@ class DatabaseBroker(object):
                                   self.db_type).fetchone()[0]
                 md = json.loads(md) if md else {}
                 utf8encodekeys(md)
-            except sqlite3.OperationalError, err:
+            except sqlite3.OperationalError as err:
                 if 'no such column: metadata' not in str(err):
                     raise
                 conn.execute("""
@@ -678,7 +678,7 @@ class DatabaseBroker(object):
                 conn.execute('''
                     DELETE FROM incoming_sync WHERE updated_at < ?
                 ''', (sync_timestamp,))
-            except sqlite3.OperationalError, err:
+            except sqlite3.OperationalError as err:
                 # Old dbs didn't have updated_at in the _sync tables.
                 if 'no such column: updated_at' not in str(err):
                     raise
@@ -713,10 +713,24 @@ class DatabaseBroker(object):
                     conn.execute('UPDATE %s_stat SET metadata = ?' %
                                  self.db_type, (json.dumps(md),))
                     return True
-        except sqlite3.OperationalError, err:
+        except sqlite3.OperationalError as err:
             if 'no such column: metadata' not in str(err):
                 raise
         return False
+
+    def update_put_timestamp(self, timestamp):
+        """
+        Update the put_timestamp.  Only modifies it if it is greater than
+        the current timestamp.
+
+        :param timestamp: put timestamp
+        """
+        with self.get() as conn:
+            conn.execute(
+                'UPDATE %s_stat SET put_timestamp = ?'
+                ' WHERE put_timestamp < ?' % self.db_type,
+                (timestamp, timestamp))
+            conn.commit()
 
 
 class ContainerBroker(DatabaseBroker):
@@ -833,19 +847,6 @@ class ContainerBroker(DatabaseBroker):
             SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
                 reported_object_count = 0, reported_bytes_used = 0''')
 
-    def update_put_timestamp(self, timestamp):
-        """
-        Update the put_timestamp.  Only modifies it if it is greater than
-        the current timestamp.
-
-        :param timestamp: put timestamp
-        """
-        with self.get() as conn:
-            conn.execute('''
-                UPDATE container_stat SET put_timestamp = ?
-                WHERE put_timestamp < ? ''', (timestamp, timestamp))
-            conn.commit()
-
     def _delete_db(self, conn, timestamp):
         """
         Mark the DB as deleted
@@ -914,7 +915,7 @@ class ContainerBroker(DatabaseBroker):
         pending_size = 0
         try:
             pending_size = os.path.getsize(self.pending_file)
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
         if pending_size > PENDING_CAP:
@@ -977,7 +978,7 @@ class ContainerBroker(DatabaseBroker):
                             id, %s
                         FROM container_stat
                     ''' % (trailing,)).fetchone()
-                except sqlite3.OperationalError, err:
+                except sqlite3.OperationalError as err:
                     if 'no such column: x_container_sync_point' in str(err):
                         trailing = '-1 AS x_container_sync_point1, ' \
                                    '-1 AS x_container_sync_point2'
@@ -997,7 +998,7 @@ class ContainerBroker(DatabaseBroker):
                 try:
                     self._set_x_container_sync_points(conn, sync_point1,
                                                       sync_point2)
-                except sqlite3.OperationalError, err:
+                except sqlite3.OperationalError as err:
                     if 'no such column: x_container_sync_point' not in \
                             str(err):
                         raise
@@ -1309,19 +1310,6 @@ class AccountBroker(DatabaseBroker):
                 self._db_version = 1
         return self._db_version
 
-    def update_put_timestamp(self, timestamp):
-        """
-        Update the put_timestamp.  Only modifies it if it is greater than
-        the current timestamp.
-
-        :param timestamp: put timestamp
-        """
-        with self.get() as conn:
-            conn.execute('''
-                UPDATE account_stat SET put_timestamp = ?
-                WHERE put_timestamp < ? ''', (timestamp, timestamp))
-            conn.commit()
-
     def _delete_db(self, conn, timestamp, force=False):
         """
         Mark the DB as deleted.
@@ -1389,7 +1377,7 @@ class AccountBroker(DatabaseBroker):
         pending_size = 0
         try:
             pending_size = os.path.getsize(self.pending_file)
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.ENOENT:
                 raise
         if pending_size > PENDING_CAP:

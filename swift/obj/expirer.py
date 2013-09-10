@@ -17,7 +17,7 @@ import urllib
 from random import random
 from time import time
 from os.path import join
-from gettext import gettext as _
+from swift import gettext_ as _
 import hashlib
 
 from eventlet import sleep, Timeout
@@ -134,7 +134,7 @@ class ObjectExpirer(Daemon):
                         self.expiring_objects_account,
                         container,
                         acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
-                except (Exception, Timeout), err:
+                except (Exception, Timeout) as err:
                     self.logger.exception(
                         _('Exception while deleting container %s %s') %
                         (container, str(err)))
@@ -205,7 +205,7 @@ class ObjectExpirer(Daemon):
                                      container, obj)
             self.report_objects += 1
             self.logger.increment('objects')
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             self.logger.increment('errors')
             self.logger.exception(
                 _('Exception while deleting object %s %s %s') %

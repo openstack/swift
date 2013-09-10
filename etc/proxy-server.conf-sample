@@ -260,6 +260,8 @@ user_test_tester3 = testing3
 # Operator roles is the role which user would be allowed to manage a
 # tenant and be able to create container or give ACL to others.
 # operator_roles = admin, swiftoperator
+# The reseller admin role has the ability to create and delete accounts
+# reseller_admin_role = ResellerAdmin
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

@@ -33,7 +33,8 @@ class TestBufferedHTTP(unittest.TestCase):
                     fp.write('HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n'
                              'RESPONSE')
                     fp.flush()
-                    self.assertEquals(fp.readline(),
+                    self.assertEquals(
+                        fp.readline(),
                         'PUT /dev/%s/path/..%%25/?omg&no=%%7f HTTP/1.1\r\n' %
                         expected_par)
                     headers = {}
@@ -45,17 +46,19 @@ class TestBufferedHTTP(unittest.TestCase):
                     self.assertEquals(headers['content-length'], '7')
                     self.assertEquals(headers['x-header'], 'value')
                     self.assertEquals(fp.readline(), 'REQUEST\r\n')
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
         for par in ('par', 1357):
             event = spawn(accept, par)
             try:
                 with Timeout(3):
-                    conn = bufferedhttp.http_connect('127.0.0.1',
-                        bindsock.getsockname()[1], 'dev', par, 'PUT',
-                        '/path/..%/', {'content-length': 7, 'x-header':
-                        'value'}, query_string='omg&no=%7f')
+                    conn = bufferedhttp.http_connect(
+                        '127.0.0.1', bindsock.getsockname()[1], 'dev', par,
+                        'PUT', '/path/..%/', {
+                            'content-length': 7,
+                            'x-header': 'value'},
+                        query_string='omg&no=%7f')
                     conn.send('REQUEST\r\n')
                     resp = conn.getresponse()
                     body = resp.read()
@@ -88,10 +91,12 @@ class TestBufferedHTTP(unittest.TestCase):
         origHTTPSConnection = bufferedhttp.HTTPSConnection
         bufferedhttp.HTTPSConnection = MockHTTPSConnection
         try:
-            bufferedhttp.http_connect('127.0.0.1', 8080, 'sda', 1, 'GET', '/',
+            bufferedhttp.http_connect(
+                '127.0.0.1', 8080, 'sda', 1, 'GET', '/',
                 headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
                          'x-four': {'crazy': 'value'}}, ssl=True)
-            bufferedhttp.http_connect_raw('127.0.0.1', 8080, 'GET', '/',
+            bufferedhttp.http_connect_raw(
+                '127.0.0.1', 8080, 'GET', '/',
                 headers={'x-one': '1', 'x-two': 2, 'x-three': 3.0,
                          'x-four': {'crazy': 'value'}}, ssl=True)
         finally:

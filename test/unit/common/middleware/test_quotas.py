@@ -18,7 +18,9 @@ import unittest
 from swift.common.swob import Request, HTTPUnauthorized
 from swift.common.middleware import container_quotas
 
+
 class FakeCache(object):
+
     def __init__(self, val):
         if 'status' not in val:
             val['status'] = 200
@@ -27,7 +29,9 @@ class FakeCache(object):
     def get(self, *args):
         return self.val
 
+
 class FakeApp(object):
+
     def __init__(self):
         pass
 
@@ -35,7 +39,9 @@ class FakeApp(object):
         start_response('200 OK', [])
         return []
 
+
 class FakeMissingApp(object):
+
     def __init__(self):
         pass
 
@@ -43,8 +49,10 @@ class FakeMissingApp(object):
         start_response('404 Not Found', [])
         return []
 
+
 def start_response(*args):
     pass
+
 
 class TestContainerQuotas(unittest.TestCase):
 
@@ -52,7 +60,7 @@ class TestContainerQuotas(unittest.TestCase):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a//something/something_else',
                             environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.cache': {'key':'value'}})
+                                     'swift.cache': {'key': 'value'}})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
@@ -69,7 +77,8 @@ class TestContainerQuotas(unittest.TestCase):
 
     def test_no_quotas(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': FakeCache({}),
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
@@ -78,7 +87,8 @@ class TestContainerQuotas(unittest.TestCase):
     def test_exceed_bytes_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '2'}})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
@@ -87,7 +97,8 @@ class TestContainerQuotas(unittest.TestCase):
     def test_not_exceed_bytes_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
@@ -96,7 +107,8 @@ class TestContainerQuotas(unittest.TestCase):
     def test_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'}})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
@@ -105,21 +117,24 @@ class TestContainerQuotas(unittest.TestCase):
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '2'}})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
     def test_invalid_quotas(self):
-        req = Request.blank('/v1/a/c',
+        req = Request.blank(
+            '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
                      'HTTP_X_CONTAINER_META_QUOTA_BYTES': 'abc'})
         res = req.get_response(
             container_quotas.ContainerQuotaMiddleware(FakeApp(), {}))
         self.assertEquals(res.status_int, 400)
 
-        req = Request.blank('/v1/a/c',
+        req = Request.blank(
+            '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
                      'HTTP_X_CONTAINER_META_QUOTA_COUNT': 'abc'})
         res = req.get_response(
@@ -127,14 +142,16 @@ class TestContainerQuotas(unittest.TestCase):
         self.assertEquals(res.status_int, 400)
 
     def test_valid_quotas(self):
-        req = Request.blank('/v1/a/c',
+        req = Request.blank(
+            '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
                      'HTTP_X_CONTAINER_META_QUOTA_BYTES': '123'})
         res = req.get_response(
             container_quotas.ContainerQuotaMiddleware(FakeApp(), {}))
         self.assertEquals(res.status_int, 200)
 
-        req = Request.blank('/v1/a/c',
+        req = Request.blank(
+            '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
                      'HTTP_X_CONTAINER_META_QUOTA_COUNT': '123'})
         res = req.get_response(
@@ -142,7 +159,8 @@ class TestContainerQuotas(unittest.TestCase):
         self.assertEquals(res.status_int, 200)
 
     def test_delete_quotas(self):
-        req = Request.blank('/v1/a/c',
+        req = Request.blank(
+            '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
                      'HTTP_X_CONTAINER_META_QUOTA_BYTES': None})
         res = req.get_response(
@@ -152,7 +170,8 @@ class TestContainerQuotas(unittest.TestCase):
     def test_missing_container(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeMissingApp(), {})
         cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
@@ -162,7 +181,8 @@ class TestContainerQuotas(unittest.TestCase):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'},
                            'write_acl': None})
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank(
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100',
                      'swift.authorize': lambda *args: HTTPUnauthorized()})

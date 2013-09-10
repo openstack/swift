@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Tests for swift.common.utils """
+"""Tests for swift.common.utils"""
 
 from __future__ import with_statement
 from test.unit import temptree
@@ -130,14 +130,14 @@ def reset_loggers():
 
 
 class TestUtils(unittest.TestCase):
-    """ Tests for swift.common.utils """
+    """Tests for swift.common.utils """
 
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
 
     def test_normalize_timestamp(self):
-        """ Test swift.common.utils.normalize_timestamp """
+        # Test swift.common.utils.normalize_timestamp
         self.assertEquals(utils.normalize_timestamp('1253327593.48174'),
                           "1253327593.48174")
         self.assertEquals(utils.normalize_timestamp(1253327593.48174),
@@ -158,7 +158,7 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
 
     def test_backwards(self):
-        """ Test swift.common.utils.backward """
+        # Test swift.common.utils.backward
 
         # The lines are designed so that the function would encounter
         # all of the boundary conditions and typical conditions.
@@ -215,7 +215,7 @@ class TestUtils(unittest.TestCase):
         os.unlink(testroot)
 
     def test_split_path(self):
-        """ Test swift.common.utils.split_account_path """
+        # Test swift.common.utils.split_account_path
         self.assertRaises(ValueError, utils.split_path, '')
         self.assertRaises(ValueError, utils.split_path, '/')
         self.assertRaises(ValueError, utils.split_path, '//')
@@ -241,15 +241,15 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(utils.split_path('/a/c/', 2, 3), ['a', 'c', ''])
         try:
             utils.split_path('o\nn e', 2)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
         try:
             utils.split_path('o\nn e', 2, 3, True)
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
 
     def test_validate_device_partition(self):
-        """ Test swift.common.utils.validate_device_partition """
+        # Test swift.common.utils.validate_device_partition
         utils.validate_device_partition('foo', 'bar')
         self.assertRaises(ValueError,
                           utils.validate_device_partition, '', '')
@@ -271,15 +271,15 @@ class TestUtils(unittest.TestCase):
                           utils.validate_device_partition, 'foo', '..')
         try:
             utils.validate_device_partition('o\nn e', 'foo')
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid device: o%0An%20e')
         try:
             utils.validate_device_partition('foo', 'o\nn e')
-        except ValueError, err:
+        except ValueError as err:
             self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
 
     def test_NullLogger(self):
-        """ Test swift.common.utils.NullLogger """
+        # Test swift.common.utils.NullLogger
         sio = StringIO()
         nl = utils.NullLogger()
         nl.write('test')
@@ -441,8 +441,8 @@ class TestUtils(unittest.TestCase):
                     os.path.isdir('/dev/log'):
                 # Since socket on OSX is in /var/run/syslog, there will be
                 # a fallback to UDP.
-                expected_args.append(((),
-                                  {'facility': orig_sysloghandler.LOG_LOCAL3}))
+                expected_args.append(
+                    ((), {'facility': orig_sysloghandler.LOG_LOCAL3}))
             self.assertEquals(expected_args, syslog_handler_args)
 
             syslog_handler_args = []
@@ -1182,7 +1182,7 @@ log_name = %(yarr)s'''
         for (value, default), expected in expectations.items():
             try:
                 rv = utils.config_auto_int_value(value, default)
-            except Exception, e:
+            except Exception as e:
                 if e.__class__ is not expected:
                     raise
             else:
@@ -1245,7 +1245,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
             # Want 1024 reserved, have 512 * 2 free, so fails
@@ -1255,7 +1255,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
             # Want 2048 reserved, have 1024 * 1 free, so fails
@@ -1265,7 +1265,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
             # Want 2048 reserved, have 512 * 2 free, so fails
@@ -1275,7 +1275,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
             # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
@@ -1286,7 +1286,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(1))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1023 <= 1023')
             # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
@@ -1309,7 +1309,7 @@ log_name = %(yarr)s'''
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError, err:
+            except OSError as err:
                 exc = err
             self.assertEquals(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
         finally:
@@ -1395,9 +1395,11 @@ log_name = %(yarr)s'''
         with patch.object(utils.tpool, 'execute', lambda f: f()):
             self.assertTrue(
                 utils.tpool_reraise(MagicMock(return_value='test1')), 'test1')
-            self.assertRaises(Exception,
+            self.assertRaises(
+                Exception,
                 utils.tpool_reraise, MagicMock(side_effect=Exception('test2')))
-            self.assertRaises(BaseException,
+            self.assertRaises(
+                BaseException,
                 utils.tpool_reraise,
                 MagicMock(side_effect=BaseException('test3')))
 
@@ -1429,8 +1431,10 @@ log_name = %(yarr)s'''
 
             with utils.lock_file(nt.name, timeout=3, unlink=False) as f:
                 try:
-                    with utils.lock_file(nt.name, timeout=1, unlink=False) as f:
-                        self.assertTrue(False, "Expected LockTimeout exception")
+                    with utils.lock_file(
+                            nt.name, timeout=1, unlink=False) as f:
+                        self.assertTrue(
+                            False, "Expected LockTimeout exception")
                 except LockTimeout:
                     pass
 
@@ -1438,7 +1442,8 @@ log_name = %(yarr)s'''
                 self.assertEqual(f.read(), "test string\nanother string")
                 # we have a lock, now let's try to get a newer one
                 fd = os.open(nt.name, flags)
-                self.assertRaises(IOError, fcntl.flock, fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertRaises(
+                    IOError, fcntl.flock, fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             self.assertRaises(OSError, os.remove, nt.name)
 
@@ -1569,6 +1574,23 @@ log_name = %(yarr)s'''
         self.assertEquals(
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
+
+    def test_quote(self):
+        res = utils.quote('/v1/a/c3/subdirx/')
+        assert res == '/v1/a/c3/subdirx/'
+        res = utils.quote('/v1/a&b/c3/subdirx/')
+        assert res == '/v1/a%26b/c3/subdirx/'
+        res = utils.quote('/v1/a&b/c3/subdirx/', safe='&')
+        assert res == '%2Fv1%2Fa&b%2Fc3%2Fsubdirx%2F'
+        unicode_sample = u'\uc77c\uc601'
+        account = 'abc_' + unicode_sample
+        valid_utf8_str = utils.get_valid_utf8_str(account)
+        account = 'abc_' + unicode_sample.encode('utf-8')[::-1]
+        invalid_utf8_str = utils.get_valid_utf8_str(account)
+        self.assertEquals('abc_%EC%9D%BC%EC%98%81',
+                          utils.quote(valid_utf8_str))
+        self.assertEquals('abc_%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
+                          utils.quote(invalid_utf8_str))
 
 
 class TestFileLikeIter(unittest.TestCase):
@@ -1779,7 +1801,7 @@ class TestStatsdLogging(unittest.TestCase):
 
         payload = mock_socket.sent[0][0]
         self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                       payload)
+                        payload)
 
         effective_sample_rate = 0.587 * 0.91
         statsd_client.random = lambda: effective_sample_rate - 0.001
@@ -1788,7 +1810,7 @@ class TestStatsdLogging(unittest.TestCase):
 
         payload = mock_socket.sent[1][0]
         self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                       payload)
+                        payload)
 
     def test_timing_stats(self):
         class MockController(object):
@@ -2016,7 +2038,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                 if payload and 'STOP' in payload:
                     return 42
                 self.queue.put(payload)
-            except Exception, e:
+            except Exception as e:
                 sys.stderr.write('statsd_reader thread: %r' % (e,))
                 break
 
@@ -2377,6 +2399,27 @@ class TestThreadpool(unittest.TestCase):
         except ValueError:
             caught = True
         self.assertTrue(caught)
+
+
+class TestAuditLocationGenerator(unittest.TestCase):
+    def test_non_dir_contents(self):
+        with temptree([]) as tmpdir:
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            with open(os.path.join(data, "partition1"), "w"):
+                pass
+            partition = os.path.join(data, "partition2")
+            os.makedirs(partition)
+            with open(os.path.join(partition, "suffix1"), "w"):
+                pass
+            suffix = os.path.join(partition, "suffix2")
+            os.makedirs(suffix)
+            with open(os.path.join(suffix, "hash1"), "w"):
+                pass
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=False
+            )
+            self.assertEqual(list(locations), [])
 
 
 if __name__ == '__main__':

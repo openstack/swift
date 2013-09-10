@@ -185,9 +185,9 @@ class TestAccountQuota(unittest.TestCase):
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c', environ={
-                'REQUEST_METHOD': 'POST',
-                'swift.cache': cache,
-                'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True'})
+            'REQUEST_METHOD': 'POST',
+            'swift.cache': cache,
+            'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 403)
 
@@ -206,10 +206,10 @@ class TestAccountQuota(unittest.TestCase):
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
         req = Request.blank('/v1/a/c', environ={
-                'REQUEST_METHOD': 'POST',
-                'swift.cache': cache,
-                'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True',
-                'reseller_request': True})
+            'REQUEST_METHOD': 'POST',
+            'swift.cache': cache,
+            'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True',
+            'reseller_request': True})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 

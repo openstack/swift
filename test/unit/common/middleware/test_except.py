@@ -19,7 +19,9 @@ from swift.common.swob import Request
 from swift.common.middleware import catch_errors
 from swift.common.utils import get_logger
 
+
 class FakeApp(object):
+
     def __init__(self, error=False, body_iter=None):
         self.error = error
         self.body_iter = body_iter
@@ -34,8 +36,10 @@ class FakeApp(object):
         else:
             return self.body_iter
 
+
 def start_response(*args):
     pass
+
 
 class TestCatchErrors(unittest.TestCase):
 
@@ -63,7 +67,7 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
-        self.assertEquals(len(self.logger.txn_id), 34) # 32 hex + 'tx'
+        self.assertEquals(len(self.logger.txn_id), 34)  # 32 hex + 'tx'
 
     def test_trans_id_header_fail(self):
         self.assertEquals(self.logger.txn_id, None)
@@ -92,6 +96,7 @@ class TestCatchErrors(unittest.TestCase):
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
         self.assertTrue(self.logger.txn_id.endswith('-stuff'))
+
 
 if __name__ == '__main__':
     unittest.main()

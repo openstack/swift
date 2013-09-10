@@ -18,26 +18,26 @@ from __future__ import with_statement
 import os
 import time
 import traceback
-from gettext import gettext as _
+from swift import gettext_ as _
 
 from eventlet import Timeout
 
 import swift.common.db
-from swift.account.utils import account_listing_response, \
-    account_listing_content_type
+from swift.account.utils import account_listing_response
 from swift.common.db import AccountBroker, DatabaseConnectionError
-from swift.common.request_helpers import get_param
+from swift.common.request_helpers import get_param, get_listing_content_type, \
+    split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
-    validate_device_partition, json, timing_stats, replication
+    json, timing_stats, replication
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
+    check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
-    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException
+    HTTPInsufficientStorage, HTTPException
 
 
 DATADIR = 'accounts'
@@ -88,12 +88,7 @@ class AccountController(object):
     @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
-        try:
-            drive, part, account = req.split_path(3)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account = split_and_validate_path(req, 3)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if 'x-timestamp' not in req.headers or \
@@ -110,12 +105,7 @@ class AccountController(object):
     @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        try:
-            drive, part, account, container = req.split_path(3, 4)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account, container = split_and_validate_path(req, 3, 4)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if container:   # put account container
@@ -175,20 +165,8 @@ class AccountController(object):
     @timing_stats()
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        try:
-            drive, part, account = req.split_path(3)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(
-                query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        drive, part, account = split_and_validate_path(req, 3)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
@@ -213,12 +191,7 @@ class AccountController(object):
     @timing_stats()
     def GET(self, req):
         """Handle HTTP GET request."""
-        try:
-            drive, part, account = req.split_path(3)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account = split_and_validate_path(req, 3)
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
         if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
@@ -234,9 +207,7 @@ class AccountController(object):
                                               ACCOUNT_LISTING_LIMIT)
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        out_content_type, error = account_listing_content_type(req)
-        if error:
-            return error
+        out_content_type = get_listing_content_type(req)
 
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
@@ -257,18 +228,13 @@ class AccountController(object):
         Handle HTTP REPLICATE request.
         Handler for RPC calls for account replication.
         """
-        try:
-            post_args = req.split_path(3)
-            drive, partition, hash = post_args
-            validate_device_partition(drive, partition)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        post_args = split_and_validate_path(req, 3)
+        drive, partition, hash = post_args
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = json.load(req.environ['wsgi.input'])
-        except ValueError, err:
+        except ValueError as err:
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req
@@ -278,12 +244,7 @@ class AccountController(object):
     @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
-        try:
-            drive, part, account = req.split_path(3)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account = split_and_validate_path(req, 3)
         if 'x-timestamp' not in req.headers or \
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing or bad timestamp',

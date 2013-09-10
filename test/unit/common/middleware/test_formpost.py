@@ -89,7 +89,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except formpost.FormInvalid, err:
+        except formpost.FormInvalid as err:
             exc = err
         self.assertEquals(str(exc), 'invalid starting boundary')
 
@@ -100,7 +100,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -112,7 +112,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -127,7 +127,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -146,7 +146,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -162,7 +162,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -176,7 +176,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -195,7 +195,7 @@ class TestIterRequests(unittest.TestCase):
         exc = None
         try:
             it.next()
-        except StopIteration, err:
+        except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
 
@@ -217,7 +217,7 @@ class TestIterRequests(unittest.TestCase):
             exc = None
             try:
                 it.next()
-            except StopIteration, err:
+            except StopIteration as err:
                 exc = err
             self.assertTrue(exc is not None)
         finally:
@@ -234,7 +234,7 @@ class TestCappedFileLikeObject(unittest.TestCase):
         exc = None
         try:
             formpost._CappedFileLikeObject(StringIO('abc'), 2).read()
-        except EOFError, err:
+        except EOFError as err:
             exc = err
         self.assertEquals(str(exc), 'max_file_size exceeded')
 
@@ -250,7 +250,7 @@ class TestCappedFileLikeObject(unittest.TestCase):
         exc = None
         try:
             self.assertEquals(fp.readline(), 'def')
-        except EOFError, err:
+        except EOFError as err:
             exc = err
         self.assertEquals(str(exc), 'max_file_size exceeded')
 
@@ -466,7 +466,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -577,7 +578,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -691,7 +693,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -801,7 +804,8 @@ class TestFormPost(unittest.TestCase):
             'SERVER_NAME': '172.16.83.128',
             'SERVER_PORT': '8080',
             'SERVER_PROTOCOL': 'HTTP/1.0',
-            'swift.account/AUTH_test': self._fake_cache_env('AUTH_test', [key]),
+            'swift.account/AUTH_test': self._fake_cache_env(
+                'AUTH_test', [key]),
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,

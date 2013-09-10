@@ -70,6 +70,7 @@ for k in default_constraints:
 web_front_end = config.get('web_front_end', 'integral')
 normalized_urls = config.get('normalized_urls', False)
 
+
 def load_constraint(name):
     c = config[name]
     if not isinstance(c, int):
@@ -99,7 +100,7 @@ def timeout(seconds, method, *args, **kwargs):
         def run(self):
             try:
                 self.method(*self.args, **self.kwargs)
-            except Exception, e:
+            except Exception as e:
                 self.exception = e
 
     t = TimeoutThread(method, *args, **kwargs)
@@ -269,7 +270,7 @@ class TestAccount(Base):
 
         for format_type in ['json', 'xml']:
             for a in self.env.account.containers(
-                parms={'format': format_type}):
+                    parms={'format': format_type}):
                 self.assert_(a['count'] >= 0)
                 self.assert_(a['bytes'] >= 0)
 
@@ -573,7 +574,7 @@ class TestContainer(Base):
 
     def testFileCreateInContainerThatDoesNotExist(self):
         file_item = File(self.env.conn, self.env.account, Utils.create_name(),
-                    Utils.create_name())
+                         Utils.create_name())
         self.assertRaises(ResponseError, file_item.write)
         self.assert_status(404)
 
@@ -737,8 +738,9 @@ class TestContainerPathsEnv:
             if f.endswith('/'):
                 file_item.write(hdrs={'Content-Type': 'application/directory'})
             else:
-                file_item.write_random(cls.file_size, hdrs={'Content-Type':
-                                  'application/directory'})
+                file_item.write_random(cls.file_size,
+                                       hdrs={'Content-Type':
+                                             'application/directory'})
             if (normalized_urls):
                 nfile = '/'.join(filter(None, f.split('/')))
                 if (f[-1] == '/'):
@@ -747,8 +749,6 @@ class TestContainerPathsEnv:
             else:
                 stored_files.add(f)
         cls.stored_files = sorted(stored_files)
-
-
 
 
 class TestContainerPaths(Base):
@@ -928,30 +928,30 @@ class TestFile(Base):
             source_cont = self.env.account.container(Utils.create_name())
             file_item = source_cont.file(source_filename)
             self.assert_(not file_item.copy(
-                        '%s%s' % (prefix, self.env.container),
-                         Utils.create_name()))
+                '%s%s' % (prefix, self.env.container),
+                Utils.create_name()))
             self.assert_status(404)
 
             self.assert_(not file_item.copy('%s%s' % (prefix, dest_cont),
-                         Utils.create_name()))
+                                            Utils.create_name()))
             self.assert_status(404)
 
             # invalid source object
             file_item = self.env.container.file(Utils.create_name())
             self.assert_(not file_item.copy(
-                        '%s%s' % (prefix, self.env.container),
-                         Utils.create_name()))
+                '%s%s' % (prefix, self.env.container),
+                Utils.create_name()))
             self.assert_status(404)
 
             self.assert_(not file_item.copy('%s%s' % (prefix, dest_cont),
-                         Utils.create_name()))
+                                            Utils.create_name()))
             self.assert_status(404)
 
             # invalid destination container
             file_item = self.env.container.file(source_filename)
             self.assert_(not file_item.copy(
-                        '%s%s' % (prefix, Utils.create_name()),
-                         Utils.create_name()))
+                '%s%s' % (prefix, Utils.create_name()),
+                Utils.create_name()))
 
     def testCopyNoDestinationHeader(self):
         source_filename = Utils.create_name()
@@ -996,8 +996,8 @@ class TestFile(Base):
                 dest_filename = Utils.create_name()
 
                 file_item = cont.file(dest_filename)
-                file_item.write(hdrs={'X-Copy-From': '%s%s/%s' % (prefix,
-                           self.env.container.name, source_filename)})
+                file_item.write(hdrs={'X-Copy-From': '%s%s/%s' % (
+                    prefix, self.env.container.name, source_filename)})
 
                 self.assert_(dest_filename in cont.files())
 

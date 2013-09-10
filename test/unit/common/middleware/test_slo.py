@@ -196,7 +196,7 @@ class TestStaticLargeObject(unittest.TestCase):
         req.content_length = self.slo.max_manifest_size + 1
         try:
             self.slo.handle_multipart_put(req, fake_start_response)
-        except HTTPException, e:
+        except HTTPException as e:
             pass
         self.assertEquals(e.status_int, 413)
 
@@ -205,7 +205,7 @@ class TestStaticLargeObject(unittest.TestCase):
             e = None
             try:
                 self.slo.handle_multipart_put(req, fake_start_response)
-            except HTTPException, e:
+            except HTTPException as e:
                 pass
             self.assertEquals(e.status_int, 413)
 
@@ -213,14 +213,14 @@ class TestStaticLargeObject(unittest.TestCase):
             req = Request.blank('/v/a/c/o', body=test_json_data)
             try:
                 self.slo.handle_multipart_put(req, fake_start_response)
-            except HTTPException, e:
+            except HTTPException as e:
                 pass
             self.assertEquals(e.status_int, 400)
 
         req = Request.blank('/v/a/c/o', headers={'X-Copy-From': 'lala'})
         try:
             self.slo.handle_multipart_put(req, fake_start_response)
-        except HTTPException, e:
+        except HTTPException as e:
             pass
         self.assertEquals(e.status_int, 405)
 
@@ -346,7 +346,7 @@ class TestStaticLargeObject(unittest.TestCase):
             body=bad_data)
         try:
             self.slo.handle_multipart_put(req, fake_start_response)
-        except HTTPException, e:
+        except HTTPException as e:
             self.assertEquals(self.app.calls, 4)
             data = json.loads(e.body)
             errors = data['Errors']

@@ -188,6 +188,19 @@ class TempAuth(object):
                 env['swift.clean_acl'] = clean_acl
         return self.app(env, start_response)
 
+    def _get_user_groups(self, account, account_user, account_id):
+        """
+        :param account: example: test
+        :param account_user: example: test:tester
+        """
+        groups = [account, account_user]
+        groups.extend(self.users[account_user]['groups'])
+        if '.admin' in groups:
+            groups.remove('.admin')
+            groups.append(account_id)
+        groups = ','.join(groups)
+        return groups
+
     def get_groups(self, env, token):
         """
         Get groups for the given token.
@@ -225,12 +238,7 @@ class TempAuth(object):
             s = base64.encodestring(hmac.new(key, msg, sha1).digest()).strip()
             if s != sign:
                 return None
-            groups = [account, account_user]
-            groups.extend(self.users[account_user]['groups'])
-            if '.admin' in groups:
-                groups.remove('.admin')
-                groups.append(account_id)
-            groups = ','.join(groups)
+            groups = self._get_user_groups(account, account_user, account_id)
 
         return groups
 
@@ -432,6 +440,7 @@ class TempAuth(object):
         if self.users[account_user]['key'] != key:
             self.logger.increment('token_denied')
             return HTTPUnauthorized(request=req)
+        account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
         # Get memcache client
         memcache_client = cache_from_env(req.environ)
         if not memcache_client:
@@ -445,21 +454,20 @@ class TempAuth(object):
                 '%s/token/%s' % (self.reseller_prefix, candidate_token)
             cached_auth_data = memcache_client.get(memcache_token_key)
             if cached_auth_data:
-                expires, groups = cached_auth_data
-                if expires > time():
+                expires, old_groups = cached_auth_data
+                old_groups = old_groups.split(',')
+                new_groups = self._get_user_groups(account, account_user,
+                                                   account_id)
+
+                if expires > time() and \
+                        set(old_groups) == set(new_groups.split(',')):
                     token = candidate_token
         # Create a new token if one didn't exist
         if not token:
             # Generate new token
             token = '%stk%s' % (self.reseller_prefix, uuid4().hex)
             expires = time() + self.token_life
-            groups = [account, account_user]
-            groups.extend(self.users[account_user]['groups'])
-            if '.admin' in groups:
-                groups.remove('.admin')
-                account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
-                groups.append(account_id)
-            groups = ','.join(groups)
+            groups = self._get_user_groups(account, account_user, account_id)
             # Save token
             memcache_token_key = '%s/token/%s' % (self.reseller_prefix, token)
             memcache_client.set(memcache_token_key, (expires, groups),

@@ -21,7 +21,7 @@ def is_informational(status):
     :param status: http status code
     :returns: True if status is successful, else False
     """
-    return 100 <= status and status <= 199
+    return 100 <= status <= 199
 
 
 def is_success(status):
@@ -31,7 +31,7 @@ def is_success(status):
     :param status: http status code
     :returns: True if status is successful, else False
     """
-    return 200 <= status and status <= 299
+    return 200 <= status <= 299
 
 
 def is_redirection(status):
@@ -41,7 +41,7 @@ def is_redirection(status):
     :param status: http status code
     :returns: True if status is redirection, else False
     """
-    return 300 <= status and status <= 399
+    return 300 <= status <= 399
 
 
 def is_client_error(status):
@@ -51,7 +51,7 @@ def is_client_error(status):
     :param status: http status code
     :returns: True if status is client error, else False
     """
-    return 400 <= status and status <= 499
+    return 400 <= status <= 499
 
 
 def is_server_error(status):
@@ -61,7 +61,7 @@ def is_server_error(status):
     :param status: http status code
     :returns: True if status is server error, else False
     """
-    return 500 <= status and status <= 599
+    return 500 <= status <= 599
 
 
 # List of HTTP status codes

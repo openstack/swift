@@ -29,7 +29,7 @@ import time
 import functools
 import inspect
 import itertools
-from gettext import gettext as _
+from swift import gettext_ as _
 from urllib import quote
 
 from eventlet import spawn_n, GreenPile
@@ -382,7 +382,7 @@ def get_info(app, env, account, container=None, ret_not_found=False):
         if ret_not_found or is_success(info['status']):
             return info
         return None
-    # Not in cached, let's try the account servers
+    # Not in cache, let's try the account servers
     path = '/v1/%s' % account
     if container:
         # Stop and check if we have an account?
@@ -422,11 +422,17 @@ class Controller(object):
         self.account_name = None
         self.app = app
         self.trans_id = '-'
-        self.allowed_methods = set()
-        all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
-        for name, m in all_methods:
-            if getattr(m, 'publicly_accessible', False):
-                self.allowed_methods.add(name)
+        self._allowed_methods = None
+
+    @property
+    def allowed_methods(self):
+        if self._allowed_methods is None:
+            self._allowed_methods = set()
+            all_methods = inspect.getmembers(self, predicate=inspect.ismethod)
+            for name, m in all_methods:
+                if getattr(m, 'publicly_accessible', False):
+                    self._allowed_methods.add(name)
+        return self._allowed_methods
 
     def _x_remove_headers(self):
         """
@@ -473,16 +479,15 @@ class Controller(object):
         headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
         if transfer:
             self.transfer_headers(orig_req.headers, headers)
-        if 'x-timestamp' not in headers:
-            headers['x-timestamp'] = normalize_timestamp(time.time())
+        headers.setdefault('x-timestamp', normalize_timestamp(time.time()))
         if orig_req:
             referer = orig_req.as_referer()
         else:
             referer = ''
-        headers.update({'x-trans-id': self.trans_id,
-                        'connection': 'close',
-                        'user-agent': 'proxy-server %s' % os.getpid(),
-                        'referer': referer})
+        headers['x-trans-id'] = self.trans_id
+        headers['connection'] = 'close'
+        headers['user-agent'] = 'proxy-server %s' % os.getpid()
+        headers['referer'] = referer
         return headers
 
     def error_occurred(self, node, msg):
@@ -932,12 +937,11 @@ class Controller(object):
         source_headers = []
         sources = []
         newest = config_true_value(req.headers.get('x-newest', 'f'))
+        headers = self.generate_request_headers(req, additional=req.headers)
         for node in self.iter_nodes(ring, partition):
             start_node_timing = time.time()
             try:
                 with ConnectionTimeout(self.app.conn_timeout):
-                    headers = self.generate_request_headers(
-                        req, additional=req.headers)
                     conn = http_connect(
                         node['ip'], node['port'], node['device'], partition,
                         req.method, path, headers=headers,

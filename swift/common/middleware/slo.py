@@ -428,7 +428,7 @@ class StaticLargeObject(object):
                         body='X-Static-Large-Object is a reserved header. '
                         'To create a static large object add query param '
                         'multipart-manifest=put.')
-        except HTTPException, err_resp:
+        except HTTPException as err_resp:
             return err_resp(env, start_response)
 
         return self.app(env, start_response)

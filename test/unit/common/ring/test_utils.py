@@ -56,11 +56,12 @@ class TestUtils(unittest.TestCase):
         self.test_devs = get_test_devs()
 
     def test_tiers_for_dev(self):
-        self.assertEqual(tiers_for_dev(self.test_dev),
-                ((1,),
-                 (1, 1),
-                 (1, 1, '192.168.1.1:6000'),
-                 (1, 1, '192.168.1.1:6000', 0)))
+        self.assertEqual(
+            tiers_for_dev(self.test_dev),
+            ((1,),
+             (1, 1),
+             (1, 1, '192.168.1.1:6000'),
+             (1, 1, '192.168.1.1:6000', 0)))
 
     def test_build_tier_tree(self):
         ret = build_tier_tree(self.test_devs)
@@ -110,7 +111,8 @@ class TestUtils(unittest.TestCase):
         res = parse_search_value('R127.0.0.10')
         self.assertEqual(res, {'replication_ip': '127.0.0.10'})
         res = parse_search_value('R[127.0.0.10]:20000')
-        self.assertEqual(res, {'replication_ip': '127.0.0.10', 'replication_port': 20000})
+        self.assertEqual(res, {'replication_ip': '127.0.0.10',
+                               'replication_port': 20000})
         res = parse_search_value('R:20000')
         self.assertEqual(res, {'replication_port': 20000})
         res = parse_search_value('/sdb1')

@@ -347,7 +347,7 @@ class Auditor(object):
 if __name__ == '__main__':
     try:
         optlist, args = getopt.getopt(sys.argv[1:], 'c:r:e:d')
-    except getopt.GetoptError, err:
+    except getopt.GetoptError as err:
         print str(err)
         print usage
         sys.exit(2)

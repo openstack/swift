@@ -29,7 +29,7 @@ import mimetypes
 import re
 import time
 from datetime import datetime
-from gettext import gettext as _
+from swift import gettext_ as _
 from urllib import unquote, quote
 from hashlib import md5
 
@@ -217,30 +217,30 @@ class SegmentedIterable(object):
                         if sub_etag != self.segment_dict['hash']:
                             raise SegmentError(_(
                                 'Object segment does not match sub-slo: '
-                                '%(path)s etag: %(r_etag)s != %(s_etag)s.' %
+                                '%(path)s etag: %(r_etag)s != %(s_etag)s.') %
                                 {'path': path, 'r_etag': sub_etag,
-                                 's_etag': self.segment_dict['hash']}))
+                                 's_etag': self.segment_dict['hash']})
                         return self._load_next_segment()
                     except ValueError:
                         raise SegmentError(_(
-                            'Sub SLO has invalid manifest: %s' % path))
+                            'Sub SLO has invalid manifest: %s') % path)
 
                 elif resp.etag != self.segment_dict['hash'] or \
                         resp.content_length != self.segment_dict['bytes']:
                     raise SegmentError(_(
                         'Object segment no longer valid: '
                         '%(path)s etag: %(r_etag)s != %(s_etag)s or '
-                        '%(r_size)s != %(s_size)s.' %
+                        '%(r_size)s != %(s_size)s.') %
                         {'path': path, 'r_etag': resp.etag,
                          'r_size': resp.content_length,
                          's_etag': self.segment_dict['hash'],
-                         's_size': self.segment_dict['bytes']}))
+                         's_size': self.segment_dict['bytes']})
             self.segment_iter = resp.app_iter
             # See NOTE: swift_conn at top of file about this.
             self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
         except StopIteration:
             raise
-        except SegmentError, err:
+        except SegmentError as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.error(_(
                     'ERROR: While processing manifest '
@@ -251,7 +251,7 @@ class SegmentedIterable(object):
                 err.swift_logged = True
                 self.response.status_int = HTTP_CONFLICT
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -298,7 +298,7 @@ class SegmentedIterable(object):
                 # created an invalid condition.
                 yield ' '
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -360,7 +360,7 @@ class SegmentedIterable(object):
                 self.segment_iter = None
         except StopIteration:
             raise
-        except (Exception, Timeout), err:
+        except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
                     'ERROR: While processing manifest '
@@ -568,7 +568,7 @@ class ObjectController(Controller):
                                           self._remaining_items(pages_iter))
             except ListingIterNotFound:
                 return HTTPNotFound(request=req)
-            except ListingIterNotAuthorized, err:
+            except ListingIterNotAuthorized as err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
@@ -806,7 +806,7 @@ class ObjectController(Controller):
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.error_limit(node, _('ERROR Insufficient Storage'))
-            except Exception:
+            except (Exception, Timeout):
                 self.exception_occurred(node, _('Object'),
                                         _('Expect: 100-continue on %s') % path)
 
@@ -842,9 +842,9 @@ class ObjectController(Controller):
             try:
                 x_delete_after = int(req.headers['x-delete-after'])
             except ValueError:
-                    return HTTPBadRequest(request=req,
-                                          content_type='text/plain',
-                                          body='Non-integer X-Delete-After')
+                return HTTPBadRequest(request=req,
+                                      content_type='text/plain',
+                                      body='Non-integer X-Delete-After')
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -861,7 +861,7 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req.headers['X-Timestamp'] = \
-                    normalize_timestamp(float(req.headers['x-timestamp']))
+                    normalize_timestamp(req.headers['x-timestamp'])
                 if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
                     float(hresp.environ['swift_x_timestamp']) >= \
                         float(req.headers['x-timestamp']):
@@ -1068,7 +1068,7 @@ class ObjectController(Controller):
                     if conn.queue.unfinished_tasks:
                         conn.queue.join()
             conns = [conn for conn in conns if not conn.failed]
-        except ChunkReadTimeout, err:
+        except ChunkReadTimeout as err:
             self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
@@ -1156,7 +1156,7 @@ class ObjectController(Controller):
             except ListingIterNotFound:
                 # no worries, last_item is None
                 pass
-            except ListingIterNotAuthorized, err:
+            except ListingIterNotAuthorized as err:
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
@@ -1210,7 +1210,7 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req.headers['X-Timestamp'] = \
-                    normalize_timestamp(float(req.headers['x-timestamp']))
+                    normalize_timestamp(req.headers['x-timestamp'])
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',

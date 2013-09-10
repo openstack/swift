@@ -46,10 +46,10 @@ class TestObjectUpdater(unittest.TestCase):
         with closing(GzipFile(ring_file, 'wb')) as f:
             pickle.dump(
                 RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                         [{'id': 0, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-                           'zone': 0},
-                          {'id': 1, 'ip': '127.0.0.1', 'port': 1, 'device': 'sda1',
-                           'zone': 2}], 30),
+                         [{'id': 0, 'ip': '127.0.0.1', 'port': 1,
+                           'device': 'sda1', 'zone': 0},
+                          {'id': 1, 'ip': '127.0.0.1', 'port': 1,
+                           'device': 'sda1', 'zone': 2}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
@@ -175,7 +175,7 @@ class TestObjectUpdater(unittest.TestCase):
                             line.split(':')[1].strip()
                         line = inc.readline()
                     self.assert_('x-container-timestamp' in headers)
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 
@@ -192,7 +192,7 @@ class TestObjectUpdater(unittest.TestCase):
                     err = event.wait()
                     if err:
                         raise err
-            except BaseException, err:
+            except BaseException as err:
                 return err
             return None
 

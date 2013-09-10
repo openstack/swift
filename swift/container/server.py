@@ -19,20 +19,20 @@ import os
 import time
 import traceback
 from datetime import datetime
-from gettext import gettext as _
+from swift import gettext_ as _
 from xml.etree.cElementTree import Element, SubElement, tostring
 
 from eventlet import Timeout
 
 import swift.common.db
 from swift.common.db import ContainerBroker
-from swift.common.request_helpers import get_param
+from swift.common.request_helpers import get_param, get_listing_content_type, \
+    split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
-    config_true_value, validate_device_partition, json, timing_stats, \
-    replication, parse_content_type
+    config_true_value, json, timing_stats, replication, parse_content_type
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8, FORMAT2CONTENT_TYPE
+    check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
@@ -40,7 +40,7 @@ from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPNotAcceptable, HTTPException, HeaderKeyDict
+    HTTPInsufficientStorage, HTTPException, HeaderKeyDict
 
 DATADIR = 'containers'
 
@@ -119,9 +119,9 @@ class ContainerController(object):
             # but if there is, we want to know about it.
             self.logger.error(_('ERROR Account update failed: different  '
                                 'numbers of hosts and devices in request: '
-                                '"%s" vs "%s"' %
-                                (req.headers.get('X-Account-Host', ''),
-                                 req.headers.get('X-Account-Device', ''))))
+                                '"%s" vs "%s"') %
+                               (req.headers.get('X-Account-Host', ''),
+                                req.headers.get('X-Account-Device', '')))
             return HTTPBadRequest(req=req)
 
         if account_partition:
@@ -180,12 +180,8 @@ class ContainerController(object):
     @timing_stats()
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
-        try:
-            drive, part, account, container, obj = req.split_path(4, 5, True)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account, container, obj = split_and_validate_path(
+            req, 4, 5, True)
         if 'x-timestamp' not in req.headers or \
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=req,
@@ -225,12 +221,8 @@ class ContainerController(object):
     @timing_stats()
     def PUT(self, req):
         """Handle HTTP PUT request."""
-        try:
-            drive, part, account, container, obj = req.split_path(4, 5, True)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account, container, obj = split_and_validate_path(
+            req, 4, 5, True)
         if 'x-timestamp' not in req.headers or \
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=req,
@@ -294,20 +286,9 @@ class ContainerController(object):
     @timing_stats(sample_rate=0.1)
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
-        try:
-            drive, part, account, container, obj = req.split_path(4, 5, True)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(
-                query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        drive, part, account, container, obj = split_and_validate_path(
+            req, 4, 5, True)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
@@ -349,7 +330,7 @@ class ContainerController(object):
         # python isoformat() doesn't include msecs when zero
         if len(last_modified) < len("1970-01-01T00:00:00.000000"):
             last_modified += ".000000"
-        response['last_modified'] = last_modified + 'Z'
+        response['last_modified'] = last_modified
         content_type, params = parse_content_type(content_type)
         for key, value in params:
             if key == 'swift_bytes':
@@ -366,12 +347,8 @@ class ContainerController(object):
     @timing_stats()
     def GET(self, req):
         """Handle HTTP GET request."""
-        try:
-            drive, part, account, container, obj = req.split_path(4, 5, True)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account, container, obj = split_and_validate_path(
+            req, 4, 5, True)
         path = get_param(req, 'path')
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
@@ -388,14 +365,7 @@ class ContainerController(object):
                 return HTTPPreconditionFailed(
                     request=req,
                     body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
-        query_format = get_param(req, 'format')
-        if query_format:
-            req.accept = FORMAT2CONTENT_TYPE.get(query_format.lower(),
-                                                 FORMAT2CONTENT_TYPE['plain'])
-        out_content_type = req.accept.best_match(
-            ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-        if not out_content_type:
-            return HTTPNotAcceptable(request=req)
+        out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
@@ -438,7 +408,9 @@ class ContainerController(object):
                     for field in sorted(record.keys()):
                         SubElement(obj_element, field).text = str(
                             record[field]).decode('utf-8')
-            ret.body = tostring(doc, encoding='UTF-8')
+            ret.body = tostring(doc, encoding='UTF-8').replace(
+                "<?xml version='1.0' encoding='UTF-8'?>",
+                '<?xml version="1.0" encoding="UTF-8"?>', 1)
         else:
             if not container_list:
                 return HTTPNoContent(request=req, headers=resp_headers)
@@ -452,18 +424,13 @@ class ContainerController(object):
         """
         Handle HTTP REPLICATE request (json-encoded RPC calls for replication.)
         """
-        try:
-            post_args = req.split_path(3)
-            drive, partition, hash = post_args
-            validate_device_partition(drive, partition)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        post_args = split_and_validate_path(req, 3)
+        drive, partition, hash = post_args
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = json.load(req.environ['wsgi.input'])
-        except ValueError, err:
+        except ValueError as err:
             return HTTPBadRequest(body=str(err), content_type='text/plain')
         ret = self.replicator_rpc.dispatch(post_args, args)
         ret.request = req
@@ -473,12 +440,7 @@ class ContainerController(object):
     @timing_stats()
     def POST(self, req):
         """Handle HTTP POST request."""
-        try:
-            drive, part, account, container = req.split_path(4)
-            validate_device_partition(drive, part)
-        except ValueError, err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain',
-                                  request=req)
+        drive, part, account, container = split_and_validate_path(req, 4)
         if 'x-timestamp' not in req.headers or \
                 not check_float(req.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing or bad timestamp',

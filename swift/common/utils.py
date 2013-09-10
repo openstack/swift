@@ -28,9 +28,8 @@ import uuid
 import functools
 from hashlib import md5
 from random import random, shuffle
-from urllib import quote
+from urllib import quote as _quote
 from contextlib import contextmanager, closing
-from gettext import gettext as _
 import ctypes
 import ctypes.util
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
@@ -58,6 +57,7 @@ import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
 
+from swift import gettext_ as _
 from swift.common.exceptions import LockTimeout, MessageTimeout
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 
@@ -425,7 +425,11 @@ def drop_buffer_cache(fd, offset, length):
 def normalize_timestamp(timestamp):
     """
     Format a timestamp (string or numeric) into a standardized
-    xxxxxxxxxx.xxxxx format.
+    xxxxxxxxxx.xxxxx (10.5) format.
+
+    Note that timestamps using values greater than or equal to November 20th,
+    2286 at 17:46 UTC will use 11 digits to represent the number of
+    seconds.
 
     :param timestamp: unix timestamp
     :returns: normalized timestamp as a string
@@ -443,7 +447,7 @@ def mkdirs(path):
     if not os.path.isdir(path):
         try:
             os.makedirs(path)
-        except OSError, err:
+        except OSError as err:
             if err.errno != errno.EEXIST or not os.path.isdir(path):
                 raise
 
@@ -920,7 +924,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_address = conf.get('log_address', '/dev/log')
         try:
             handler = SysLogHandler(address=log_address, facility=facility)
-        except socket.error, e:
+        except socket.error as e:
             # Either /dev/log isn't a UNIX socket or it does not exist at all
             if e.errno not in [errno.ENOTSOCK, errno.ENOENT]:
                 raise e
@@ -1136,16 +1140,16 @@ def whataremyips():
     return addresses
 
 
-def storage_directory(datadir, partition, hash):
+def storage_directory(datadir, partition, name_hash):
     """
     Get the storage directory
 
     :param datadir: Base data directory
     :param partition: Partition
-    :param hash: Account, container or object hash
+    :param name_hash: Account, container or object name hash
     :returns: Storage directory
     """
-    return os.path.join(datadir, str(partition), hash[-3:], hash)
+    return os.path.join(datadir, str(partition), name_hash[-3:], name_hash)
 
 
 def hash_path(account, container=None, object=None, raw_digest=False):
@@ -1196,7 +1200,7 @@ def lock_path(directory, timeout=10):
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
-                except IOError, err:
+                except IOError as err:
                     if err.errno != errno.EAGAIN:
                         raise
                 sleep(0.01)
@@ -1231,7 +1235,7 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
-                except IOError, err:
+                except IOError as err:
                     if err.errno != errno.EAGAIN:
                         raise
                 sleep(0.01)
@@ -1324,14 +1328,13 @@ def unlink_older_than(path, mtime):
     :param path: path to remove file from
     :mtime: timestamp of oldest file to keep
     """
-    if os.path.exists(path):
-        for fname in listdir(path):
-            fpath = os.path.join(path, fname)
-            try:
-                if os.path.getmtime(fpath) < mtime:
-                    os.unlink(fpath)
-            except OSError:
-                pass
+    for fname in listdir(path):
+        fpath = os.path.join(path, fname)
+        try:
+            if os.path.getmtime(fpath) < mtime:
+                os.unlink(fpath)
+        except OSError:
+            pass
 
 
 def item_from_env(env, item_name):
@@ -1495,7 +1498,7 @@ def write_file(path, contents):
     if not os.path.exists(dirname):
         try:
             os.makedirs(dirname)
-        except OSError, err:
+        except OSError as err:
             if err.errno == errno.EACCES:
                 sys.exit('Unable to create %s.  Running as '
                          'non-root?' % dirname)
@@ -1540,25 +1543,32 @@ def audit_location_generator(devices, datadir, suffix='',
                     _('Skipping %s as it is not mounted'), device)
             continue
         datadir_path = os.path.join(devices, device, datadir)
-        if not os.path.exists(datadir_path):
-            continue
         partitions = listdir(datadir_path)
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
-            if not os.path.isdir(part_path):
+            try:
+                suffixes = listdir(part_path)
+            except OSError as e:
+                if e.errno != errno.ENOTDIR:
+                    raise
                 continue
-            suffixes = listdir(part_path)
             for asuffix in suffixes:
                 suff_path = os.path.join(part_path, asuffix)
-                if not os.path.isdir(suff_path):
+                try:
+                    hashes = listdir(suff_path)
+                except OSError as e:
+                    if e.errno != errno.ENOTDIR:
+                        raise
                     continue
-                hashes = listdir(suff_path)
                 for hsh in hashes:
                     hash_path = os.path.join(suff_path, hsh)
-                    if not os.path.isdir(hash_path):
+                    try:
+                        files = sorted(listdir(hash_path), reverse=True)
+                    except OSError as e:
+                        if e.errno != errno.ENOTDIR:
+                            raise
                         continue
-                    for fname in sorted(listdir(hash_path),
-                                        reverse=True):
+                    for fname in files:
                         if suffix and not fname.endswith(suffix):
                             continue
                         path = os.path.join(hash_path, fname)
@@ -1817,7 +1827,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
             finally:
                 try:
                     os.unlink(tf.name)
-                except OSError, err:
+                except OSError as err:
                     if err.errno != errno.ENOENT:
                         raise
     except (Exception, Timeout):
@@ -1827,7 +1837,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
 def listdir(path):
     try:
         return os.listdir(path)
-    except OSError, err:
+    except OSError as err:
         if err.errno != errno.ENOENT:
             raise
     return []
@@ -2016,7 +2026,7 @@ def tpool_reraise(func, *args, **kwargs):
     def inner():
         try:
             return func(*args, **kwargs)
-        except BaseException, err:
+        except BaseException as err:
             return err
     resp = tpool.execute(inner)
     if isinstance(resp, BaseException):
@@ -2089,7 +2099,7 @@ class ThreadPool(object):
             try:
                 result = func(*args, **kwargs)
                 result_queue.put((ev, True, result))
-            except BaseException, err:
+            except BaseException as err:
                 result_queue.put((ev, False, err))
             finally:
                 work_queue.task_done()
@@ -2249,3 +2259,10 @@ def parse_content_type(content_type):
             value = m[1].strip()
             parm_list.append((key, value))
     return content_type, parm_list
+
+
+def quote(value, safe='/'):
+    """
+    Patched version of urllib.quote that encodes utf-8 strings before quoting
+    """
+    return _quote(get_valid_utf8_str(value), safe)

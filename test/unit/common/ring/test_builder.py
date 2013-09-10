@@ -98,7 +98,6 @@ class TestRingBuilder(unittest.TestCase):
         r0 = rb0.get_ring()
         self.assertTrue(rb0.get_ring() is r0)
 
-
         rb0.rebalance()  # NO SEED
         rb1.rebalance(seed=10)
         rb2.rebalance(seed=10)
@@ -258,6 +257,33 @@ class TestRingBuilder(unittest.TestCase):
         if run > max_run:
             max_run = run
         return max_run > len(parts) / 2
+
+    def test_initial_balance(self):
+        # 2 boxes, 2 drives each in zone 1
+        # 1 box, 2 drives in zone 2
+        #
+        # This is balanceable, but there used to be some nondeterminism in
+        # rebalance() that would sometimes give you an imbalanced ring.
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 4000.0,
+                    'ip': '10.1.1.2', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'region': 1, 'zone': 2, 'weight': 4000.0,
+                    'ip': '10.1.1.3', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'region': 1, 'zone': 2, 'weight': 4000.0,
+                    'ip': '10.1.1.3', 'port': 10000, 'device': 'sdb'})
+
+        _, balance = rb.rebalance(seed=2)
+
+        # maybe not *perfect*, but should be close
+        self.assert_(balance <= 1)
 
     def test_multitier_partial(self):
         # Multitier test, nothing full
@@ -565,7 +591,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(counts[3], 256)
 
     def test_add_rebalance_add_rebalance_delete_rebalance(self):
-        """ Test for https://bugs.launchpad.net/swift/+bug/845952 """
+        # Test for https://bugs.launchpad.net/swift/+bug/845952
         # min_part of 0 to allow for rapid rebalancing
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
@@ -749,7 +775,8 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.save('some.builder')
         mock_open.assert_called_once_with('some.builder', 'wb')
-        mock_pickle_dump.assert_called_once_with(rb.to_dict(), mock_fh.__enter__(),
+        mock_pickle_dump.assert_called_once_with(rb.to_dict(),
+                                                 mock_fh.__enter__(),
                                                  protocol=2)
 
     def test_search_devs(self):

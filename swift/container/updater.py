@@ -18,7 +18,7 @@ import os
 import signal
 import sys
 import time
-from gettext import gettext as _
+from swift import gettext_ as _
 from random import random, shuffle
 from tempfile import mkstemp
 

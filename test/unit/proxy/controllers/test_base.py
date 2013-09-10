@@ -124,8 +124,9 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(env['swift.account/a'], info_a)
         self.assertEquals(env['swift.container/a/c'], info_c)
 
-        # This time do a non cached call to account than non cached to container
-        env = {} # abandon previous call to env
+        # This time do a non cached call to account than non cached to
+        # container
+        env = {}  # abandon previous call to env
         with patch('swift.proxy.controllers.base.'
                    '_prepare_pre_auth_info_request', FakeRequest):
             info_c = get_info(None, env, 'a', 'c')
@@ -137,7 +138,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(env['swift.account/a'], info_a)
         self.assertEquals(env['swift.container/a/c'], info_c)
 
-        # This time do an env cached call to container while account is not cached
+        # This time do an env cached call to container while account is not
+        # cached
         del(env['swift.account/a'])
         info_c = get_info(None, env, 'a', 'c')
         # Check that you got proper info
@@ -217,8 +219,8 @@ class TestFuncs(unittest.TestCase):
         cache_key = get_container_memcache_key("account", "cont")
         env_key = 'swift.%s' % cache_key
         req = Request.blank("/v1/account/cont",
-                            environ={ env_key: {'bytes': 3867},
-                                      'swift.cache': FakeCache({})})
+                            environ={env_key: {'bytes': 3867},
+                                     'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, 'xxx')
         self.assertEquals(resp['bytes'], 3867)
 
@@ -266,8 +268,8 @@ class TestFuncs(unittest.TestCase):
         cache_key = get_account_memcache_key("account")
         env_key = 'swift.%s' % cache_key
         req = Request.blank("/v1/account",
-                            environ={ env_key: {'bytes': 3867},
-                                      'swift.cache': FakeCache({})})
+                            environ={env_key: {'bytes': 3867},
+                                     'swift.cache': FakeCache({})})
         resp = get_account_info(req.environ, 'xxx')
         self.assertEquals(resp['bytes'], 3867)
 
