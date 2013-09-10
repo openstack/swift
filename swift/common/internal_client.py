@@ -19,7 +19,7 @@ from paste.deploy import loadapp
 import struct
 from sys import exc_info
 import zlib
-from gettext import gettext as _
+from swift import gettext_ as _
 from zlib import compressobj
 
 from swift.common.utils import quote

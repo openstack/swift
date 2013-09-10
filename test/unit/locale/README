@@ -1,0 +1,3 @@
+rebuild the .mo with msgfmt (included with GNU gettext)
+
+    msgfmt eo.po

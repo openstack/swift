@@ -16,13 +16,14 @@
 # See http://code.google.com/p/python-nose/issues/detail?id=373
 # The code below enables nosetests to work with i18n _() blocks
 
-import __builtin__
 import sys
 import os
 
-from swift.common.utils import readconf
+# make unittests pass on all locale
+import swift
+setattr(swift, 'gettext_', lambda x: x)
 
-setattr(__builtin__, '_', lambda x: x)
+from swift.common.utils import readconf
 
 
 # Work around what seems to be a Python bug.

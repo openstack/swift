@@ -17,7 +17,7 @@ import urllib
 from random import random
 from time import time
 from os.path import join
-from gettext import gettext as _
+from swift import gettext_ as _
 import hashlib
 
 from eventlet import sleep, Timeout

@@ -15,7 +15,7 @@
 
 import os
 import random
-from gettext import gettext as _
+from swift import gettext_ as _
 from logging import DEBUG
 from math import sqrt
 from time import time, ctime

@@ -22,7 +22,7 @@ import time
 import traceback
 from collections import defaultdict
 from datetime import datetime
-from gettext import gettext as _
+from swift import gettext_ as _
 from hashlib import md5
 
 from eventlet import sleep, Timeout

@@ -24,7 +24,6 @@ import uuid
 import hashlib
 import logging
 import traceback
-from gettext import gettext as _
 from os.path import basename, dirname, exists, getmtime, getsize, join
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -32,6 +31,7 @@ from contextlib import contextmanager
 from xattr import getxattr, setxattr
 from eventlet import Timeout
 
+from swift import gettext_ as _
 from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \

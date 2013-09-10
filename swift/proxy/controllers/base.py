@@ -29,7 +29,7 @@ import time
 import functools
 import inspect
 import itertools
-from gettext import gettext as _
+from swift import gettext_ as _
 from urllib import quote
 
 from eventlet import spawn_n, GreenPile

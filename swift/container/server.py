@@ -19,7 +19,7 @@ import os
 import time
 import traceback
 from datetime import datetime
-from gettext import gettext as _
+from swift import gettext_ as _
 from xml.etree.cElementTree import Element, SubElement, tostring
 
 from eventlet import Timeout

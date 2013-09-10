@@ -15,7 +15,7 @@
 
 import os
 import time
-from gettext import gettext as _
+from swift import gettext_ as _
 
 from eventlet import Timeout
 
