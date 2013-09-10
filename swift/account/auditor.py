@@ -60,9 +60,8 @@ class AccountAuditor(Daemon):
                                    '%(passed)s passed audit,'
                                    '%(failed)s failed audit'),
                                  {'time': time.ctime(reported),
-                                 'passed': self.account_passes,
-                                 'failed': self.account_failures})
-                self.account_audit(path)
+                                  'passed': self.account_passes,
+                                  'failed': self.account_failures})
                 dump_recon_cache({'account_audits_since': reported,
                                   'account_audits_passed': self.account_passes,
                                   'account_audits_failed':
