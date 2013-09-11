@@ -298,14 +298,15 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
-        if disk_file.is_deleted() or disk_file.is_expired():
-            return HTTPNotFound(request=request)
-        try:
-            disk_file.get_data_file_size()
-        except (DiskFileError, DiskFileNotExist):
-            disk_file.quarantine()
-            return HTTPNotFound(request=request)
-        orig_metadata = disk_file.get_metadata()
+        with disk_file.open():
+            if disk_file.is_deleted() or disk_file.is_expired():
+                return HTTPNotFound(request=request)
+            try:
+                disk_file.get_data_file_size()
+            except (DiskFileError, DiskFileNotExist):
+                disk_file.quarantine()
+                return HTTPNotFound(request=request)
+            orig_metadata = disk_file.get_metadata()
         orig_timestamp = orig_metadata.get('X-Timestamp', '0')
         if orig_timestamp >= request.headers['x-timestamp']:
             return HTTPConflict(request=request)
@@ -355,7 +356,8 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
-        orig_metadata = disk_file.get_metadata()
+        with disk_file.open():
+            orig_metadata = disk_file.get_metadata()
         old_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         orig_timestamp = orig_metadata.get('X-Timestamp')
         if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
@@ -432,9 +434,10 @@ class ObjectController(object):
             split_and_validate_path(request, 5, 5, True)
         try:
             disk_file = self._diskfile(device, partition, account, container,
-                                       obj, keep_data_fp=True, iter_hook=sleep)
+                                       obj, iter_hook=sleep)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
+        disk_file.open()
         if disk_file.is_deleted() or disk_file.is_expired():
             if request.headers.get('if-match') == '*':
                 return HTTPPreconditionFailed(request=request)
@@ -510,15 +513,16 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
-        if disk_file.is_deleted() or disk_file.is_expired():
-            return HTTPNotFound(request=request)
-        try:
-            file_size = disk_file.get_data_file_size()
-        except (DiskFileError, DiskFileNotExist):
-            disk_file.quarantine()
-            return HTTPNotFound(request=request)
+        with disk_file.open():
+            if disk_file.is_deleted() or disk_file.is_expired():
+                return HTTPNotFound(request=request)
+            try:
+                file_size = disk_file.get_data_file_size()
+            except (DiskFileError, DiskFileNotExist):
+                disk_file.quarantine()
+                return HTTPNotFound(request=request)
+            metadata = disk_file.get_metadata()
         response = Response(request=request, conditional_response=True)
-        metadata = disk_file.get_metadata()
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():
@@ -549,7 +553,10 @@ class ObjectController(object):
                                        obj)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
-        orig_metadata = disk_file.get_metadata()
+        with disk_file.open():
+            orig_metadata = disk_file.get_metadata()
+            is_deleted = disk_file.is_deleted()
+            is_expired = disk_file.is_expired()
         if 'x-if-delete-at' in request.headers and \
                 int(request.headers['x-if-delete-at']) != \
                 int(orig_metadata.get('X-Delete-At') or 0):
@@ -562,7 +569,7 @@ class ObjectController(object):
                                   container, obj, request, device)
         orig_timestamp = orig_metadata.get('X-Timestamp', 0)
         req_timestamp = request.headers['X-Timestamp']
-        if disk_file.is_deleted() or disk_file.is_expired():
+        if is_deleted or is_expired:
             response_class = HTTPNotFound
         else:
             if orig_timestamp < req_timestamp:

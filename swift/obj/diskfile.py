@@ -38,7 +38,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle
 from swift.common.exceptions import DiskFileError, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
-    PathNotDir
+    PathNotDir, DiskFileNotOpenError
 from swift.common.swob import multi_range_iterator
 
 
@@ -342,7 +342,6 @@ class DiskWriter(object):
 
         self.threadpool.force_run_in_thread(
             self._finalize_put, metadata, target_path)
-        self.disk_file.metadata = metadata
 
 
 class DiskFile(object):
@@ -355,19 +354,17 @@ class DiskFile(object):
     :param account: account name for the object
     :param container: container name for the object
     :param obj: object name for the object
-    :param keep_data_fp: if True, don't close the fp, otherwise close it
     :param disk_chunk_size: size of chunks on file reads
     :param bytes_per_sync: number of bytes between fdatasync calls
     :param iter_hook: called when __iter__ returns a chunk
     :param threadpool: thread pool in which to do blocking operations
-
-    :raises DiskFileCollision: on md5 collision
     """
 
     def __init__(self, path, device, partition, account, container, obj,
-                 logger, keep_data_fp=False, disk_chunk_size=65536,
-                 bytes_per_sync=(512 * 1024 * 1024), iter_hook=None,
-                 threadpool=None, obj_dir='objects', mount_check=False):
+                 logger, disk_chunk_size=65536,
+                 bytes_per_sync=(512 * 1024 * 1024),
+                 iter_hook=None, threadpool=None, obj_dir='objects',
+                 mount_check=False):
         if mount_check and not check_mount(path, device):
             raise DiskFileDeviceUnavailable()
         self.disk_chunk_size = disk_chunk_size
@@ -380,27 +377,50 @@ class DiskFile(object):
         self.device_path = join(path, device)
         self.tmpdir = join(path, device, 'tmp')
         self.logger = logger
-        self._metadata = {}
+        self._metadata = None
         self.data_file = None
+        self._data_file_size = None
         self.fp = None
         self.iter_etag = None
         self.started_at_0 = False
         self.read_to_eof = False
         self.quarantined_dir = None
-        self.keep_cache = False
         self.suppress_file_closing = False
+        self._verify_close = False
         self.threadpool = threadpool or ThreadPool(nthreads=0)
 
+        # FIXME(clayg): this attribute is set after open and affects the
+        # behavior of the class (i.e. public interface)
+        self.keep_cache = False
+
+    def open(self, verify_close=False):
+        """
+        Open the file and read the metadata.
+
+        This method must populate the _metadata attribute.
+
+        :param verify_close: force implicit close to verify_file, no effect on
+                             explicit close.
+
+        :raises DiskFileCollision: on md5 collision
+        """
         data_file, meta_file, ts_file = self._get_ondisk_file()
         if not data_file:
             if ts_file:
                 self._construct_from_ts_file(ts_file)
         else:
-            fp = self._construct_from_data_file(data_file, meta_file)
-            if keep_data_fp:
-                self.fp = fp
-            else:
-                fp.close()
+            self.fp = self._construct_from_data_file(data_file, meta_file)
+        self._verify_close = verify_close
+        self._metadata = self._metadata or {}
+        return self
+
+    def __enter__(self):
+        if self._metadata is None:
+            raise DiskFileNotOpenError()
+        return self
+
+    def __exit__(self, t, v, tb):
+        self.close(verify_file=self._verify_close)
 
     def _get_ondisk_file(self):
         """
@@ -508,6 +528,8 @@ class DiskFile(object):
 
     def __iter__(self):
         """Returns an iterator over the data file."""
+        if self.fp is None:
+            raise DiskFileNotOpenError()
         try:
             dropped_cache = 0
             read = 0
@@ -609,6 +631,9 @@ class DiskFile(object):
             finally:
                 self.fp.close()
                 self.fp = None
+        self._metadata = None
+        self._data_file_size = None
+        self._verify_close = False
 
     def get_metadata(self):
         """
@@ -616,6 +641,8 @@ class DiskFile(object):
 
         :returns: object's metadata dictionary
         """
+        if self._metadata is None:
+            raise DiskFileNotOpenError()
         return self._metadata
 
     def is_deleted(self):
@@ -715,13 +742,20 @@ class DiskFile(object):
         :raises DiskFileError: on file size mismatch.
         :raises DiskFileNotExist: on file not existing (including deleted)
         """
+        if self._data_file_size is None:
+            self._data_file_size = self._get_data_file_size()
+        return self._data_file_size
+
+    def _get_data_file_size(self):
+        # ensure file is opened
+        metadata = self.get_metadata()
         try:
             file_size = 0
             if self.data_file:
                 file_size = self.threadpool.run_in_thread(
                     getsize, self.data_file)
-                if 'Content-Length' in self._metadata:
-                    metadata_size = int(self._metadata['Content-Length'])
+                if 'Content-Length' in metadata:
+                    metadata_size = int(metadata['Content-Length'])
                     if file_size != metadata_size:
                         raise DiskFileError(
                             'Content-Length of %s does not match file size '
