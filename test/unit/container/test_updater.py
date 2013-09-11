@@ -26,7 +26,7 @@ from eventlet import spawn, Timeout, listen
 from swift.common import utils
 from swift.container import updater as container_updater
 from swift.container import server as container_server
-from swift.common.db import ContainerBroker
+from swift.container.backend import ContainerBroker
 from swift.common.ring import RingData
 from swift.common.utils import normalize_timestamp
 

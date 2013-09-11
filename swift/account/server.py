@@ -23,8 +23,9 @@ from swift import gettext_ as _
 from eventlet import Timeout
 
 import swift.common.db
+from swift.account.backend import AccountBroker
 from swift.account.utils import account_listing_response
-from swift.common.db import AccountBroker, DatabaseConnectionError
+from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
@@ -119,7 +120,7 @@ class AccountController(object):
                 try:
                     broker.initialize(normalize_timestamp(
                         req.headers.get('x-timestamp') or time.time()))
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
                     'yes' and broker.is_deleted():
@@ -140,7 +141,7 @@ class AccountController(object):
                 try:
                     broker.initialize(timestamp)
                     created = True
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             elif broker.is_status_deleted():
                 return self._deleted_response(broker, req, HTTPForbidden,

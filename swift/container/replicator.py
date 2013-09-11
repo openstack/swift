@@ -14,12 +14,13 @@
 # limitations under the License.
 
 from swift.container import server as container_server
-from swift.common import db, db_replicator
+from swift.container.backend import ContainerBroker
+from swift.common import db_replicator
 
 
 class ContainerReplicator(db_replicator.Replicator):
     server_type = 'container'
-    brokerclass = db.ContainerBroker
+    brokerclass = ContainerBroker
     datadir = container_server.DATADIR
     default_port = 6001
 

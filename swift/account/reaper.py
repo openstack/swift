@@ -24,7 +24,7 @@ from eventlet import GreenPool, sleep, Timeout
 
 import swift.common.db
 from swift.account.server import DATADIR
-from swift.common.db import AccountBroker
+from swift.account.backend import AccountBroker
 from swift.common.direct_client import ClientException, \
     direct_delete_container, direct_delete_object, direct_get_container
 from swift.common.ring import Ring
@@ -206,7 +206,7 @@ class AccountReaper(Daemon):
 
         .. seealso::
 
-            :class:`swift.common.db.AccountBroker` for the broker class.
+            :class:`swift.account.backend.AccountBroker` for the broker class.
 
         .. seealso::
 
