@@ -1055,7 +1055,7 @@ class TestServer(unittest.TestCase):
                         self.assertEquals(status, 1)
                     self.assert_('failed' in pop_stream(f))
                     # test multiple procs
-                    procs = [MockProcess() for i in range(3)]
+                    procs = [MockProcess(delay=.5) for i in range(3)]
                     for proc in procs:
                         proc.start()
                     server.procs = procs
