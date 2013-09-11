@@ -14,26 +14,26 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-recon 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-recon
 \- Openstack-swift recon middleware cli tool
 
 .SH SYNOPSIS
 .LP
-.B swift-recon 
+.B swift-recon
 \ <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
- 
-.SH DESCRIPTION 
+
+.SH DESCRIPTION
 .PP
 The swift-recon cli tool can be used to retrieve various metrics and telemetry information about
-a cluster that has been collected by the swift-recon middleware. 
+a cluster that has been collected by the swift-recon middleware.
 
-In order to make use of the swift-recon middleware, update the object-server.conf file and 
-enable the recon middleware by adding a pipeline entry and setting its option(s). You can view 
+In order to make use of the swift-recon middleware, update the object-server.conf file and
+enable the recon middleware by adding a pipeline entry and setting its option(s). You can view
 more information in the example section below.
 
 
@@ -69,13 +69,13 @@ Get cluster quarantine stats
 .IP "\fB--md5\fR"
 Get md5sum of servers ring and compare to local cop
 .IP "\fB--all\fR"
-Perform all checks. Equivalent to -arudlq --md5
+Perform all checks. Equivalent to \-arudlq \-\-md5
 .IP "\fB-z ZONE, --zone=ZONE\fR"
 Only query servers in specified zone
 .IP "\fB--swiftdir=PATH\fR"
 Default = /etc/swift
 .PD
-.RE  
+.RE
 
 
 
@@ -84,16 +84,16 @@ Default = /etc/swift
 .PD 0
 .RS 0
 .IP "ubuntu:~$ swift-recon -q --zone 3"
-.IP "==============================================================================="
+.IP "================================================================="
 .IP "[2011-10-18 19:36:00] Checking quarantine dirs on 1 hosts... "
 .IP "[Quarantined objects] low: 4, high: 4, avg: 4, total: 4 "
 .IP "[Quarantined accounts] low: 0, high: 0, avg: 0, total: 0 "
 .IP "[Quarantined containers] low: 0, high: 0, avg: 0, total: 0 "
-.IP "==============================================================================="
+.IP "================================================================="
 .RE
 
 .RS 0
-Finally if you also wish to track asynchronous pending’s you will need to setup a 
+Finally if you also wish to track asynchronous pending’s you will need to setup a
 cronjob to run the swift-recon-cron script periodically:
 
 .IP "*/5 * * * * swift /usr/bin/swift-recon-cron /etc/swift/object-server.conf"
@@ -104,9 +104,9 @@ cronjob to run the swift-recon-cron script periodically:
 
 .SH DOCUMENTATION
 .LP
-More documentation about Openstack-Swift can be found at 
-.BI http://swift.openstack.org/index.html 
-Also more specific documentation about swift-recon can be found at 
+More documentation about Openstack-Swift can be found at
+.BI http://swift.openstack.org/index.html
+Also more specific documentation about swift-recon can be found at
 .BI http://swift.openstack.org/admin_guide.html#cluster-telemetry-and-monitoring
 
 

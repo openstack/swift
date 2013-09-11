@@ -475,7 +475,7 @@ Default is localhost.
 Default is 8125.
 .IP \fBaccess_log_statsd_default_sample_rate\fR
 Default is 1.
-.IP \fBaccess_log_statsd_metric_prefix =
+.IP \fBaccess_log_statsd_metric_prefix\fR
 Default is "" (empty-string)
 .IP \fBaccess_log_headers\fR
 Default is False.
@@ -499,13 +499,13 @@ that are acceptable within this section.
 .IP \fBuse\fR
 Entry point for paste.deploy for the proxy server. This is the reference to the installed python egg.
 This is normally \fBegg:swift#proxy\fR.
-.IP \fBset log_name\fR
+.IP "\fBset log_name\fR"
 Label used when logging. The default is proxy-server.
-.IP \fBset log_facility\fR
+.IP "\fBset log_facility\fR"
 Syslog log facility. The default is LOG_LOCAL0.
-.IP \fB set log_level\fR
+.IP "\fBset log_level\fR"
 Logging level. The default is INFO.
-.IP \fB set log_address\fR
+.IP "\fBset log_address\fR"
 Logging address. The default is /dev/log.
 .IP \fBlog_handoffs\fR
 Log when handoff locations are used.  Default is True.
