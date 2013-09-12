@@ -37,7 +37,9 @@ class ContainerBroker(DatabaseBroker):
     db_reclaim_timestamp = 'created_at'
 
     def _initialize(self, conn, put_timestamp):
-        """Creates a brand new database (tables, indices, triggers, etc.)"""
+        """
+        Create a brand new container database (tables, indices, triggers, etc.)
+        """
         if not self.account:
             raise ValueError(
                 'Attempting to create a new database with no account set')
@@ -50,6 +52,7 @@ class ContainerBroker(DatabaseBroker):
     def create_object_table(self, conn):
         """
         Create the object table which is specifc to the container DB.
+        Not a part of Pluggable Back-ends, internal to the baseline code.
 
         :param conn: DB connection object
         """
@@ -91,6 +94,7 @@ class ContainerBroker(DatabaseBroker):
     def create_container_stat_table(self, conn, put_timestamp=None):
         """
         Create the container_stat table which is specific to the container DB.
+        Not a part of Pluggable Back-ends, internal to the baseline code.
 
         :param conn: DB connection object
         :param put_timestamp: put timestamp
@@ -159,6 +163,7 @@ class ContainerBroker(DatabaseBroker):
             WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
 
     def _commit_puts_load(self, item_list, entry):
+        """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         (name, timestamp, size, content_type, etag, deleted) = \
             pickle.loads(entry.decode('base64'))
         item_list.append({'name': name,
@@ -170,7 +175,7 @@ class ContainerBroker(DatabaseBroker):
 
     def empty(self):
         """
-        Check if the DB is empty.
+        Check if container DB is empty.
 
         :returns: True if the database has no active objects, False otherwise
         """
@@ -334,7 +339,7 @@ class ContainerBroker(DatabaseBroker):
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):
         """
-        Update reported stats.
+        Update reported stats, available with container's `get_info`.
 
         :param put_timestamp: put_timestamp to update
         :param delete_timestamp: delete_timestamp to update
