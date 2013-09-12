@@ -78,7 +78,7 @@ class AuditorWorker(object):
                                             logger=self.logger)
         for path, device, partition in all_locs:
             loop_time = time.time()
-            self.object_audit(path, device, partition)
+            self.failsafe_object_audit(path, device, partition)
             self.logger.timing_since('timing', loop_time)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
@@ -151,6 +151,17 @@ class AuditorWorker(object):
         else:
             self.stats_buckets["OVER"] += 1
 
+    def failsafe_object_audit(self, path, device, partition):
+        """
+        Entrypoint to object_audit, with a failsafe generic exception handler.
+        """
+        try:
+            self.object_audit(path, device, partition)
+        except (Exception, Timeout):
+            self.logger.increment('errors')
+            self.errors += 1
+            self.logger.exception(_('ERROR Trying to audit %s'), path)
+
     def object_audit(self, path, device, partition):
         """
         Audits the given object path.
@@ -203,11 +214,6 @@ class AuditorWorker(object):
                               {'obj': path, 'err': err})
             diskfile.quarantine_renamer(
                 os.path.join(self.devices, device), path)
-            return
-        except (Exception, Timeout):
-            self.logger.increment('errors')
-            self.errors += 1
-            self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1
 

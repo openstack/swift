@@ -141,6 +141,36 @@ class TestAuditor(unittest.TestCase):
             'sda', '0')
         self.assertEquals(self.auditor.quarantines, pre_quarantines + 1)
 
+    def test_object_audit_will_not_swallow_errors_in_tests(self):
+        timestamp = str(normalize_timestamp(time.time()))
+        path = os.path.join(self.disk_file.datadir, timestamp + '.data')
+        mkdirs(self.disk_file.datadir)
+        with open(path, 'w') as f:
+            write_metadata(f, {'name': '/a/c/o'})
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
+
+        def blowup(*args):
+            raise NameError('tpyo')
+        with mock.patch('swift.obj.diskfile.DiskFile',
+                        blowup):
+            self.assertRaises(NameError, self.auditor.object_audit,
+                              path, 'sda', '0')
+
+    def test_failsafe_object_audit_will_swallow_errors_in_tests(self):
+        timestamp = str(normalize_timestamp(time.time()))
+        path = os.path.join(self.disk_file.datadir, timestamp + '.data')
+        mkdirs(self.disk_file.datadir)
+        with open(path, 'w') as f:
+            write_metadata(f, {'name': '/a/c/o'})
+        self.auditor = auditor.AuditorWorker(self.conf, self.logger)
+
+        def blowup(*args):
+            raise NameError('tpyo')
+        with mock.patch('swift.obj.diskfile.DiskFile',
+                        blowup):
+            self.auditor.failsafe_object_audit(path, 'sda', '0')
+        self.assertEquals(self.auditor.errors, 1)
+
     def test_generic_exception_handling(self):
         self.auditor = auditor.AuditorWorker(self.conf, self.logger)
         timestamp = str(normalize_timestamp(time.time()))
