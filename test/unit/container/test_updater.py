@@ -28,7 +28,7 @@ from swift.container import updater as container_updater
 from swift.container import server as container_server
 from swift.container.backend import ContainerBroker
 from swift.common.ring import RingData
-from swift.common.utils import normalize_timestamp
+from swift.common.ondisk import normalize_timestamp
 
 
 class TestContainerUpdater(unittest.TestCase):

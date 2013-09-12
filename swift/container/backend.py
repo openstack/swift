@@ -25,7 +25,8 @@ import errno
 
 import sqlite3
 
-from swift.common.utils import normalize_timestamp, lock_parent_directory
+from swift.common.utils import lock_parent_directory
+from swift.common.ondisk import normalize_timestamp
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 

@@ -23,7 +23,7 @@ from StringIO import StringIO
 from test.unit import tmpfile
 from mock import patch
 
-from swift.common import daemon, utils
+from swift.common import daemon, utils, ondisk
 
 
 class MyDaemon(daemon.Daemon):
@@ -63,8 +63,8 @@ class TestDaemon(unittest.TestCase):
 class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        ondisk.HASH_PATH_SUFFIX = 'endcap'
+        ondisk.HASH_PATH_PREFIX = 'startcap'
         utils.drop_privileges = lambda *args: None
         utils.capture_stdio = lambda *args: None
 

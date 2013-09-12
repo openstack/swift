@@ -17,7 +17,8 @@ import time
 from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
-from swift.common.utils import json, normalize_timestamp
+from swift.common.utils import json
+from swift.common.ondisk import normalize_timestamp
 
 
 class FakeAccountBroker(object):

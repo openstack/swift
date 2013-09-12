@@ -22,7 +22,7 @@ from time import sleep, time
 from uuid import uuid4
 
 from swift.container.backend import ContainerBroker
-from swift.common.utils import normalize_timestamp
+from swift.common.ondisk import normalize_timestamp
 
 
 class TestContainerBroker(unittest.TestCase):

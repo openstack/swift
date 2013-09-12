@@ -28,7 +28,7 @@ from mock import patch
 import swift.common.db
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists
-from swift.common.utils import normalize_timestamp
+from swift.common.ondisk import normalize_timestamp
 from swift.common.exceptions import LockTimeout
 
 
