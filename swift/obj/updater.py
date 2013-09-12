@@ -29,7 +29,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value
 from swift.common.daemon import Daemon
-from swift.obj.server import ASYNCDIR
+from swift.obj.diskfile import ASYNCDIR
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR
 

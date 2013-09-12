@@ -24,8 +24,8 @@ from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout, listen
 
-from swift.obj import updater as object_updater, server as object_server
-from swift.obj.server import ASYNCDIR
+from swift.obj import updater as object_updater
+from swift.obj.diskfile import ASYNCDIR
 from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
@@ -123,7 +123,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'})
         cu.run_once()
-        async_dir = os.path.join(self.sda1, object_server.ASYNCDIR)
+        async_dir = os.path.join(self.sda1, ASYNCDIR)
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))

@@ -85,9 +85,9 @@ class TestAuditor(unittest.TestCase):
                 files = os.listdir(self.testdir)
                 return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-            auditor.audit_location_generator = fake_audit_location_generator
-
-            self.assertRaises(ValueError, test_auditor.run_forever)
+            with mock.patch('swift.account.auditor.audit_location_generator',
+                            fake_audit_location_generator):
+                self.assertRaises(ValueError, test_auditor.run_forever)
         self.assertEqual(test_auditor.account_failures, 2 * call_times)
         self.assertEqual(test_auditor.account_passes, 3 * call_times)
 
@@ -100,9 +100,9 @@ class TestAuditor(unittest.TestCase):
             files = os.listdir(self.testdir)
             return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-        auditor.audit_location_generator = fake_audit_location_generator
-
-        test_auditor.run_once()
+        with mock.patch('swift.account.auditor.audit_location_generator',
+                        fake_audit_location_generator):
+            test_auditor.run_once()
         self.assertEqual(test_auditor.account_failures, 2)
         self.assertEqual(test_auditor.account_passes, 3)
 

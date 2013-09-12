@@ -44,3 +44,12 @@ Object Auditor
     :undoc-members:
     :show-inheritance:
 
+.. _object-diskfile:
+
+Object Backend
+==============
+
+.. automodule:: swift.obj.diskfile
+    :members:
+    :undoc-members:
+    :show-inheritance:
