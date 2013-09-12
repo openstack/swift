@@ -536,7 +536,7 @@ class DatabaseBroker(object):
         """
         Unmarshall the :param:entry and append it to :param:item_list.
         This is implemented by a particular broker to be compatible
-        with its merge_items().
+        with its :func:`merge_items`.
         """
         raise NotImplementedError
 
@@ -622,7 +622,7 @@ class DatabaseBroker(object):
         that key was set to that value. Key/values will only be overwritten if
         the timestamp is newer. To delete a key, set its value to ('',
         timestamp). These empty keys will eventually be removed by
-        :func:reclaim
+        :func:`reclaim`
         """
         old_metadata = self.metadata
         if set(metadata_updates).issubset(set(old_metadata)):
@@ -659,7 +659,7 @@ class DatabaseBroker(object):
         from incoming_sync and outgoing_sync where the updated_at timestamp is
         < sync_timestamp.
 
-        In addition, this calls the DatabaseBroker's :func:_reclaim method.
+        In addition, this calls the DatabaseBroker's :func:`_reclaim` method.
 
         :param age_timestamp: max created_at timestamp of object rows to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete

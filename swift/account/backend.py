@@ -31,14 +31,14 @@ from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
 
 
 class AccountBroker(DatabaseBroker):
-    """Encapsulates working with a account database."""
+    """Encapsulates working with an account database."""
     db_type = 'account'
     db_contains_type = 'container'
     db_reclaim_timestamp = 'delete_timestamp'
 
     def _initialize(self, conn, put_timestamp):
         """
-        Create a brand new database (tables, indices, triggers, etc.)
+        Create a brand new account database (tables, indices, triggers, etc.)
 
         :param conn: DB connection object
         :param put_timestamp: put timestamp
@@ -103,6 +103,7 @@ class AccountBroker(DatabaseBroker):
     def create_account_stat_table(self, conn, put_timestamp):
         """
         Create account_stat table which is specific to the account DB.
+        Not a part of Pluggable Back-ends, internal to the baseline code.
 
         :param conn: DB connection object
         :param put_timestamp: put timestamp
@@ -156,6 +157,7 @@ class AccountBroker(DatabaseBroker):
             WHERE delete_timestamp < ? """, (timestamp, timestamp, timestamp))
 
     def _commit_puts_load(self, item_list, entry):
+        """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         (name, put_timestamp, delete_timestamp,
          object_count, bytes_used, deleted) = \
             pickle.loads(entry.decode('base64'))

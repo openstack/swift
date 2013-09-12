@@ -217,6 +217,7 @@ class ObjectController(object):
         Update the expiring objects container when objects are updated.
 
         :param op: operation performed (ex: 'PUT', or 'DELETE')
+        :param delete_at: scheduled delete in UNIX seconds, int
         :param account: account name for the object
         :param container: container name for the object
         :param obj: object name
