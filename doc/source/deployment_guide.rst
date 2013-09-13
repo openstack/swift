@@ -414,6 +414,19 @@ stats_interval      3600               Interval in seconds between logging
                                        replication statistics
 reclaim_age         604800             Time elapsed in seconds before an
                                        object can be reclaimed
+handoffs_first      false              If set to True, partitions that are
+                                       not supposed to be on the node will be
+                                       replicated first.  The default setting
+                                       should not be changed, except for
+                                       extreme situations.
+handoff_delete      auto               By default handoff partitions will be
+                                       removed when it has successfully
+                                       replicated to all the cannonical nodes.
+                                       If set to an integer n, it will remove
+                                       the partition if it is successfully
+                                       replicated to n nodes.  The default
+                                       setting should not be changed, except
+                                       for extremem situations.
 ==================  =================  =======================================
 
 [object-updater]
