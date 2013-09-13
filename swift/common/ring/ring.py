@@ -171,7 +171,7 @@ class Ring(object):
                 self.tier2devs[tier].append(dev)
 
         tiers_by_length = defaultdict(list)
-        for tier in self.tier2devs.keys():
+        for tier in self.tier2devs:
             tiers_by_length[len(tier)].append(tier)
         self.tiers_by_length = sorted(tiers_by_length.values(),
                                       key=lambda x: len(x[0]))

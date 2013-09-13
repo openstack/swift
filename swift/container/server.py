@@ -406,7 +406,7 @@ class ContainerController(object):
                                   "last_modified"]:
                         SubElement(obj_element, field).text = str(
                             record.pop(field)).decode('utf-8')
-                    for field in sorted(record.keys()):
+                    for field in sorted(record):
                         SubElement(obj_element, field).text = str(
                             record[field]).decode('utf-8')
             ret.body = tostring(doc, encoding='UTF-8').replace(

@@ -267,7 +267,7 @@ class AccountReaper(Daemon):
                 self.stats_objects_possibly_remaining
         if self.stats_return_codes:
             log += _(', return codes: ')
-            for code in sorted(self.stats_return_codes.keys()):
+            for code in sorted(self.stats_return_codes):
                 log += '%s %sxxs, ' % (self.stats_return_codes[code], code)
             log = log[:-2]
         log += _(', elapsed: %.02fs') % (time() - begin)

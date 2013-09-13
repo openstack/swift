@@ -235,7 +235,7 @@ class HeaderEnvironProxy(UserDict.DictMixin):
 
     def keys(self):
         keys = [key[5:].replace('_', '-').title()
-                for key in self.environ.iterkeys() if key.startswith('HTTP_')]
+                for key in self.environ if key.startswith('HTTP_')]
         if 'CONTENT_LENGTH' in self.environ:
             keys.append('Content-Length')
         if 'CONTENT_TYPE' in self.environ:
