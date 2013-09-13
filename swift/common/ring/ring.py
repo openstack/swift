@@ -313,7 +313,7 @@ class Ring(object):
                     dev_id = part2dev_id[handoff_part]
                     dev = self._devs[dev_id]
                     region = dev['region']
-                    zone = (dev['region'], dev['zone'])
+                    zone = (region, dev['zone'])
                     if dev_id not in used and region not in same_regions:
                         yield dev
                         used.add(dev_id)
