@@ -291,6 +291,12 @@ class TestInternalClient(unittest.TestCase):
             except Exception as err:
                 pass
             self.assertEquals(200, err.resp.status_int)
+            try:
+                client.make_request('GET', '/', {}, (111,))
+            except Exception as err:
+                self.assertTrue(str(err).startswith('Unexpected response'))
+            else:
+                self.fail("Expected the UnexpectedResponse")
         finally:
             internal_client.sleep = old_sleep
 

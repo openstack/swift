@@ -36,7 +36,7 @@ class UnexpectedResponse(Exception):
     """
 
     def __init__(self, message, resp):
-        super(UnexpectedResponse, self).__init__(self, message)
+        super(UnexpectedResponse, self).__init__(message)
         self.resp = resp
 
 
