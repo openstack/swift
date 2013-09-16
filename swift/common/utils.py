@@ -1295,32 +1295,6 @@ def compute_eta(start_time, current_value, final_value):
     return get_time_units(1.0 / completion * elapsed - elapsed)
 
 
-def iter_devices_partitions(devices_dir, item_type):
-    """
-    Iterate over partitions across all devices.
-
-    :param devices_dir: Path to devices
-    :param item_type: One of 'accounts', 'containers', or 'objects'
-    :returns: Each iteration returns a tuple of (device, partition)
-    """
-    devices = listdir(devices_dir)
-    shuffle(devices)
-    devices_partitions = []
-    for device in devices:
-        partitions = listdir(os.path.join(devices_dir, device, item_type))
-        shuffle(partitions)
-        devices_partitions.append((device, iter(partitions)))
-    yielded = True
-    while yielded:
-        yielded = False
-        for device, partitions in devices_partitions:
-            try:
-                yield device, partitions.next()
-                yielded = True
-            except StopIteration:
-                pass
-
-
 def unlink_older_than(path, mtime):
     """
     Remove any file in a given path that that was last modified before mtime.
