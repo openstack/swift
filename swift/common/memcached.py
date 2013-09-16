@@ -106,7 +106,7 @@ class MemcacheRing(object):
             for i in xrange(NODE_WEIGHT):
                 self._ring[md5hash('%s-%s' % (server, i))] = server
         self._tries = tries if tries <= len(servers) else len(servers)
-        self._sorted = sorted(self._ring.keys())
+        self._sorted = sorted(self._ring)
         self._client_cache = dict(((server, []) for server in servers))
         self._connect_timeout = connect_timeout
         self._io_timeout = io_timeout

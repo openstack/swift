@@ -25,7 +25,7 @@ from swift.common.swob import Request, Response
 
 def interpret_conf_limits(conf, name_prefix):
     conf_limits = []
-    for conf_key in conf.keys():
+    for conf_key in conf:
         if conf_key.startswith(name_prefix):
             cont_size = int(conf_key[len(name_prefix):])
             rate = float(conf[conf_key])

@@ -50,7 +50,7 @@ def utf8encode(*args):
 
 
 def utf8encodekeys(metadata):
-    uni_keys = [k for k in metadata.keys() if isinstance(k, unicode)]
+    uni_keys = [k for k in metadata if isinstance(k, unicode)]
     for k in uni_keys:
         sv = metadata[k]
         del metadata[k]
@@ -274,7 +274,7 @@ class DatabaseBroker(object):
         timestamp = normalize_timestamp(timestamp)
         # first, clear the metadata
         cleared_meta = {}
-        for k in self.metadata.iterkeys():
+        for k in self.metadata:
             cleared_meta[k] = ('', timestamp)
         self.update_metadata(cleared_meta)
         # then mark the db as deleted

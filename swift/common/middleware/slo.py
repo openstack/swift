@@ -164,7 +164,7 @@ def parse_input(raw_data):
     req_keys = set(['path', 'etag', 'size_bytes'])
     try:
         for seg_dict in parsed_data:
-            if (set(seg_dict.keys()) != req_keys or
+            if (set(seg_dict) != req_keys or
                     '/' not in seg_dict['path'].lstrip('/')):
                 raise HTTPBadRequest('Invalid SLO Manifest File')
     except (AttributeError, TypeError):

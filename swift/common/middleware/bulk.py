@@ -56,7 +56,7 @@ def get_response_body(data_format, data_dict, error_list):
         return json.dumps(data_dict)
     if data_format and data_format.endswith('/xml'):
         output = '<delete>\n'
-        for key in sorted(data_dict.keys()):
+        for key in sorted(data_dict):
             xml_key = key.replace(' ', '_').lower()
             output += '<%s>%s</%s>\n' % (xml_key, data_dict[key], xml_key)
         output += '<errors>\n'
@@ -69,7 +69,7 @@ def get_response_body(data_format, data_dict, error_list):
         return output
 
     output = ''
-    for key in sorted(data_dict.keys()):
+    for key in sorted(data_dict):
         output += '%s: %s\n' % (key, data_dict[key])
     output += 'Errors:\n'
     output += '\n'.join(
