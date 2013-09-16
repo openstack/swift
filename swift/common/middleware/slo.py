@@ -348,8 +348,7 @@ class StaticLargeObject(object):
             if len(sub_segments) > MAX_BUFFERED_SLO_SEGMENTS:
                 raise HTTPBadRequest(
                     'Too many buffered slo segments to delete.')
-            if sub_segments:
-                seg_data = sub_segments.pop(0)
+            seg_data = sub_segments.pop(0)
             if seg_data.get('sub_slo'):
                 new_env = req.environ.copy()
                 new_env['REQUEST_METHOD'] = 'GET'
