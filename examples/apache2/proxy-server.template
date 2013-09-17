@@ -2,11 +2,13 @@
 #
 # Change %PORT% to the port that you wish to use on your system
 # Change %SERVICENAME% to the service name you are using
+# Change %USER% to the system user that will run the daemon process
 # Change the debug level as you see fit
 #
 # For example:
 #     Replace %PORT% by 8080
 #     Replace %SERVICENAME% by proxy-server
+#     Replace %USER% with apache (or remove it for default)
 
 NameVirtualHost *:%PORT%
 Listen %PORT%
@@ -14,7 +16,7 @@ Listen %PORT%
 <VirtualHost *:%PORT%>
     # The limit of an object size
     LimitRequestBody 5368709122
-    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1
+    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER%
     WSGIProcessGroup %SERVICENAME%
     WSGIScriptAlias / /var/www/swift/%SERVICENAME%.wsgi
     WSGIApplicationGroup %{GLOBAL}
