@@ -60,7 +60,9 @@ RESPONSE_REASONS = {
     204: ('No Content', ''),
     206: ('Partial Content', ''),
     301: ('Moved Permanently', 'The resource has moved permanently.'),
-    302: ('Found', ''),
+    302: ('Found', 'The resource has moved temporarily.'),
+    303: ('See Other', 'The response to the request can be found under a '
+          'different URI.'),
     304: ('Not Modified', ''),
     307: ('Temporary Redirect', 'The resource has moved temporarily.'),
     400: ('Bad Request', 'The server could not comply with the request since '
@@ -1213,7 +1215,9 @@ HTTPAccepted = status_map[202]
 HTTPNoContent = status_map[204]
 HTTPMovedPermanently = status_map[301]
 HTTPFound = status_map[302]
+HTTPSeeOther = status_map[303]
 HTTPNotModified = status_map[304]
+HTTPTemporaryRedirect = status_map[307]
 HTTPBadRequest = status_map[400]
 HTTPUnauthorized = status_map[401]
 HTTPForbidden = status_map[403]
