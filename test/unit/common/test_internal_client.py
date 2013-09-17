@@ -141,7 +141,8 @@ class TestCompressingfileReader(unittest.TestCase):
 
     def test_read(self):
         exp_data = 'abcdefghijklmnopqrstuvwxyz'
-        fobj = internal_client.CompressingFileReader(StringIO(exp_data))
+        fobj = internal_client.CompressingFileReader(
+            StringIO(exp_data), chunk_size=5)
 
         data = ''
         d = zlib.decompressobj(16 + zlib.MAX_WBITS)
@@ -149,6 +150,29 @@ class TestCompressingfileReader(unittest.TestCase):
             data += d.decompress(chunk)
 
         self.assertEquals(exp_data, data)
+
+    def test_seek(self):
+        exp_data = 'abcdefghijklmnopqrstuvwxyz'
+        fobj = internal_client.CompressingFileReader(
+            StringIO(exp_data), chunk_size=5)
+
+        # read a couple of chunks only
+        for _ in range(2):
+            fobj.read()
+
+        # read whole thing after seek and check data
+        fobj.seek(0)
+        data = ''
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        for chunk in fobj.read():
+            data += d.decompress(chunk)
+        self.assertEquals(exp_data, data)
+
+    def test_seek_not_implemented_exception(self):
+        fobj = internal_client.CompressingFileReader(
+            StringIO(''), chunk_size=5)
+        self.assertRaises(NotImplementedError, fobj.seek, 10)
+        self.assertRaises(NotImplementedError, fobj.seek, 0, 10)
 
 
 class TestInternalClient(unittest.TestCase):
