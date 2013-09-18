@@ -152,6 +152,22 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
     }
 
 
+def headers_to_object_info(headers, status_int=HTTP_OK):
+    """
+    Construct a cacheable dict of object info based on response headers.
+    """
+    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    info = {'status': status_int,
+            'length': headers.get('content-length'),
+            'type': headers.get('content-type'),
+            'etag': headers.get('etag'),
+            'meta': dict((key[14:], value)
+                         for key, value in headers.iteritems()
+                         if key.startswith('x-object-meta-'))
+            }
+    return info
+
+
 def cors_validation(func):
     """
     Decorator to check if the request is a CORS request and if so, if it's
@@ -213,6 +229,21 @@ def cors_validation(func):
     return wrapped
 
 
+def get_object_info(env, app, path=None, swift_source=None):
+    """
+    Get the info structure for an object, based on env and app.
+    This is useful to middlewares.
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the object.
+    """
+    (version, account, container, obj) = \
+        split_path(path or env['PATH_INFO'], 4, 4, True)
+    info = _get_object_info(app, env, account, container, obj)
+    if not info:
+        info = headers_to_object_info({}, 0)
+    return info
+
+
 def get_container_info(env, app, swift_source=None):
     """
     Get the info structure for a container, based on env and app.
@@ -268,6 +299,19 @@ def _get_cache_key(account, container):
     return cache_key, env_key
 
 
+def get_object_env_key(account, container, obj):
+    """
+    Get the keys for env (env_key) where info about object is cached
+    :param   account: The name of the account
+    :param container: The name of the container
+    :param obj: The name of the object
+    :returns a string env_key
+    """
+    env_key = 'swift.object/%s/%s/%s' % (account,
+                                         container, obj)
+    return env_key
+
+
 def _set_info_cache(app, env, account, container, resp):
     """
     Cache info in both memcache and env.
@@ -312,6 +356,34 @@ def _set_info_cache(app, env, account, container, resp):
         info = headers_to_account_info(resp.headers, resp.status_int)
     if memcache:
         memcache.set(cache_key, info, time=cache_time)
+    env[env_key] = info
+
+
+def _set_object_info_cache(app, env, account, container, obj, resp):
+    """
+    Cache object info env. Do not cache object informations in
+    memcache. This is an intentional omission as it would lead
+    to cache pressure. This is a per-request cache.
+
+    Caching is used to avoid unnecessary calls to object servers.
+    This is a private function that is being called by GETorHEAD_base.
+    Any attempt to GET or HEAD from the object server should use
+    the GETorHEAD_base interface which would then set the cache.
+
+    :param  app: the application object
+    :param  account: the unquoted account name
+    :param  container: the unquoted container name or None
+    :param  object: the unquoted object name or None
+    :param resp: the response received or None if info cache should be cleared
+    """
+
+    env_key = get_object_env_key(account, container, obj)
+
+    if not resp:
+        env.pop(env_key, None)
+        return
+
+    info = headers_to_object_info(resp.headers, resp.status_int)
     env[env_key] = info
 
 
@@ -401,6 +473,40 @@ def get_info(app, env, account, container=None, ret_not_found=False):
         env[env_key] = info
         if ret_not_found or is_success(info['status']):
             return info
+    except (KeyError, AttributeError):
+        pass
+    return None
+
+
+def _get_object_info(app, env, account, container, obj):
+    """
+    Get the info about object
+
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the info.
+
+    :param app: the application object
+    :param env: the environment used by the current request
+    :param account: The unquoted name of the account
+    :param container: The unquoted name of the container
+    :param obj: The unquoted name of the object
+    :returns: the cached info or None if cannot be retrieved
+    """
+    env_key = get_object_env_key(account, container, obj)
+    info = env.get(env_key)
+    if info:
+        return info
+    # Not in cached, let's try the object servers
+    path = '/v1/%s/%s/%s' % (account, container, obj)
+    req = _prepare_pre_auth_info_request(env, path)
+    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
+    # the environment under environ[env_key]. We will
+    # pick the one from environ[env_key] and use it to set the caller env
+    resp = req.get_response(app)
+    try:
+        info = resp.environ[env_key]
+        env[env_key] = info
+        return info
     except (KeyError, AttributeError):
         pass
     return None
@@ -1015,6 +1121,12 @@ class Controller(object):
         try:
             (account, container) = split_path(req.path_info, 1, 2)
             _set_info_cache(self.app, req.environ, account, container, res)
+        except ValueError:
+            pass
+        try:
+            (account, container, obj) = split_path(req.path_info, 3, 3, True)
+            _set_object_info_cache(self.app, req.environ, account,
+                                   container, obj, res)
         except ValueError:
             pass
         return res
