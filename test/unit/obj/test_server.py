@@ -32,9 +32,10 @@ from test.unit import FakeLogger
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    NullLogger, storage_directory, public, replication
+from swift.common.utils import mkdirs, NullLogger, public, replication
+from swift.common.ondisk import hash_path, normalize_timestamp, \
+    storage_directory
+from swift.common import ondisk
 from swift.common import constraints
 from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
@@ -45,8 +46,8 @@ class TestObjectController(unittest.TestCase):
 
     def setUp(self):
         """Set up for testing swift.object.server.ObjectController"""
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        ondisk.HASH_PATH_SUFFIX = 'endcap'
+        ondisk.HASH_PATH_PREFIX = 'startcap'
         self.testdir = \
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
@@ -1904,8 +1905,8 @@ class TestObjectController(unittest.TestCase):
                  'x-trans-id': '-'})})
 
     def test_async_update_saves_on_exception(self):
-        _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        _prefix = ondisk.HASH_PATH_PREFIX
+        ondisk.HASH_PATH_PREFIX = ''
 
         def fake_http_connect(*args):
             raise Exception('test')
@@ -1918,7 +1919,7 @@ class TestObjectController(unittest.TestCase):
                 {'x-timestamp': '1', 'x-out': 'set'}, 'sda1')
         finally:
             object_server.http_connect = orig_http_connect
-            utils.HASH_PATH_PREFIX = _prefix
+            ondisk.HASH_PATH_PREFIX = _prefix
         self.assertEquals(
             pickle.load(open(os.path.join(
                 self.testdir, 'sda1', 'async_pending', 'a83',
@@ -1928,8 +1929,8 @@ class TestObjectController(unittest.TestCase):
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
-        _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
+        _prefix = ondisk.HASH_PATH_PREFIX
+        ondisk.HASH_PATH_PREFIX = ''
 
         def fake_http_connect(status):
 
@@ -1963,7 +1964,7 @@ class TestObjectController(unittest.TestCase):
                      'op': 'PUT'})
         finally:
             object_server.http_connect = orig_http_connect
-            utils.HASH_PATH_PREFIX = _prefix
+            ondisk.HASH_PATH_PREFIX = _prefix
 
     def test_async_update_does_not_save_on_2xx(self):
 

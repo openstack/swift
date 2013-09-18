@@ -15,7 +15,7 @@
 
 import unittest
 from swift.container import replicator
-from swift.common.utils import normalize_timestamp
+from swift.common.ondisk import normalize_timestamp
 
 
 class TestReplicator(unittest.TestCase):

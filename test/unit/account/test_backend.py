@@ -22,7 +22,7 @@ from time import sleep, time
 from uuid import uuid4
 
 from swift.account.backend import AccountBroker
-from swift.common.utils import normalize_timestamp
+from swift.common.ondisk import normalize_timestamp
 
 
 class TestAccountBroker(unittest.TestCase):

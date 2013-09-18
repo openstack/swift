@@ -22,7 +22,8 @@ from swob in here without creating circular imports.
 
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
-from swift.common.utils import split_path, validate_device_partition
+from swift.common.ondisk import validate_device_partition
+from swift.common.utils import split_path
 from urllib import unquote
 
 

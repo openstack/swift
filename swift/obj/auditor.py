@@ -21,8 +21,9 @@ from eventlet import Timeout
 
 from swift.obj import diskfile
 from swift.obj import server as object_server
-from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, config_true_value, dump_recon_cache, list_from_csv, json
+from swift.common.utils import get_logger, ratelimit_sleep, \
+    config_true_value, dump_recon_cache, list_from_csv, json
+from swift.common.ondisk import audit_location_generator
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist
 from swift.common.daemon import Daemon

@@ -25,7 +25,8 @@ from test.unit import FakeLogger
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash
 from swift.obj.server import DATADIR
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
+from swift.common.utils import mkdirs
+from swift.common.ondisk import hash_path, normalize_timestamp, \
     storage_directory
 
 

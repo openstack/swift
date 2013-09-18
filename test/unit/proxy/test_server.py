@@ -47,7 +47,9 @@ from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
 from swift.common import utils
-from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
+from swift.common.utils import mkdirs, NullLogger
+from swift.common import ondisk
+from swift.common.ondisk import normalize_timestamp
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers.obj import SegmentedIterable
 from swift.proxy.controllers.base import get_container_memcache_key, \
@@ -73,7 +75,7 @@ def request_init(self, *args, **kwargs):
 
 
 def setup():
-    utils.HASH_PATH_SUFFIX = 'endcap'
+    ondisk.HASH_PATH_SUFFIX = 'endcap'
     global _testdir, _test_servers, _test_sockets, \
         _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
     _orig_SysLogHandler = utils.SysLogHandler
