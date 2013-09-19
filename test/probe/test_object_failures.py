@@ -22,7 +22,8 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
-from swift.common.utils import hash_path, readconf
+from swift.common.ondisk import hash_path
+from swift.common.utils import readconf
 from swift.obj.diskfile import write_metadata, read_metadata
 from test.probe.common import kill_servers, reset_environment
 
