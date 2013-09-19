@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import unittest
-import time
 from urllib import unquote
 import cStringIO as StringIO
 from logging.handlers import SysLogHandler
@@ -152,7 +151,8 @@ class TestProxyLogging(unittest.TestCase):
             app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
             app.access_logger = FakeLogger()
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
-            app.log_request(req, 123, 7, 13, 2.71828182846)
+            now = 10000.0
+            app.log_request(req, 123, 7, 13, now, now + 2.71828182846)
             self.assertEqual([], app.access_logger.log_dict['timing'])
             self.assertEqual([], app.access_logger.log_dict['update_stats'])
 
@@ -254,7 +254,8 @@ class TestProxyLogging(unittest.TestCase):
             app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
             app.access_logger = FakeLogger()
             req = Request.blank('/v1/a/', environ={'REQUEST_METHOD': method})
-            app.log_request(req, 299, 11, 3, 1.17)
+            now = 10000.0
+            app.log_request(req, 299, 11, 3, now, now + 1.17)
             self.assertTiming('account.%s.299.timing' % exp_method, app,
                               exp_timing=1.17 * 1000)
             self.assertUpdateStats('account.%s.299.xfer' % exp_method,
@@ -280,7 +281,8 @@ class TestProxyLogging(unittest.TestCase):
                 app.access_logger = FakeLogger()
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': method})
-                app.log_request(req, 911, 4, 43, 1.01)
+                now = 10000.0
+                app.log_request(req, 911, 4, 43, now, now + 1.01)
                 self.assertTiming('container.%s.911.timing' % exp_method, app,
                                   exp_timing=1.01 * 1000)
                 self.assertUpdateStats('container.%s.911.xfer' % exp_method,
@@ -706,16 +708,13 @@ class TestProxyLogging(unittest.TestCase):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = FakeLogger()
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        with mock.patch.multiple('time',
-                                 time=mock.MagicMock(
-                                     side_effect=[10000000.0, 10000001.0]),
-                                 gmtime=mock.MagicMock(
-                                     side_effect=[
-                                         time.gmtime(10000001.00001)])):
+        with mock.patch('time.time',
+                        mock.MagicMock(
+                            side_effect=[10000000.0, 10000001.0])):
             resp = app(req.environ, start_response)
             resp_body = ''.join(resp)
         log_parts = self._log_parts(app)
-        self.assertEquals(len(log_parts), 18)
+        self.assertEquals(len(log_parts), 20)
         self.assertEquals(log_parts[0], '-')
         self.assertEquals(log_parts[1], '-')
         self.assertEquals(log_parts[2], '26/Apr/1970/17/46/41')
@@ -735,6 +734,8 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[15], '1.0000')
         self.assertEquals(log_parts[16], '-')
         self.assertEquals(log_parts[17], '-')
+        self.assertEquals(log_parts[18], '10000000.000000000')
+        self.assertEquals(log_parts[19], '10000001.000000000')
 
 
 if __name__ == '__main__':
