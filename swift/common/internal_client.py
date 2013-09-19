@@ -56,14 +56,23 @@ class CompressingFileReader(object):
 
     def __init__(self, file_obj, compresslevel=9, chunk_size=4096):
         self._f = file_obj
+        self.compresslevel = compresslevel
+        self.chunk_size = chunk_size
+        self.set_initial_state()
+
+    def set_initial_state(self):
+        """
+        Sets the object to the state needed for the first read.
+        """
+
+        self._f.seek(0)
         self._compressor = compressobj(
-            compresslevel, zlib.DEFLATED, -zlib.MAX_WBITS, zlib.DEF_MEM_LEVEL,
-            0)
+            self.compresslevel, zlib.DEFLATED, -zlib.MAX_WBITS,
+            zlib.DEF_MEM_LEVEL, 0)
         self.done = False
         self.first = True
         self.crc32 = 0
         self.total_size = 0
-        self.chunk_size = chunk_size
 
     def read(self, *a, **kw):
         """
@@ -104,6 +113,11 @@ class CompressingFileReader(object):
         if chunk:
             return chunk
         raise StopIteration
+
+    def seek(self, offset, whence=0):
+        if not (offset == 0 and whence == 0):
+            raise NotImplementedError('Seek implemented on offset 0 only')
+        self.set_initial_state()
 
 
 class InternalClient(object):
