@@ -17,6 +17,8 @@
 import unittest
 from contextlib import contextmanager
 
+import mock
+
 import swift
 from swift.proxy import server as proxy_server
 from test.unit import FakeRing, FakeMemcache, fake_http_connect
@@ -84,6 +86,37 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
             nodes = [dict(ip='', port='', device='')]
             res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
         self.assertTrue(res is None)
+
+
+class TestObjController(unittest.TestCase):
+
+    def test_PUT_log_info(self):
+        # mock out enough to get to the area of the code we want to test
+        with mock.patch('swift.proxy.controllers.obj.check_object_creation',
+                        mock.MagicMock(return_value=None)):
+            app = mock.MagicMock()
+            app.container_ring.get_nodes.return_value = (1, [2])
+            app.object_ring.get_nodes.return_value = (1, [2])
+            controller = proxy_server.ObjectController(app, 'a', 'c', 'o')
+            controller.container_info = mock.MagicMock(return_value={
+                'partition': 1,
+                'nodes': [{}],
+                'write_acl': None,
+                'sync_key': None,
+                'versions': None})
+            # and now test that we add the header to log_info
+            req = swift.common.swob.Request.blank('/v1/a/c/o')
+            req.headers['x-copy-from'] = 'somewhere'
+            controller.PUT(req)
+            self.assertEquals(
+                req.environ.get('swift.log_info'), ['x-copy-from:somewhere'])
+            # and then check that we don't do that for originating POSTs
+            req = swift.common.swob.Request.blank('/v1/a/c/o')
+            req.method = 'POST'
+            req.headers['x-copy-from'] = 'elsewhere'
+            controller.PUT(req)
+            self.assertEquals(req.environ.get('swift.log_info'), None)
+
 
 if __name__ == '__main__':
     unittest.main()
