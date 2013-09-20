@@ -2076,6 +2076,24 @@ def parse_content_type(content_type):
     return content_type, parm_list
 
 
+def override_bytes_from_content_type(listing_dict, logger=None):
+    """
+    Takes a dict from a container listing and overrides the content_type,
+    bytes fields if swift_bytes is set.
+    """
+    content_type, params = parse_content_type(listing_dict['content_type'])
+    for key, value in params:
+        if key == 'swift_bytes':
+            try:
+                listing_dict['bytes'] = int(value)
+            except ValueError:
+                if logger:
+                    logger.exception("Invalid swift_bytes")
+        else:
+            content_type += ';%s=%s' % (key, value)
+    listing_dict['content_type'] = content_type
+
+
 def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf-8 strings before quoting

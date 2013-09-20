@@ -51,6 +51,7 @@ from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout)
 from swift.common import utils
 from swift.common.swob import Response
+from test.unit import FakeLogger
 
 
 class MockOs():
@@ -1491,6 +1492,25 @@ log_name = %(yarr)s'''
         self.assertEquals(
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
+
+    def test_override_bytes_from_content_type(self):
+        listing_dict = {
+            'bytes': 1234, 'hash': 'asdf', 'name': 'zxcv',
+            'content_type': 'text/plain; hello="world"; swift_bytes=15'}
+        utils.override_bytes_from_content_type(listing_dict,
+                                               logger=FakeLogger())
+        self.assertEquals(listing_dict['bytes'], 15)
+        self.assertEquals(listing_dict['content_type'],
+                          'text/plain;hello="world"')
+
+        listing_dict = {
+            'bytes': 1234, 'hash': 'asdf', 'name': 'zxcv',
+            'content_type': 'text/plain; hello="world"; swift_bytes=hey'}
+        utils.override_bytes_from_content_type(listing_dict,
+                                               logger=FakeLogger())
+        self.assertEquals(listing_dict['bytes'], 1234)
+        self.assertEquals(listing_dict['content_type'],
+                          'text/plain;hello="world"')
 
     def test_quote(self):
         res = utils.quote('/v1/a/c3/subdirx/')
