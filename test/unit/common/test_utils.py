@@ -1617,14 +1617,14 @@ class TestFileLikeIter(unittest.TestCase):
         iter_file = utils.FileLikeIter('abcdef')
         self.assertEquals(iter_file.next(), 'a')
         iter_file.close()
-        self.assertTrue(iter_file.closed, True)
+        self.assertTrue(iter_file.closed)
         self.assertRaises(ValueError, iter_file.next)
         self.assertRaises(ValueError, iter_file.read)
         self.assertRaises(ValueError, iter_file.readline)
         self.assertRaises(ValueError, iter_file.readlines)
         # Just make sure repeated close calls don't raise an Exception
         iter_file.close()
-        self.assertTrue(iter_file.closed, True)
+        self.assertTrue(iter_file.closed)
 
 
 class TestStatsdLogging(unittest.TestCase):
