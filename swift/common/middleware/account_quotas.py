@@ -67,12 +67,22 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         try:
-            ver, acc, cont, obj = request.split_path(2, 4, rest_with_last=True)
+            ver, account, container, obj = request.split_path(
+                2, 4, rest_with_last=True)
         except ValueError:
             return self.app
 
-        new_quota = request.headers.get('X-Account-Meta-Quota-Bytes')
-        remove_quota = request.headers.get('X-Remove-Account-Meta-Quota-Bytes')
+        if not container:
+            # account request, so we pay attention to the quotas
+            new_quota = request.headers.get(
+                'X-Account-Meta-Quota-Bytes')
+            remove_quota = request.headers.get(
+                'X-Remove-Account-Meta-Quota-Bytes')
+        else:
+            # container or object request; even if the quota headers are set
+            # in the request, they're meaningless
+            new_quota = remove_quota = None
+
         if remove_quota:
             new_quota = 0    # X-Remove dominates if both are present
 
@@ -85,11 +95,14 @@ class AccountQuotaMiddleware(object):
         if new_quota is not None:
             return HTTPForbidden()
 
+        if obj and request.method == "POST":
+            return self.app
+
         copy_from = request.headers.get('X-Copy-From')
         content_length = (request.content_length or 0)
 
         if obj and copy_from:
-            path = '/' + ver + '/' + acc + '/' + copy_from.lstrip('/')
+            path = '/' + ver + '/' + account + '/' + copy_from.lstrip('/')
             object_info = get_object_info(request.environ, self.app, path)
             if not object_info or not object_info['length']:
                 content_length = 0
