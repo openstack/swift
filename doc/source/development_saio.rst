@@ -342,13 +342,33 @@ Sample configuration files are provided with all defaults in line-by-line commen
         eventlet_debug = true
 
         [pipeline:main]
-        # Yes, proxy-logging appears twice. This is not a mistake.
-        pipeline = healthcheck proxy-logging cache tempauth proxy-logging proxy-server
+        # Yes, proxy-logging appears twice. This is so that
+        # middleware-originated requests get logged too.
+        pipeline = catch_errors healthcheck proxy-logging bulk ratelimit crossdomain slo cache tempurl tempauth staticweb account-quotas container-quotas proxy-logging proxy-server
 
-        [app:proxy-server]
-        use = egg:swift#proxy
-        allow_account_management = true
-        account_autocreate = true
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:proxy-logging]
+        use = egg:swift#proxy_logging
+
+        [filter:bulk]
+        use = egg:swift#bulk
+
+        [filter:ratelimit]
+        use = egg:swift#ratelimit
+
+        [filter:crossdomain]
+        use = egg:swift#crossdomain
+
+        [filter:slo]
+        use = egg:swift#slo
+
+        [filter:tempurl]
+        use = egg:swift#tempurl
 
         [filter:tempauth]
         use = egg:swift#tempauth
@@ -357,14 +377,22 @@ Sample configuration files are provided with all defaults in line-by-line commen
         user_test2_tester2 = testing2 .admin
         user_test_tester3 = testing3
 
-        [filter:healthcheck]
-        use = egg:swift#healthcheck
+        [filter:staticweb]
+        use = egg:swift#staticweb
+
+        [filter:account-quotas]
+        use = egg:swift#account_quotas
+
+        [filter:container-quotas]
+        use = egg:swift#container_quotas
 
         [filter:cache]
         use = egg:swift#memcache
 
-        [filter:proxy-logging]
-        use = egg:swift#proxy_logging
+        [app:proxy-server]
+        use = egg:swift#proxy
+        allow_account_management = true
+        account_autocreate = true
 
   #. Create `/etc/swift/swift.conf`::
 
