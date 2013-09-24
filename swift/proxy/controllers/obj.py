@@ -965,6 +965,9 @@ class ObjectController(Controller):
         source_header = req.headers.get('X-Copy-From')
         source_resp = None
         if source_header:
+            if req.environ.get('swift.orig_req_method', req.method) != 'POST':
+                req.environ.setdefault('swift.log_info', []).append(
+                    'x-copy-from:%s' % source_header)
             source_header = unquote(source_header)
             acct = req.path_info.split('/', 2)[1]
             if isinstance(acct, unicode):
