@@ -13,3 +13,4 @@
 # set to 2 and reload.
 # In the future, the ability to use pickle serialization will be removed.
 # memcache_serialization_support = 2
+# TEST myself
