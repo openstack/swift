@@ -141,10 +141,11 @@ import mimetypes
 from hashlib import md5
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
-    HTTPOk, HTTPPreconditionFailed, HTTPException
+    HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
+    HTTPUnauthorized
 from swift.common.utils import json, get_logger, config_true_value
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
-from swift.common.http import HTTP_NOT_FOUND
+from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 from swift.common.wsgi import WSGIContext
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
@@ -216,8 +217,7 @@ class StaticLargeObject(object):
                                      1024 * 1024 * 2))
         self.min_segment_size = int(self.conf.get('min_segment_size',
                                     1024 * 1024))
-        self.bulk_deleter = Bulk(
-            app, {'max_deletes_per_request': self.max_manifest_segments})
+        self.bulk_deleter = Bulk(app, {})
 
     def handle_multipart_put(self, req, start_response):
         """
@@ -333,66 +333,91 @@ class StaticLargeObject(object):
         A generator function to be used to delete all the segments and
         sub-segments referenced in a manifest.
 
-        :raises HTTPBadRequest: on sub manifest not manifest anymore or
-                                on too many buffered sub segments
-        :raises HTTPServerError: on unable to load manifest
+        :params req: a swob.Request with an SLO manifest in path
+        :raises HTTPPreconditionFailed: on invalid UTF8 in request path
+        :raises HTTPBadRequest: on too many buffered sub segments and
+                                on invalid SLO manifest path
         """
+        if not check_utf8(req.path_info):
+            raise HTTPPreconditionFailed(
+                request=req, body='Invalid UTF8 or contains NULL')
         try:
             vrs, account, container, obj = req.split_path(4, 4, True)
         except ValueError:
-            raise HTTPBadRequest('Not a SLO manifest')
-        sub_segments = [{
+            raise HTTPBadRequest('Invalid SLO manifiest path')
+
+        segments = [{
             'sub_slo': True,
             'name': ('/%s/%s' % (container, obj)).decode('utf-8')}]
-        while sub_segments:
-            if len(sub_segments) > MAX_BUFFERED_SLO_SEGMENTS:
+        while segments:
+            if len(segments) > MAX_BUFFERED_SLO_SEGMENTS:
                 raise HTTPBadRequest(
                     'Too many buffered slo segments to delete.')
-            seg_data = sub_segments.pop(0)
+            seg_data = segments.pop(0)
             if seg_data.get('sub_slo'):
-                new_env = req.environ.copy()
-                new_env['REQUEST_METHOD'] = 'GET'
-                del(new_env['wsgi.input'])
-                new_env['QUERY_STRING'] = 'multipart-manifest=get'
-                new_env['CONTENT_LENGTH'] = 0
-                new_env['HTTP_USER_AGENT'] = \
-                    '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
-                new_env['swift.source'] = 'SLO'
-                new_env['PATH_INFO'] = (
-                    '/%s/%s/%s' % (
-                    vrs, account,
-                    seg_data['name'].lstrip('/'))).encode('utf-8')
-                sub_resp = Request.blank('', new_env).get_response(self.app)
-                if sub_resp.is_success:
-                    try:
-                        # if its still a SLO, load its segments
-                        if config_true_value(
-                                sub_resp.headers.get('X-Static-Large-Object')):
-                            sub_segments.extend(json.loads(sub_resp.body))
-                    except ValueError:
-                        raise HTTPServerError('Unable to load SLO manifest')
-                    # add sub-manifest back to be deleted after sub segments
-                    # (even if obj is not a SLO)
-                    seg_data['sub_slo'] = False
-                    sub_segments.append(seg_data)
-                elif sub_resp.status_int != HTTP_NOT_FOUND:
-                    # on deletes treat not found as success
-                    raise HTTPServerError('Sub SLO unable to load.')
+                try:
+                    segments.extend(
+                        self.get_slo_segments(seg_data['name'], req))
+                except HTTPException as err:
+                    # allow bulk delete response to report errors
+                    seg_data['error'] = {'code': err.status_int,
+                                         'message': err.body}
+
+                # add manifest back to be deleted after segments
+                seg_data['sub_slo'] = False
+                segments.append(seg_data)
             else:
-                yield seg_data['name'].encode('utf-8')
+                seg_data['name'] = seg_data['name'].encode('utf-8')
+                yield seg_data
+
+    def get_slo_segments(self, obj_name, req):
+        """
+        Performs a swob.Request and returns the SLO manifest's segments.
+
+        :raises HTTPServerError: on unable to load obj_name or
+                                 on unable to load the SLO manifest data.
+        :raises HTTPBadRequest: on not an SLO manifest
+        :raises HTTPNotFound: on SLO manifest not found
+        :returns: SLO manifest's segments
+        """
+        vrs, account, _junk = req.split_path(2, 3, True)
+        new_env = req.environ.copy()
+        new_env['REQUEST_METHOD'] = 'GET'
+        del(new_env['wsgi.input'])
+        new_env['QUERY_STRING'] = 'multipart-manifest=get'
+        new_env['CONTENT_LENGTH'] = 0
+        new_env['HTTP_USER_AGENT'] = \
+            '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
+        new_env['swift.source'] = 'SLO'
+        new_env['PATH_INFO'] = (
+            '/%s/%s/%s' % (
+            vrs, account,
+            obj_name.lstrip('/'))).encode('utf-8')
+        resp = Request.blank('', new_env).get_response(self.app)
+
+        if resp.is_success:
+            if config_true_value(resp.headers.get('X-Static-Large-Object')):
+                try:
+                    return json.loads(resp.body)
+                except ValueError:
+                    raise HTTPServerError('Unable to load SLO manifest')
+            else:
+                raise HTTPBadRequest('Not an SLO manifest')
+        elif resp.status_int == HTTP_NOT_FOUND:
+            raise HTTPNotFound('SLO manifest not found')
+        elif resp.status_int == HTTP_UNAUTHORIZED:
+            raise HTTPUnauthorized('401 Unauthorized')
+        else:
+            raise HTTPServerError('Unable to load SLO manifest or segment.')
 
     def handle_multipart_delete(self, req):
         """
         Will delete all the segments in the SLO manifest and then, if
         successful, will delete the manifest file.
+
         :params req: a swob.Request with an obj in path
-        :raises HTTPServerError: on invalid manifest
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
-        if not check_utf8(req.path_info):
-            raise HTTPPreconditionFailed(
-                request=req, body='Invalid UTF8 or contains NULL')
-
         resp = HTTPOk(request=req)
         out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
         if out_content_type:
