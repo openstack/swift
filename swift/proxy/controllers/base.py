@@ -987,17 +987,17 @@ class Controller(object):
         :param src: the response from the backend
         """
         try:
-            src.swift_conn.close()
-        except Exception:
-            pass
-        src.swift_conn = None
-        try:
-            while src.read(self.app.object_chunk_size):
-                pass
-        except Exception:
-            pass
-        try:
-            src.close()
+            # Since the backends set "Connection: close" in their response
+            # headers, the response object (src) is solely responsible for the
+            # socket. The connection object (src.swift_conn) has no references
+            # to the socket, so calling its close() method does nothing, and
+            # therefore we don't do it.
+            #
+            # Also, since calling the response's close() method might not
+            # close the underlying socket but only decrement some
+            # reference-counter, we have a special method here that really,
+            # really kills the underlying socket with a close() syscall.
+            src.nuke_from_orbit()  # it's the only way to be sure
         except Exception:
             pass
 
