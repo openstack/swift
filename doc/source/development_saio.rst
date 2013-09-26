@@ -306,7 +306,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
         eventlet_debug = true
 
         [pipeline:main]
-        pipeline = healthcheck cache tempauth proxy-logging proxy-server
+        # Yes, proxy-logging appears twice. This is not a mistake.
+        pipeline = healthcheck proxy-logging cache tempauth proxy-logging proxy-server
 
         [app:proxy-server]
         use = egg:swift#proxy
