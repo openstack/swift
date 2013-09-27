@@ -417,6 +417,7 @@ class ObjectController(Controller):
             new_req = incoming_req.copy_get()
             new_req.method = 'GET'
             new_req.range = None
+            new_req.path_info = '/'.join(['', account, container, obj])
             if partition is None:
                 try:
                     partition = self.app.object_ring.get_part(
@@ -427,7 +428,7 @@ class ObjectController(Controller):
                         new_req.path)
             valid_resp = self.GETorHEAD_base(
                 new_req, _('Object'), self.app.object_ring, partition,
-                '/'.join(['', account, container, obj]))
+                new_req.path_info)
 
         if 'swift.authorize' in incoming_req.environ:
             incoming_req.acl = valid_resp.headers.get('x-container-read')
