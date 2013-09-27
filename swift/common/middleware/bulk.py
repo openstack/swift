@@ -144,11 +144,11 @@ class Bulk(object):
 
     Will delete multiple objects or containers from their account with a
     single request. Responds to DELETE requests with query parameter
-    ?bulk-delete set. The Content-Type should be set to text/plain.
-    The body of the DELETE request will be a newline separated list of url
-    encoded objects to delete. You can delete 10,000 (configurable) objects
-    per request. The objects specified in the DELETE request body must be URL
-    encoded and in the form:
+    ?bulk-delete set. The request url is your storage url. The Content-Type
+    should be set to text/plain. The body of the DELETE request will be a
+    newline separated list of url encoded objects to delete. You can delete
+    10,000 (configurable) objects per request. The objects specified in the
+    DELETE request body must be URL encoded and in the form:
 
     /container_name/obj_name
 
