@@ -553,18 +553,18 @@ class TestDelete(unittest.TestCase):
         req.method = 'DELETE'
         req.headers['Transfer-Encoding'] = 'chunked'
         req.headers['Accept'] = 'application/json'
-        req.environ['wsgi.input'] = StringIO('/c/f')
+        req.environ['wsgi.input'] = StringIO('/c/f%20')
         list(self.bulk(req.environ, fake_start_response))  # iterate over resp
         self.assertEquals(
-            self.app.delete_paths, ['/delete_works/AUTH_Acc/c/f'])
+            self.app.delete_paths, ['/delete_works/AUTH_Acc/c/f '])
         self.assertEquals(self.app.calls, 1)
 
     def test_bulk_delete_get_objs(self):
-        req = Request.blank('/delete_works/AUTH_Acc', body='1\r\n2\r\n')
+        req = Request.blank('/delete_works/AUTH_Acc', body='1%20\r\n2\r\n')
         req.method = 'DELETE'
         with patch.object(self.bulk, 'max_deletes_per_request', 2):
             results = self.bulk.get_objs_to_delete(req)
-            self.assertEquals(results, [{'name': '1\r'}, {'name': '2\r'}])
+            self.assertEquals(results, [{'name': '1 '}, {'name': '2'}])
 
         with patch.object(bulk, 'MAX_PATH_LENGTH', 2):
             results = []

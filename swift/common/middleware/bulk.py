@@ -241,6 +241,7 @@ class Bulk(object):
         while data_remaining:
             if '\n' in line:
                 obj_to_delete, line = line.split('\n', 1)
+                obj_to_delete = obj_to_delete.strip()
                 objs_to_delete.append(
                     {'name': unquote(obj_to_delete)})
             else:
@@ -249,9 +250,10 @@ class Bulk(object):
                     line += data
                 else:
                     data_remaining = False
-                    if line.strip():
+                    obj_to_delete = line.strip()
+                    if obj_to_delete:
                         objs_to_delete.append(
-                            {'name': unquote(line)})
+                            {'name': unquote(obj_to_delete)})
             if len(objs_to_delete) > self.max_deletes_per_request:
                 raise HTTPRequestEntityTooLarge(
                     'Maximum Bulk Deletes: %d per request' %
@@ -308,7 +310,7 @@ class Bulk(object):
                     separator = '\r\n\r\n'
                     last_yield = time()
                     yield ' '
-                obj_name = obj_to_delete['name'].strip()
+                obj_name = obj_to_delete['name']
                 if not obj_name:
                     continue
                 if len(failed_files) >= self.max_failed_deletes:
