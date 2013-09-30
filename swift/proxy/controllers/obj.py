@@ -32,17 +32,19 @@ from datetime import datetime
 from swift import gettext_ as _
 from urllib import unquote, quote
 from hashlib import md5
+from sys import exc_info
 
 from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
-from swift.common.utils import ContextPool, normalize_timestamp, \
-    config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
-    quorum_size
+from swift.common.utils import ContextPool, config_true_value, public, json, \
+    csv_append, GreenthreadSafeIterator, quorum_size, split_path, \
+    override_bytes_from_content_type, get_valid_utf8_str
+from swift.common.ondisk import normalize_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE, MAX_BUFFERED_SLO_SEGMENTS
+    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError, SegmentError
@@ -55,34 +57,16 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
-    HTTPClientDisconnect, HTTPNotImplemented
+    HTTPClientDisconnect, HTTPNotImplemented, HTTPException
 
 
-class SegmentListing(object):
-
-    def __init__(self, listing):
-        self.listing = iter(listing)
-        self._prepended_segments = []
-
-    def prepend_segments(self, new_segs):
-        """
-        Will prepend given segments to listing when iterating.
-        :raises SegmentError: when # segments > MAX_BUFFERED_SLO_SEGMENTS
-        """
-        new_segs.extend(self._prepended_segments)
-        if len(new_segs) > MAX_BUFFERED_SLO_SEGMENTS:
-            raise SegmentError('Too many unread slo segments in buffer')
-        self._prepended_segments = new_segs
-
-    def listing_iter(self):
-        while True:
-            if self._prepended_segments:
-                seg_dict = self._prepended_segments.pop(0)
-            else:
-                seg_dict = self.listing.next()
-            if isinstance(seg_dict['name'], unicode):
-                seg_dict['name'] = seg_dict['name'].encode('utf-8')
-            yield seg_dict
+def segment_listing_iter(listing):
+    listing = iter(listing)
+    while True:
+        seg_dict = listing.next()
+        if isinstance(seg_dict['name'], unicode):
+            seg_dict['name'] = seg_dict['name'].encode('utf-8')
+        yield seg_dict
 
 
 def copy_headers_into(from_r, to_r):
@@ -134,8 +118,7 @@ class SegmentedIterable(object):
                  is_slo=False, max_lo_time=86400):
         self.controller = controller
         self.container = container
-        self.segment_listing = SegmentListing(listing)
-        self.listing = self.segment_listing.listing_iter()
+        self.listing = segment_listing_iter(listing)
         self.is_slo = is_slo
         self.max_lo_time = max_lo_time
         self.ratelimit_index = 0
@@ -178,7 +161,8 @@ class SegmentedIterable(object):
             path = '/%s/%s/%s' % (self.controller.account_name, container, obj)
             req = Request.blank(path)
             if self.seek or (self.length and self.length > 0):
-                bytes_available = self.segment_dict['bytes'] - self.seek
+                bytes_available = \
+                    self.segment_dict['bytes'] - self.seek
                 range_tail = ''
                 if self.length:
                     if bytes_available >= self.length:
@@ -206,27 +190,16 @@ class SegmentedIterable(object):
                     'Could not load object segment %(path)s:'
                     ' %(status)s') % {'path': path, 'status': resp.status_int})
             if self.is_slo:
-                if 'X-Static-Large-Object' in resp.headers:
-                    # this segment is a nested slo object. read in the body
-                    # and add its segments into this slo.
-                    try:
-                        sub_manifest = json.loads(resp.body)
-                        self.segment_listing.prepend_segments(sub_manifest)
-                        sub_etag = md5(''.join(
-                            o['hash'] for o in sub_manifest)).hexdigest()
-                        if sub_etag != self.segment_dict['hash']:
-                            raise SegmentError(_(
-                                'Object segment does not match sub-slo: '
-                                '%(path)s etag: %(r_etag)s != %(s_etag)s.') %
-                                {'path': path, 'r_etag': sub_etag,
-                                 's_etag': self.segment_dict['hash']})
-                        return self._load_next_segment()
-                    except ValueError:
-                        raise SegmentError(_(
-                            'Sub SLO has invalid manifest: %s') % path)
-
-                elif resp.etag != self.segment_dict['hash'] or \
-                        resp.content_length != self.segment_dict['bytes']:
+                if (resp.etag != self.segment_dict['hash'] or
+                        (resp.content_length != self.segment_dict['bytes'] and
+                         not req.range)):
+                    # The content-length check is for security reasons. Seems
+                    # possible that an attacker could upload a >1mb object and
+                    # then replace it with a much smaller object with same
+                    # etag.  Then create a big nested SLO that calls that
+                    # object many times which would hammer our obj servers. If
+                    # this is a range request, don't check content-length
+                    # because it won't match.
                     raise SegmentError(_(
                         'Object segment no longer valid: '
                         '%(path)s etag: %(r_etag)s != %(s_etag)s or '
@@ -288,6 +261,9 @@ class SegmentedIterable(object):
         except StopIteration:
             raise
         except SegmentError:
+            # I have to save this error because yielding the ' ' below clears
+            # the exception from the current stack frame.
+            err = exc_info()
             if not self.have_yielded_data:
                 # Normally, exceptions before any data has been yielded will
                 # cause Eventlet to send a 5xx response. In this particular
@@ -297,7 +273,7 @@ class SegmentedIterable(object):
                 # Agreements and this SegmentError indicates the user has
                 # created an invalid condition.
                 yield ' '
-            raise
+            raise err
         except (Exception, Timeout) as err:
             if not getattr(err, 'swift_logged', False):
                 self.controller.app.logger.exception(_(
@@ -376,6 +352,7 @@ class SegmentedIterable(object):
 class ObjectController(Controller):
     """WSGI controller for object requests."""
     server_type = 'Object'
+    max_slo_recusion_depth = 10
 
     def __init__(self, app, account_name, container_name, object_name,
                  **kwargs):
@@ -383,6 +360,7 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
+        self.slo_recursion_depth = 0
 
     def _listing_iter(self, lcontainer, lprefix, env):
         for page in self._listing_pages_iter(lcontainer, lprefix, env):
@@ -421,6 +399,67 @@ class ObjectController(Controller):
                 break
             marker = sublisting[-1]['name'].encode('utf-8')
             yield sublisting
+
+    def _slo_listing_obj_iter(self, incoming_req, account, container, obj,
+                              partition=None, initial_resp=None):
+        """
+        The initial_resp indicated that this is a SLO manifest file. This will
+        create an iterable that will expand nested SLOs as it walks though the
+        listing.
+        :params incoming_req: The original GET request from client
+        :params initial_resp: the first resp from the above request
+        """
+
+        if initial_resp and initial_resp.status_int == HTTP_OK and \
+                incoming_req.method == 'GET' and not incoming_req.range:
+            valid_resp = initial_resp
+        else:
+            new_req = incoming_req.copy_get()
+            new_req.method = 'GET'
+            new_req.range = None
+            if partition is None:
+                try:
+                    partition = self.app.object_ring.get_part(
+                        account, container, obj)
+                except ValueError:
+                    raise HTTPException(
+                        "Invalid path to whole SLO manifest: %s" %
+                        new_req.path)
+            valid_resp = self.GETorHEAD_base(
+                new_req, _('Object'), self.app.object_ring, partition,
+                '/'.join(['', account, container, obj]))
+
+        if 'swift.authorize' in incoming_req.environ:
+            incoming_req.acl = valid_resp.headers.get('x-container-read')
+            auth_resp = incoming_req.environ['swift.authorize'](incoming_req)
+            if auth_resp:
+                raise ListingIterNotAuthorized(auth_resp)
+        if valid_resp.status_int == HTTP_NOT_FOUND:
+            raise ListingIterNotFound()
+        elif not is_success(valid_resp.status_int):
+            raise ListingIterError()
+        try:
+            listing = json.loads(valid_resp.body)
+        except ValueError:
+            listing = []
+        for seg_dict in listing:
+            if config_true_value(seg_dict.get('sub_slo')):
+                if incoming_req.method == 'HEAD':
+                    override_bytes_from_content_type(seg_dict,
+                                                     logger=self.app.logger)
+                    yield seg_dict
+                    continue
+                sub_path = get_valid_utf8_str(seg_dict['name'])
+                sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
+                self.slo_recursion_depth += 1
+                if self.slo_recursion_depth >= self.max_slo_recusion_depth:
+                    raise ListingIterError("Max recursion depth exceeded")
+                for sub_seg_dict in self._slo_listing_obj_iter(
+                        incoming_req, account, sub_cont, sub_obj):
+                    yield sub_seg_dict
+                self.slo_recursion_depth -= 1
+            else:
+                yield seg_dict
 
     def _remaining_items(self, listing_iter):
         """
@@ -527,31 +566,29 @@ class ObjectController(Controller):
                 req.params.get('multipart-manifest') != 'get' and \
                 self.app.allow_static_large_object:
             large_object = 'SLO'
-            listing_page1 = ()
-            listing = []
             lcontainer = None  # container name is included in listing
-            if resp.status_int == HTTP_OK and \
-                    req.method == 'GET' and not req.range:
-                try:
-                    listing = json.loads(resp.body)
-                except ValueError:
-                    listing = []
-            else:
-                # need to make a second request to get whole manifest
-                new_req = req.copy_get()
-                new_req.method = 'GET'
-                new_req.range = None
-                new_resp = self.GETorHEAD_base(
-                    new_req, _('Object'), self.app.object_ring, partition,
-                    req.path_info)
-                if new_resp.status_int // 100 == 2:
-                    try:
-                        listing = json.loads(new_resp.body)
-                    except ValueError:
-                        listing = []
-                else:
-                    return HTTPServiceUnavailable(
-                        "Unable to load SLO manifest", request=req)
+            try:
+                seg_iter = iter(self._slo_listing_obj_iter(
+                    req, self.account_name, self.container_name,
+                    self.object_name, partition=partition, initial_resp=resp))
+                listing_page1 = []
+                for seg in seg_iter:
+                    listing_page1.append(seg)
+                    if len(listing_page1) >= CONTAINER_LISTING_LIMIT:
+                        break
+                listing = itertools.chain(listing_page1,
+                                          self._remaining_items(seg_iter))
+            except ListingIterNotFound:
+                return HTTPNotFound(request=req)
+            except ListingIterNotAuthorized, err:
+                return err.aresp
+            except ListingIterError:
+                return HTTPServerError(request=req)
+            except StopIteration:
+                listing_page1 = listing = ()
+            except HTTPException:
+                return HTTPServiceUnavailable(
+                    "Unable to load SLO manifest", request=req)
 
         if 'x-object-manifest' in resp.headers and \
                 req.params.get('multipart-manifest') != 'get':
@@ -602,8 +639,8 @@ class ObjectController(Controller):
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
+                listing = list(listing)
                 if listing:
-                    listing = list(listing)
                     try:
                         content_length = sum(o['bytes'] for o in listing)
                         last_modified = \
@@ -928,6 +965,9 @@ class ObjectController(Controller):
         source_header = req.headers.get('X-Copy-From')
         source_resp = None
         if source_header:
+            if req.environ.get('swift.orig_req_method', req.method) != 'POST':
+                req.environ.setdefault('swift.log_info', []).append(
+                    'x-copy-from:%s' % source_header)
             source_header = unquote(source_header)
             acct = req.path_info.split('/', 2)[1]
             if isinstance(acct, unicode):

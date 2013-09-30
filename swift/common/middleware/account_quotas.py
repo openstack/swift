@@ -48,8 +48,7 @@ post -m quota-bytes:
 
 from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
     HTTPBadRequest, wsgify
-
-from swift.proxy.controllers.base import get_account_info
+from swift.proxy.controllers.base import get_account_info, get_object_info
 
 
 class AccountQuotaMiddleware(object):
@@ -68,7 +67,7 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         try:
-            request.split_path(2, 4, rest_with_last=True)
+            ver, acc, cont, obj = request.split_path(2, 4, rest_with_last=True)
         except ValueError:
             return self.app
 
@@ -86,10 +85,22 @@ class AccountQuotaMiddleware(object):
         if new_quota is not None:
             return HTTPForbidden()
 
+        copy_from = request.headers.get('X-Copy-From')
+        content_length = (request.content_length or 0)
+
+        if obj and copy_from:
+            path = '/' + ver + '/' + acc + '/' + copy_from.lstrip('/')
+            object_info = get_object_info(request.environ, self.app, path)
+            if not object_info or not object_info['length']:
+                content_length = 0
+            else:
+                content_length = int(object_info['length'])
+
         account_info = get_account_info(request.environ, self.app)
         if not account_info or not account_info['bytes']:
             return self.app
-        new_size = int(account_info['bytes']) + (request.content_length or 0)
+
+        new_size = int(account_info['bytes']) + content_length
         quota = int(account_info['meta'].get('quota-bytes', -1))
 
         if 0 <= quota < new_size:

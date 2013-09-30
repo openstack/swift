@@ -25,12 +25,15 @@ from xml.etree.cElementTree import Element, SubElement, tostring
 from eventlet import Timeout
 
 import swift.common.db
-from swift.common.db import ContainerBroker
+from swift.container.backend import ContainerBroker
+from swift.common.db import DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
-from swift.common.utils import get_logger, hash_path, public, \
-    normalize_timestamp, storage_directory, validate_sync_to, \
-    config_true_value, json, timing_stats, replication, parse_content_type
+from swift.common.utils import get_logger, public, validate_sync_to, \
+    config_true_value, json, timing_stats, replication, \
+    override_bytes_from_content_type
+from swift.common.ondisk import hash_path, normalize_timestamp, \
+    storage_directory
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -194,7 +197,7 @@ class ContainerController(object):
             try:
                 broker.initialize(normalize_timestamp(
                     req.headers.get('x-timestamp') or time.time()))
-            except swift.common.db.DatabaseAlreadyExists:
+            except DatabaseAlreadyExists:
                 pass
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
@@ -241,7 +244,7 @@ class ContainerController(object):
                     not os.path.exists(broker.db_file):
                 try:
                     broker.initialize(timestamp)
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
@@ -254,7 +257,7 @@ class ContainerController(object):
                 try:
                     broker.initialize(timestamp)
                     created = True
-                except swift.common.db.DatabaseAlreadyExists:
+                except DatabaseAlreadyExists:
                     pass
             else:
                 created = broker.is_deleted()
@@ -325,22 +328,14 @@ class ContainerController(object):
         (name, created, size, content_type, etag) = record
         if content_type is None:
             return {'subdir': name}
-        response = {'bytes': size, 'hash': etag, 'name': name}
+        response = {'bytes': size, 'hash': etag, 'name': name,
+                    'content_type': content_type}
         last_modified = datetime.utcfromtimestamp(float(created)).isoformat()
         # python isoformat() doesn't include msecs when zero
         if len(last_modified) < len("1970-01-01T00:00:00.000000"):
             last_modified += ".000000"
         response['last_modified'] = last_modified
-        content_type, params = parse_content_type(content_type)
-        for key, value in params:
-            if key == 'swift_bytes':
-                try:
-                    response['bytes'] = int(value)
-                except ValueError:
-                    self.logger.exception("Invalid swift_bytes")
-            else:
-                content_type += ';%s=%s' % (key, value)
-        response['content_type'] = content_type
+        override_bytes_from_content_type(response, logger=self.logger)
         return response
 
     @public
@@ -405,7 +400,7 @@ class ContainerController(object):
                                   "last_modified"]:
                         SubElement(obj_element, field).text = str(
                             record.pop(field)).decode('utf-8')
-                    for field in sorted(record.keys()):
+                    for field in sorted(record):
                         SubElement(obj_element, field).text = str(
                             record[field]).decode('utf-8')
             ret.body = tostring(doc, encoding='UTF-8').replace(

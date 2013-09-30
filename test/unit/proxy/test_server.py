@@ -47,7 +47,9 @@ from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
 from swift.common import utils
-from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
+from swift.common.utils import mkdirs, NullLogger
+from swift.common import ondisk
+from swift.common.ondisk import normalize_timestamp
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers.obj import SegmentedIterable
 from swift.proxy.controllers.base import get_container_memcache_key, \
@@ -73,7 +75,7 @@ def request_init(self, *args, **kwargs):
 
 
 def setup():
-    utils.HASH_PATH_SUFFIX = 'endcap'
+    ondisk.HASH_PATH_SUFFIX = 'endcap'
     global _testdir, _test_servers, _test_sockets, \
         _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
     _orig_SysLogHandler = utils.SysLogHandler
@@ -1044,7 +1046,7 @@ class TestObjectController(unittest.TestCase):
             response_bodies = (
                 '',                     # HEAD /a
                 '',                     # HEAD /a/c
-                '',                     # GET manifest
+                simplejson.dumps([]),   # GET manifest
                 simplejson.dumps([]))   # GET empty listing
 
             with save_globals():
@@ -1391,7 +1393,7 @@ class TestObjectController(unittest.TestCase):
                    {"hash": "8681fb3ada2715c8754706ee5f23d4f8",
                     "last_modified": "2012-11-08T04:05:37.846710",
                     "bytes": 4,
-                    "name": "/d2/sub_manifest",
+                    "name": u"/d2/sub_manifest \u2661", "sub_slo": True,
                     "content_type": "application/octet-stream"},
                    {"hash": "419af6d362a14b7a789ba1c7e772bbae",
                     "last_modified": "2012-11-08T04:05:37.866820",
@@ -1414,8 +1416,8 @@ class TestObjectController(unittest.TestCase):
             '',                           # HEAD /a
             '',                           # HEAD /a/c
             simplejson.dumps(listing),    # GET manifest
-            'Aa',                         # GET seg01
             simplejson.dumps(sub_listing),  # GET sub_manifest
+            'Aa',                         # GET seg01
             'Bb',                         # GET seg02
             'Cc',                         # GET seg03
             'Dd')                         # GET seg04
@@ -1437,12 +1439,12 @@ class TestObjectController(unittest.TestCase):
                 200,    # HEAD /a
                 200,    # HEAD /a/c
                 200,    # GET listing1
-                200,    # GET seg01
                 200,    # GET sub listing1
+                200,    # GET seg01
                 200,    # GET seg02
                 200,    # GET seg03
                 200,    # GET seg04
-                headers=[{}, {}, slob_headers, {}, slob_headers, {}, {}, {}],
+                headers=[{}, {}, slob_headers, slob_headers, {}, {}, {}, {}],
                 body_iter=response_bodies,
                 give_connect=capture_requested_paths)
             req = Request.blank('/a/c/manifest')
@@ -1455,7 +1457,8 @@ class TestObjectController(unittest.TestCase):
                 requested,
                 [['HEAD', '/a', {}],
                  ['HEAD', '/a/c', {}],
-                 ['GET', '/a/c/manifest', {}]])
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d2/sub_manifest \xe2\x99\xa1', {}]])
             # iterating over body will retrieve manifest and sub manifest's
             # objects
             self.assertEqual(resp.body, 'AaBbCcDd')
@@ -1464,11 +1467,115 @@ class TestObjectController(unittest.TestCase):
                 [['HEAD', '/a', {}],
                  ['HEAD', '/a/c', {}],
                  ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d2/sub_manifest \xe2\x99\xa1', {}],
                  ['GET', '/a/d1/seg01', {}],
-                 ['GET', '/a/d2/sub_manifest', {}],
                  ['GET', '/a/d1/seg02', {}],
                  ['GET', '/a/d2/seg03', {}],
                  ['GET', '/a/d1/seg04', {}]])
+
+    def test_GET_nested_manifest_slo_with_range(self):
+        """
+        Original whole slo is Aa1234Bb where 1234 is a sub-manifests. I'm
+        pulling out 34Bb
+        """
+        listing = [{"hash": "98568d540134639be4655198a36614a4",  # Aa
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "7b4b0ffa275d404bdc2fc6384916714f",  # SubManifest1
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 4, "sub_slo": True,
+                    "name": "/d2/subManifest01",
+                    "content_type": "application/octet-stream"},
+                   {"hash": "d526f1c8ef6c1e4e980e2b8471352d23",  # Bb
+                    "last_modified": "2012-11-08T04:05:37.866820",
+                    "bytes": 2,
+                    "name": "/d1/seg02",
+                    "content_type": "application/octet-stream"}]
+
+        sublisting = [{"hash": "c20ad4d76fe97759aa27a0c99bff6710",  # 12
+                       "last_modified": "2012-11-08T04:05:37.866820",
+                       "bytes": 2,
+                       "name": "/d2/subSeg01",
+                       "content_type": "application/octet-stream"},
+                      {"hash": "e369853df766fa44e1ed0ff613f563bd",  # 34
+                       "last_modified": "2012-11-08T04:05:37.866820",
+                       "bytes": 2,
+                       "name": "/d2/subSeg02",
+                       "content_type": "application/octet-stream"}]
+
+        response_bodies = (
+            '',                              # HEAD /a
+            '',                              # HEAD /a/c
+            simplejson.dumps(listing)[1:1],  # GET incomplete manifest
+            simplejson.dumps(listing),       # GET complete manifest
+            simplejson.dumps(sublisting),    # GET complete submanifest
+            '34',                            # GET subseg02
+            'Bb')                            # GET seg02
+        etag_iter = ['', '', '', '', '',
+                     'e369853df766fa44e1ed0ff613f563bd',  # subSeg02
+                     'd526f1c8ef6c1e4e980e2b8471352d23']  # seg02
+        headers = [{}, {},
+                   {'X-Static-Large-Object': 'True',
+                    'content-type': 'text/html; swift_bytes=4'},
+                   {'X-Static-Large-Object': 'True',
+                    'content-type': 'text/html; swift_bytes=4'},
+                   {'X-Static-Large-Object': 'True',
+                    'content-type': 'text/html; swift_bytes=4'},
+                   {}, {}]
+        self.assertTrue(len(response_bodies) == len(etag_iter) == len(headers))
+        with save_globals():
+            controller = proxy_server.ObjectController(
+                self.app, 'a', 'c', 'manifest')
+
+            requested = []
+
+            def capture_requested_paths(ipaddr, port, device, partition,
+                                        method, path, headers=None,
+                                        query_string=None):
+                qs_dict = dict(urlparse.parse_qsl(query_string or ''))
+                requested.append([method, path, qs_dict])
+
+            set_http_connect(
+                200,    # HEAD /a
+                200,    # HEAD /a/c
+                206,    # GET incomplete listing
+                200,    # GET complete listing
+                200,    # GET complete sublisting
+                200,    # GET subSeg02
+                200,    # GET seg02
+                headers=headers,
+                etags=etag_iter,
+                body_iter=response_bodies,
+                give_connect=capture_requested_paths)
+
+            req = Request.blank('/a/c/manifest')
+            req.range = 'bytes=4-7'
+            resp = controller.GET(req)
+            got_called = [False, ]
+
+            def fake_start_response(*args, **kwargs):
+                got_called[0] = True
+                self.assertTrue(args[0].startswith('206'))
+
+            app_iter = resp(req.environ, fake_start_response)
+            resp_body = ''.join(app_iter)  # read in entire resp
+            self.assertEqual(resp.status_int, 206)
+            self.assertEqual(resp_body, '34Bb')
+            self.assertTrue(got_called[0])
+            self.assertEqual(resp.content_length, 4)
+            self.assertEqual(resp.content_type, 'text/html')
+
+            self.assertEqual(
+                requested,
+                [['HEAD', '/a', {}],
+                 ['HEAD', '/a/c', {}],
+                 ['GET', '/a/c/manifest', {}],  # for incomplete manifest
+                 ['GET', '/a/c/manifest', {}],
+                 ['GET', '/a/d2/subManifest01', {}],
+                 ['GET', '/a/d2/subSeg02', {}],
+                 ['GET', '/a/d1/seg02', {}]])
 
     def test_GET_bad_404_manifest_slo(self):
         listing = [{"hash": "98568d540134639be4655198a36614a4",

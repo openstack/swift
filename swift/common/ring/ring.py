@@ -25,7 +25,8 @@ from io import BufferedReader
 from hashlib import md5
 from itertools import chain
 
-from swift.common.utils import hash_path, validate_configuration, json
+from swift.common.utils import json
+from swift.common.ondisk import hash_path, validate_configuration
 from swift.common.ring.utils import tiers_for_dev
 
 
@@ -130,7 +131,7 @@ class Ring(object):
     """
 
     def __init__(self, serialized_path, reload_time=15, ring_name=None):
-        # can't use the ring unless HASH_PATH_SUFFIX is set
+        # Can't use the ring unless the on-disk configuration is valid
         validate_configuration()
         if ring_name:
             self.serialized_path = os.path.join(serialized_path,
@@ -162,6 +163,19 @@ class Ring(object):
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
 
+            # Do this now, when we know the data has changed, rather then
+            # doing it on every call to get_more_nodes().
+            regions = set()
+            zones = set()
+            self._num_devs = 0
+            for dev in self._devs:
+                if dev:
+                    regions.add(dev['region'])
+                    zones.add((dev['region'], dev['zone']))
+                    self._num_devs += 1
+            self._num_regions = len(regions)
+            self._num_zones = len(zones)
+
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
         for dev in self._devs:
@@ -171,7 +185,7 @@ class Ring(object):
                 self.tier2devs[tier].append(dev)
 
         tiers_by_length = defaultdict(list)
-        for tier in self.tier2devs.keys():
+        for tier in self.tier2devs:
             tiers_by_length[len(tier)].append(tier)
         self.tiers_by_length = sorted(tiers_by_length.values(),
                                       key=lambda x: len(x[0]))
@@ -305,24 +319,37 @@ class Ring(object):
         inc = int(parts / 65536) or 1
         # Multiple loops for execution speed; the checks and bookkeeping get
         # simpler as you go along
+        hit_all_regions = len(same_regions) == self._num_regions
         for handoff_part in chain(xrange(start, parts, inc),
                                   xrange(inc - ((parts - start) % inc),
                                          start, inc)):
+            if hit_all_regions:
+                # At this point, there are no regions left untouched, so we
+                # can stop looking.
+                break
             for part2dev_id in self._replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     dev = self._devs[dev_id]
                     region = dev['region']
-                    zone = (dev['region'], dev['zone'])
+                    zone = (region, dev['zone'])
                     if dev_id not in used and region not in same_regions:
                         yield dev
                         used.add(dev_id)
                         same_regions.add(region)
                         same_zones.add(zone)
+                        if len(same_regions) == self._num_regions:
+                            hit_all_regions = True
+                            break
 
+        hit_all_zones = len(same_zones) == self._num_zones
         for handoff_part in chain(xrange(start, parts, inc),
                                   xrange(inc - ((parts - start) % inc),
                                          start, inc)):
+            if hit_all_zones:
+                # Much like we stopped looking for fresh regions before, we
+                # can now stop looking for fresh zones; there are no more.
+                break
             for part2dev_id in self._replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
@@ -332,13 +359,24 @@ class Ring(object):
                         yield dev
                         used.add(dev_id)
                         same_zones.add(zone)
+                        if len(same_zones) == self._num_zones:
+                            hit_all_zones = True
+                            break
 
+        hit_all_devs = len(used) == self._num_devs
         for handoff_part in chain(xrange(start, parts, inc),
                                   xrange(inc - ((parts - start) % inc),
                                          start, inc)):
+            if hit_all_devs:
+                # We've used every device we have, so let's stop looking for
+                # unused devices now.
+                break
             for part2dev_id in self._replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     if dev_id not in used:
                         yield self._devs[dev_id]
                         used.add(dev_id)
+                        if len(used) == self._num_devs:
+                            hit_all_devs = True
+                            break

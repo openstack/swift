@@ -18,7 +18,8 @@ from swift.common.swob import Request
 from swift.common.middleware import account_quotas
 
 from swift.proxy.controllers.base import _get_cache_key, \
-    headers_to_account_info
+    headers_to_account_info, get_object_env_key, \
+    headers_to_object_info
 
 
 class FakeCache(object):
@@ -46,15 +47,20 @@ class FakeApp(object):
         self.headers = headers
 
     def __call__(self, env, start_response):
-        # Cache the account_info (same as a real application)
-        cache_key, env_key = _get_cache_key('a', None)
-        env[env_key] = headers_to_account_info(self.headers, 200)
-        start_response('200 OK', self.headers)
+        if env['REQUEST_METHOD'] == "HEAD" and \
+                env['PATH_INFO'] == '/v1/a/c2/o2':
+            env_key = get_object_env_key('a', 'c2', 'o2')
+            env[env_key] = headers_to_object_info(self.headers, 200)
+            start_response('200 OK', self.headers)
+        elif env['REQUEST_METHOD'] == "HEAD" and \
+                env['PATH_INFO'] == '/v1/a/c2/o3':
+            start_response('404 Not Found', [])
+        else:
+            # Cache the account_info (same as a real application)
+            cache_key, env_key = _get_cache_key('a', None)
+            env[env_key] = headers_to_account_info(self.headers, 200)
+            start_response('200 OK', self.headers)
         return []
-
-
-def start_response(*args):
-    pass
 
 
 class TestAccountQuota(unittest.TestCase):
@@ -91,6 +97,43 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
 
+    def test_exceed_bytes_quota_copy_from(self):
+        headers = [('x-account-bytes-used', '500'),
+                   ('x-account-meta-quota-bytes', '1000'),
+                   ('content-length', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+
+    def test_not_exceed_bytes_quota_copy_from(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_quota_copy_from_no_src(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o3'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
     def test_exceed_bytes_quota_reseller(self):
         headers = [('x-account-bytes-used', '1000'),
                    ('x-account-meta-quota-bytes', '0')]
@@ -100,6 +143,19 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache,
                                      'reseller_request': True})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_exceed_bytes_quota_reseller_copy_from(self):
+        headers = [('x-account-bytes-used', '1000'),
+                   ('x-account-meta-quota-bytes', '0')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache,
+                                     'reseller_request': True},
+                            headers={'x-copy-from': 'c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 

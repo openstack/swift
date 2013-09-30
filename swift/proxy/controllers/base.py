@@ -37,9 +37,9 @@ from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.utils import normalize_timestamp, config_true_value, \
-    public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    quorum_size
+from swift.common.utils import config_true_value, public, split_path, \
+    list_from_csv, GreenthreadSafeIterator, quorum_size
+from swift.common.ondisk import normalize_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
@@ -152,6 +152,22 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
     }
 
 
+def headers_to_object_info(headers, status_int=HTTP_OK):
+    """
+    Construct a cacheable dict of object info based on response headers.
+    """
+    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    info = {'status': status_int,
+            'length': headers.get('content-length'),
+            'type': headers.get('content-type'),
+            'etag': headers.get('etag'),
+            'meta': dict((key[14:], value)
+                         for key, value in headers.iteritems()
+                         if key.startswith('x-object-meta-'))
+            }
+    return info
+
+
 def cors_validation(func):
     """
     Decorator to check if the request is a CORS request and if so, if it's
@@ -213,6 +229,22 @@ def cors_validation(func):
     return wrapped
 
 
+def get_object_info(env, app, path=None, swift_source=None):
+    """
+    Get the info structure for an object, based on env and app.
+    This is useful to middlewares.
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the object.
+    """
+    (version, account, container, obj) = \
+        split_path(path or env['PATH_INFO'], 4, 4, True)
+    info = _get_object_info(app, env, account, container, obj,
+                            swift_source=swift_source)
+    if not info:
+        info = headers_to_object_info({}, 0)
+    return info
+
+
 def get_container_info(env, app, swift_source=None):
     """
     Get the info structure for a container, based on env and app.
@@ -222,7 +254,8 @@ def get_container_info(env, app, swift_source=None):
     """
     (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
-    info = get_info(app, env, account, container, ret_not_found=True)
+    info = get_info(app, env, account, container, ret_not_found=True,
+                    swift_source=swift_source)
     if not info:
         info = headers_to_container_info({}, 0)
     return info
@@ -237,7 +270,8 @@ def get_account_info(env, app, swift_source=None):
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
-    info = get_info(app, env, account, ret_not_found=True)
+    info = get_info(app, env, account, ret_not_found=True,
+                    swift_source=swift_source)
     if not info:
         info = headers_to_account_info({}, 0)
     if info.get('container_count') is None:
@@ -266,6 +300,19 @@ def _get_cache_key(account, container):
     # old container or account info
     env_key = 'swift.%s' % cache_key
     return cache_key, env_key
+
+
+def get_object_env_key(account, container, obj):
+    """
+    Get the keys for env (env_key) where info about object is cached
+    :param   account: The name of the account
+    :param container: The name of the container
+    :param obj: The name of the object
+    :returns a string env_key
+    """
+    env_key = 'swift.object/%s/%s/%s' % (account,
+                                         container, obj)
+    return env_key
 
 
 def _set_info_cache(app, env, account, container, resp):
@@ -315,6 +362,34 @@ def _set_info_cache(app, env, account, container, resp):
     env[env_key] = info
 
 
+def _set_object_info_cache(app, env, account, container, obj, resp):
+    """
+    Cache object info env. Do not cache object informations in
+    memcache. This is an intentional omission as it would lead
+    to cache pressure. This is a per-request cache.
+
+    Caching is used to avoid unnecessary calls to object servers.
+    This is a private function that is being called by GETorHEAD_base.
+    Any attempt to GET or HEAD from the object server should use
+    the GETorHEAD_base interface which would then set the cache.
+
+    :param  app: the application object
+    :param  account: the unquoted account name
+    :param  container: the unquoted container name or None
+    :param  object: the unquoted object name or None
+    :param resp: the response received or None if info cache should be cleared
+    """
+
+    env_key = get_object_env_key(account, container, obj)
+
+    if not resp:
+        env.pop(env_key, None)
+        return
+
+    info = headers_to_object_info(resp.headers, resp.status_int)
+    env[env_key] = info
+
+
 def clear_info_cache(app, env, account, container=None):
     """
     Clear the cached info in both memcache and env
@@ -349,22 +424,24 @@ def _get_info_cache(app, env, account, container=None):
     return None
 
 
-def _prepare_pre_auth_info_request(env, path):
+def _prepare_pre_auth_info_request(env, path, swift_source):
     """
     Prepares a pre authed request to obtain info using a HEAD.
 
     :param env: the environment used by the current request
     :param path: The unquoted request path
+    :param swift_source: value for swift.source in WSGI environment
     :returns: the pre authed request
     """
     # Set the env for the pre_authed call without a query string
     newenv = make_pre_authed_env(env, 'HEAD', path, agent='Swift',
-                                 query_string='', swift_source='GET_INFO')
+                                 query_string='', swift_source=swift_source)
     # Note that Request.blank expects quoted path
     return Request.blank(quote(path), environ=newenv)
 
 
-def get_info(app, env, account, container=None, ret_not_found=False):
+def get_info(app, env, account, container=None, ret_not_found=False,
+             swift_source=None):
     """
     Get the info about accounts or containers
 
@@ -390,7 +467,8 @@ def get_info(app, env, account, container=None, ret_not_found=False):
             return None
         path += '/' + container
 
-    req = _prepare_pre_auth_info_request(env, path)
+    req = _prepare_pre_auth_info_request(
+        env, path, (swift_source or 'GET_INFO'))
     # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
     # the environment under environ[env_key] and in memcache. We will
     # pick the one from environ[env_key] and use it to set the caller env
@@ -401,6 +479,40 @@ def get_info(app, env, account, container=None, ret_not_found=False):
         env[env_key] = info
         if ret_not_found or is_success(info['status']):
             return info
+    except (KeyError, AttributeError):
+        pass
+    return None
+
+
+def _get_object_info(app, env, account, container, obj, swift_source=None):
+    """
+    Get the info about object
+
+    Note: This call bypasses auth. Success does not imply that the
+          request has authorization to the info.
+
+    :param app: the application object
+    :param env: the environment used by the current request
+    :param account: The unquoted name of the account
+    :param container: The unquoted name of the container
+    :param obj: The unquoted name of the object
+    :returns: the cached info or None if cannot be retrieved
+    """
+    env_key = get_object_env_key(account, container, obj)
+    info = env.get(env_key)
+    if info:
+        return info
+    # Not in cached, let's try the object servers
+    path = '/v1/%s/%s/%s' % (account, container, obj)
+    req = _prepare_pre_auth_info_request(env, path, swift_source)
+    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
+    # the environment under environ[env_key]. We will
+    # pick the one from environ[env_key] and use it to set the caller env
+    resp = req.get_response(app)
+    try:
+        info = resp.environ[env_key]
+        env[env_key] = info
+        return info
     except (KeyError, AttributeError):
         pass
     return None
@@ -1015,6 +1127,12 @@ class Controller(object):
         try:
             (account, container) = split_path(req.path_info, 1, 2)
             _set_info_cache(self.app, req.environ, account, container, res)
+        except ValueError:
+            pass
+        try:
+            (account, container, obj) = split_path(req.path_info, 3, 3, True)
+            _set_object_info_cache(self.app, req.environ, account,
+                                   container, obj, res)
         except ValueError:
             pass
         return res

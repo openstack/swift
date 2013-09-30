@@ -21,8 +21,9 @@ from eventlet import Timeout
 
 from swift.obj import diskfile
 from swift.obj import server as object_server
-from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, config_true_value, dump_recon_cache, list_from_csv, json
+from swift.common.utils import get_logger, ratelimit_sleep, \
+    config_true_value, dump_recon_cache, list_from_csv, json
+from swift.common.ondisk import audit_location_generator
 from swift.common.exceptions import AuditException, DiskFileError, \
     DiskFileNotExist
 from swift.common.daemon import Daemon
@@ -78,7 +79,7 @@ class AuditorWorker(object):
                                             logger=self.logger)
         for path, device, partition in all_locs:
             loop_time = time.time()
-            self.object_audit(path, device, partition)
+            self.failsafe_object_audit(path, device, partition)
             self.logger.timing_since('timing', loop_time)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
@@ -151,6 +152,17 @@ class AuditorWorker(object):
         else:
             self.stats_buckets["OVER"] += 1
 
+    def failsafe_object_audit(self, path, device, partition):
+        """
+        Entrypoint to object_audit, with a failsafe generic exception handler.
+        """
+        try:
+            self.object_audit(path, device, partition)
+        except (Exception, Timeout):
+            self.logger.increment('errors')
+            self.errors += 1
+            self.logger.exception(_('ERROR Trying to audit %s'), path)
+
     def object_audit(self, path, device, partition):
         """
         Audits the given object path.
@@ -166,8 +178,8 @@ class AuditorWorker(object):
                 raise AuditException('Error when reading metadata: %s' % exc)
             _junk, account, container, obj = name.split('/', 3)
             df = diskfile.DiskFile(self.devices, device, partition,
-                                   account, container, obj, self.logger,
-                                   keep_data_fp=True)
+                                   account, container, obj, self.logger)
+            df.open()
             try:
                 try:
                     obj_size = df.get_data_file_size()
@@ -203,11 +215,6 @@ class AuditorWorker(object):
                               {'obj': path, 'err': err})
             diskfile.quarantine_renamer(
                 os.path.join(self.devices, device), path)
-            return
-        except (Exception, Timeout):
-            self.logger.increment('errors')
-            self.errors += 1
-            self.logger.exception(_('ERROR Trying to audit %s'), path)
             return
         self.passes += 1
 

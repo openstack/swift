@@ -35,14 +35,14 @@ Installing dependencies
 * On apt based systems,
 
   #. `apt-get update`
-  #. `apt-get install curl gcc memcached rsync sqlite3 xfsprogs git-core python-setuptools`
+  #. `apt-get install curl gcc memcached rsync sqlite3 xfsprogs git-core libffi-dev python-setuptools`
   #. `apt-get install python-coverage python-dev python-nose python-simplejson
      python-xattr python-eventlet python-greenlet python-pastedeploy
      python-netifaces python-pip python-dnspython python-mock`
 
 * On yum based systems,
 
-  #. `yum install curl gcc memcached rsync sqlite xfsprogs git-core xinetd python-setuptools`
+  #. `yum install curl gcc memcached rsync sqlite xfsprogs git-core libffi-devel xinetd python-setuptools`
   #. `yum install python-coverage python-devel python-nose python-simplejson
      python-xattr python-eventlet python-greenlet python-pastedeploy
      python-netifaces python-pip python-dnspython python-mock`
@@ -306,7 +306,8 @@ Sample configuration files are provided with all defaults in line-by-line commen
         eventlet_debug = true
 
         [pipeline:main]
-        pipeline = healthcheck cache tempauth proxy-logging proxy-server
+        # Yes, proxy-logging appears twice. This is not a mistake.
+        pipeline = healthcheck proxy-logging cache tempauth proxy-logging proxy-server
 
         [app:proxy-server]
         use = egg:swift#proxy

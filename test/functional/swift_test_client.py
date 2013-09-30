@@ -28,6 +28,8 @@ from nose import SkipTest
 from xml.dom import minidom
 from swiftclient import get_auth
 
+from test import safe_repr
+
 
 class AuthenticationFailed(Exception):
     pass
@@ -216,18 +218,22 @@ class Connection(object):
 
         self.response = None
         try_count = 0
+        fail_messages = []
         while try_count < 5:
             try_count += 1
 
             try:
                 self.response = try_request()
-            except httplib.HTTPException:
+            except httplib.HTTPException as e:
+                fail_messages.append(safe_repr(e))
                 continue
 
             if self.response.status == 401:
+                fail_messages.append("Response 401")
                 self.authenticate()
                 continue
             elif self.response.status == 503:
+                fail_messages.append("Response 503")
                 if try_count != 5:
                     time.sleep(5)
                 continue
@@ -237,7 +243,11 @@ class Connection(object):
         if self.response:
             return self.response.status
 
-        raise RequestError('Unable to complete http request')
+        request = "{method} {path} headers: {headers} data: {data}".format(
+            method=method, path=path, headers=headers, data=data)
+        raise RequestError('Unable to complete http request: %s. '
+                           'Attempts: %s, Failures: %s' %
+                           (request, len(fail_messages), fail_messages))
 
     def put_start(self, path, hdrs={}, parms={}, cfg={}, chunked=False):
         self.http_connect()

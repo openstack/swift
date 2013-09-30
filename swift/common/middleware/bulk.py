@@ -56,7 +56,7 @@ def get_response_body(data_format, data_dict, error_list):
         return json.dumps(data_dict)
     if data_format and data_format.endswith('/xml'):
         output = '<delete>\n'
-        for key in sorted(data_dict.keys()):
+        for key in sorted(data_dict):
             xml_key = key.replace(' ', '_').lower()
             output += '<%s>%s</%s>\n' % (xml_key, data_dict[key], xml_key)
         output += '<errors>\n'
@@ -69,7 +69,7 @@ def get_response_body(data_format, data_dict, error_list):
         return output
 
     output = ''
-    for key in sorted(data_dict.keys()):
+    for key in sorted(data_dict):
         output += '%s: %s\n' % (key, data_dict[key])
     output += 'Errors:\n'
     output += '\n'.join(
@@ -144,11 +144,11 @@ class Bulk(object):
 
     Will delete multiple objects or containers from their account with a
     single request. Responds to DELETE requests with query parameter
-    ?bulk-delete set. The Content-Type should be set to text/plain.
-    The body of the DELETE request will be a newline separated list of url
-    encoded objects to delete. You can delete 10,000 (configurable) objects
-    per request. The objects specified in the DELETE request body must be URL
-    encoded and in the form:
+    ?bulk-delete set. The request url is your storage url. The Content-Type
+    should be set to text/plain. The body of the DELETE request will be a
+    newline separated list of url encoded objects to delete. You can delete
+    10,000 (configurable) objects per request. The objects specified in the
+    DELETE request body must be URL encoded and in the form:
 
     /container_name/obj_name
 
@@ -190,6 +190,8 @@ class Bulk(object):
             conf.get('max_containers_per_extraction', 10000))
         self.max_failed_extractions = int(
             conf.get('max_failed_extractions', 1000))
+        self.max_failed_deletes = int(
+            conf.get('max_failed_deletes', 1000))
         self.max_deletes_per_request = int(
             conf.get('max_deletes_per_request', 10000))
         self.yield_frequency = int(conf.get('yield_frequency', 60))
@@ -239,15 +241,19 @@ class Bulk(object):
         while data_remaining:
             if '\n' in line:
                 obj_to_delete, line = line.split('\n', 1)
-                objs_to_delete.append(unquote(obj_to_delete))
+                obj_to_delete = obj_to_delete.strip()
+                objs_to_delete.append(
+                    {'name': unquote(obj_to_delete)})
             else:
                 data = req.body_file.read(MAX_PATH_LENGTH)
                 if data:
                     line += data
                 else:
                     data_remaining = False
-                    if line.strip():
-                        objs_to_delete.append(unquote(line))
+                    obj_to_delete = line.strip()
+                    if obj_to_delete:
+                        objs_to_delete.append(
+                            {'name': unquote(obj_to_delete)})
             if len(objs_to_delete) > self.max_deletes_per_request:
                 raise HTTPRequestEntityTooLarge(
                     'Maximum Bulk Deletes: %d per request' %
@@ -304,13 +310,22 @@ class Bulk(object):
                     separator = '\r\n\r\n'
                     last_yield = time()
                     yield ' '
-                obj_to_delete = obj_to_delete.strip()
-                if not obj_to_delete:
+                obj_name = obj_to_delete['name']
+                if not obj_name:
+                    continue
+                if len(failed_files) >= self.max_failed_deletes:
+                    raise HTTPBadRequest('Max delete failures exceeded')
+                if obj_to_delete.get('error'):
+                    if obj_to_delete['error']['code'] == HTTP_NOT_FOUND:
+                        resp_dict['Number Not Found'] += 1
+                    else:
+                        failed_files.append([quote(obj_name),
+                                            obj_to_delete['error']['message']])
                     continue
                 delete_path = '/'.join(['', vrs, account,
-                                        obj_to_delete.lstrip('/')])
+                                        obj_name.lstrip('/')])
                 if not check_utf8(delete_path):
-                    failed_files.append([quote(obj_to_delete),
+                    failed_files.append([quote(obj_name),
                                          HTTPPreconditionFailed().status])
                     continue
                 new_env = req.environ.copy()
@@ -327,13 +342,12 @@ class Bulk(object):
                 elif resp.status_int == HTTP_NOT_FOUND:
                     resp_dict['Number Not Found'] += 1
                 elif resp.status_int == HTTP_UNAUTHORIZED:
-                    failed_files.append([quote(obj_to_delete),
+                    failed_files.append([quote(obj_name),
                                          HTTPUnauthorized().status])
-                    raise HTTPUnauthorized(request=req)
                 else:
                     if resp.status_int // 100 == 5:
                         failed_file_response_type = HTTPBadGateway
-                    failed_files.append([quote(obj_to_delete), resp.status])
+                    failed_files.append([quote(obj_name), resp.status])
 
             if failed_files:
                 resp_dict['Response Status'] = \

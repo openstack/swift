@@ -18,6 +18,20 @@
 
 import sys
 import os
+try:
+    from unittest.util import safe_repr
+except ImportError:
+    # Probably py26
+    _MAX_LENGTH = 80
+
+    def safe_repr(obj, short=False):
+        try:
+            result = repr(obj)
+        except Exception:
+            result = object.__repr__(obj)
+        if not short or len(result) < _MAX_LENGTH:
+            return result
+        return result[:_MAX_LENGTH] + ' [truncated]...'
 
 # make unittests pass on all locale
 import swift

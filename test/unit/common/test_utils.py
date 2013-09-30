@@ -51,6 +51,7 @@ from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout)
 from swift.common import utils
 from swift.common.swob import Response
+from test.unit import FakeLogger
 
 
 class MockOs():
@@ -131,31 +132,6 @@ def reset_loggers():
 
 class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
-
-    def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
-
-    def test_normalize_timestamp(self):
-        # Test swift.common.utils.normalize_timestamp
-        self.assertEquals(utils.normalize_timestamp('1253327593.48174'),
-                          "1253327593.48174")
-        self.assertEquals(utils.normalize_timestamp(1253327593.48174),
-                          "1253327593.48174")
-        self.assertEquals(utils.normalize_timestamp('1253327593.48'),
-                          "1253327593.48000")
-        self.assertEquals(utils.normalize_timestamp(1253327593.48),
-                          "1253327593.48000")
-        self.assertEquals(utils.normalize_timestamp('253327593.48'),
-                          "0253327593.48000")
-        self.assertEquals(utils.normalize_timestamp(253327593.48),
-                          "0253327593.48000")
-        self.assertEquals(utils.normalize_timestamp('1253327593'),
-                          "1253327593.00000")
-        self.assertEquals(utils.normalize_timestamp(1253327593),
-                          "1253327593.00000")
-        self.assertRaises(ValueError, utils.normalize_timestamp, '')
-        self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
 
     def test_backwards(self):
         # Test swift.common.utils.backward
@@ -247,36 +223,6 @@ class TestUtils(unittest.TestCase):
             utils.split_path('o\nn e', 2, 3, True)
         except ValueError as err:
             self.assertEquals(str(err), 'Invalid path: o%0An%20e')
-
-    def test_validate_device_partition(self):
-        # Test swift.common.utils.validate_device_partition
-        utils.validate_device_partition('foo', 'bar')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, '', '')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, '', 'foo')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, 'foo', '')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, 'foo/bar', 'foo')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, 'foo', 'foo/bar')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, '.', 'foo')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, '..', 'foo')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, 'foo', '.')
-        self.assertRaises(ValueError,
-                          utils.validate_device_partition, 'foo', '..')
-        try:
-            utils.validate_device_partition('o\nn e', 'foo')
-        except ValueError as err:
-            self.assertEquals(str(err), 'Invalid device: o%0An%20e')
-        try:
-            utils.validate_device_partition('foo', 'o\nn e')
-        except ValueError as err:
-            self.assertEquals(str(err), 'Invalid partition: o%0An%20e')
 
     def test_NullLogger(self):
         # Test swift.common.utils.NullLogger
@@ -637,10 +583,6 @@ class TestUtils(unittest.TestCase):
             logger.logger.removeHandler(handler)
             reset_loggers()
 
-    def test_storage_directory(self):
-        self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
-                          'objects/1/DEF/ABCDEF')
-
     def test_whataremyips(self):
         myips = utils.whataremyips()
         self.assert_(len(myips) > 1)
@@ -675,30 +617,6 @@ class TestUtils(unittest.TestCase):
             myips = utils.whataremyips()
             self.assertEquals(len(myips), 1)
             self.assertEquals(myips[0], test_ipv6_address)
-
-    def test_hash_path(self):
-        _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
-        # Yes, these tests are deliberately very fragile. We want to make sure
-        # that if someones changes the results hash_path produces, they know it
-        try:
-            self.assertEquals(utils.hash_path('a'),
-                              '1c84525acb02107ea475dcd3d09c2c58')
-            self.assertEquals(utils.hash_path('a', 'c'),
-                              '33379ecb053aa5c9e356c68997cbb59e')
-            self.assertEquals(utils.hash_path('a', 'c', 'o'),
-                              '06fbf0b514e5199dfc4e00f42eb5ea83')
-            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
-                              '06fbf0b514e5199dfc4e00f42eb5ea83')
-            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=True),
-                              '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
-                              '\x00\xf4.\xb5\xea\x83')
-            self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
-            utils.HASH_PATH_PREFIX = 'abcdef'
-            self.assertEquals(utils.hash_path('a', 'c', 'o', raw_digest=False),
-                              '363f9b535bfb7d17a43a46a358afca0e')
-        finally:
-            utils.HASH_PATH_PREFIX = _prefix
 
     def test_load_libc_function(self):
         self.assert_(callable(
@@ -1575,6 +1493,25 @@ log_name = %(yarr)s'''
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
 
+    def test_override_bytes_from_content_type(self):
+        listing_dict = {
+            'bytes': 1234, 'hash': 'asdf', 'name': 'zxcv',
+            'content_type': 'text/plain; hello="world"; swift_bytes=15'}
+        utils.override_bytes_from_content_type(listing_dict,
+                                               logger=FakeLogger())
+        self.assertEquals(listing_dict['bytes'], 15)
+        self.assertEquals(listing_dict['content_type'],
+                          'text/plain;hello="world"')
+
+        listing_dict = {
+            'bytes': 1234, 'hash': 'asdf', 'name': 'zxcv',
+            'content_type': 'text/plain; hello="world"; swift_bytes=hey'}
+        utils.override_bytes_from_content_type(listing_dict,
+                                               logger=FakeLogger())
+        self.assertEquals(listing_dict['bytes'], 1234)
+        self.assertEquals(listing_dict['content_type'],
+                          'text/plain;hello="world"')
+
     def test_quote(self):
         res = utils.quote('/v1/a/c3/subdirx/')
         assert res == '/v1/a/c3/subdirx/'
@@ -1700,14 +1637,14 @@ class TestFileLikeIter(unittest.TestCase):
         iter_file = utils.FileLikeIter('abcdef')
         self.assertEquals(iter_file.next(), 'a')
         iter_file.close()
-        self.assertTrue(iter_file.closed, True)
+        self.assertTrue(iter_file.closed)
         self.assertRaises(ValueError, iter_file.next)
         self.assertRaises(ValueError, iter_file.read)
         self.assertRaises(ValueError, iter_file.readline)
         self.assertRaises(ValueError, iter_file.readlines)
         # Just make sure repeated close calls don't raise an Exception
         iter_file.close()
-        self.assertTrue(iter_file.closed, True)
+        self.assertTrue(iter_file.closed)
 
 
 class TestStatsdLogging(unittest.TestCase):
@@ -2399,27 +2336,6 @@ class TestThreadpool(unittest.TestCase):
         except ValueError:
             caught = True
         self.assertTrue(caught)
-
-
-class TestAuditLocationGenerator(unittest.TestCase):
-    def test_non_dir_contents(self):
-        with temptree([]) as tmpdir:
-            data = os.path.join(tmpdir, "drive", "data")
-            os.makedirs(data)
-            with open(os.path.join(data, "partition1"), "w"):
-                pass
-            partition = os.path.join(data, "partition2")
-            os.makedirs(partition)
-            with open(os.path.join(partition, "suffix1"), "w"):
-                pass
-            suffix = os.path.join(partition, "suffix2")
-            os.makedirs(suffix)
-            with open(os.path.join(suffix, "hash1"), "w"):
-                pass
-            locations = utils.audit_location_generator(
-                tmpdir, "data", mount_check=False
-            )
-            self.assertEqual(list(locations), [])
 
 
 if __name__ == '__main__':

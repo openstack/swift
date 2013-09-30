@@ -2,17 +2,19 @@
 #
 # Change %PORT% to the port that you wish to use on your system
 # Change %SERVICENAME% to the service name you are using
+# Change %USER% to the system user that will run the daemon process
 # Change the debug level as you see fit
 #
 # For example:
 #     Replace %PORT% by 6012
 #     Replace %SERVICENAME% by account-server-1
+#     Replace %USER% with apache (or remove it for default)
 
 NameVirtualHost *:%PORT%
 Listen %PORT%
 
 <VirtualHost *:%PORT%>
-    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1
+    WSGIDaemonProcess %SERVICENAME% processes=5 threads=1 user=%USER%
     WSGIProcessGroup %SERVICENAME%
     WSGIScriptAlias / /var/www/swift/%SERVICENAME%.wsgi
     WSGIApplicationGroup %{GLOBAL}

@@ -14,23 +14,9 @@
 # limitations under the License.
 
 import unittest
-try:
-    from unittest.util import safe_repr
-except ImportError:
-    # Probably py26
-    _MAX_LENGTH = 80
-
-    def safe_repr(obj, short=False):
-        try:
-            result = repr(obj)
-        except Exception:
-            result = object.__repr__(obj)
-        if not short or len(result) < _MAX_LENGTH:
-            return result
-        return result[:_MAX_LENGTH] + ' [truncated]...'
-
 import mock
 
+from test import safe_repr
 from test.unit import MockTrue
 
 from swift.common.swob import HTTPBadRequest, Request
