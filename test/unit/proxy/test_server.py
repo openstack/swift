@@ -3712,7 +3712,7 @@ class TestObjectController(unittest.TestCase):
         # put an object in it
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/c/o HTTP/1.1\r\n'
+        fd.write('PUT /v1/a/con/o HTTP/1.1\r\n'
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
@@ -3729,7 +3729,7 @@ class TestObjectController(unittest.TestCase):
         etag = md5("abcdefghij").hexdigest()
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/c/o HTTP/1.1\r\n' +
+        fd.write('GET /v1/a/con/o HTTP/1.1\r\n' +
                  'Host: localhost\r\n' +
                  'Connection: close\r\n' +
                  'X-Storage-Token: t\r\n' +
