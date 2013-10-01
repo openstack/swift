@@ -110,6 +110,8 @@ If you want to use a loopback device instead of another partition, follow these 
         mkdir -p /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
 
+     Note that on some systems you might have to create `/etc/rc.local`.
+
 .. _rsync-section:
 
 ----------------
@@ -196,16 +198,30 @@ Setting up rsync
         read only = false
         lock file = /var/lock/object6040.lock
 
-  #. On Ubuntu, edit the following line in /etc/default/rsync::
+  #. On Ubuntu, edit the following line in `/etc/default/rsync`::
 
         RSYNC_ENABLE=true
 
-     On Fedora, edit the following line in /etc/xinetd.d/rsync::
+     On Fedora, edit the following line in `/etc/xinetd.d/rsync`::
 
         disable = no
 
-  #. On Ubuntu, run `service rsync restart`, on xinetd based systems
-     run `service xinetd restart`.
+  #. On platforms with SELinux in `Enforcing` mode, either set to `Permissive`::
+
+        setenforce Permissive
+
+     Or just allow rsync full access::
+
+        setsebool -P rsync_full_access 1
+
+  #. On Ubuntu, run `service rsync restart`
+
+     On Fedora, run::
+
+        systemctl enable rsyncd.service
+        systemctl start rsyncd.service
+
+     On other xinetd based systems run `service xinetd restart`.
 
   #. Verify rsync is accepting connections for all servers::
 
@@ -266,9 +282,17 @@ Optional: Setting up rsyslog for individual logging
       $PrivDropToGroup adm
 
   #. `mkdir -p /var/log/swift/hourly`
+
+  #. On Ubuntu:
+
   #. `chown -R syslog.adm /var/log/swift`
   #. `chmod -R g+w /var/log/swift`
   #. `service rsyslog restart`
+
+  #. On Fedora:
+  #. `chown -R root:adm /var/log/swift`
+  #. `chmod -R g+w /var/log/swift`
+  #. `systemctl restart rsyslog.service`
 
 ----------------
 Getting the code
@@ -287,12 +311,17 @@ You can do the following commands as administrator user.
   #. Install swift's test dependencies
        `sudo pip install -r swift/test-requirements.txt`
 
-Do the following commands as root, but verify that Swift has access
-to resulting configuration files.
+Fedora 19 or later users might have to perform the following if development
+installation of swift fails::
+
+        pip install -U xattr dnspython
 
 ---------------------
 Configuring each node
 ---------------------
+
+Do the following commands as root, but verify that Swift has access
+to resulting configuration files.
 
 Sample configuration files are provided with all defaults in line-by-line comments.
 
@@ -704,11 +733,15 @@ Setting up scripts for running Swift
 
   #. `mkdir ~/bin`
 
-  #. Create `~/bin/resetswift.`
+  #. Create `~/bin/resetswift`.
 
-     If you are using a loopback device substitute `/dev/sdb1` with `/srv/swift-disk`.
+     If you are using a loopback device substitute `/dev/sdb1` with
+     `/srv/swift-disk` in the `mkfs` step.
 
-     If you did not set up rsyslog for individual logging, remove the `find /var/log/swift...` line::
+     If you did not set up rsyslog for individual logging, remove the `find
+     /var/log/swift...` line.
+
+     On Fedora, replace `service `<name>` restart` with `systemctl restart `<name>`.service`::
 
         #!/bin/bash
 
