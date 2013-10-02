@@ -23,8 +23,21 @@ import time
 import unittest
 from uuid import uuid4
 
+from eventlet import GreenPool, sleep, Queue
+from eventlet.pools import Pool
+
 from swift.common import memcached
+from mock import patch
 from test.unit import NullLoggingHandler
+
+
+class MockedMemcachePool(memcached.MemcacheConnPool):
+    def __init__(self, mocks):
+        Pool.__init__(self, max_size=2)
+        self.mocks = mocks
+
+    def create(self):
+        return self.mocks.pop(0)
 
 
 class ExplodingMockMemcached(object):
@@ -173,7 +186,8 @@ class TestMemcached(unittest.TestCase):
     def test_set_get(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         self.assertEquals(mock.cache.values()[0][1], '0')
@@ -200,7 +214,8 @@ class TestMemcached(unittest.TestCase):
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.incr('some_key', delta=5)
         self.assertEquals(memcache_client.get('some_key'), '5')
         memcache_client.incr('some_key', delta=5)
@@ -219,7 +234,8 @@ class TestMemcached(unittest.TestCase):
     def test_incr_w_timeout(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEquals(memcache_client.get('some_key'), '5')
         self.assertEquals(mock.cache.values()[0][1], '55')
@@ -242,7 +258,8 @@ class TestMemcached(unittest.TestCase):
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.decr('some_key', delta=5)
         self.assertEquals(memcache_client.get('some_key'), '0')
         memcache_client.incr('some_key', delta=15)
@@ -261,8 +278,10 @@ class TestMemcached(unittest.TestCase):
             ['1.2.3.4:11211', '1.2.3.5:11211'])
         mock1 = ExplodingMockMemcached()
         mock2 = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock2, mock2)]
-        memcache_client._client_cache['1.2.3.5:11211'] = [(mock1, mock1)]
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock2, mock2)])
+        memcache_client._client_cache['1.2.3.5:11211'] = MockedMemcachePool(
+            [(mock1, mock1)])
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         self.assertEquals(mock1.exploded, True)
@@ -270,7 +289,8 @@ class TestMemcached(unittest.TestCase):
     def test_delete(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client.delete('some_key')
@@ -279,7 +299,8 @@ class TestMemcached(unittest.TestCase):
     def test_multi(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
         self.assertEquals(
@@ -313,7 +334,8 @@ class TestMemcached(unittest.TestCase):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
                                                  allow_pickle=True)
         mock = MockMemcached()
-        memcache_client._client_cache['1.2.3.4:11211'] = [(mock, mock)] * 2
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_pickle = False
@@ -327,6 +349,46 @@ class TestMemcached(unittest.TestCase):
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_pickle = True
         self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+
+    def test_connection_pooling(self):
+        with patch('swift.common.memcached.socket') as mock_module:
+            # patch socket, stub socket.socket, mock sock
+            mock_sock = mock_module.socket.return_value
+
+            # track clients waiting for connections
+            connected = []
+            connections = Queue()
+
+            def wait_connect(addr):
+                connected.append(addr)
+                connections.get()
+            mock_sock.connect = wait_connect
+
+            memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
+                                                     connect_timeout=10)
+            # sanity
+            self.assertEquals(1, len(memcache_client._client_cache))
+            for server, pool in memcache_client._client_cache.items():
+                self.assertEquals(2, pool.max_size)
+
+            # make 10 requests "at the same time"
+            p = GreenPool()
+            for i in range(10):
+                p.spawn(memcache_client.set, 'key', 'value')
+            for i in range(3):
+                sleep(0.1)
+                self.assertEquals(2, len(connected))
+            # give out a connection
+            connections.put(None)
+            for i in range(3):
+                sleep(0.1)
+                self.assertEquals(2, len(connected))
+            # finish up
+            for i in range(8):
+                connections.put(None)
+            self.assertEquals(2, len(connected))
+            p.waitall()
+            self.assertEquals(2, len(connected))
 
 
 if __name__ == '__main__':
