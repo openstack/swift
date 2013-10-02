@@ -26,7 +26,10 @@ user. Swift processes also run under a separate user and group, set by
 configuration option, and refered as <your-user-name>:<your-group-name>.
 The default user is `swift`, which may not exist on your system.
 
-Perform the following commands as root.
+.. note::
+
+    The instructions in the first first half of this guide are expected to be
+    performed as the root user.
 
 -----------------------
 Installing dependencies
@@ -294,11 +297,16 @@ Optional: Setting up rsyslog for individual logging
   #. `chmod -R g+w /var/log/swift`
   #. `systemctl restart rsyslog.service`
 
+
+.. note::
+
+    Starting here, from this point on, all instructions are expected to be
+    performed as the unprivledged user you selected as <your-user-name>.
+
+
 ----------------
 Getting the code
 ----------------
-
-You can do the following commands as administrator user.
 
   #. Check out the python-swiftclient repo
        `git clone https://github.com/openstack/python-swiftclient.git`
@@ -314,14 +322,11 @@ You can do the following commands as administrator user.
 Fedora 19 or later users might have to perform the following if development
 installation of swift fails::
 
-        pip install -U xattr dnspython
+        sudo pip install -U xattr dnspython
 
 ---------------------
 Configuring each node
 ---------------------
-
-Do the following commands as root, but verify that Swift has access
-to resulting configuration files.
 
 Sample configuration files are provided with all defaults in line-by-line comments.
 
