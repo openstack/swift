@@ -197,10 +197,21 @@ class MemcacheRing(object):
                 continue
             sock = None
             try:
-                with Timeout(self._connect_timeout):
-                    fp, sock = self._client_cache[server].get()
+                # NOTE: We do NOT place a Timeout over the MemcacheConnPool's
+                # get() method. The MemcacheConnPool's create() method already
+                # places a timeout around the connect() system call, which we
+                # catch below. It is possible for the underlying Queue of the
+                # MemcacheConnPool to be contended such that this greenlet is
+                # waiting for one or more connections to be freed up. If there
+                # is a particularly slow memcache server causing that problme,
+                # then the IO_TIMEOUT will catch that behavior, so we do not
+                # have to place a Timeout here.
+                fp, sock = self._client_cache[server].get()
                 yield server, fp, sock
             except (Exception, Timeout) as e:
+                # Typically a Timeout exception caught here is the one raised
+                # by the create() method of this server's MemcacheConnPool
+                # object.
                 self._exception_occurred(
                     server, e, action='connecting', sock=sock)
 
