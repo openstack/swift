@@ -3,6 +3,8 @@
 
 import os
 import unittest
+import string
+import sys
 
 try:
     from subprocess import check_output
@@ -27,15 +29,17 @@ except ImportError:
 
 os.environ['LC_ALL'] = 'eo'
 os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-from swift import gettext_ as _
 
 
 class TestTranslations(unittest.TestCase):
 
     def test_translations(self):
-        translated_message = check_output(['python', __file__])
+        path = ':'.join(sys.path)
+        translated_message = check_output(['python', __file__, path])
         self.assertEquals(translated_message, 'testo mesaĝon\n')
 
 
 if __name__ == "__main__":
+    sys.path = string.split(sys.argv[1], ':')
+    from swift import gettext_ as _
     print _('test message')
