@@ -115,6 +115,8 @@ If you want to use a loopback device instead of another partition, follow these 
 
      Note that on some systems you might have to create `/etc/rc.local`.
 
+     On Fedora 19 or later, you need to place these in `/etc/rc.d/rc.local`.
+
 .. _rsync-section:
 
 ----------------
