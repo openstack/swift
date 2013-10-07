@@ -27,9 +27,9 @@ from hashlib import md5
 
 from eventlet import sleep, Timeout
 
-from swift.common.utils import mkdirs, public, get_logger, write_pickle, \
-    config_true_value, timing_stats, ThreadPool, replication
-from swift.common.ondisk import normalize_timestamp, hash_path
+from swift.common.utils import mkdirs, normalize_timestamp, public, \
+    hash_path, get_logger, write_pickle, config_true_value, timing_stats, \
+    ThreadPool, replication
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, check_mount, \
     check_float, check_utf8

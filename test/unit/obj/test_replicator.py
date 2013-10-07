@@ -29,9 +29,8 @@ from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
 from test.unit import FakeLogger
-from swift.common.utils import mkdirs
-from swift.common import ondisk
-from swift.common.ondisk import hash_path, normalize_timestamp
+from swift.common import utils
+from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
 
@@ -138,8 +137,8 @@ def _create_test_ring(path):
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
-        ondisk.HASH_PATH_SUFFIX = 'endcap'
-        ondisk.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         # Setup a test ring (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')

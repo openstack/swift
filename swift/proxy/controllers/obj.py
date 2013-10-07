@@ -38,10 +38,10 @@ from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
-from swift.common.utils import ContextPool, config_true_value, public, json, \
-    csv_append, GreenthreadSafeIterator, quorum_size, split_path, \
-    override_bytes_from_content_type, get_valid_utf8_str
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import ContextPool, normalize_timestamp, \
+    config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
+    quorum_size, split_path, override_bytes_from_content_type, \
+    get_valid_utf8_str
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE

@@ -29,11 +29,10 @@ from swift.container.backend import ContainerBroker
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
-from swift.common.utils import get_logger, public, validate_sync_to, \
+from swift.common.utils import get_logger, hash_path, public, \
+    normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
     override_bytes_from_content_type
-from swift.common.ondisk import hash_path, normalize_timestamp, \
-    storage_directory
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
