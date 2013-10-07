@@ -20,7 +20,7 @@ from hashlib import md5
 
 from swift.common.ring import Ring
 from swift.obj.diskfile import read_metadata
-from swift.common.utils import hash_path
+from swift.common.ondisk import hash_path
 
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
