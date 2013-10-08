@@ -95,7 +95,7 @@ class AccountQuotaMiddleware(object):
         if new_quota is not None:
             return HTTPForbidden()
 
-        if obj and request.method == "POST":
+        if obj and request.method == "POST" or not obj:
             return self.app
 
         copy_from = request.headers.get('X-Copy-From')
