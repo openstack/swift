@@ -17,6 +17,7 @@
 """Tests for swift.common.utils"""
 
 from __future__ import with_statement
+from collections import defaultdict
 import logging
 import socket
 import time
@@ -27,7 +28,7 @@ from eventlet import GreenPool, sleep, Queue
 from eventlet.pools import Pool
 
 from swift.common import memcached
-from mock import patch
+from mock import patch, MagicMock
 from test.unit import NullLoggingHandler
 
 
@@ -407,6 +408,65 @@ class TestMemcached(unittest.TestCase):
             connections.get_nowait()
             self.assertTrue(connections.empty())
 
+    def test_connection_pool_timeout(self):
+        orig_conn_pool = memcached.MemcacheConnPool
+        try:
+            connections = defaultdict(Queue)
+            pending = defaultdict(int)
+            served = defaultdict(int)
+
+            class MockConnectionPool(orig_conn_pool):
+                def get(self):
+                    pending[self.server] += 1
+                    conn = connections[self.server].get()
+                    pending[self.server] -= 1
+                    return conn
+
+                def put(self, *args, **kwargs):
+                    connections[self.server].put(*args, **kwargs)
+                    served[self.server] += 1
+
+            memcached.MemcacheConnPool = MockConnectionPool
+
+            memcache_client = memcached.MemcacheRing(['1.2.3.4:11211',
+                                                      '1.2.3.5:11211'],
+                                                     io_timeout=0.5,
+                                                     pool_timeout=0.1)
+
+            p = GreenPool()
+            for i in range(10):
+                p.spawn(memcache_client.set, 'key', 'value')
+
+            # let everyone block
+            sleep(0)
+            self.assertEqual(pending['1.2.3.5:11211'], 10)
+
+            # hand out a couple slow connection
+            mock_conn = MagicMock(), MagicMock()
+            mock_conn[1].sendall = lambda x: sleep(0.2)
+            connections['1.2.3.5:11211'].put(mock_conn)
+            connections['1.2.3.5:11211'].put(mock_conn)
+
+            # so far so good, everyone is still waiting
+            sleep(0)
+            self.assertEqual(pending['1.2.3.5:11211'], 8)
+            self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 0)
+
+            # but they won't wait longer than pool_timeout
+            mock_conn = MagicMock(), MagicMock()
+            connections['1.2.3.4:11211'].put(mock_conn)
+            connections['1.2.3.4:11211'].put(mock_conn)
+            p.waitall()
+            self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 8)
+            self.assertEqual(served['1.2.3.5:11211'], 2)
+            self.assertEqual(len(memcache_client._errors['1.2.3.4:11211']), 0)
+            self.assertEqual(served['1.2.3.4:11211'], 8)
+
+            # and we never got more put in that we gave out
+            self.assertEqual(connections['1.2.3.5:11211'].qsize(), 2)
+            self.assertEqual(connections['1.2.3.4:11211'].qsize(), 2)
+        finally:
+            memcached.MemcacheConnPool = orig_conn_pool
 
 if __name__ == '__main__':
     unittest.main()
