@@ -114,7 +114,10 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         new_size = int(account_info['bytes']) + content_length
-        quota = int(account_info['meta'].get('quota-bytes', -1))
+        try:
+            quota = int(account_info['meta'].get('quota-bytes', -1))
+        except ValueError:
+            return self.app
 
         if 0 <= quota < new_size:
             return HTTPRequestEntityTooLarge()

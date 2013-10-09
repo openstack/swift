@@ -113,6 +113,19 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
+    def test_bogus_quota_is_ignored(self):
+        # This can happen if the metadata was set by a user prior to the
+        # activation of the account-quota middleware
+        headers = [('x-account-bytes-used', '1000'),
+                   ('x-account-meta-quota-bytes', 'pasty-plastogene')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
     def test_exceed_bytes_quota(self):
         headers = [('x-account-bytes-used', '1000'),
                    ('x-account-meta-quota-bytes', '0')]
