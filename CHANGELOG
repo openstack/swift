@@ -1,3 +1,47 @@
+swift (1.10.0)
+
+    * Added support for pooling memcache connections
+
+    * Added support to replicating handoff partitions first in object
+      replication. Can also configure now many remote nodes a storage node
+      must talk to before removing a local handoff partition.
+
+    * Fixed bug where memcache entries would not expire
+
+    * Much faster calculation for choosing handoff nodes
+
+    * Added container listing ratelimiting
+
+    * Fixed issue where the proxy would continue to read from a storage
+      server even after a client had disconnected
+
+    * Added support for headers that are only visible to the owner of a Swift
+      account
+
+    * Fixed ranged GET with If-None-Match
+
+    * Fixed an issue where rings may not be balanced after initial creation
+
+    * Fixed internationalization support
+
+    * Return the correct etag for a static large object on the PUT response
+
+    * Allow users to extract archives to containers with ACLs set
+
+    * Fix support for range requests against static large objects
+
+    * Now logs x-copy-from header in a useful place
+
+    * Reverted back to old XML output of account and container listings to
+      ensure older clients do not break
+
+    * Account quotas now appropriately handle copy requests
+
+    * Fix issue with UTF-8 handling in versioned writes
+
+    * Various other bug fixes and improvements, including support for running
+      Swift under Pypy and continuing work to support storage policies
+
 swift (1.9.1)
 
     * Disallow PUT, POST, and DELETE requests from creating older tombstone
