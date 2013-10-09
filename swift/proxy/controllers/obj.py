@@ -1186,6 +1186,7 @@ class ObjectController(Controller):
         object_versions = container_info['versions']
         if object_versions:
             # this is a version manifest and needs to be handled differently
+            object_versions = unquote(object_versions)
             lcontainer = object_versions.split('/')[0]
             prefix_len = '%03x' % len(self.object_name)
             lprefix = prefix_len + self.object_name + '/'
@@ -1207,7 +1208,7 @@ class ObjectController(Controller):
                 orig_container = self.container_name
                 orig_obj = self.object_name
                 self.container_name = lcontainer
-                self.object_name = last_item['name']
+                self.object_name = last_item['name'].encode('utf-8')
                 copy_path = '/' + self.account_name + '/' + \
                             self.container_name + '/' + self.object_name
                 copy_headers = {'X-Newest': 'True',
@@ -1227,7 +1228,7 @@ class ObjectController(Controller):
                     return HTTPServiceUnavailable(request=req)
                 # reset these because the COPY changed them
                 self.container_name = lcontainer
-                self.object_name = last_item['name']
+                self.object_name = last_item['name'].encode('utf-8')
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)
