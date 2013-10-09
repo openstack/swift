@@ -337,6 +337,13 @@ class RingBuilder(object):
 
         self._ring = None
         if self._last_part_moves_epoch is None:
+            weighted_devs = []
+            for v in self.devs:
+                if v and v['weight'] == 0:
+                    weighted_devs.append(None)
+                else:
+                    weighted_devs.append(v)
+            self.devs = weighted_devs
             self._initial_balance()
             self.devs_changed = False
             return self.parts, self.get_balance()
