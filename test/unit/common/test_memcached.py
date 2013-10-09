@@ -358,10 +358,14 @@ class TestMemcached(unittest.TestCase):
             # track clients waiting for connections
             connected = []
             connections = Queue()
+            errors = []
 
             def wait_connect(addr):
                 connected.append(addr)
-                connections.get()
+                val = connections.get()
+                if val is not None:
+                    errors.append(val)
+
             mock_sock.connect = wait_connect
 
             memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
@@ -369,7 +373,7 @@ class TestMemcached(unittest.TestCase):
             # sanity
             self.assertEquals(1, len(memcache_client._client_cache))
             for server, pool in memcache_client._client_cache.items():
-                self.assertEquals(2, pool.max_size)
+                self.assertEqual(2, pool.max_size)
 
             # make 10 requests "at the same time"
             p = GreenPool()
@@ -377,18 +381,31 @@ class TestMemcached(unittest.TestCase):
                 p.spawn(memcache_client.set, 'key', 'value')
             for i in range(3):
                 sleep(0.1)
-                self.assertEquals(2, len(connected))
+                self.assertEqual(2, len(connected))
+
             # give out a connection
             connections.put(None)
+
+            # at this point, only one connection should have actually been
+            # created, the other is in the creation step, and the rest of the
+            # clients are not attempting to connect. we let this play out a
+            # bit to verify.
             for i in range(3):
                 sleep(0.1)
-                self.assertEquals(2, len(connected))
-            # finish up
-            for i in range(8):
-                connections.put(None)
-            self.assertEquals(2, len(connected))
+                self.assertEqual(2, len(connected))
+
+            # finish up, this allows the final connection to be created, so
+            # that all the other clients can use the two existing connections
+            # and no others will be created.
+            connections.put(None)
+            connections.put('nono')
+            self.assertEqual(2, len(connected))
             p.waitall()
-            self.assertEquals(2, len(connected))
+            self.assertEqual(2, len(connected))
+            self.assertEqual(0, len(errors),
+                             "A client was allowed a third connection")
+            connections.get_nowait()
+            self.assertTrue(connections.empty())
 
 
 if __name__ == '__main__':
