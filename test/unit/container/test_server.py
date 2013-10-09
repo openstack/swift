@@ -29,8 +29,7 @@ import simplejson
 from swift.common.swob import Request, HeaderKeyDict
 import swift.container
 from swift.container import server as container_server
-from swift.common.utils import mkdirs, public, replication
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, mkdirs, public, replication
 from test.unit import fake_http_connect
 
 

@@ -37,9 +37,9 @@ from eventlet.queue import Queue, Empty, Full
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.utils import config_true_value, public, split_path, \
-    list_from_csv, GreenthreadSafeIterator, quorum_size
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, config_true_value, \
+    public, split_path, list_from_csv, GreenthreadSafeIterator, \
+    quorum_size
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \

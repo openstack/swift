@@ -22,7 +22,6 @@ from re import sub
 import eventlet.debug
 
 from swift.common import utils
-from swift.common import ondisk
 
 
 class Daemon(object):
@@ -42,7 +41,7 @@ class Daemon(object):
 
     def run(self, once=False, **kwargs):
         """Run the daemon"""
-        ondisk.validate_configuration()
+        utils.validate_configuration()
         utils.drop_privileges(self.conf.get('user', 'swift'))
         utils.capture_stdio(self.logger, **kwargs)
 

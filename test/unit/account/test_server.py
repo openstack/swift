@@ -25,8 +25,7 @@ import xml.dom.minidom
 
 from swift.common.swob import Request
 from swift.account.server import AccountController, ACCOUNT_LISTING_LIMIT
-from swift.common.utils import replication, public
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, replication, public
 
 
 class TestAccountController(unittest.TestCase):

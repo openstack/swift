@@ -33,15 +33,6 @@ Utils
     :members:
     :show-inheritance:
 
-.. _ondisk:
-
-OnDisk
-======
-
-.. automodule:: swift.common.ondisk
-    :members:
-    :show-inheritance:
-
 .. _common_tempauth:
 
 TempAuth

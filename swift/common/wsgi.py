@@ -35,8 +35,7 @@ from swift.common import utils
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
-    get_hub, config_auto_int_value
-from swift.common.ondisk import validate_configuration
+    validate_configuration, get_hub, config_auto_int_value
 
 try:
     import multiprocessing

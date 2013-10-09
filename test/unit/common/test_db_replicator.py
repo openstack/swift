@@ -26,7 +26,7 @@ import mock
 import simplejson
 
 from swift.common import db_replicator
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 from swift.common.exceptions import DriveNotMounted
 
