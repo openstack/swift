@@ -85,22 +85,23 @@ class ContainerQuotaMiddleware(object):
                 # this will hopefully 404 later
                 return self.app
 
-            content_length = (req.content_length or 0)
-            copy_from = req.headers.get('X-Copy-From')
-            if obj and copy_from:
-                path = '/%s/%s/%s' % (version, account, copy_from.lstrip('/'))
-                object_info = get_object_info(req.environ, self.app, path)
-                if not object_info or not object_info['length']:
-                    content_length = 0
-                else:
-                    content_length = int(object_info['length'])
-
             if 'quota-bytes' in container_info.get('meta', {}) and \
                     'bytes' in container_info and \
                     container_info['meta']['quota-bytes'].isdigit():
+                content_length = (req.content_length or 0)
+                copy_from = req.headers.get('X-Copy-From')
+                if copy_from:
+                    path = '/%s/%s/%s' % (version, account,
+                                          copy_from.lstrip('/'))
+                    object_info = get_object_info(req.environ, self.app, path)
+                    if not object_info or not object_info['length']:
+                        content_length = 0
+                    else:
+                        content_length = int(object_info['length'])
                 new_size = int(container_info['bytes']) + content_length
                 if int(container_info['meta']['quota-bytes']) < new_size:
                     return self.bad_response(req, container_info)
+
             if 'quota-count' in container_info.get('meta', {}) and \
                     'object_count' in container_info and \
                     container_info['meta']['quota-count'].isdigit():
