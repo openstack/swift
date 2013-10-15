@@ -217,15 +217,15 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        memcache_client.incr('some_key', delta=5)
+        self.assertEquals(memcache_client.incr('some_key', delta=5), 5)
         self.assertEquals(memcache_client.get('some_key'), '5')
-        memcache_client.incr('some_key', delta=5)
+        self.assertEquals(memcache_client.incr('some_key', delta=5), 10)
         self.assertEquals(memcache_client.get('some_key'), '10')
-        memcache_client.incr('some_key', delta=1)
+        self.assertEquals(memcache_client.incr('some_key', delta=1), 11)
         self.assertEquals(memcache_client.get('some_key'), '11')
-        memcache_client.incr('some_key', delta=-5)
+        self.assertEquals(memcache_client.incr('some_key', delta=-5), 6)
         self.assertEquals(memcache_client.get('some_key'), '6')
-        memcache_client.incr('some_key', delta=-15)
+        self.assertEquals(memcache_client.incr('some_key', delta=-15), 0)
         self.assertEquals(memcache_client.get('some_key'), '0')
         mock.read_return_none = True
         self.assertRaises(memcached.MemcacheConnectionError,
@@ -261,13 +261,13 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        memcache_client.decr('some_key', delta=5)
+        self.assertEquals(memcache_client.decr('some_key', delta=5), 0)
         self.assertEquals(memcache_client.get('some_key'), '0')
-        memcache_client.incr('some_key', delta=15)
+        self.assertEquals(memcache_client.incr('some_key', delta=15), 15)
         self.assertEquals(memcache_client.get('some_key'), '15')
-        memcache_client.decr('some_key', delta=4)
+        self.assertEquals(memcache_client.decr('some_key', delta=4), 11)
         self.assertEquals(memcache_client.get('some_key'), '11')
-        memcache_client.decr('some_key', delta=15)
+        self.assertEquals(memcache_client.decr('some_key', delta=15), 0)
         self.assertEquals(memcache_client.get('some_key'), '0')
         mock.read_return_none = True
         self.assertRaises(memcached.MemcacheConnectionError,

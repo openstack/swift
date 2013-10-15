@@ -319,6 +319,7 @@ class MemcacheRing(object):
                      interface consistent with set and set_multi methods
         :param timeout: ttl in memcache, deprecated, will be removed in future
                         OpenStack releases
+        :returns: result of incrementing
         :raises MemcacheConnectionError:
         """
         if timeout:
@@ -370,12 +371,13 @@ class MemcacheRing(object):
                      interface consistent with set and set_multi methods
         :param timeout: ttl in memcache, deprecated, will be removed in future
                         OpenStack releases
+        :returns: result of decrementing
         :raises MemcacheConnectionError:
         """
         if timeout:
             logging.warn("parameter timeout has been deprecated, use time")
 
-        self.incr(key, delta=-delta, time=(time or timeout))
+        return self.incr(key, delta=-delta, time=(time or timeout))
 
     def delete(self, key):
         """
