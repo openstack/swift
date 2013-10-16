@@ -230,20 +230,8 @@ class Application(object):
 
         :policy_idx: policy index as defined in swift.conf
         :returns: appropriate ring object
-
         """
-        if policy_idx is None:
-            policy_idx = 0
-        else:
-            # makes it easier for callers to just pass in a header value
-            policy_idx = int(policy_idx)
-        policy = self.policies.get_by_index(policy_idx)
-        if not policy:
-            raise ValueError("No policy with index %d" % policy_idx)
-        if not policy.object_ring:
-            policy.object_ring = Ring(self.swift_dir,
-                                      ring_name=policy.ring_name)
-        return policy.object_ring
+        return self.policies.get_object_ring(policy_idx, self.swift_dir)
 
     def get_controller(self, path):
         """

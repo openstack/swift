@@ -55,6 +55,7 @@ class TestStoragePolicies(unittest.TestCase):
         default = yes
         [storage-policy:6]
         name = apple
+        type = replication
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
 
@@ -70,6 +71,13 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals(0, stor_pols.get_by_name("zero").idx)
         self.assertEquals(5, stor_pols.get_by_name("one").idx)
         self.assertEquals(6, stor_pols.get_by_name("apple").idx)
+
+        self.assertEquals("replication",
+                          stor_pols.get_by_name("zero").policy_type)
+        self.assertEquals("replication",
+                          stor_pols.get_by_name("one").policy_type)
+        self.assertEquals("replication",
+                          stor_pols.get_by_name("apple").policy_type)
 
         self.assertEquals("zero", stor_pols.get_by_index(0).name)
         self.assertEquals("zero", stor_pols.get_by_index("0").name)
@@ -105,6 +113,16 @@ class TestStoragePolicies(unittest.TestCase):
         """)
         self.assertRaises(
             ValueError, storage_policy.parse_storage_policies, conf2)
+
+        conf3 = self._conf("""
+        [storage-policy:0]
+        name = zero
+        [storage-policy:1]
+        name = one
+        type = invalid_policy_nonsense
+        """)
+        self.assertRaises(
+            ValueError, storage_policy.parse_storage_policies, conf3)
 
     def test_multiple_defaults_is_error(self):
         conf = self._conf("""

@@ -15,9 +15,14 @@ swift_hash_path_prefix = changeme
 # containers and can be given a name for use in metadata however the ring
 # file name will always be 'object' for backwards compatibility.  The name
 # is optional for policy 0.  A default policy is used when creating new
-# containers and no policy is specified, any policy can be marked as default
+# containers and no policy is specified, any policy can be marked as default.
+# The 'type' element is optional and if not specified will default to
+# 'replication' and is important for some services, such as the replicator,
+# to understand how to process the data.  For example purposes, 'replication'
+# is called out explicitly below.
 #[storage-policy:0]
 #name = chicken
+#type = replication
 
 # the following declares a policy called 'turkey' and uses replication by
 # default, the number of replicas will be determined by how the ring is built.

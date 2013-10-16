@@ -15,6 +15,7 @@
 
 from ConfigParser import NoOptionError, ConfigParser
 from swift.common.utils import config_true_value, SWIFT_CONF_FILE
+from swift.common.ring import Ring
 
 POLICY = 'X-Storage-Policy'
 POLICY_INDEX = 'X-Storage-Policy-Index'
@@ -25,11 +26,13 @@ class StoragePolicy(object):
     Represents a storage policy.
     Not meant to be instantiated directly; use get_storage_policies().
     """
-    def __init__(self, idx, name, is_default=False, object_ring=None):
+    def __init__(self, idx, name, is_default=False, object_ring=None,
+                 policy_type='replication'):
         self.name = name
         self.idx = int(idx)
         self.is_default = is_default
         self.object_ring = object_ring
+        self.policy_type = policy_type
 
     def __repr__(self):
         return "StoragePolicy(%d, %r, is_default=%s, object_ring=%r)" % (
@@ -100,6 +103,27 @@ class StoragePolicyCollection(object):
             index = 0
         return self.pols_by_index.get(int(index))
 
+    def get_object_ring(self, policy_idx, swift_dir):
+        """
+        Get the ring object to use to handle a request based on its policy.
+
+        :policy_idx: policy index as defined in swift.conf
+        :policy_idx: swift_dir used by the caller
+        :returns: appropriate ring object
+        """
+        if policy_idx is None:
+            policy_idx = 0
+        else:
+            # makes it easier for callers to just pass in a header value
+            policy_idx = int(policy_idx)
+        policy = self.get_by_index(policy_idx)
+        if not policy:
+            raise ValueError("No policy with index %d" % policy_idx)
+        if not policy.object_ring:
+            policy.object_ring = Ring(swift_dir,
+                                      ring_name=policy.ring_name)
+        return policy.object_ring
+
 
 def parse_storage_policies(conf):
     """
@@ -111,6 +135,7 @@ def parse_storage_policies(conf):
     """
     policies = []
     names = []
+    valid_types = ['replication']
     need_default = True
     need_pol0 = True
     for section in conf.sections():
@@ -132,17 +157,24 @@ def parse_storage_policies(conf):
                 policy_name = conf.get(section, 'name')
             except NoOptionError:
                 raise ValueError("Missing policy name %s" % section)
-
             """ names must be unique """
             if policy_name in names:
                 raise ValueError("Duplicate policy name %s" % policy_name)
             else:
                 names.append(policy_name)
+            try:
+                policy_type = conf.get(section, 'type')
+                # validate policy type, if unknown then error
+                if policy_type not in valid_types:
+                    raise ValueError("Invalid policy type %s" % policy_type)
+            except NoOptionError:
+                policy_type = 'replication'
 
             policies.append(StoragePolicy(
                 policy_idx,
                 policy_name,
-                is_default=config_true_value(is_default)))
+                is_default=config_true_value(is_default),
+                policy_type=policy_type))
 
     # If a 0 policy wasn't explicitly given, or nothing was
     # provided, create the 0 policy now
