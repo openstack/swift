@@ -5,7 +5,20 @@
 # backlog = 4096
 # swift_dir = /etc/swift
 # user = swift
+
+# Enables exposing configuration settings via HTTP GET /info.
+# expose_info = true
+
+# Key to use for admin calls that are HMAC signed.  Default is empty,
+# which will disable admin calls to /info.
+# admin_key = secret_admin_key
 #
+# Allows the ability to withhold sections from showing up in the public
+# calls to /info.  The following would cause the sections 'container_quotas'
+# and 'tempurl' to not be listed.  Default is empty, allowing all registered
+# fetures to be listed via HTTP GET /info.
+# disallowed_sections = container_quotas, tempurl
+
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu
 # cores in the system.  It's worth noting that individual workers will

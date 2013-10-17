@@ -17,7 +17,7 @@ from swift import gettext_ as _
 
 import eventlet
 
-from swift.common.utils import cache_from_env, get_logger
+from swift.common.utils import cache_from_env, get_logger, register_swift_info
 from swift.proxy.controllers.base import get_container_memcache_key
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
@@ -274,6 +274,7 @@ def filter_factory(global_conf, **local_conf):
     """
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('ratelimit')
 
     def limit_filter(app):
         return RateLimitMiddleware(app, conf)

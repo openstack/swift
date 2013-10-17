@@ -110,7 +110,7 @@ from time import time
 from urllib import quote
 
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
-from swift.common.utils import streq_const_time
+from swift.common.utils import streq_const_time, register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized
 from swift.proxy.controllers.base import get_account_info
@@ -502,4 +502,5 @@ def filter_factory(global_conf, **local_conf):
     """Returns the WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('formpost')
     return lambda app: FormPost(app, conf)
