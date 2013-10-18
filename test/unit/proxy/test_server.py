@@ -71,7 +71,7 @@ def request_init(self, *args, **kwargs):
     _request_instances[self] = None
 
 
-def setup():
+def do_setup(the_object_server):
     utils.HASH_PATH_SUFFIX = 'endcap'
     global _testdir, _test_servers, _test_sockets, \
         _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
@@ -135,8 +135,8 @@ def setup():
     acc2srv = account_server.AccountController(conf)
     con1srv = container_server.ContainerController(conf)
     con2srv = container_server.ContainerController(conf)
-    obj1srv = object_server.ObjectController(conf)
-    obj2srv = object_server.ObjectController(conf)
+    obj1srv = the_object_server.ObjectController(conf)
+    obj2srv = the_object_server.ObjectController(conf)
     _test_servers = \
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
     nl = NullLogger()
@@ -172,6 +172,10 @@ def setup():
     exp = 'HTTP/1.1 201'
     assert headers[:len(exp)] == exp, "Expected '%s', encountered '%s'" % (
         exp, headers[:len(exp)])
+
+
+def setup():
+    do_setup(object_server)
 
 
 def teardown():
