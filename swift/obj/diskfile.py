@@ -1016,12 +1016,12 @@ class DiskFile(object):
 
         :param data_file: full path of data file to quarantine
         :param msg: reason for quarantining to be included in the exception
-        :raises DiskFileQuarantined:
+        :returns: DiskFileQuarantined exception object
         """
         self._quarantined_dir = self._threadpool.run_in_thread(
             quarantine_renamer, self._device_path, data_file)
         self._logger.increment('quarantines')
-        raise DiskFileQuarantined(msg)
+        return DiskFileQuarantined(msg)
 
     def _get_ondisk_file(self):
         """
@@ -1051,7 +1051,7 @@ class DiskFile(object):
             if err.errno == errno.ENOTDIR:
                 # If there's a file here instead of a directory, quarantine
                 # it; something's gone wrong somewhere.
-                self._quarantine(
+                raise self._quarantine(
                     # hack: quarantine_renamer actually renames the directory
                     # enclosing the filename you give it, but here we just
                     # want this one file and not its parent.
@@ -1122,7 +1122,7 @@ class DiskFile(object):
         hash_from_fs = os.path.basename(self._datadir)
         hash_from_name = hash_path(self._name.lstrip('/'))
         if hash_from_fs != hash_from_name:
-            self._quarantine(
+            raise self._quarantine(
                 data_file,
                 "Hash of name in metadata does not match directory name")
 
@@ -1145,7 +1145,7 @@ class DiskFile(object):
         try:
             mname = self._metadata['name']
         except KeyError:
-            self._quarantine(data_file, "missing name metadata")
+            raise self._quarantine(data_file, "missing name metadata")
         else:
             if mname != self._name:
                 self._logger.error(
@@ -1161,7 +1161,7 @@ class DiskFile(object):
         except ValueError:
             # Quarantine, the x-delete-at key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 data_file, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
@@ -1170,12 +1170,12 @@ class DiskFile(object):
         try:
             metadata_size = int(self._metadata['Content-Length'])
         except KeyError:
-            self._quarantine(
+            raise self._quarantine(
                 data_file, "missing content-length in metadata")
         except ValueError:
             # Quarantine, the content-length key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 data_file, "bad metadata content-length value %s" % (
                     self._metadata['Content-Length']))
         fd = fp.fileno()
@@ -1183,11 +1183,11 @@ class DiskFile(object):
             statbuf = os.fstat(fd)
         except OSError as err:
             # Quarantine, we can't successfully stat the file.
-            self._quarantine(data_file, "not stat-able: %s" % err)
+            raise self._quarantine(data_file, "not stat-able: %s" % err)
         else:
             obj_size = statbuf.st_size
-        if metadata_size is not None and obj_size != metadata_size:
-            self._quarantine(
+        if obj_size != metadata_size:
+            raise self._quarantine(
                 data_file, "metadata content-length %s does"
                 " not match actual object size %s" % (
                     metadata_size, statbuf.st_size))
@@ -1200,8 +1200,9 @@ class DiskFile(object):
         try:
             return read_metadata(source)
         except Exception as err:
-            self._quarantine(quarantine_filename,
-                             "Exception reading metadata: %s" % err)
+            raise self._quarantine(
+                quarantine_filename,
+                "Exception reading metadata: %s" % err)
 
     def _construct_from_data_file(self, data_file, meta_file):
         """
