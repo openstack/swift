@@ -67,11 +67,9 @@ class TestObjectFailures(TestCase):
         obj = 'object-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'VERIFY')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
-        with open(data_file) as fpointer:
-            write_metadata(fpointer, metadata)
+        write_metadata(data_file, metadata)
 
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj)[-1]
@@ -88,11 +86,10 @@ class TestObjectFailures(TestCase):
         obj = 'object-range-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'RANGE')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+
+        metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
-        with open(data_file) as fpointer:
-            write_metadata(fpointer, metadata)
+        write_metadata(data_file, metadata)
         for header, result in [({'Range': 'bytes=0-2'}, 'RAN'),
                                ({'Range': 'bytes=1-11'}, 'ANGE'),
                                ({'Range': 'bytes=0-11'}, 'RANGE')]:
@@ -111,8 +108,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:
@@ -129,8 +125,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:
@@ -147,8 +142,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:

@@ -74,7 +74,7 @@ def read_metadata(fd):
     """
     Helper function to read the pickled metadata from an object file.
 
-    :param fd: file descriptor to load the metadata from
+    :param fd: file descriptor or filename to load the metadata from
 
     :returns: dictionary of metadata
     """
@@ -93,7 +93,7 @@ def write_metadata(fd, metadata):
     """
     Helper function to write pickled metadata for an object file.
 
-    :param fd: file descriptor to write the metadata
+    :param fd: file descriptor or filename to write the metadata
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
@@ -849,8 +849,7 @@ class DiskFile(object):
         if not ts_file:
             exc = DiskFileNotExist()
         else:
-            with open(ts_file) as fp:
-                metadata = read_metadata(fp)
+            metadata = read_metadata(ts_file)
             # All well and good that we have found a tombstone file, but
             # we don't have a data file so we are just going to raise an
             # exception that we could not find the object, providing the
@@ -941,8 +940,7 @@ class DiskFile(object):
         fp = open(data_file, 'rb')
         datafile_metadata = read_metadata(fp)
         if meta_file:
-            with open(meta_file) as mfp:
-                self._metadata = read_metadata(mfp)
+            self._metadata = read_metadata(meta_file)
             sys_metadata = dict(
                 [(key, val) for key, val in datafile_metadata.iteritems()
                  if key.lower() in DATAFILE_SYSTEM_META])
