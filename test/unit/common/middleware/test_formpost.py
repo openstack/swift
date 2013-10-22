@@ -392,6 +392,39 @@ class TestFormPost(unittest.TestCase):
             self.assertEquals(resp.status_int, 401)
             self.assertTrue('FormPost' not in resp.body)
 
+    def test_auth_scheme(self):
+        # FormPost rejects
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() - 10), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '401 Unauthorized')
+        authenticate_v = None
+        for h, v in headers:
+            if h.lower() == 'www-authenticate':
+                authenticate_v = v
+        self.assertTrue('FormPost: Form Expired' in body)
+        self.assertEquals('Swift realm="unknown"', authenticate_v)
+
     def test_safari(self):
         key = 'abc'
         path = '/v1/AUTH_test/container'
