@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-populate [--insecure] [conf_file]
+.B swift-dispersion-populate [--container-suffix-start] [--object-suffix-start] [--container-only|--object-only] [--insecure] [conf_file]
 
 .SH DESCRIPTION 
 .PP
@@ -62,6 +62,16 @@ privileges.
 .IP "\fB--insecure\fR"
 Allow accessing insecure keystone server. The keystone's certificate will not
 be verified.
+.IP "\fB--container-suffix-start=NUMBER\fR"
+Start container suffix at NUMBER and resume population at this point; default: 0
+.IP "\fB--object-suffix-start=NUMBER\fR"
+Start object suffix at NUMBER and resume population at this point; default: 0
+.IP "\fB--object-only\fR"
+Only run object population
+.IP "\fB--container-only\fR"
+Only run container population
+.IP "\fB--object-only\fR"
+Only run object population
 
 .SH CONFIGURATION
 .PD 0 
