@@ -101,6 +101,16 @@ class AccountQuotaMiddleware(object):
         copy_from = request.headers.get('X-Copy-From')
         content_length = (request.content_length or 0)
 
+        account_info = get_account_info(request.environ, self.app)
+        if not account_info or not account_info['bytes']:
+            return self.app
+        try:
+            quota = int(account_info['meta'].get('quota-bytes', -1))
+        except ValueError:
+            return self.app
+        if quota < 0:
+            return self.app
+
         if obj and copy_from:
             path = '/' + ver + '/' + account + '/' + copy_from.lstrip('/')
             object_info = get_object_info(request.environ, self.app, path)
@@ -109,17 +119,8 @@ class AccountQuotaMiddleware(object):
             else:
                 content_length = int(object_info['length'])
 
-        account_info = get_account_info(request.environ, self.app)
-        if not account_info or not account_info['bytes']:
-            return self.app
-
         new_size = int(account_info['bytes']) + content_length
-        try:
-            quota = int(account_info['meta'].get('quota-bytes', -1))
-        except ValueError:
-            return self.app
-
-        if 0 <= quota < new_size:
+        if quota < new_size:
             return HTTPRequestEntityTooLarge()
 
         return self.app
