@@ -118,10 +118,10 @@ class ContainerAuditor(Daemon):
                 broker.get_info()
                 self.logger.increment('passes')
                 self.container_passes += 1
-                self.logger.debug(_('Audit passed for %s'), broker.db_file)
+                self.logger.debug(_('Audit passed for %s'), broker)
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.container_failures += 1
             self.logger.exception(_('ERROR Could not get container info %s'),
-                                  broker.db_file)
+                                  path)
         self.logger.timing_since('timing', start_time)

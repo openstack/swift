@@ -187,6 +187,14 @@ class DatabaseBroker(object):
         self.container = container
         self._db_version = -1
 
+    def __str__(self):
+        """
+        Returns a string indentifying the entity under broker to a human.
+        The baseline implementation returns a full pathname to a database.
+        This is vital for useful diagnostics.
+        """
+        return self.db_file
+
     def initialize(self, put_timestamp=None):
         """
         Create the DB

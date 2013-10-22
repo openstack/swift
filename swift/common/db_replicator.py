@@ -296,8 +296,8 @@ class Replicator(Daemon):
         if objects:
             self.logger.debug(_(
                 'Synchronization for %s has fallen more than '
-                '%s rows behind; moving on and will try again next pass.') %
-                (broker.db_file, self.max_diffs * self.per_diff))
+                '%s rows behind; moving on and will try again next pass.'),
+                broker, self.max_diffs * self.per_diff)
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
         else:
@@ -606,7 +606,7 @@ class ReplicatorRpc(object):
             info = broker.get_replication_info()
         except (Exception, Timeout) as e:
             if 'no such table' in str(e):
-                self.logger.error(_("Quarantining DB %s") % broker.db_file)
+                self.logger.error(_("Quarantining DB %s"), broker)
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()
             raise
