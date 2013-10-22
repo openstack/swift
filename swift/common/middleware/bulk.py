@@ -143,12 +143,12 @@ class Bulk(object):
     Bulk Delete:
 
     Will delete multiple objects or containers from their account with a
-    single request. Responds to DELETE requests with query parameter
+    single request. Responds to POST requests with query parameter
     ?bulk-delete set. The request url is your storage url. The Content-Type
-    should be set to text/plain. The body of the DELETE request will be a
+    should be set to text/plain. The body of the POST request will be a
     newline separated list of url encoded objects to delete. You can delete
     10,000 (configurable) objects per request. The objects specified in the
-    DELETE request body must be URL encoded and in the form:
+    POST request body must be URL encoded and in the form:
 
     /container_name/obj_name
 
@@ -527,7 +527,7 @@ class Bulk(object):
                     req, archive_type, out_content_type=out_content_type)
             else:
                 resp = HTTPBadRequest("Unsupported archive format")
-        if 'bulk-delete' in req.params and req.method == 'DELETE':
+        if 'bulk-delete' in req.params and req.method in ['POST', 'DELETE']:
             resp = HTTPOk(request=req)
             out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
             if out_content_type:
