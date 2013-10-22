@@ -2441,6 +2441,47 @@ class TestAuditLocationGenerator(unittest.TestCase):
             )
             self.assertEqual(list(locations), [])
 
+    def test_find_objects(self):
+        with temptree([]) as tmpdir:
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition2")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix2")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash2")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            locations = utils.audit_location_generator(
+                tmpdir, "data", ".dat", mount_check=False
+            )
+            self.assertEqual(list(locations),
+                             [(obj_path, "drive", "partition2")])
+
+    def test_ignore_metadata(self):
+        with temptree([]) as tmpdir:
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            partition = os.path.join(data, "partition2")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix2")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash2")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.dat")
+            with open(obj_path, "w"):
+                pass
+            meta_path = os.path.join(hash_path, "obj1.meta")
+            with open(meta_path, "w"):
+                pass
+            locations = utils.audit_location_generator(
+                tmpdir, "data", ".dat", mount_check=False
+            )
+            self.assertEqual(list(locations),
+                             [(obj_path, "drive", "partition2")])
+
 
 if __name__ == '__main__':
     unittest.main()
