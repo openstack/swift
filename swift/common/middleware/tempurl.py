@@ -97,9 +97,8 @@ from urllib import urlencode
 from urlparse import parse_qs
 
 from swift.proxy.controllers.base import get_account_info
-from swift.common.swob import HeaderKeyDict
-from swift.common.utils import split_path
-from swift.common.swob import HTTPUnauthorized
+from swift.common.swob import HeaderKeyDict, HTTPUnauthorized
+from swift.common.utils import split_path, get_valid_utf8_str
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -136,7 +135,7 @@ def get_tempurl_keys_from_metadata(meta):
       meta = get_account_info(...)['meta']
       keys = get_tempurl_keys_from_metadata(meta)
     """
-    return [value for key, value in meta.iteritems()
+    return [get_valid_utf8_str(value) for key, value in meta.iteritems()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
 

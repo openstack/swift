@@ -803,6 +803,12 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('test-header-yes' not in hdrs)
         self.assertTrue('test-header-yes-this' in hdrs)
 
+    def test_unicode_metadata_value(self):
+        meta = {"temp-url-key": "test", "temp-url-key-2": u"test2"}
+        results = tempurl.get_tempurl_keys_from_metadata(meta)
+        for str_value in results:
+            self.assertTrue(isinstance(str_value, str))
+
 
 if __name__ == '__main__':
     unittest.main()
