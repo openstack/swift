@@ -574,3 +574,36 @@ use = egg:swift#container_sync
 # Updating those will have to be done manually, as knowing what the true realm
 # endpoint should be cannot always be guessed.
 # allow_full_urls = true
+
+# Note: Put it at the beginning of the pipleline to profile all middleware. But
+# it is safer to put this after catch_errors, gatekeeper and healthcheck.
+[filter:xprofile]
+use = egg:swift#xprofile
+# This option enable you to switch profilers which should inherit from python
+# standard profiler. Currently the supported value can be 'cProfile',
+# 'eventlet.green.profile' etc.
+# profile_module = eventlet.green.profile
+#
+# This prefix will be used to combine process ID and timestamp to name the
+# profile data file.  Make sure the executing user has permission to write
+# into this path (missing path segments will be created, if necessary).
+# If you enable profiling in more than one type of daemon, you must override
+# it with an unique value like: /var/log/swift/profile/proxy.profile
+# log_filename_prefix = /tmp/log/swift/profile/default.profile
+#
+# the profile data will be dumped to local disk based on above naming rule
+# in this interval.
+# dump_interval = 5.0
+#
+# Be careful, this option will enable profiler to dump data into the file with
+# time stamp which means there will be lots of files piled up in the directory.
+# dump_timestamp = false
+#
+# This is the path of the URL to access the mini web UI.
+# path = /__profile__
+#
+# Clear the data when the wsgi server shutdown.
+# flush_at_shutdown = false
+#
+# unwind the iterator of applications
+# unwind = false
