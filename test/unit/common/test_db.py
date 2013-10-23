@@ -23,7 +23,9 @@ from uuid import uuid4
 
 import simplejson
 import sqlite3
-from mock import patch
+from mock import patch, MagicMock
+
+from eventlet.timeout import Timeout
 
 import swift.common.db
 from swift.common.db import chexor, dict_factory, get_db_connection, \
@@ -89,6 +91,31 @@ class TestGetDBConnection(unittest.TestCase):
     def test_invalid_path(self):
         self.assertRaises(DatabaseConnectionError, get_db_connection,
                           'invalid database path / name')
+
+    def test_locked_db(self):
+        # This test is dependant on the code under test calling execute and
+        # commit as sqlite3.<Connection/Cursor>.<execute/commit> in a subclass.
+        class InterceptConnection(sqlite3.Connection):
+            pass
+
+        class InterceptCursor(sqlite3.Cursor):
+            pass
+
+        db_error = sqlite3.OperationalError('database is locked')
+        mock_db_cmd = MagicMock(side_effect=db_error)
+        InterceptConnection.execute = mock_db_cmd
+        InterceptConnection.commit = mock_db_cmd
+        InterceptCursor.execute = mock_db_cmd
+        InterceptCursor.commit = mock_db_cmd
+
+        with patch.multiple('sqlite3', Connection=InterceptConnection,
+                            Cursor=InterceptCursor):
+            self.assertRaises(Timeout, get_db_connection, ':memory:',
+                              timeout=0.1)
+            self.assertTrue(mock_db_cmd.called)
+            self.assertEqual(mock_db_cmd.call_args_list,
+                             list((mock_db_cmd.call_args,) *
+                                  mock_db_cmd.call_count))
 
 
 class TestDatabaseBroker(unittest.TestCase):
