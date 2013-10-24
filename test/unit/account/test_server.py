@@ -259,6 +259,44 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
 
+    def test_PUT_simulated_create_race(self):
+        state = ['initial']
+
+        from swift.account.backend import AccountBroker as OrigAcBr
+
+        class InterceptedAcBr(OrigAcBr):
+
+            def __init__(self, *args, **kwargs):
+                super(InterceptedAcBr, self).__init__(*args, **kwargs)
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Save the original db_file attribute value
+                    self._saved_db_file = self.db_file
+                    self.db_file += '.doesnotexist'
+
+            def initialize(self, *args, **kwargs):
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Restore the original db_file attribute to get the race
+                    # behavior
+                    self.db_file = self._saved_db_file
+                return super(InterceptedAcBr, self).initialize(*args, **kwargs)
+
+        with mock.patch("swift.account.server.AccountBroker", InterceptedAcBr):
+            req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                      'HTTP_X_TIMESTAMP': '0'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+            state[0] = "race"
+            req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 202)
+
     def test_PUT_after_DELETE(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': normalize_timestamp(1)})
