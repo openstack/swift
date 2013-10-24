@@ -257,7 +257,7 @@ class ContainerController(object):
                     broker.initialize(timestamp)
                     created = True
                 except DatabaseAlreadyExists:
-                    pass
+                    created = False
             else:
                 created = broker.is_deleted()
                 broker.update_put_timestamp(timestamp)

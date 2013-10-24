@@ -183,6 +183,47 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 202)
 
+    def test_PUT_simulated_create_race(self):
+        state = ['initial']
+
+        from swift.container.backend import ContainerBroker as OrigCoBr
+
+        class InterceptedCoBr(OrigCoBr):
+
+            def __init__(self, *args, **kwargs):
+                super(InterceptedCoBr, self).__init__(*args, **kwargs)
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Save the original db_file attribute value
+                    self._saved_db_file = self.db_file
+                    self.db_file += '.doesnotexist'
+
+            def initialize(self, *args, **kwargs):
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Restore the original db_file attribute to get the race
+                    # behavior
+                    self.db_file = self._saved_db_file
+                return super(InterceptedCoBr, self).initialize(*args, **kwargs)
+
+        with mock.patch("swift.container.server.ContainerBroker",
+                        InterceptedCoBr):
+            req = Request.blank(
+                '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                'HTTP_X_TIMESTAMP': '1'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+            state[0] = "race"
+            req = Request.blank(
+                '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                'HTTP_X_TIMESTAMP': '1'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 202)
+
     def test_PUT_obj_not_found(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
