@@ -226,6 +226,22 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(req.environ['swift.authorize'],
                           local_auth.denied_response)
 
+    def test_auth_reseller_prefix_with_s3_deny(self):
+        # Ensures that when we have a reseller prefix and using a middleware
+        # relying on Http-Authorization (for example swift3), we don't deny a
+        # request outright but set up a denial swift.authorize and pass the
+        # request on down the chain.
+        local_app = FakeApp()
+        local_auth = auth.filter_factory({'reseller_prefix': 'PRE'})(local_app)
+        req = self._make_request('/v1/account',
+                                 headers={'X-Auth-Token': 't',
+                                          'Authorization': 'AWS user:pw'})
+        resp = req.get_response(local_auth)
+        self.assertEquals(resp.status_int, 401)
+        self.assertEquals(local_app.calls, 1)
+        self.assertEquals(req.environ['swift.authorize'],
+                          local_auth.denied_response)
+
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
         local_auth = \

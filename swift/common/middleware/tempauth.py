@@ -152,7 +152,7 @@ class TempAuth(object):
                     env['reseller_request'] = True
             else:
                 # Unauthorized token
-                if self.reseller_prefix:
+                if self.reseller_prefix and not s3:
                     # Because I know I'm the definitive auth for this token, I
                     # can deny it outright.
                     self.logger.increment('unauthorized')
