@@ -772,7 +772,7 @@ class DiskFile(object):
 
         :param data_file: full path of data file to quarantine
         :param msg: reason for quarantining to be included in the exception
-        :raises DiskFileQuarantine:
+        :raises DiskFileQuarantined:
         """
         self._quarantined_dir = self._threadpool.run_in_thread(
             quarantine_renamer, self._device_path, data_file)
@@ -849,13 +849,19 @@ class DiskFile(object):
         if not ts_file:
             exc = DiskFileNotExist()
         else:
-            metadata = read_metadata(ts_file)
-            # All well and good that we have found a tombstone file, but
-            # we don't have a data file so we are just going to raise an
-            # exception that we could not find the object, providing the
-            # tombstone's timestamp.
-            exc = DiskFileDeleted()
-            exc.timestamp = metadata['X-Timestamp']
+            try:
+                metadata = self._failsafe_read_metadata(ts_file, ts_file)
+            except DiskFileQuarantined:
+                # If the tombstone's corrupted, quarantine it and pretend it
+                # wasn't there
+                exc = DiskFileNotExist()
+            else:
+                # All well and good that we have found a tombstone file, but
+                # we don't have a data file so we are just going to raise an
+                # exception that we could not find the object, providing the
+                # tombstone's timestamp.
+                exc = DiskFileDeleted()
+                exc.timestamp = metadata['X-Timestamp']
         return exc
 
     def _verify_data_file(self, data_file, fp):
@@ -925,6 +931,15 @@ class DiskFile(object):
                     metadata_size, statbuf.st_size))
         return obj_size
 
+    def _failsafe_read_metadata(self, source, quarantine_filename=None):
+        # Takes source and filename separately so we can read from an open
+        # file if we have one
+        try:
+            return read_metadata(source)
+        except Exception as err:
+            self._quarantine(quarantine_filename,
+                             "Exception reading metadata: %s" % err.message)
+
     def _construct_from_data_file(self, data_file, meta_file):
         """
         Open the `.data` file to fetch its metadata, and fetch the metadata
@@ -938,9 +953,9 @@ class DiskFile(object):
                     :func:`swift.obj.diskfile.DiskFile._verify_data_file`
         """
         fp = open(data_file, 'rb')
-        datafile_metadata = read_metadata(fp)
+        datafile_metadata = self._failsafe_read_metadata(fp, data_file)
         if meta_file:
-            self._metadata = read_metadata(meta_file)
+            self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
             sys_metadata = dict(
                 [(key, val) for key, val in datafile_metadata.iteritems()
                  if key.lower() in DATAFILE_SYSTEM_META])
