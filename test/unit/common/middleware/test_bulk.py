@@ -17,6 +17,7 @@ import unittest
 import os
 import tarfile
 import urllib
+import zlib
 from shutil import rmtree
 from tempfile import mkdtemp
 from StringIO import StringIO
@@ -270,6 +271,16 @@ class TestUntar(unittest.TestCase):
         resp_body = self.handle_extract_and_iter(req, '')
         self.assertTrue('411 Length Required' in resp_body)
 
+    def test_bad_tar(self):
+        req = Request.blank('/create_cont_fail/acc/cont', body='')
+
+        def bad_open(*args, **kwargs):
+            raise zlib.error('bad tar')
+
+        with patch.object(tarfile, 'open', bad_open):
+            resp_body = self.handle_extract_and_iter(req, '')
+            self.assertTrue('400 Bad Request' in resp_body)
+
     def build_tar(self, dir_tree=None):
         if not dir_tree:
             dir_tree = [
@@ -354,7 +365,8 @@ class TestUntar(unittest.TestCase):
         resp_data = json.loads(resp_body)
         self.assertEquals(resp_data['Response Status'], '400 Bad Request')
         self.assertEquals(
-            resp_data['Response Body'], 'Invalid Tar File: not a gzip file')
+            resp_data['Response Body'].lower(),
+            'invalid tar file: not a gzip file')
 
     def test_extract_tar_fail_max_failed_extractions(self):
         self.build_tar()

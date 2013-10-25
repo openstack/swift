@@ -17,6 +17,7 @@ import tarfile
 from urllib import quote, unquote
 from xml.sax import saxutils
 from time import time
+import zlib
 from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
@@ -500,7 +501,7 @@ class Bulk(object):
         except HTTPException as err:
             resp_dict['Response Status'] = err.status
             resp_dict['Response Body'] = err.body
-        except tarfile.TarError as tar_error:
+        except (tarfile.TarError, zlib.error) as tar_error:
             resp_dict['Response Status'] = HTTPBadRequest().status
             resp_dict['Response Body'] = 'Invalid Tar File: %s' % tar_error
         except Exception:
