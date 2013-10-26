@@ -142,7 +142,7 @@ class AccountController(object):
                     broker.initialize(timestamp)
                     created = True
                 except DatabaseAlreadyExists:
-                    pass
+                    created = False
             elif broker.is_status_deleted():
                 return self._deleted_response(broker, req, HTTPForbidden,
                                               body='Recently deleted')
