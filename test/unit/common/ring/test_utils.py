@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 import unittest
 
 from swift.common.ring.utils import (build_tier_tree, tiers_for_dev,
-                                     parse_search_value)
+                                     parse_search_value, parse_args,
+                                     build_dev_from_opts)
 
 
 class TestUtils(unittest.TestCase):
@@ -120,6 +121,23 @@ class TestUtils(unittest.TestCase):
         res = parse_search_value('_meta1')
         self.assertEqual(res, {'meta': 'meta1'})
         self.assertRaises(ValueError, parse_search_value, 'OMGPONIES')
+
+    def test_replication_defaults(self):
+        args = '-r 1 -z 1 -i 127.0.0.1 -p 6010 -d d1 -w 100'.split()
+        opts, _ = parse_args(args)
+        device = build_dev_from_opts(opts)
+        expected = {
+            'device': 'd1',
+            'ip': '127.0.0.1',
+            'meta': '',
+            'port': 6010,
+            'region': 1,
+            'replication_ip': '127.0.0.1',
+            'replication_port': 6010,
+            'weight': 100.0,
+            'zone': 1,
+        }
+        self.assertEquals(device, expected)
 
 
 if __name__ == '__main__':

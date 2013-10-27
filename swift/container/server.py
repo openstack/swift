@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,15 +27,12 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.backend import ContainerBroker
 from swift.common.db import DatabaseAlreadyExists
-import swift.common.storage_policy as storage_policy
-POLICY_INDEX = storage_policy.POLICY_INDEX
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
-from swift.common.utils import get_logger, public, validate_sync_to, \
+from swift.common.utils import get_logger, hash_path, public, \
+    normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
     override_bytes_from_content_type
-from swift.common.ondisk import hash_path, normalize_timestamp, \
-    storage_directory
 from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.bufferedhttp import http_connect
@@ -46,6 +43,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HeaderKeyDict
+import swift.common.storage_policy as storage_policy
+POLICY_INDEX = storage_policy.POLICY_INDEX
 
 DATADIR = 'containers'
 

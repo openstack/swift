@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,10 +28,9 @@ from swift.account.utils import account_listing_response
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
-from swift.common.utils import get_logger, public, config_true_value, \
+from swift.common.utils import get_logger, hash_path, public, \
+    normalize_timestamp, storage_directory, config_true_value, \
     json, timing_stats, replication
-from swift.common.ondisk import hash_path, normalize_timestamp, \
-    storage_directory
 from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
     check_mount, check_float, check_utf8
 from swift.common.db_replicator import ReplicatorRpc

@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,10 +30,9 @@ import simplejson
 
 import swift.common.db
 from swift.common.direct_client import quote
-from swift.common.utils import get_logger, whataremyips, renamer, mkdirs, \
-    lock_parent_directory, config_true_value, unlink_older_than, \
-    dump_recon_cache, rsync_ip
-from swift.common.ondisk import storage_directory
+from swift.common.utils import get_logger, whataremyips, storage_directory, \
+    renamer, mkdirs, lock_parent_directory, config_true_value, \
+    unlink_older_than, dump_recon_cache, rsync_ip
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
@@ -297,8 +296,8 @@ class Replicator(Daemon):
         if objects:
             self.logger.debug(_(
                 'Synchronization for %s has fallen more than '
-                '%s rows behind; moving on and will try again next pass.') %
-                (broker.db_file, self.max_diffs * self.per_diff))
+                '%s rows behind; moving on and will try again next pass.'),
+                broker, self.max_diffs * self.per_diff)
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
         else:
@@ -607,7 +606,7 @@ class ReplicatorRpc(object):
             info = broker.get_replication_info()
         except (Exception, Timeout) as e:
             if 'no such table' in str(e):
-                self.logger.error(_("Quarantining DB %s") % broker.db_file)
+                self.logger.error(_("Quarantining DB %s"), broker)
                 quarantine_db(broker.db_file, broker.db_type)
                 return HTTPNotFound()
             raise

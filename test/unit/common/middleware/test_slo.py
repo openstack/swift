@@ -1,4 +1,4 @@
-# Copyright (c) 2013 OpenStack, LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -374,12 +374,13 @@ class TestStaticLargeObject(unittest.TestCase):
             self.assertEquals(self.app.calls, 4)
             data = json.loads(e.body)
             errors = data['Errors']
-            self.assertEquals(errors[0][0], '/test_good/A/c/a_1')
+            self.assertEquals(errors[0][0], '/c/a_1')
             self.assertEquals(errors[0][1], 'Size Mismatch')
+            self.assertEquals(errors[2][0], '/c/a_2')
             self.assertEquals(errors[2][1], '400 Bad Request')
-            self.assertEquals(errors[4][0], '/test_good/A/d/b_2')
+            self.assertEquals(errors[4][0], '/d/b_2')
             self.assertEquals(errors[4][1], 'Etag Mismatch')
-            self.assertEquals(errors[-1][0], '/test_good/A/d/slob')
+            self.assertEquals(errors[-1][0], '/d/slob')
             self.assertEquals(errors[-1][1], 'Etag Mismatch')
         else:
             self.assert_(False)

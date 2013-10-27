@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import mock
 import simplejson
 
 from swift.common import db_replicator
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 from swift.common.exceptions import DriveNotMounted
 

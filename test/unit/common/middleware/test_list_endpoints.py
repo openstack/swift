@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ import unittest
 from shutil import rmtree
 
 import os
-from swift.common import ring, ondisk
+from swift.common import ring, utils
 from swift.common.utils import json
 from swift.common.swob import Request, Response
 from swift.common.middleware import list_endpoints
@@ -35,8 +35,8 @@ def start_response(*args):
 
 class TestListEndpoints(unittest.TestCase):
     def setUp(self):
-        ondisk.HASH_PATH_SUFFIX = 'endcap'
-        ondisk.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)

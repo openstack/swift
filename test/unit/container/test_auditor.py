@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,9 +85,9 @@ class TestAuditor(unittest.TestCase):
                 files = os.listdir(self.testdir)
                 return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-            auditor.audit_location_generator = fake_audit_location_generator
-
-            self.assertRaises(ValueError, test_auditor.run_forever)
+            with mock.patch('swift.container.auditor.audit_location_generator',
+                            fake_audit_location_generator):
+                self.assertRaises(ValueError, test_auditor.run_forever)
         self.assertEquals(test_auditor.container_failures, 2 * call_times)
         self.assertEquals(test_auditor.container_passes, 3 * call_times)
 
@@ -100,9 +100,9 @@ class TestAuditor(unittest.TestCase):
             files = os.listdir(self.testdir)
             return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-        auditor.audit_location_generator = fake_audit_location_generator
-
-        test_auditor.run_once()
+        with mock.patch('swift.container.auditor.audit_location_generator',
+                        fake_audit_location_generator):
+            test_auditor.run_once()
         self.assertEquals(test_auditor.container_failures, 2)
         self.assertEquals(test_auditor.container_passes, 3)
 

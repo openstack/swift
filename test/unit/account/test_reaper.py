@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ from contextlib import nested
 
 from swift.account import reaper
 from swift.account.server import DATADIR
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp
 from swift.common.direct_client import ClientException
 
 
@@ -212,13 +212,13 @@ class TestReaper(unittest.TestCase):
 
     def test_delay_reaping_conf_default(self):
         r = reaper.AccountReaper({})
-        self.assertEquals(r.delay_reaping, 0)
+        self.assertEqual(r.delay_reaping, 0)
         r = reaper.AccountReaper({'delay_reaping': ''})
-        self.assertEquals(r.delay_reaping, 0)
+        self.assertEqual(r.delay_reaping, 0)
 
     def test_delay_reaping_conf_set(self):
         r = reaper.AccountReaper({'delay_reaping': '123'})
-        self.assertEquals(r.delay_reaping, 123)
+        self.assertEqual(r.delay_reaping, 123)
 
     def test_delay_reaping_conf_bad_value(self):
         self.assertRaises(ValueError, reaper.AccountReaper,
@@ -227,7 +227,7 @@ class TestReaper(unittest.TestCase):
     def test_reap_warn_after_conf_set(self):
         conf = {'delay_reaping': '2', 'reap_warn_after': '3'}
         r = reaper.AccountReaper(conf)
-        self.assertEquals(r.reap_not_done_after, 5)
+        self.assertEqual(r.reap_not_done_after, 5)
 
     def test_reap_warn_after_conf_bad_value(self):
         self.assertRaises(ValueError, reaper.AccountReaper,

@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,11 +85,11 @@ class TestAuditor(unittest.TestCase):
                 files = os.listdir(self.testdir)
                 return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-            auditor.audit_location_generator = fake_audit_location_generator
-
-            self.assertRaises(ValueError, test_auditor.run_forever)
-        self.assertEquals(test_auditor.account_failures, 2 * call_times)
-        self.assertEquals(test_auditor.account_passes, 3 * call_times)
+            with mock.patch('swift.account.auditor.audit_location_generator',
+                            fake_audit_location_generator):
+                self.assertRaises(ValueError, test_auditor.run_forever)
+        self.assertEqual(test_auditor.account_failures, 2 * call_times)
+        self.assertEqual(test_auditor.account_passes, 3 * call_times)
 
     @mock.patch('swift.account.auditor.AccountBroker', FakeAccountBroker)
     def test_run_once(self):
@@ -100,11 +100,11 @@ class TestAuditor(unittest.TestCase):
             files = os.listdir(self.testdir)
             return [(os.path.join(self.testdir, f), '', '') for f in files]
 
-        auditor.audit_location_generator = fake_audit_location_generator
-
-        test_auditor.run_once()
-        self.assertEquals(test_auditor.account_failures, 2)
-        self.assertEquals(test_auditor.account_passes, 3)
+        with mock.patch('swift.account.auditor.audit_location_generator',
+                        fake_audit_location_generator):
+            test_auditor.run_once()
+        self.assertEqual(test_auditor.account_failures, 2)
+        self.assertEqual(test_auditor.account_passes, 3)
 
     @mock.patch('swift.account.auditor.AccountBroker', FakeAccountBroker)
     def test_account_auditor(self):
@@ -114,8 +114,8 @@ class TestAuditor(unittest.TestCase):
         for f in files:
             path = os.path.join(self.testdir, f)
             test_auditor.account_audit(path)
-        self.assertEquals(test_auditor.account_failures, 2)
-        self.assertEquals(test_auditor.account_passes, 3)
+        self.assertEqual(test_auditor.account_failures, 2)
+        self.assertEqual(test_auditor.account_passes, 3)
 
 if __name__ == '__main__':
     unittest.main()

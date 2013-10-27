@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1042,6 +1042,8 @@ class Response(object):
             self.environ = {}
         if headers:
             self.headers.update(headers)
+        if self.status_int == 401 and 'www-authenticate' not in self.headers:
+            self.headers.update({'www-authenticate': self.www_authenticate()})
         for key, value in kw.iteritems():
             setattr(self, key, value)
         # When specifying both 'content_type' and 'charset' in the kwargs,
@@ -1151,6 +1153,21 @@ class Response(object):
         if not self.location.startswith('/'):
             return self.location
         return self.host_url + self.location
+
+    def www_authenticate(self):
+        """
+        Construct a suitable value for WWW-Authenticate response header
+
+        If we have a request and a valid-looking path, the realm
+        is the account; otherwise we set it to 'unknown'.
+        """
+        try:
+            vrs, realm, rest = self.request.split_path(2, 3, True)
+            if realm in ('v1.0', 'auth'):
+                realm = 'unknown'
+        except (AttributeError, ValueError):
+            realm = 'unknown'
+        return 'Swift realm="%s"' % realm
 
     @property
     def is_success(self):

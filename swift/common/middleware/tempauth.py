@@ -1,4 +1,4 @@
-# Copyright (c) 2011 OpenStack, LLC.
+# Copyright (c) 2011 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -156,7 +156,14 @@ class TempAuth(object):
                     # Because I know I'm the definitive auth for this token, I
                     # can deny it outright.
                     self.logger.increment('unauthorized')
-                    return HTTPUnauthorized()(env, start_response)
+                    try:
+                        vrs, realm, rest = split_path(env['PATH_INFO'],
+                                                      2, 3, True)
+                    except ValueError:
+                        realm = 'unknown'
+                    return HTTPUnauthorized(headers={
+                        'Www-Authenticate': 'Swift realm="%s"' % realm})(
+                            env, start_response)
                 # Because I'm not certain if I'm the definitive auth for empty
                 # reseller_prefixed tokens, I won't overwrite swift.authorize.
                 elif 'swift.authorize' not in env:
@@ -408,11 +415,15 @@ class TempAuth(object):
                 user = req.headers.get('x-auth-user')
                 if not user or ':' not in user:
                     self.logger.increment('token_denied')
-                    return HTTPUnauthorized(request=req)
+                    return HTTPUnauthorized(request=req, headers=
+                                            {'Www-Authenticate':
+                                             'Swift realm="%s"' % account})
                 account2, user = user.split(':', 1)
                 if account != account2:
                     self.logger.increment('token_denied')
-                    return HTTPUnauthorized(request=req)
+                    return HTTPUnauthorized(request=req, headers=
+                                            {'Www-Authenticate':
+                                             'Swift realm="%s"' % account})
             key = req.headers.get('x-storage-pass')
             if not key:
                 key = req.headers.get('x-auth-key')
@@ -422,7 +433,9 @@ class TempAuth(object):
                 user = req.headers.get('x-storage-user')
             if not user or ':' not in user:
                 self.logger.increment('token_denied')
-                return HTTPUnauthorized(request=req)
+                return HTTPUnauthorized(request=req, headers=
+                                        {'Www-Authenticate':
+                                         'Swift realm="unknown"'})
             account, user = user.split(':', 1)
             key = req.headers.get('x-auth-key')
             if not key:
@@ -431,15 +444,22 @@ class TempAuth(object):
             return HTTPBadRequest(request=req)
         if not all((account, user, key)):
             self.logger.increment('token_denied')
-            return HTTPUnauthorized(request=req)
+            realm = account or 'unknown'
+            return HTTPUnauthorized(request=req, headers={'Www-Authenticate':
+                                                          'Swift realm="%s"' %
+                                                          realm})
         # Authenticate user
         account_user = account + ':' + user
         if account_user not in self.users:
             self.logger.increment('token_denied')
-            return HTTPUnauthorized(request=req)
+            return HTTPUnauthorized(request=req, headers=
+                                    {'Www-Authenticate':
+                                     'Swift realm="%s"' % account})
         if self.users[account_user]['key'] != key:
             self.logger.increment('token_denied')
-            return HTTPUnauthorized(request=req)
+            return HTTPUnauthorized(request=req, headers=
+                                    {'Www-Authenticate':
+                                     'Swift realm="unknown"'})
         account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
         # Get memcache client
         memcache_client = cache_from_env(req.environ)

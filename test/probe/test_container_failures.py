@@ -1,5 +1,5 @@
 #!/usr/bin/python -u
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,8 +25,7 @@ from sqlite3 import connect
 from swiftclient import client
 
 from swift.common import direct_client
-from swift.common.ondisk import hash_path
-from swift.common.utils import readconf
+from swift.common.utils import hash_path, readconf
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
     kill_server, kill_servers, reset_environment, start_server
 

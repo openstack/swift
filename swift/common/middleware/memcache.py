@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ class MemcacheMiddleware(object):
         self.app = app
         self.memcache_servers = conf.get('memcache_servers')
         serialization_format = conf.get('memcache_serialization_support')
+        max_conns = int(conf.get('max_connections', 2))
 
         if not self.memcache_servers or serialization_format is None:
             path = os.path.join(conf.get('swift_dir', '/etc/swift'),
@@ -58,7 +59,8 @@ class MemcacheMiddleware(object):
         self.memcache = MemcacheRing(
             [s.strip() for s in self.memcache_servers.split(',') if s.strip()],
             allow_pickle=(serialization_format == 0),
-            allow_unpickle=(serialization_format <= 1))
+            allow_unpickle=(serialization_format <= 1),
+            max_conns=max_conns)
 
     def __call__(self, env, start_response):
         env['swift.cache'] = self.memcache

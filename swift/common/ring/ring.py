@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,8 +25,7 @@ from io import BufferedReader
 from hashlib import md5
 from itertools import chain
 
-from swift.common.utils import json
-from swift.common.ondisk import hash_path, validate_configuration
+from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
 
 
@@ -131,7 +130,7 @@ class Ring(object):
     """
 
     def __init__(self, serialized_path, reload_time=15, ring_name=None):
-        # Can't use the ring unless the on-disk configuration is valid
+        # can't use the ring unless HASH_PATH_SUFFIX is set
         validate_configuration()
         if ring_name:
             self.serialized_path = os.path.join(serialized_path,

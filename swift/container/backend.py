@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,8 +25,7 @@ import errno
 
 import sqlite3
 
-from swift.common.utils import lock_parent_directory
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, lock_parent_directory
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,8 +29,7 @@ import simplejson
 from swift.common.swob import Request, HeaderKeyDict
 import swift.container
 from swift.container import server as container_server
-from swift.common.utils import mkdirs, public, replication
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, mkdirs, public, replication
 from test.unit import fake_http_connect
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection, POLICY_INDEX

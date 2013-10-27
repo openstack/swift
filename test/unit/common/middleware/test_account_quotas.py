@@ -86,6 +86,46 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
+    def test_obj_request_ignores_attempt_to_set_quotas(self):
+        # If you try to set X-Account-Meta-* on an object, it's ignored, so
+        # the quota middleware shouldn't complain about it even if we're not a
+        # reseller admin.
+        headers = [('x-account-bytes-used', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            headers={'X-Account-Meta-Quota-Bytes': '99999'},
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_container_request_ignores_attempt_to_set_quotas(self):
+        # As with an object, if you try to set X-Account-Meta-* on a
+        # container, it's ignored.
+        headers = [('x-account-bytes-used', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Account-Meta-Quota-Bytes': '99999'},
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_bogus_quota_is_ignored(self):
+        # This can happen if the metadata was set by a user prior to the
+        # activation of the account-quota middleware
+        headers = [('x-account-bytes-used', '1000'),
+                   ('x-account-meta-quota-bytes', 'pasty-plastogene')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
     def test_exceed_bytes_quota(self):
         headers = [('x-account-bytes-used', '1000'),
                    ('x-account-meta-quota-bytes', '0')]
@@ -96,6 +136,42 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+
+    def test_over_quota_container_create_still_works(self):
+        headers = [('x-account-bytes-used', '1001'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/new_container',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'HTTP_X_CONTAINER_META_BERT': 'ernie',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_over_quota_container_post_still_works(self):
+        headers = [('x-account-bytes-used', '1001'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/new_container',
+                            environ={'REQUEST_METHOD': 'POST',
+                                     'HTTP_X_CONTAINER_META_BERT': 'ernie',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_over_quota_obj_post_still_works(self):
+        headers = [('x-account-bytes-used', '1001'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST',
+                                     'HTTP_X_OBJECT_META_BERT': 'ernie',
+                                     'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
 
     def test_exceed_bytes_quota_copy_from(self):
         headers = [('x-account-bytes-used', '500'),
@@ -139,7 +215,7 @@ class TestAccountQuota(unittest.TestCase):
                    ('x-account-meta-quota-bytes', '0')]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c/o',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache,
                                      'reseller_request': True})
@@ -194,7 +270,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'POST',
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': 'abc',
@@ -206,7 +282,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'POST',
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '100'})
@@ -217,7 +293,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'POST',
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '100',
@@ -229,7 +305,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'POST',
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': ''})
@@ -240,7 +316,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c', environ={
+        req = Request.blank('/v1/a', environ={
             'REQUEST_METHOD': 'POST',
             'swift.cache': cache,
             'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True'})
@@ -250,7 +326,7 @@ class TestAccountQuota(unittest.TestCase):
     def test_delete_quotas_reseller(self):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        req = Request.blank('/v1/a/c',
+        req = Request.blank('/v1/a',
                             environ={'REQUEST_METHOD': 'POST',
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '',
                                      'reseller_request': True})
@@ -261,7 +337,7 @@ class TestAccountQuota(unittest.TestCase):
         headers = [('x-account-bytes-used', '0'), ]
         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
         cache = FakeCache(None)
-        req = Request.blank('/v1/a/c', environ={
+        req = Request.blank('/v1/a', environ={
             'REQUEST_METHOD': 'POST',
             'swift.cache': cache,
             'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True',
@@ -277,7 +353,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        #Response code of 200 because authentication itself is not done here
+        # Response code of 200 because authentication itself is not done here
         self.assertEquals(res.status_int, 200)
 
 

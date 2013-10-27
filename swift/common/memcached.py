@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,17 +46,21 @@ http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 
 import cPickle as pickle
 import logging
-import socket
 import time
 from bisect import bisect
 from swift import gettext_ as _
 from hashlib import md5
+
+from eventlet.green import socket
+from eventlet.pools import Pool
+from eventlet import Timeout
 
 from swift.common.utils import json
 
 DEFAULT_MEMCACHED_PORT = 11211
 
 CONN_TIMEOUT = 0.3
+POOL_TIMEOUT = 1.0  # WAG
 IO_TIMEOUT = 2.0
 PICKLE_FLAG = 1
 JSON_FLAG = 2
@@ -91,14 +95,47 @@ class MemcacheConnectionError(Exception):
     pass
 
 
+class MemcachePoolTimeout(Timeout):
+    pass
+
+
+class MemcacheConnPool(Pool):
+    """Connection pool for Memcache Connections"""
+
+    def __init__(self, server, size, connect_timeout):
+        Pool.__init__(self, max_size=size)
+        self.server = server
+        self._connect_timeout = connect_timeout
+
+    def create(self):
+        if ':' in self.server:
+            host, port = self.server.split(':')
+        else:
+            host = self.server
+            port = DEFAULT_MEMCACHED_PORT
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        with Timeout(self._connect_timeout):
+            sock.connect((host, int(port)))
+        return (sock.makefile(), sock)
+
+    def get(self):
+        fp, sock = Pool.get(self)
+        if fp is None:
+            # An error happened previously, so we need a new connection
+            fp, sock = self.create()
+        return fp, sock
+
+
 class MemcacheRing(object):
     """
     Simple, consistent-hashed memcache client.
     """
 
     def __init__(self, servers, connect_timeout=CONN_TIMEOUT,
-                 io_timeout=IO_TIMEOUT, tries=TRY_COUNT,
-                 allow_pickle=False, allow_unpickle=False):
+                 io_timeout=IO_TIMEOUT, pool_timeout=POOL_TIMEOUT,
+                 tries=TRY_COUNT, allow_pickle=False, allow_unpickle=False,
+                 max_conns=2):
         self._ring = {}
         self._errors = dict(((serv, []) for serv in servers))
         self._error_limited = dict(((serv, 0) for serv in servers))
@@ -107,15 +144,19 @@ class MemcacheRing(object):
                 self._ring[md5hash('%s-%s' % (server, i))] = server
         self._tries = tries if tries <= len(servers) else len(servers)
         self._sorted = sorted(self._ring)
-        self._client_cache = dict(((server, []) for server in servers))
+        self._client_cache = dict(((server,
+                                    MemcacheConnPool(server, max_conns,
+                                                     connect_timeout))
+                                  for server in servers))
         self._connect_timeout = connect_timeout
         self._io_timeout = io_timeout
+        self._pool_timeout = pool_timeout
         self._allow_pickle = allow_pickle
         self._allow_unpickle = allow_unpickle or allow_pickle
 
     def _exception_occurred(self, server, e, action='talking',
-                            sock=None, fp=None):
-        if isinstance(e, socket.timeout):
+                            sock=None, fp=None, got_connection=True):
+        if isinstance(e, Timeout):
             logging.error(_("Timeout %(action)s to memcached: %(server)s"),
                           {'action': action, 'server': server})
         else:
@@ -133,6 +174,10 @@ class MemcacheRing(object):
                 del sock
         except Exception:
             pass
+        if got_connection:
+            # We need to return something to the pool
+            # A new connection will be created the next time it is retreived
+            self._return_conn(server, None, None)
         now = time.time()
         self._errors[server].append(time.time())
         if len(self._errors[server]) > ERROR_LIMIT_COUNT:
@@ -159,28 +204,23 @@ class MemcacheRing(object):
                 continue
             sock = None
             try:
-                fp, sock = self._client_cache[server].pop()
+                with MemcachePoolTimeout(self._pool_timeout):
+                    fp, sock = self._client_cache[server].get()
                 yield server, fp, sock
-            except IndexError:
-                try:
-                    if ':' in server:
-                        host, port = server.split(':')
-                    else:
-                        host = server
-                        port = DEFAULT_MEMCACHED_PORT
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    sock.settimeout(self._connect_timeout)
-                    sock.connect((host, int(port)))
-                    sock.settimeout(self._io_timeout)
-                    yield server, sock.makefile(), sock
-                except Exception as e:
-                    self._exception_occurred(
-                        server, e, action='connecting', sock=sock)
+            except MemcachePoolTimeout as e:
+                self._exception_occurred(
+                    server, e, action='getting a connection',
+                    got_connection=False)
+            except (Exception, Timeout) as e:
+                # Typically a Timeout exception caught here is the one raised
+                # by the create() method of this server's MemcacheConnPool
+                # object.
+                self._exception_occurred(
+                    server, e, action='connecting', sock=sock)
 
     def _return_conn(self, server, fp, sock):
         """Returns a server connection to the pool."""
-        self._client_cache[server].append((fp, sock))
+        self._client_cache[server].put((fp, sock))
 
     def set(self, key, value, serialize=True, timeout=0, time=0,
             min_compress_len=0):
@@ -217,11 +257,14 @@ class MemcacheRing(object):
             flags |= JSON_FLAG
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('set %s %d %d %s noreply\r\n%s\r\n' %
-                             (key, flags, timeout, len(value), value))
-                self._return_conn(server, fp, sock)
-                return
-            except Exception as e:
+                with Timeout(self._io_timeout):
+                    sock.sendall('set %s %d %d %s\r\n%s\r\n' %
+                                 (key, flags, timeout, len(value), value))
+                    # Wait for the set to complete
+                    fp.readline()
+                    self._return_conn(server, fp, sock)
+                    return
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def get(self, key):
@@ -237,24 +280,25 @@ class MemcacheRing(object):
         value = None
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('get %s\r\n' % key)
-                line = fp.readline().strip().split()
-                while line[0].upper() != 'END':
-                    if line[0].upper() == 'VALUE' and line[1] == key:
-                        size = int(line[3])
-                        value = fp.read(size)
-                        if int(line[2]) & PICKLE_FLAG:
-                            if self._allow_unpickle:
-                                value = pickle.loads(value)
-                            else:
-                                value = None
-                        elif int(line[2]) & JSON_FLAG:
-                            value = json.loads(value)
-                        fp.readline()
+                with Timeout(self._io_timeout):
+                    sock.sendall('get %s\r\n' % key)
                     line = fp.readline().strip().split()
-                self._return_conn(server, fp, sock)
-                return value
-            except Exception as e:
+                    while line[0].upper() != 'END':
+                        if line[0].upper() == 'VALUE' and line[1] == key:
+                            size = int(line[3])
+                            value = fp.read(size)
+                            if int(line[2]) & PICKLE_FLAG:
+                                if self._allow_unpickle:
+                                    value = pickle.loads(value)
+                                else:
+                                    value = None
+                            elif int(line[2]) & JSON_FLAG:
+                                value = json.loads(value)
+                            fp.readline()
+                        line = fp.readline().strip().split()
+                    self._return_conn(server, fp, sock)
+                    return value
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def incr(self, key, delta=1, time=0, timeout=0):
@@ -275,6 +319,7 @@ class MemcacheRing(object):
                      interface consistent with set and set_multi methods
         :param timeout: ttl in memcache, deprecated, will be removed in future
                         OpenStack releases
+        :returns: result of incrementing
         :raises MemcacheConnectionError:
         """
         if timeout:
@@ -287,26 +332,28 @@ class MemcacheRing(object):
         timeout = sanitize_timeout(time or timeout)
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('%s %s %s\r\n' % (command, key, delta))
-                line = fp.readline().strip().split()
-                if line[0].upper() == 'NOT_FOUND':
-                    add_val = delta
-                    if command == 'decr':
-                        add_val = '0'
-                    sock.sendall('add %s %d %d %s\r\n%s\r\n' %
-                                 (key, 0, timeout, len(add_val), add_val))
+                with Timeout(self._io_timeout):
+                    sock.sendall('%s %s %s\r\n' % (command, key, delta))
                     line = fp.readline().strip().split()
-                    if line[0].upper() == 'NOT_STORED':
-                        sock.sendall('%s %s %s\r\n' % (command, key, delta))
+                    if line[0].upper() == 'NOT_FOUND':
+                        add_val = delta
+                        if command == 'decr':
+                            add_val = '0'
+                        sock.sendall('add %s %d %d %s\r\n%s\r\n' %
+                                     (key, 0, timeout, len(add_val), add_val))
                         line = fp.readline().strip().split()
-                        ret = int(line[0].strip())
+                        if line[0].upper() == 'NOT_STORED':
+                            sock.sendall('%s %s %s\r\n' % (command, key,
+                                                           delta))
+                            line = fp.readline().strip().split()
+                            ret = int(line[0].strip())
+                        else:
+                            ret = int(add_val)
                     else:
-                        ret = int(add_val)
-                else:
-                    ret = int(line[0].strip())
-                self._return_conn(server, fp, sock)
-                return ret
-            except Exception as e:
+                        ret = int(line[0].strip())
+                    self._return_conn(server, fp, sock)
+                    return ret
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
         raise MemcacheConnectionError("No Memcached connections succeeded.")
 
@@ -324,12 +371,13 @@ class MemcacheRing(object):
                      interface consistent with set and set_multi methods
         :param timeout: ttl in memcache, deprecated, will be removed in future
                         OpenStack releases
+        :returns: result of decrementing
         :raises MemcacheConnectionError:
         """
         if timeout:
             logging.warn("parameter timeout has been deprecated, use time")
 
-        self.incr(key, delta=-delta, time=(time or timeout))
+        return self.incr(key, delta=-delta, time=(time or timeout))
 
     def delete(self, key):
         """
@@ -340,10 +388,13 @@ class MemcacheRing(object):
         key = md5hash(key)
         for (server, fp, sock) in self._get_conns(key):
             try:
-                sock.sendall('delete %s noreply\r\n' % key)
-                self._return_conn(server, fp, sock)
-                return
-            except Exception as e:
+                with Timeout(self._io_timeout):
+                    sock.sendall('delete %s\r\n' % key)
+                    # Wait for the delete to complete
+                    fp.readline()
+                    self._return_conn(server, fp, sock)
+                    return
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def set_multi(self, mapping, server_key, serialize=True, timeout=0,
@@ -384,14 +435,18 @@ class MemcacheRing(object):
             elif serialize:
                 value = json.dumps(value)
                 flags |= JSON_FLAG
-            msg += ('set %s %d %d %s noreply\r\n%s\r\n' %
+            msg += ('set %s %d %d %s\r\n%s\r\n' %
                     (key, flags, timeout, len(value), value))
         for (server, fp, sock) in self._get_conns(server_key):
             try:
-                sock.sendall(msg)
-                self._return_conn(server, fp, sock)
-                return
-            except Exception as e:
+                with Timeout(self._io_timeout):
+                    sock.sendall(msg)
+                    # Wait for the set to complete
+                    for _ in range(len(mapping)):
+                        fp.readline()
+                    self._return_conn(server, fp, sock)
+                    return
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)
 
     def get_multi(self, keys, server_key):
@@ -407,30 +462,31 @@ class MemcacheRing(object):
         keys = [md5hash(key) for key in keys]
         for (server, fp, sock) in self._get_conns(server_key):
             try:
-                sock.sendall('get %s\r\n' % ' '.join(keys))
-                line = fp.readline().strip().split()
-                responses = {}
-                while line[0].upper() != 'END':
-                    if line[0].upper() == 'VALUE':
-                        size = int(line[3])
-                        value = fp.read(size)
-                        if int(line[2]) & PICKLE_FLAG:
-                            if self._allow_unpickle:
-                                value = pickle.loads(value)
-                            else:
-                                value = None
-                        elif int(line[2]) & JSON_FLAG:
-                            value = json.loads(value)
-                        responses[line[1]] = value
-                        fp.readline()
+                with Timeout(self._io_timeout):
+                    sock.sendall('get %s\r\n' % ' '.join(keys))
                     line = fp.readline().strip().split()
-                values = []
-                for key in keys:
-                    if key in responses:
-                        values.append(responses[key])
-                    else:
-                        values.append(None)
-                self._return_conn(server, fp, sock)
-                return values
-            except Exception as e:
+                    responses = {}
+                    while line[0].upper() != 'END':
+                        if line[0].upper() == 'VALUE':
+                            size = int(line[3])
+                            value = fp.read(size)
+                            if int(line[2]) & PICKLE_FLAG:
+                                if self._allow_unpickle:
+                                    value = pickle.loads(value)
+                                else:
+                                    value = None
+                            elif int(line[2]) & JSON_FLAG:
+                                value = json.loads(value)
+                            responses[line[1]] = value
+                            fp.readline()
+                        line = fp.readline().strip().split()
+                    values = []
+                    for key in keys:
+                        if key in responses:
+                            values.append(responses[key])
+                        else:
+                            values.append(None)
+                    self._return_conn(server, fp, sock)
+                    return values
+            except (Exception, Timeout) as e:
                 self._exception_occurred(server, e, sock=sock, fp=fp)

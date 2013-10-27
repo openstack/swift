@@ -1,4 +1,4 @@
-# Copyright (c) 2013 OpenStack, LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -255,8 +255,10 @@ class StaticLargeObject(object):
         data_for_storage = []
         slo_etag = md5()
         for index, seg_dict in enumerate(parsed_data):
-            obj_path = '/'.join(
-                ['', vrs, account, seg_dict['path'].lstrip('/')])
+            obj_name = seg_dict['path']
+            if isinstance(obj_name, unicode):
+                obj_name = obj_name.encode('utf-8')
+            obj_path = '/'.join(['', vrs, account, obj_name.lstrip('/')])
             try:
                 seg_size = int(seg_dict['size_bytes'])
             except (ValueError, TypeError):
@@ -268,8 +270,6 @@ class StaticLargeObject(object):
                     '%d bytes.' % self.min_segment_size)
 
             new_env = req.environ.copy()
-            if isinstance(obj_path, unicode):
-                obj_path = obj_path.encode('utf-8')
             new_env['PATH_INFO'] = obj_path
             new_env['REQUEST_METHOD'] = 'HEAD'
             new_env['swift.source'] = 'SLO'
@@ -283,11 +283,11 @@ class StaticLargeObject(object):
             if head_seg_resp.is_success:
                 total_size += seg_size
                 if seg_size != head_seg_resp.content_length:
-                    problem_segments.append([quote(obj_path), 'Size Mismatch'])
+                    problem_segments.append([quote(obj_name), 'Size Mismatch'])
                 if seg_dict['etag'] == head_seg_resp.etag:
                     slo_etag.update(seg_dict['etag'])
                 else:
-                    problem_segments.append([quote(obj_path), 'Etag Mismatch'])
+                    problem_segments.append([quote(obj_name), 'Etag Mismatch'])
                 if head_seg_resp.last_modified:
                     last_modified = head_seg_resp.last_modified
                 else:
@@ -307,7 +307,7 @@ class StaticLargeObject(object):
                 data_for_storage.append(seg_data)
 
             else:
-                problem_segments.append([quote(obj_path),
+                problem_segments.append([quote(obj_name),
                                          head_seg_resp.status])
         if problem_segments:
             resp_body = get_response_body(

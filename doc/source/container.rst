@@ -41,3 +41,13 @@ Container Sync
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. _container-backend:
+
+Container Backend
+=================
+
+.. automodule:: swift.container.backend
+    :members:
+    :undoc-members:
+    :show-inheritance:

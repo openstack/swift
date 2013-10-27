@@ -34,3 +34,12 @@ Account Reaper
     :undoc-members:
     :show-inheritance:
 
+.. _account-backend:
+
+Account Backend
+===============
+
+.. automodule:: swift.account.backend
+    :members:
+    :undoc-members:
+    :show-inheritance:

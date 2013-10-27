@@ -12,21 +12,21 @@ container itself and all objects within it.
 
 The supported headers are,
 
-+---------------------------------------------+-------------------------------+
-|Metadata                                      | Use                          |
-+==============================================+==============================+
-|X-Container-Meta-Access-Control-Allow-Origin  | Origins to be allowed to     |
-|                                              | make Cross Origin Requests,  |
-|                                              | space separated.             |
-+----------------------------------------------+------------------------------+
-|X-Container-Meta-Access-Control-Max-Age       | Max age for the Origin to    |
-|                                              | hold the preflight results.  |
-+----------------------------------------------+------------------------------+
-|X-Container-Meta-Access-Control-Expose-Headers| Headers exposed to the user  |
-|                                              | agent (e.g. browser) in the  |
-|                                              | the actual request response. |
-|                                              | Space separated.             |
-+----------------------------------------------+------------------------------+
++------------------------------------------------+------------------------------+
+| Metadata                                       | Use                          |
++================================================+==============================+
+| X-Container-Meta-Access-Control-Allow-Origin   | Origins to be allowed to     |
+|                                                | make Cross Origin Requests,  |
+|                                                | space separated.             |
++------------------------------------------------+------------------------------+
+| X-Container-Meta-Access-Control-Max-Age        | Max age for the Origin to    |
+|                                                | hold the preflight results.  |
++------------------------------------------------+------------------------------+
+| X-Container-Meta-Access-Control-Expose-Headers | Headers exposed to the user  |
+|                                                | agent (e.g. browser) in the  |
+|                                                | the actual request response. |
+|                                                | Space separated.             |
++------------------------------------------------+------------------------------+
 
 Before a browser issues an actual request it may issue a `preflight request`_.
 The preflight request is an OPTIONS call to verify the Origin is allowed to
@@ -144,4 +144,3 @@ Test CORS Page
 
 .. _CORS: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS
 .. _preflight request: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS#Preflighted_requests
-

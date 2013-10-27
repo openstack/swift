@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ from cStringIO import StringIO
 from optparse import OptionParser
 from sys import exit, stdout
 from time import time
-from uuid import uuid4
 
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
@@ -87,6 +86,14 @@ if __name__ == '__main__':
 Usage: %%prog [options] [conf_file]
 
 [conf_file] defaults to %s'''.strip() % conffile)
+    parser.add_option('--container-only', action='store_true', default=False,
+                      help='Only run container population')
+    parser.add_option('--object-only', action='store_true', default=False,
+                      help='Only run object population')
+    parser.add_option('--container-suffix-start', type=int, default=0,
+                      help='container suffix start value, defaults to 0')
+    parser.add_option('--object-suffix-start', type=int, default=0,
+                      help='object suffix start value, defaults to 0')
     parser.add_option('--insecure', action='store_true', default=False,
                       help='Allow accessing insecure keystone server. '
                            'The keystone\'s certificate will not be verified.')
@@ -106,6 +113,13 @@ Usage: %%prog [options] [conf_file]
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
     insecure = options.insecure \
         or config_true_value(conf.get('keystone_api_insecure', 'no'))
+    container_populate = config_true_value(
+        conf.get('container_populate', 'yes')) and not options.object_only
+    object_populate = config_true_value(
+        conf.get('object_populate', 'yes')) and not options.container_only
+
+    if not (object_populate or container_populate):
+        exit("Neither container or object populate is set to run")
 
     coropool = GreenPool(size=concurrency)
     retries_done = 0
@@ -126,52 +140,66 @@ Usage: %%prog [options] [conf_file]
                                          os_options=os_options,
                                          insecure=insecure)
 
-    container_ring = Ring(swift_dir, ring_name='container')
-    parts_left = dict((x, x) for x in xrange(container_ring.partition_count))
-    item_type = 'containers'
-    created = 0
-    retries_done = 0
-    need_to_create = need_to_queue = \
-        dispersion_coverage / 100.0 * container_ring.partition_count
-    begun = next_report = time()
-    next_report += 2
-    while need_to_queue >= 1:
-        container = 'dispersion_%s' % uuid4().hex
-        part, _junk = container_ring.get_nodes(account, container)
-        if part in parts_left:
-            coropool.spawn(put_container, connpool, container, report)
-            sleep()
-            del parts_left[part]
-            need_to_queue -= 1
-    coropool.waitall()
-    elapsed, elapsed_unit = get_time_units(time() - begun)
-    print '\r\x1B[KCreated %d containers for dispersion reporting, %d%s, %d ' \
-          'retries' % \
-          (need_to_create, round(elapsed), elapsed_unit, retries_done)
-    stdout.flush()
+    if container_populate:
+        container_ring = Ring(swift_dir, ring_name='container')
+        parts_left = dict((x, x)
+                          for x in xrange(container_ring.partition_count))
+        item_type = 'containers'
+        created = 0
+        retries_done = 0
+        need_to_create = need_to_queue = \
+            dispersion_coverage / 100.0 * container_ring.partition_count
+        begun = next_report = time()
+        next_report += 2
+        suffix = 0
+        while need_to_queue >= 1:
+            container = 'dispersion_%d' % suffix
+            part, _junk = container_ring.get_nodes(account, container)
+            if part in parts_left:
+                if suffix >= options.container_suffix_start:
+                    coropool.spawn(put_container, connpool, container, report)
+                    sleep()
+                else:
+                    report(True)
+                del parts_left[part]
+                need_to_queue -= 1
+            suffix += 1
+        coropool.waitall()
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d containers for dispersion reporting, ' \
+              '%d%s, %d retries' % \
+              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+        stdout.flush()
 
-    container = 'dispersion_objects'
-    put_container(connpool, container, None)
-    object_ring = Ring(swift_dir, ring_name='object')
-    parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
-    item_type = 'objects'
-    created = 0
-    retries_done = 0
-    need_to_create = need_to_queue = \
-        dispersion_coverage / 100.0 * object_ring.partition_count
-    begun = next_report = time()
-    next_report += 2
-    while need_to_queue >= 1:
-        obj = 'dispersion_%s' % uuid4().hex
-        part, _junk = object_ring.get_nodes(account, container, obj)
-        if part in parts_left:
-            coropool.spawn(put_object, connpool, container, obj, report)
-            sleep()
-            del parts_left[part]
-            need_to_queue -= 1
-    coropool.waitall()
-    elapsed, elapsed_unit = get_time_units(time() - begun)
-    print '\r\x1B[KCreated %d objects for dispersion reporting, %d%s, %d ' \
-          'retries' % \
-          (need_to_create, round(elapsed), elapsed_unit, retries_done)
-    stdout.flush()
+    if object_populate:
+        container = 'dispersion_objects'
+        put_container(connpool, container, None)
+        object_ring = Ring(swift_dir, ring_name='object')
+        parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
+        item_type = 'objects'
+        created = 0
+        retries_done = 0
+        need_to_create = need_to_queue = \
+            dispersion_coverage / 100.0 * object_ring.partition_count
+        begun = next_report = time()
+        next_report += 2
+        suffix = 0
+        while need_to_queue >= 1:
+            obj = 'dispersion_%d' % suffix
+            part, _junk = object_ring.get_nodes(account, container, obj)
+            if part in parts_left:
+                if suffix >= options.object_suffix_start:
+                    coropool.spawn(
+                        put_object, connpool, container, obj, report)
+                    sleep()
+                else:
+                    report(True)
+                del parts_left[part]
+                need_to_queue -= 1
+            suffix += 1
+        coropool.waitall()
+        elapsed, elapsed_unit = get_time_units(time() - begun)
+        print '\r\x1B[KCreated %d objects for dispersion reporting, ' \
+              '%d%s, %d retries' % \
+              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+        stdout.flush()

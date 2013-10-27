@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2013 OpenStack, LLC.
+# Copyright (c) 2010-2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,7 @@ from swob in here without creating circular imports.
 
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
-from swift.common.ondisk import validate_device_partition
-from swift.common.utils import split_path
+from swift.common.utils import split_path, validate_device_partition
 from urllib import unquote
 
 

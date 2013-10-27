@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ from time import sleep, time
 from uuid import uuid4
 
 from swift.account.backend import AccountBroker
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp
 
 
 class TestAccountBroker(unittest.TestCase):
@@ -54,7 +54,7 @@ class TestAccountBroker(unittest.TestCase):
             first_conn = conn
         try:
             with broker.get() as conn:
-                self.assertEquals(first_conn, conn)
+                self.assertEqual(first_conn, conn)
                 raise Exception('OMG')
         except Exception:
             pass
@@ -76,44 +76,44 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(normalize_timestamp('1'))
         broker.put_container('c', normalize_timestamp(time()), 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 1)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         broker.reclaim(normalize_timestamp(time() - 999), time())
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 1)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
         broker.put_container('c', 0, normalize_timestamp(time()), 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 0)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 1)
         broker.reclaim(normalize_timestamp(time() - 999), time())
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 0)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 1)
         sleep(.00001)
         broker.reclaim(normalize_timestamp(time()), time())
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 0)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         # Test reclaim after deletion. Create 3 test containers
@@ -121,7 +121,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('y', 0, 0, 0, 0)
         broker.put_container('z', 0, 0, 0, 0)
         broker.reclaim(normalize_timestamp(time()), time())
-        # self.assertEquals(len(res), 2)
+        # self.assertEqual(len(res), 2)
         # self.assert_(isinstance(res, tuple))
         # containers, account_name = res
         # self.assert_(containers is None)
@@ -129,11 +129,11 @@ class TestAccountBroker(unittest.TestCase):
         # Now delete the account
         broker.delete_db(normalize_timestamp(time()))
         broker.reclaim(normalize_timestamp(time()), time())
-        # self.assertEquals(len(res), 2)
+        # self.assertEqual(len(res), 2)
         # self.assert_(isinstance(res, tuple))
         # containers, account_name = res
-        # self.assertEquals(account_name, 'test_account')
-        # self.assertEquals(len(containers), 3)
+        # self.assertEqual(account_name, 'test_account')
+        # self.assertEqual(len(containers), 3)
         # self.assert_('x' in containers)
         # self.assert_('y' in containers)
         # self.assert_('z' in containers)
@@ -145,19 +145,19 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(normalize_timestamp('1'))
         broker.put_container('o', normalize_timestamp(time()), 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 1)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
         broker.put_container('o', 0, normalize_timestamp(time()), 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 0").fetchone()[0], 0)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 1)
 
@@ -170,25 +170,25 @@ class TestAccountBroker(unittest.TestCase):
         timestamp = normalize_timestamp(time())
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
         # Reput same event
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
         # Put new event
@@ -196,42 +196,42 @@ class TestAccountBroker(unittest.TestCase):
         timestamp = normalize_timestamp(time())
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
         # Put old event
         otimestamp = normalize_timestamp(float(timestamp) - 1)
         broker.put_container('"{<container \'&\' name>}"', otimestamp, 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
         # Put old delete event
         dtimestamp = normalize_timestamp(float(timestamp) - 1)
         broker.put_container('"{<container \'&\' name>}"', 0, dtimestamp, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT delete_timestamp FROM container").fetchone()[0],
                 dtimestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
         # Put new delete event
@@ -239,13 +239,13 @@ class TestAccountBroker(unittest.TestCase):
         timestamp = normalize_timestamp(time())
         broker.put_container('"{<container \'&\' name>}"', 0, timestamp, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT delete_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 1)
 
         # Put new event
@@ -253,13 +253,13 @@ class TestAccountBroker(unittest.TestCase):
         timestamp = normalize_timestamp(time())
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0)
         with broker.get() as conn:
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT name FROM container").fetchone()[0],
                 '"{<container \'&\' name>}"')
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT put_timestamp FROM container").fetchone()[0],
                 timestamp)
-            self.assertEquals(conn.execute(
+            self.assertEqual(conn.execute(
                 "SELECT deleted FROM container").fetchone()[0], 0)
 
     def test_get_info(self):
@@ -268,35 +268,35 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(normalize_timestamp('1'))
 
         info = broker.get_info()
-        self.assertEquals(info['account'], 'test1')
-        self.assertEquals(info['hash'], '00000000000000000000000000000000')
+        self.assertEqual(info['account'], 'test1')
+        self.assertEqual(info['hash'], '00000000000000000000000000000000')
 
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 0)
+        self.assertEqual(info['container_count'], 0)
 
         broker.put_container('c1', normalize_timestamp(time()), 0, 0, 0)
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 1)
+        self.assertEqual(info['container_count'], 1)
 
         sleep(.00001)
         broker.put_container('c2', normalize_timestamp(time()), 0, 0, 0)
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 2)
+        self.assertEqual(info['container_count'], 2)
 
         sleep(.00001)
         broker.put_container('c2', normalize_timestamp(time()), 0, 0, 0)
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 2)
+        self.assertEqual(info['container_count'], 2)
 
         sleep(.00001)
         broker.put_container('c1', 0, normalize_timestamp(time()), 0, 0)
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 1)
+        self.assertEqual(info['container_count'], 1)
 
         sleep(.00001)
         broker.put_container('c2', 0, normalize_timestamp(time()), 0, 0)
         info = broker.get_info()
-        self.assertEquals(info['container_count'], 0)
+        self.assertEqual(info['container_count'], 0)
 
     def test_list_containers_iter(self):
         # Test AccountBroker.list_containers_iter
@@ -315,86 +315,86 @@ class TestAccountBroker(unittest.TestCase):
                                  normalize_timestamp(time()), 0, 0, 0)
 
         listing = broker.list_containers_iter(100, '', None, None, '')
-        self.assertEquals(len(listing), 100)
-        self.assertEquals(listing[0][0], '0-0000')
-        self.assertEquals(listing[-1][0], '0-0099')
+        self.assertEqual(len(listing), 100)
+        self.assertEqual(listing[0][0], '0-0000')
+        self.assertEqual(listing[-1][0], '0-0099')
 
         listing = broker.list_containers_iter(100, '', '0-0050', None, '')
-        self.assertEquals(len(listing), 50)
-        self.assertEquals(listing[0][0], '0-0000')
-        self.assertEquals(listing[-1][0], '0-0049')
+        self.assertEqual(len(listing), 50)
+        self.assertEqual(listing[0][0], '0-0000')
+        self.assertEqual(listing[-1][0], '0-0049')
 
         listing = broker.list_containers_iter(100, '0-0099', None, None, '')
-        self.assertEquals(len(listing), 100)
-        self.assertEquals(listing[0][0], '0-0100')
-        self.assertEquals(listing[-1][0], '1-0074')
+        self.assertEqual(len(listing), 100)
+        self.assertEqual(listing[0][0], '0-0100')
+        self.assertEqual(listing[-1][0], '1-0074')
 
         listing = broker.list_containers_iter(55, '1-0074', None, None, '')
-        self.assertEquals(len(listing), 55)
-        self.assertEquals(listing[0][0], '1-0075')
-        self.assertEquals(listing[-1][0], '2-0004')
+        self.assertEqual(len(listing), 55)
+        self.assertEqual(listing[0][0], '1-0075')
+        self.assertEqual(listing[-1][0], '2-0004')
 
         listing = broker.list_containers_iter(10, '', None, '0-01', '')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0-0100')
-        self.assertEquals(listing[-1][0], '0-0109')
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0-0100')
+        self.assertEqual(listing[-1][0], '0-0109')
 
         listing = broker.list_containers_iter(10, '', None, '0-01', '-')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0-0100')
-        self.assertEquals(listing[-1][0], '0-0109')
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0-0100')
+        self.assertEqual(listing[-1][0], '0-0109')
 
         listing = broker.list_containers_iter(10, '', None, '0-', '-')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '0-0000')
-        self.assertEquals(listing[-1][0], '0-0009')
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0-0000')
+        self.assertEqual(listing[-1][0], '0-0009')
 
         listing = broker.list_containers_iter(10, '', None, '', '-')
-        self.assertEquals(len(listing), 4)
-        self.assertEquals([row[0] for row in listing],
-                          ['0-', '1-', '2-', '3-'])
+        self.assertEqual(len(listing), 4)
+        self.assertEqual([row[0] for row in listing],
+                         ['0-', '1-', '2-', '3-'])
 
         listing = broker.list_containers_iter(10, '2-', None, None, '-')
-        self.assertEquals(len(listing), 1)
-        self.assertEquals([row[0] for row in listing], ['3-'])
+        self.assertEqual(len(listing), 1)
+        self.assertEqual([row[0] for row in listing], ['3-'])
 
         listing = broker.list_containers_iter(10, '', None, '2', '-')
-        self.assertEquals(len(listing), 1)
-        self.assertEquals([row[0] for row in listing], ['2-'])
+        self.assertEqual(len(listing), 1)
+        self.assertEqual([row[0] for row in listing], ['2-'])
 
         listing = broker.list_containers_iter(10, '2-0050', None, '2-', '-')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals(listing[0][0], '2-0051')
-        self.assertEquals(listing[1][0], '2-0051-')
-        self.assertEquals(listing[2][0], '2-0052')
-        self.assertEquals(listing[-1][0], '2-0059')
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '2-0051')
+        self.assertEqual(listing[1][0], '2-0051-')
+        self.assertEqual(listing[2][0], '2-0052')
+        self.assertEqual(listing[-1][0], '2-0059')
 
         listing = broker.list_containers_iter(10, '3-0045', None, '3-', '-')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals([row[0] for row in listing],
-                          ['3-0045-', '3-0046', '3-0046-', '3-0047',
-                           '3-0047-', '3-0048', '3-0048-', '3-0049',
-                           '3-0049-', '3-0050'])
+        self.assertEqual(len(listing), 10)
+        self.assertEqual([row[0] for row in listing],
+                         ['3-0045-', '3-0046', '3-0046-', '3-0047',
+                          '3-0047-', '3-0048', '3-0048-', '3-0049',
+                          '3-0049-', '3-0050'])
 
         broker.put_container('3-0049-', normalize_timestamp(time()), 0, 0, 0)
         listing = broker.list_containers_iter(10, '3-0048', None, None, None)
-        self.assertEquals(len(listing), 10)
-        self.assertEquals([row[0] for row in listing],
-                          ['3-0048-0049', '3-0049', '3-0049-', '3-0049-0049',
-                           '3-0050', '3-0050-0049', '3-0051', '3-0051-0049',
-                           '3-0052', '3-0052-0049'])
+        self.assertEqual(len(listing), 10)
+        self.assertEqual([row[0] for row in listing],
+                         ['3-0048-0049', '3-0049', '3-0049-', '3-0049-0049',
+                          '3-0050', '3-0050-0049', '3-0051', '3-0051-0049',
+                          '3-0052', '3-0052-0049'])
 
         listing = broker.list_containers_iter(10, '3-0048', None, '3-', '-')
-        self.assertEquals(len(listing), 10)
-        self.assertEquals([row[0] for row in listing],
-                          ['3-0048-', '3-0049', '3-0049-', '3-0050',
-                           '3-0050-', '3-0051', '3-0051-', '3-0052',
-                           '3-0052-', '3-0053'])
+        self.assertEqual(len(listing), 10)
+        self.assertEqual([row[0] for row in listing],
+                         ['3-0048-', '3-0049', '3-0049-', '3-0050',
+                          '3-0050-', '3-0051', '3-0051-', '3-0052',
+                          '3-0052-', '3-0053'])
 
         listing = broker.list_containers_iter(10, None, None, '3-0049-', '-')
-        self.assertEquals(len(listing), 2)
-        self.assertEquals([row[0] for row in listing],
-                          ['3-0049-', '3-0049-0049'])
+        self.assertEqual(len(listing), 2)
+        self.assertEqual([row[0] for row in listing],
+                         ['3-0049-', '3-0049-0049'])
 
     def test_double_check_trailing_delimiter(self):
         # Test AccountBroker.list_containers_iter for an
@@ -412,21 +412,21 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('b-b', normalize_timestamp(time()), 0, 0, 0)
         broker.put_container('c', normalize_timestamp(time()), 0, 0, 0)
         listing = broker.list_containers_iter(15, None, None, None, None)
-        self.assertEquals(len(listing), 10)
-        self.assertEquals([row[0] for row in listing],
-                          ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
-                           'b-a', 'b-b', 'c'])
+        self.assertEqual(len(listing), 10)
+        self.assertEqual([row[0] for row in listing],
+                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
+                          'b-a', 'b-b', 'c'])
         listing = broker.list_containers_iter(15, None, None, '', '-')
-        self.assertEquals(len(listing), 5)
-        self.assertEquals([row[0] for row in listing],
-                          ['a', 'a-', 'b', 'b-', 'c'])
+        self.assertEqual(len(listing), 5)
+        self.assertEqual([row[0] for row in listing],
+                         ['a', 'a-', 'b', 'b-', 'c'])
         listing = broker.list_containers_iter(15, None, None, 'a-', '-')
-        self.assertEquals(len(listing), 4)
-        self.assertEquals([row[0] for row in listing],
-                          ['a-', 'a-a', 'a-a-', 'a-b'])
+        self.assertEqual(len(listing), 4)
+        self.assertEqual([row[0] for row in listing],
+                         ['a-', 'a-a', 'a-a-', 'a-b'])
         listing = broker.list_containers_iter(15, None, None, 'b-', '-')
-        self.assertEquals(len(listing), 2)
-        self.assertEquals([row[0] for row in listing], ['b-a', 'b-b'])
+        self.assertEqual(len(listing), 2)
+        self.assertEqual([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
         broker = AccountBroker(':memory:', account='a')
@@ -443,7 +443,7 @@ class TestAccountBroker(unittest.TestCase):
         ).digest()
         hashc = \
             ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
-        self.assertEquals(broker.get_info()['hash'], hashc)
+        self.assertEqual(broker.get_info()['hash'], hashc)
         broker.put_container('b', normalize_timestamp(3),
                              normalize_timestamp(0), 0, 0)
         hashb = hashlib.md5(
@@ -451,7 +451,7 @@ class TestAccountBroker(unittest.TestCase):
         ).digest()
         hashc = \
             ''.join(('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
-        self.assertEquals(broker.get_info()['hash'], hashc)
+        self.assertEqual(broker.get_info()['hash'], hashc)
 
     def test_merge_items(self):
         broker1 = AccountBroker(':memory:', account='a')
@@ -464,15 +464,15 @@ class TestAccountBroker(unittest.TestCase):
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
-        self.assertEquals(len(items), 2)
-        self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
+        self.assertEqual(len(items), 2)
+        self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         broker1.put_container('c', normalize_timestamp(3), 0, 0, 0)
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
         items = broker2.get_items_since(-1, 1000)
-        self.assertEquals(len(items), 3)
-        self.assertEquals(['a', 'b', 'c'],
-                          sorted([rec['name'] for rec in items]))
+        self.assertEqual(len(items), 3)
+        self.assertEqual(['a', 'b', 'c'],
+                         sorted([rec['name'] for rec in items]))
 
 
 def premetadata_create_account_stat_table(self, conn, put_timestamp):

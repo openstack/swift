@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,10 +38,10 @@ from eventlet import sleep, GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
-from swift.common.utils import ContextPool, config_true_value, public, json, \
-    csv_append, GreenthreadSafeIterator, quorum_size, split_path, \
-    override_bytes_from_content_type, get_valid_utf8_str
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import ContextPool, normalize_timestamp, \
+    config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
+    quorum_size, split_path, override_bytes_from_content_type, \
+    get_valid_utf8_str
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -421,6 +421,7 @@ class ObjectController(Controller):
             new_req = incoming_req.copy_get()
             new_req.method = 'GET'
             new_req.range = None
+            new_req.path_info = '/'.join(['', account, container, obj])
             if partition is None:
                 try:
                     partition = obj_ring.get_part(
@@ -431,7 +432,7 @@ class ObjectController(Controller):
                         new_req.path)
             valid_resp = self.GETorHEAD_base(
                 new_req, _('Object'), obj_ring, partition,
-                '/'.join(['', account, container, obj]))
+                new_req.path_info)
 
         if 'swift.authorize' in incoming_req.environ:
             incoming_req.acl = valid_resp.headers.get('x-container-read')
@@ -1205,6 +1206,7 @@ class ObjectController(Controller):
         object_versions = container_info['versions']
         if object_versions:
             # this is a version manifest and needs to be handled differently
+            object_versions = unquote(object_versions)
             lcontainer = object_versions.split('/')[0]
             prefix_len = '%03x' % len(self.object_name)
             lprefix = prefix_len + self.object_name + '/'
@@ -1226,7 +1228,7 @@ class ObjectController(Controller):
                 orig_container = self.container_name
                 orig_obj = self.object_name
                 self.container_name = lcontainer
-                self.object_name = last_item['name']
+                self.object_name = last_item['name'].encode('utf-8')
                 copy_path = '/' + self.account_name + '/' + \
                             self.container_name + '/' + self.object_name
                 copy_headers = {'X-Newest': 'True',
@@ -1246,7 +1248,7 @@ class ObjectController(Controller):
                     return HTTPServiceUnavailable(request=req)
                 # reset these because the COPY changed them
                 self.container_name = lcontainer
-                self.object_name = last_item['name']
+                self.object_name = last_item['name'].encode('utf-8')
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)

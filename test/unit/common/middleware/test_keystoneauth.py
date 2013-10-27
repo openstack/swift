@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -162,6 +162,13 @@ class SwiftAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'OPTIONS'})
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 200)
+
+    def test_auth_scheme(self):
+        req = self._make_request(path='/v1/BLAH_foo/c/o',
+                                 headers={'X_IDENTITY_STATUS': 'Invalid'})
+        resp = req.get_response(self.test_auth)
+        self.assertEqual(resp.status_int, 401)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
 
 class TestAuthorize(unittest.TestCase):

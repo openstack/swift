@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -134,16 +134,16 @@ class TestContainerSync(unittest.TestCase):
 
         orig_time = sync.time
         orig_sleep = sync.sleep
-        orig_audit_location_generator = sync.audit_location_generator
         orig_ContainerBroker = sync.ContainerBroker
+        orig_audit_location_generator = sync.audit_location_generator
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(
                 p, info={'account': 'a', 'container': 'c'})
             sync.time = fake_time
             sync.sleep = fake_sleep
-            sync.audit_location_generator = fake_audit_location_generator
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
+            sync.audit_location_generator = fake_audit_location_generator
             cs.run_forever()
         except Exception as err:
             if str(err) != 'we are now done':
@@ -196,9 +196,9 @@ class TestContainerSync(unittest.TestCase):
             sync.ContainerBroker = lambda p: FakeContainerBroker(
                 p, info={'account': 'a', 'container': 'c'})
             sync.time = fake_time
-            sync.audit_location_generator = fake_audit_location_generator
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
+            sync.audit_location_generator = fake_audit_location_generator
             cs.run_once()
             self.assertEquals(time_calls, [6])
             self.assertEquals(audit_location_generator_calls, [1])

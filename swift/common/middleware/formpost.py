@@ -1,4 +1,4 @@
-# Copyright (c) 2011 OpenStack, LLC.
+# Copyright (c) 2011 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -111,6 +111,7 @@ from urllib import quote
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time
 from swift.common.wsgi import make_pre_authed_env
+from swift.common.swob import HTTPUnauthorized
 from swift.proxy.controllers.base import get_account_info
 
 
@@ -126,6 +127,10 @@ ATTRIBUTES_RE = re.compile(r'(\w+)=(".*?"|[^";]+)(; ?|$)')
 
 
 class FormInvalid(Exception):
+    pass
+
+
+class FormUnauthorized(Exception):
     pass
 
 
@@ -327,6 +332,10 @@ class FormPost(object):
                     (('Content-Type', 'text/plain'),
                      ('Content-Length', str(len(body)))))
                 return [body]
+            except FormUnauthorized as err:
+                message = 'FormPost: %s' % str(err).title()
+                return HTTPUnauthorized(body=message)(
+                    env, start_response)
         return self.app(env, start_response)
 
     def _translate_form(self, env, boundary):
@@ -410,7 +419,7 @@ class FormPost(object):
         :returns: (status_line, message)
         """
         if not keys:
-            return '401 Unauthorized', 'invalid signature'
+            raise FormUnauthorized('invalid signature')
         try:
             max_file_size = int(attributes.get('max_file_size') or 0)
         except ValueError:
@@ -432,7 +441,7 @@ class FormPost(object):
             del subenv['CONTENT_TYPE']
         try:
             if int(attributes.get('expires') or 0) < time():
-                return '401 Unauthorized', 'form expired'
+                raise FormUnauthorized('form expired')
         except ValueError:
             raise FormInvalid('expired not an integer')
         hmac_body = '%s\n%s\n%s\n%s\n%s' % (
@@ -449,7 +458,7 @@ class FormPost(object):
                                       'invalid')):
                 has_valid_sig = True
         if not has_valid_sig:
-            return '401 Unauthorized', 'invalid signature'
+            raise FormUnauthorized('invalid signature')
 
         substatus = [None]
 

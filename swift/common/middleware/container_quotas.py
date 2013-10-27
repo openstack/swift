@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ set:
 """
 
 from swift.common.http import is_success
-from swift.proxy.controllers.base import get_container_info
+from swift.proxy.controllers.base import get_container_info, get_object_info
 from swift.common.swob import Response, HTTPBadRequest, wsgify
 
 
@@ -84,13 +84,24 @@ class ContainerQuotaMiddleware(object):
             if not container_info or not is_success(container_info['status']):
                 # this will hopefully 404 later
                 return self.app
+
             if 'quota-bytes' in container_info.get('meta', {}) and \
                     'bytes' in container_info and \
                     container_info['meta']['quota-bytes'].isdigit():
-                new_size = int(container_info['bytes']) + (req.content_length
-                                                           or 0)
+                content_length = (req.content_length or 0)
+                copy_from = req.headers.get('X-Copy-From')
+                if copy_from:
+                    path = '/%s/%s/%s' % (version, account,
+                                          copy_from.lstrip('/'))
+                    object_info = get_object_info(req.environ, self.app, path)
+                    if not object_info or not object_info['length']:
+                        content_length = 0
+                    else:
+                        content_length = int(object_info['length'])
+                new_size = int(container_info['bytes']) + content_length
                 if int(container_info['meta']['quota-bytes']) < new_size:
                     return self.bad_response(req, container_info)
+
             if 'quota-count' in container_info.get('meta', {}) and \
                     'object_count' in container_info and \
                     container_info['meta']['quota-count'].isdigit():

@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ from re import sub
 import eventlet.debug
 
 from swift.common import utils
-from swift.common import ondisk
 
 
 class Daemon(object):
@@ -42,7 +41,7 @@ class Daemon(object):
 
     def run(self, once=False, **kwargs):
         """Run the daemon"""
-        ondisk.validate_configuration()
+        utils.validate_configuration()
         utils.drop_privileges(self.conf.get('user', 'swift'))
         utils.capture_stdio(self.logger, **kwargs)
 

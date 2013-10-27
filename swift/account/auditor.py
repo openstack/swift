@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,8 @@ from random import random
 import swift.common.db
 from swift.account import server as account_server
 from swift.account.backend import AccountBroker
-from swift.common.utils import get_logger, config_true_value, \
-    dump_recon_cache, ratelimit_sleep
-from swift.common.ondisk import audit_location_generator
+from swift.common.utils import get_logger, audit_location_generator, \
+    config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
 
 from eventlet import Timeout
@@ -119,10 +118,10 @@ class AccountAuditor(Daemon):
                 broker.get_info()
                 self.logger.increment('passes')
                 self.account_passes += 1
-                self.logger.debug(_('Audit passed for %s') % broker.db_file)
+                self.logger.debug(_('Audit passed for %s') % broker)
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.account_failures += 1
             self.logger.exception(_('ERROR Could not get account info %s'),
-                                  (broker.db_file))
+                                  path)
         self.logger.timing_since('timing', start_time)

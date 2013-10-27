@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2013 OpenStack, LLC.
+# Copyright (c) 2010-2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import defaultdict
+import optparse
 
 
 def tiers_for_dev(dev):
@@ -240,3 +241,52 @@ def parse_search_value(search_value):
         raise ValueError('Invalid <search-value>: %s' %
                          repr(orig_search_value))
     return match
+
+
+def parse_args(argvish):
+    """
+    Build OptionParser and evaluate command line arguments.
+    """
+    parser = optparse.OptionParser()
+    parser.add_option('-r', '--region', type="int",
+                      help="Region")
+    parser.add_option('-z', '--zone', type="int",
+                      help="Zone")
+    parser.add_option('-i', '--ip', type="string",
+                      help="IP address")
+    parser.add_option('-p', '--port', type="int",
+                      help="Port number")
+    parser.add_option('-j', '--replication-ip', type="string",
+                      help="Replication IP address")
+    parser.add_option('-q', '--replication-port', type="int",
+                      help="Replication port number")
+    parser.add_option('-d', '--device', type="string",
+                      help="Device name (e.g. md0, sdb1)")
+    parser.add_option('-w', '--weight', type="float",
+                      help="Device weight")
+    parser.add_option('-m', '--meta', type="string", default="",
+                      help="Extra device info (just a string)")
+    return parser.parse_args(argvish)
+
+
+def build_dev_from_opts(opts):
+    """
+    Convert optparse stype options into a device dictionary.
+    """
+    for attribute, shortopt, longopt in (['region', '-r', '--region'],
+                                         ['zone', '-z', '--zone'],
+                                         ['ip', '-i', '--ip'],
+                                         ['port', '-p', '--port'],
+                                         ['device', '-d', '--device'],
+                                         ['weight', '-w', '--weight']):
+        if not getattr(opts, attribute, None):
+            raise ValueError('Required argument %s/%s not specified.' %
+                             (shortopt, longopt))
+
+    replication_ip = opts.replication_ip or opts.ip
+    replication_port = opts.replication_port or opts.port
+
+    return {'region': opts.region, 'zone': opts.zone, 'ip': opts.ip,
+            'port': opts.port, 'device': opts.device, 'meta': opts.meta,
+            'replication_ip': replication_ip,
+            'replication_port': replication_port, 'weight': opts.weight}

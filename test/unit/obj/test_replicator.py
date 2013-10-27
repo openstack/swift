@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,9 +29,8 @@ from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
 from test.unit import FakeLogger
-from swift.common.utils import mkdirs
-from swift.common import ondisk
-from swift.common.ondisk import hash_path, normalize_timestamp
+from swift.common import utils
+from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
 
@@ -138,8 +137,8 @@ def _create_test_ring(path):
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
-        ondisk.HASH_PATH_SUFFIX = 'endcap'
-        ondisk.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         # Setup a test ring (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')
@@ -157,9 +156,10 @@ class TestObjectReplicator(unittest.TestCase):
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1')
-        self.replicator = object_replicator.ObjectReplicator(
-            self.conf)
+        self.replicator = object_replicator.ObjectReplicator(self.conf)
         self.replicator.logger = FakeLogger()
+        self.df_mgr = diskfile.DiskFileManager(self.conf,
+                                               self.replicator.logger)
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -171,10 +171,9 @@ class TestObjectReplicator(unittest.TestCase):
         was_connector = object_replicator.http_connect
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
-        df = diskfile.DiskFile(self.devices, 'sda', cur_part, 'a', 'c', 'o',
-                               FakeLogger())
-        mkdirs(df.datadir)
-        f = open(os.path.join(df.datadir,
+        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+        mkdirs(df._datadir)
+        f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
                  'wb')
         f.write('1234567890')
@@ -298,11 +297,10 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = diskfile.DiskFile(self.devices,
-                                   'sda', '1', 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            print df.datadir
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            print df._datadir
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')
@@ -327,11 +325,10 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_with_failures(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = diskfile.DiskFile(self.devices,
-                                   'sda', '1', 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            print df.datadir
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            print df._datadir
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')
@@ -363,11 +360,10 @@ class TestObjectReplicator(unittest.TestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             self.replicator.handoff_delete = 2
-            df = diskfile.DiskFile(self.devices,
-                                   'sda', '1', 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            print df.datadir
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            print df._datadir
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')
@@ -398,11 +394,10 @@ class TestObjectReplicator(unittest.TestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             self.replicator.handoff_delete = 2
-            df = diskfile.DiskFile(self.devices,
-                                   'sda', '1', 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            print df.datadir
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            print df._datadir
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')
@@ -431,9 +426,8 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(os.access(part_path, os.F_OK))
 
     def test_delete_partition_override_params(self):
-        df = diskfile.DiskFile(self.devices, 'sda', '0', 'a', 'c', 'o',
-                               FakeLogger())
-        mkdirs(df.datadir)
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        mkdirs(df._datadir)
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
         self.replicator.replicate(override_devices=['sdb'])
@@ -454,10 +448,9 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitoins and then node should get deleted.
             cur_part = '1'
-            df = diskfile.DiskFile(
-                self.devices, 'sda', cur_part, 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')
@@ -518,10 +511,9 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitions and then node should get deleted.
             cur_part = '1'
-            df = diskfile.DiskFile(
-                self.devices, 'sda', cur_part, 'a', 'c', 'o', FakeLogger())
-            mkdirs(df.datadir)
-            f = open(os.path.join(df.datadir,
+            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
             f.write('1234567890')

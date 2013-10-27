@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,9 +27,8 @@ from swiftclient import ClientException, delete_object, put_object, \
 from swift.container.backend import ContainerBroker
 from swift.common.direct_client import direct_get_object
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, config_true_value, \
-    validate_sync_to, whataremyips, FileLikeIter
-from swift.common.ondisk import audit_location_generator, hash_path
+from swift.common.utils import audit_location_generator, get_logger, \
+    hash_path, config_true_value, validate_sync_to, whataremyips, FileLikeIter
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 
@@ -246,7 +245,7 @@ class ContainerSync(Daemon):
                 if err:
                     self.logger.info(
                         _('ERROR %(db_file)s: %(validate_sync_to_err)s'),
-                        {'db_file': broker.db_file,
+                        {'db_file': str(broker),
                          'validate_sync_to_err': err})
                     self.container_failures += 1
                     self.logger.increment('failures')
@@ -300,7 +299,7 @@ class ContainerSync(Daemon):
             self.container_failures += 1
             self.logger.increment('failures')
             self.logger.exception(_('ERROR Syncing %s'),
-                                  broker.db_file if broker else path)
+                                  broker if broker else path)
 
     def container_sync_row(self, row, sync_to, sync_key, broker, info):
         """
@@ -398,14 +397,14 @@ class ContainerSync(Daemon):
             else:
                 self.logger.exception(
                     _('ERROR Syncing %(db_file)s %(row)s'),
-                    {'db_file': broker.db_file, 'row': row})
+                    {'db_file': str(broker), 'row': row})
             self.container_failures += 1
             self.logger.increment('failures')
             return False
         except (Exception, Timeout) as err:
             self.logger.exception(
                 _('ERROR Syncing %(db_file)s %(row)s'),
-                {'db_file': broker.db_file, 'row': row})
+                {'db_file': str(broker), 'row': row})
             self.container_failures += 1
             self.logger.increment('failures')
             return False

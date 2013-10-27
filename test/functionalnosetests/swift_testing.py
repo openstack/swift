@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from httplib import HTTPException
 import os
 import socket
 import sys
@@ -20,7 +21,7 @@ from time import sleep
 
 from test import get_config
 
-from swiftclient import get_auth, http_connection, HTTPException
+from swiftclient import get_auth, http_connection
 
 conf = get_config('func_test')
 web_front_end = conf.get('web_front_end', 'integral')

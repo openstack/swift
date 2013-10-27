@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import optparse
 from array import array
 from errno import EEXIST
 from itertools import islice, izip
@@ -29,7 +28,8 @@ from swift.common import exceptions
 from swift.common.ring import RingBuilder
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
-from swift.common.ring.utils import parse_search_value
+from swift.common.ring.utils import parse_search_value, parse_args, \
+    build_dev_from_opts
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -60,26 +60,7 @@ def _parse_add_values(argvish):
     :returns: array of device dicts
     """
 
-    parser = optparse.OptionParser()
-    parser.add_option('-r', '--region', type="int",
-                      help="Region")
-    parser.add_option('-z', '--zone', type="int",
-                      help="Zone")
-    parser.add_option('-i', '--ip', type="string",
-                      help="IP address")
-    parser.add_option('-p', '--port', type="int",
-                      help="Port number")
-    parser.add_option('-j', '--replication-ip', type="string",
-                      help="Replication IP address")
-    parser.add_option('-q', '--replication-port', type="int",
-                      help="Replication port number")
-    parser.add_option('-d', '--device', type="string",
-                      help="Device name (e.g. md0, sdb1)")
-    parser.add_option('-w', '--weight', type="float",
-                      help="Device weight")
-    parser.add_option('-m', '--meta', type="string", default="",
-                      help="Extra device info (just a string)")
-    opts, args = parser.parse_args(argvish)
+    opts, args = parse_args(argvish)
 
     # We'll either parse the all-in-one-string format or the --options format,
     # but not both. If both are specified, raise an error.
@@ -208,26 +189,13 @@ def _parse_add_values(argvish):
                                 'weight': weight, 'meta': meta})
         return parsed_devs
     else:
-        for attribute, shortopt, longopt in (['region', '-r', '--region'],
-                                             ['zone', '-z', '--zone'],
-                                             ['ip', '-i', '--ip'],
-                                             ['port', '-p', '--port'],
-                                             ['device', '-d', '--device'],
-                                             ['weight', '-w', '--weight']):
-            if not getattr(opts, attribute, None):
-                print 'Required argument %s/%s not specified.' % \
-                    (shortopt, longopt)
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-
-        replication_ip = getattr(opts, 'replication_ip', opts.ip)
-        replication_port = getattr(opts, 'replication_port', opts.port)
-
-        return [{'region': opts.region, 'zone': opts.zone, 'ip': opts.ip,
-                 'port': opts.port, 'device': opts.device, 'meta': opts.meta,
-                 'replication_ip': replication_ip,
-                 'replication_port': replication_port,
-                 'weight': opts.weight}]
+        try:
+            dev = build_dev_from_opts(opts)
+        except ValueError as e:
+            print e
+            print "The on-disk ring builder is unchanged.\n"
+            exit(EXIT_ERROR)
+        return [dev]
 
 
 class Commands:

@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -94,6 +94,18 @@ class TestContainerQuotas(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
 
+    def test_exceed_bytes_quota_copy_from(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '2'}})
+
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.object/a/c2/o2': {'length': 10},
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+
     def test_not_exceed_bytes_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
@@ -101,6 +113,28 @@ class TestContainerQuotas(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_not_exceed_bytes_quota_copy_from(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.object/a/c2/o2': {'length': 10},
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_bytes_quota_copy_from_no_src(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.object/a/c2/o2': {'length': 10},
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o3'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
@@ -114,6 +148,17 @@ class TestContainerQuotas(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
 
+    def test_exceed_counts_quota_copy_from(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'}})
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.object/a/c2/o2': {'length': 10},
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '2'}})
@@ -121,6 +166,16 @@ class TestContainerQuotas(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
+
+    def test_not_exceed_counts_quota_copy_from(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '2'}})
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 

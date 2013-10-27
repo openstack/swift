@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,20 +24,20 @@ from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout, listen
 
-from swift.obj import updater as object_updater, server as object_server
-from swift.obj.server import ASYNCDIR
+from swift.obj import updater as object_updater
+from swift.obj.diskfile import ASYNCDIR
 from swift.common.ring import RingData
-from swift.common.utils import mkdirs, write_pickle
-from swift.common import ondisk
-from swift.common.ondisk import hash_path, normalize_timestamp
+from swift.common import utils
+from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
+    write_pickle
 from test.unit import FakeLogger
 
 
 class TestObjectUpdater(unittest.TestCase):
 
     def setUp(self):
-        ondisk.HASH_PATH_SUFFIX = 'endcap'
-        ondisk.HASH_PATH_PREFIX = ''
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
         self.testdir = os.path.join(os.path.dirname(__file__),
                                     'object_updater')
         rmtree(self.testdir, ignore_errors=1)
@@ -123,7 +123,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'})
         cu.run_once()
-        async_dir = os.path.join(self.sda1, object_server.ASYNCDIR)
+        async_dir = os.path.join(self.sda1, ASYNCDIR)
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))

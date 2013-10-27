@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ from StringIO import StringIO
 from test.unit import tmpfile
 from mock import patch
 
-from swift.common import daemon, utils, ondisk
+from swift.common import daemon, utils
 
 
 class MyDaemon(daemon.Daemon):
@@ -63,8 +63,8 @@ class TestDaemon(unittest.TestCase):
 class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
-        ondisk.HASH_PATH_SUFFIX = 'endcap'
-        ondisk.HASH_PATH_PREFIX = 'startcap'
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = 'startcap'
         utils.drop_privileges = lambda *args: None
         utils.capture_stdio = lambda *args: None
 

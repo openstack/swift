@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
+# Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,8 +27,7 @@ from eventlet import sleep, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swiftclient import ClientException, json_loads
-from swift.common.utils import FileLikeIter
-from swift.common.ondisk import normalize_timestamp
+from swift.common.utils import normalize_timestamp, FileLikeIter
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.swob import HeaderKeyDict
