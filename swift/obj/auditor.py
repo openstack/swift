@@ -17,21 +17,19 @@ import os
 import time
 from swift import gettext_ as _
 from contextlib import closing
-
 from eventlet import Timeout
 
 from swift.obj import diskfile
-from swift.common.utils import get_logger, audit_location_generator, \
-    ratelimit_sleep, dump_recon_cache, list_from_csv, json
-from swift.common.exceptions import AuditException, DiskFileQuarantined, \
-    DiskFileNotExist
+from swift.common.utils import get_logger, ratelimit_sleep, dump_recon_cache, \
+    list_from_csv, json
+from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
 
 SLEEP_BETWEEN_AUDITS = 30
 
 
 class AuditorWorker(object):
-    """Walk through file system to audit object"""
+    """Walk through file system to audit objects"""
 
     def __init__(self, conf, logger, zero_byte_only_at_fps=0):
         self.conf = conf
@@ -72,13 +70,10 @@ class AuditorWorker(object):
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        all_locs = audit_location_generator(
-            self.devices, diskfile.DATADIR, '.data',
-            mount_check=self.diskfile_mgr.mount_check,
-            logger=self.logger)
-        for path, device, partition in all_locs:
+        all_locs = self.diskfile_mgr.object_audit_location_generator()
+        for location in all_locs:
             loop_time = time.time()
-            self.failsafe_object_audit(path, device, partition)
+            self.failsafe_object_audit(location)
             self.logger.timing_since('timing', loop_time)
             self.files_running_time = ratelimit_sleep(
                 self.files_running_time, self.max_files_per_second)
@@ -151,75 +146,54 @@ class AuditorWorker(object):
         else:
             self.stats_buckets["OVER"] += 1
 
-    def failsafe_object_audit(self, path, device, partition):
+    def failsafe_object_audit(self, location):
         """
         Entrypoint to object_audit, with a failsafe generic exception handler.
         """
         try:
-            self.object_audit(path, device, partition)
+            self.object_audit(location)
         except (Exception, Timeout):
             self.logger.increment('errors')
             self.errors += 1
-            self.logger.exception(_('ERROR Trying to audit %s'), path)
+            self.logger.exception(_('ERROR Trying to audit %s'), location)
 
-    def object_audit(self, path, device, partition):
+    def object_audit(self, location):
         """
-        Audits the given object path.
+        Audits the given object location.
 
-        :param path: a path to an object
-        :param device: the device the path is on
-        :param partition: the partition the path is on
+        :param location: an audit location
+                         (from diskfile.object_audit_location_generator)
         """
+        def raise_dfq(msg):
+            raise DiskFileQuarantined(msg)
+
         try:
-            try:
-                name = diskfile.read_metadata(path)['name']
-            except (Exception, Timeout) as exc:
-                raise AuditException('Error when reading metadata: %s' % exc)
-            _junk, account, container, obj = name.split('/', 3)
-            df = self.diskfile_mgr.get_diskfile(
-                device, partition, account, container, obj)
-            try:
-                with df.open():
-                    metadata = df.get_metadata()
-                    obj_size = int(metadata['Content-Length'])
-                    if self.stats_sizes:
-                        self.record_stats(obj_size)
-                    if self.zero_byte_only_at_fps and obj_size:
-                        self.passes += 1
-                        return
-                    reader = df.reader()
-                with closing(reader):
-                    for chunk in reader:
-                        chunk_len = len(chunk)
-                        self.bytes_running_time = ratelimit_sleep(
-                            self.bytes_running_time,
-                            self.max_bytes_per_second,
-                            incr_by=chunk_len)
-                        self.bytes_processed += chunk_len
-                        self.total_bytes_processed += chunk_len
-                if reader.was_quarantined:
-                    self.quarantines += 1
-                    self.logger.error(_('ERROR Object %(obj)s failed audit and'
-                                        ' was quarantined: %(err)s'),
-                                      {'obj': path,
-                                       'err': reader.was_quarantined})
+            df = self.diskfile_mgr.get_diskfile_from_audit_location(location)
+            with df.open():
+                metadata = df.get_metadata()
+                obj_size = int(metadata['Content-Length'])
+                if self.stats_sizes:
+                    self.record_stats(obj_size)
+                if self.zero_byte_only_at_fps and obj_size:
+                    self.passes += 1
                     return
-            except DiskFileNotExist:
-                return
+                reader = df.reader(_quarantine_hook=raise_dfq)
+            with closing(reader):
+                for chunk in reader:
+                    chunk_len = len(chunk)
+                    self.bytes_running_time = ratelimit_sleep(
+                        self.bytes_running_time,
+                        self.max_bytes_per_second,
+                        incr_by=chunk_len)
+                    self.bytes_processed += chunk_len
+                    self.total_bytes_processed += chunk_len
+        except DiskFileNotExist:
+            return
         except DiskFileQuarantined as err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and was'
                                 ' quarantined: %(err)s'),
-                              {'obj': path, 'err': err})
-        except AuditException as err:
-            self.logger.increment('quarantines')
-            self.quarantines += 1
-            self.logger.error(_('ERROR Object %(obj)s failed audit and will'
-                                ' be quarantined: %(err)s'),
-                              {'obj': path, 'err': err})
-            diskfile.quarantine_renamer(
-                os.path.join(self.devices, device), path)
-            return
+                              {'obj': location, 'err': err})
         self.passes += 1
 
 

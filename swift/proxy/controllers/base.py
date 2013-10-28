@@ -327,7 +327,7 @@ def _set_info_cache(app, env, account, container, resp):
 
     :param  app: the application object
     :param  account: the unquoted account name
-    :param  container: the unquoted containr name or None
+    :param  container: the unquoted container name or None
     :param resp: the response received or None if info cache should be cleared
     """
 
