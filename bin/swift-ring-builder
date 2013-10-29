@@ -25,11 +25,11 @@ from textwrap import wrap
 from time import time
 
 from swift.common import exceptions
-from swift.common.ring import RingBuilder
+from swift.common.ring import RingBuilder, Ring
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
 from swift.common.ring.utils import parse_search_value, parse_args, \
-    build_dev_from_opts
+    build_dev_from_opts, parse_builder_ring_filename_args
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -697,6 +697,52 @@ swift-ring-builder <builder_file> write_ring
         ring_data.save(ring_file)
         exit(EXIT_SUCCESS)
 
+    def write_builder():
+        """
+swift-ring-builder <ring_file> write_builder [min_part_hours]
+    Recreate a builder from a ring file (lossy) if you lost your builder
+    backups.  (Protip: don't lose your builder backups).
+    [min_part_hours] is one of those numbers lost to the builder,
+    you can change it with set_min_part_hours.
+        """
+        if exists(builder_file):
+            print 'Cowardly refusing to overwrite existing ' \
+                'Ring Builder file: %s' % builder_file
+            exit(EXIT_ERROR)
+        if len(argv) > 3:
+            min_part_hours = int(argv[3])
+        else:
+            stderr.write("WARNING: default min_part_hours may not match "
+                         "the value in the lost builder.\n")
+            min_part_hours = 24
+        ring = Ring(ring_file)
+        for dev in ring.devs:
+            dev.update({
+                'parts': 0,
+                'parts_wanted': 0,
+            })
+        builder_dict = {
+            'part_power': 32 - ring._part_shift,
+            'replicas': float(ring.replica_count),
+            'min_part_hours': min_part_hours,
+            'parts': ring.partition_count,
+            'devs': ring.devs,
+            'devs_changed': False,
+            'version': 0,
+            '_replica2part2dev': ring._replica2part2dev_id,
+            '_last_part_moves_epoch': None,
+            '_last_part_moves': None,
+            '_last_part_gather_start': 0,
+            '_remove_devs': [],
+        }
+        builder = RingBuilder(1, 1, 1)
+        builder.copy_from(builder_dict)
+        for parts in builder._replica2part2dev:
+            for dev_id in parts:
+                builder.devs[dev_id]['parts'] += 1
+        builder._set_parts_wanted()
+        builder.save(builder_file)
+
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
         builder.save(argv[1])
@@ -772,9 +818,11 @@ if __name__ == '__main__':
                '            2 = error')
         exit(EXIT_SUCCESS)
 
-    if exists(argv[1]):
-        builder = RingBuilder.load(argv[1])
-    elif len(argv) < 3 or argv[2] != 'create':
+    builder_file, ring_file = parse_builder_ring_filename_args(argv)
+
+    if exists(builder_file):
+        builder = RingBuilder.load(builder_file)
+    elif len(argv) < 3 or argv[2] not in('create', 'write_builder'):
         print 'Ring Builder file does not exist: %s' % argv[1]
         exit(EXIT_ERROR)
 
@@ -784,11 +832,6 @@ if __name__ == '__main__':
     except OSError as err:
         if err.errno != EEXIST:
             raise
-
-    ring_file = argv[1]
-    if ring_file.endswith('.builder'):
-        ring_file = ring_file[:-len('.builder')]
-    ring_file += '.ring.gz'
 
     if len(argv) == 2:
         command = "default"
