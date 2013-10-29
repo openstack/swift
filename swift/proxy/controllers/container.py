@@ -196,7 +196,7 @@ class ContainerController(Controller):
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
         additional_headers = {}
-        if policy_index:
+        if policy_index is not None:
             additional_headers[POLICY_INDEX] = str(policy_index)
 
         headers = [
