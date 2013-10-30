@@ -41,7 +41,7 @@ from eventlet.timeout import Timeout
 from swift.common.utils import ContextPool, normalize_timestamp, \
     config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
     quorum_size, split_path, override_bytes_from_content_type, \
-    get_valid_utf8_str
+    get_valid_utf8_str, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -848,6 +848,48 @@ class ObjectController(Controller):
                 self.exception_occurred(node, _('Object'),
                                         _('Expect: 100-continue on %s') % path)
 
+    def _get_put_responses(self, req, conns, nodes):
+        statuses = []
+        reasons = []
+        bodies = []
+        etags = set()
+
+        def get_conn_response(conn):
+            try:
+                with Timeout(self.app.node_timeout):
+                    if conn.resp:
+                        return conn.resp
+                    else:
+                        return conn.getresponse()
+            except (Exception, Timeout):
+                self.exception_occurred(
+                    conn.node, _('Object'),
+                    _('Trying to get final status of PUT to %s') % req.path)
+        pile = GreenAsyncPile(len(conns))
+        for conn in conns:
+            pile.spawn(get_conn_response, conn)
+        for response in pile:
+            if response:
+                statuses.append(response.status)
+                reasons.append(response.reason)
+                bodies.append(response.read())
+                if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+                    self.error_occurred(
+                        conn.node,
+                        _('ERROR %(status)d %(body)s From Object Server '
+                          're: %(path)s') %
+                        {'status': response.status,
+                         'body': bodies[-1][:1024], 'path': req.path})
+                elif is_success(response.status):
+                    etags.add(response.getheader('etag').strip('"'))
+                if self.have_quorum(statuses, len(nodes)):
+                    break
+        while len(statuses) < len(nodes):
+            statuses.append(HTTP_SERVICE_UNAVAILABLE)
+            reasons.append('')
+            bodies.append('')
+        return statuses, reasons, bodies, etags
+
     @public
     @cors_validation
     @delay_denial
@@ -1124,42 +1166,15 @@ class ObjectController(Controller):
                 _('Client disconnected without sending enough data'))
             self.app.logger.increment('client_disconnects')
             return HTTPClientDisconnect(request=req)
-        statuses = []
-        reasons = []
-        bodies = []
-        etags = set()
-        for conn in conns:
-            try:
-                with Timeout(self.app.node_timeout):
-                    if conn.resp:
-                        response = conn.resp
-                    else:
-                        response = conn.getresponse()
-                    statuses.append(response.status)
-                    reasons.append(response.reason)
-                    bodies.append(response.read())
-                    if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                        self.error_occurred(
-                            conn.node,
-                            _('ERROR %(status)d %(body)s From Object Server '
-                              're: %(path)s') %
-                            {'status': response.status,
-                             'body': bodies[-1][:1024], 'path': req.path})
-                    elif is_success(response.status):
-                        etags.add(response.getheader('etag').strip('"'))
-            except (Exception, Timeout):
-                self.exception_occurred(
-                    conn.node, _('Object'),
-                    _('Trying to get final status of PUT to %s') % req.path)
+
+        statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
+                                                                   nodes)
+
         if len(etags) > 1:
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
-        while len(statuses) < len(nodes):
-            statuses.append(HTTP_SERVICE_UNAVAILABLE)
-            reasons.append('')
-            bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies,
                                   _('Object PUT'), etag=etag)
         if source_header:
