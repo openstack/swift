@@ -1223,6 +1223,33 @@ class TestFormPost(unittest.TestCase):
         self.assertEquals(self.app.requests[0].headers['User-Agent'],
                           'FormPost')
 
+    def test_formpost_with_origin(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
+            int(time() + 86400), key, user_agent=False)
+        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        env['HTTP_ORIGIN'] = 'http://localhost:5000'
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created',
+                                  {'Access-Control-Allow-Origin':
+                                   'http://localhost:5000'}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+
+        headers = {}
+
+        def start_response(s, h, e=None):
+            for k, v in h:
+                headers[k] = v
+            pass
+
+        body = ''.join(self.formpost(env, start_response))
+        self.assertEquals(headers['Access-Control-Allow-Origin'],
+                          'http://localhost:5000')
+
     def test_formpost_with_multiple_keys(self):
         key = 'ernie'
         sig, env, body = self._make_sig_env_body(
