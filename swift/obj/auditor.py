@@ -122,11 +122,12 @@ class AuditorWorker(object):
         self.logger.info(_(
             'Object audit (%(type)s) "%(mode)s" mode '
             'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
-            'Total errors: %(errors)d, Total files/sec: %(frate).2f , '
+            'Total errors: %(errors)d, Total files/sec: %(frate).2f, '
             'Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, '
             'Rate: %(audit_rate).2f') % {
                 'type': self.auditor_type, 'mode': mode, 'elapsed': elapsed,
-                'quars': total_quarantines, 'errors': total_errors,
+                'quars': total_quarantines + self.quarantines,
+                'errors': total_errors + self.errors,
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
