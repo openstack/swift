@@ -26,6 +26,7 @@
 
 import mimetypes
 import os
+import socket
 from swift import gettext_ as _
 from random import shuffle
 from time import time
@@ -160,6 +161,18 @@ class Application(object):
         self.swift_owner_headers = [
             name.strip()
             for name in swift_owner_headers.split(',') if name.strip()]
+        # Initialization was successful, so now apply the client chunk size
+        # parameter as the default read / write buffer size for the network
+        # sockets.
+        #
+        # NOTE WELL: This is a class setting, so until we get set this on a
+        # per-connection basis, this affects reading and writing on ALL
+        # sockets, those between the proxy servers and external clients, and
+        # those between the proxy servers and the other internal servers.
+        #
+        # ** Because it affects the client as well, currently, we use the
+        # client chunk size as the govenor and not the object chunk size.
+        socket._fileobject.default_bufsize = self.client_chunk_size
 
     def get_controller(self, path):
         """
