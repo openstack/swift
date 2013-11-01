@@ -778,9 +778,10 @@ class Controller(object):
     def _make_request(self, nodes, part, method, path, headers, query,
                       logger_thread_locals):
         """
-        Sends an HTTP request to a single node and aggregates the result.
-        It attempts the primary node, then iterates over the handoff nodes
-        as needed.
+        Iterates over the given node iterator, sending an HTTP request to one
+        node at a time.  The first non-informational, non-server-error
+        response is returned.  If no non-informational, non-server-error
+        response is received from any of the nodes, returns None.
 
         :param nodes: an iterator of the backend server and handoff servers
         :param part: the partition number
@@ -792,7 +793,7 @@ class Controller(object):
         :param logger_thread_locals: The thread local values to be set on the
                                      self.app.logger to retain transaction
                                      logging information.
-        :returns: a swob.Response object
+        :returns: a swob.Response object, or None if no responses were received
         """
         self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
