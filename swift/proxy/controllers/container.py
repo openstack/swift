@@ -31,8 +31,8 @@ from swift.common.utils import public, csv_append
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, clear_info_cache, convert_policy_to_index
-from swift.common.storage_policy import POLICY_INDEX
+    cors_validation, clear_info_cache
+from swift.common.storage_policy import POLICY, POLICY_INDEX
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -56,6 +56,24 @@ class ContainerController(Controller):
         return ['x-remove-%s-read' % st,
                 'x-remove-%s-write' % st,
                 'x-remove-versions-location']
+
+    def _convert_policy_to_index(self, req):
+        """
+        Helper method to convert a policy name (from a request from a client)
+        to a policy index (for a request to a backend).
+
+        :param req: incoming request
+        """
+        policy_name = req.headers.get(POLICY)
+        if policy_name:
+            policy = self.app.policies.get_by_name(policy_name)
+            if policy:
+                return policy.idx
+            else:
+                raise HTTPBadRequest(request=req,
+                                     content_type="text/plain",
+                                     body=("Invalid X-Storage-Policy '%s'"
+                                           % policy_name))
 
     def clean_acls(self, req):
         if 'swift.clean_acl' in req.environ:
@@ -110,7 +128,7 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
-        policy_index = convert_policy_to_index(req)
+        policy_index = self._convert_policy_to_index(req)
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -151,7 +169,7 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
-        policy_index = convert_policy_to_index(req)
+        policy_index = self._convert_policy_to_index(req)
         additional_headers = {}
         if policy_index:
             additional_headers[POLICY_INDEX] = str(policy_index)

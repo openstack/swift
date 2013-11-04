@@ -50,26 +50,6 @@ from swift.common.swob import Request, Response, HeaderKeyDict
 import swift.common.storage_policy as storage_policy
 POLICY_INDEX = storage_policy.POLICY_INDEX
 POLICY = storage_policy.POLICY
-from swift.common.swob import HTTPBadRequest
-
-
-def convert_policy_to_index(req):
-    """
-    Helper function to convert incoming requests that contain a policy
-    name into the policy index which is used internally
-
-    :param req: incoming request
-    """
-    policy_name = req.headers.get(POLICY)
-    if policy_name:
-        policy = storage_policy.get_by_name(policy_name)
-        if policy:
-            return policy.idx
-        else:
-            raise HTTPBadRequest(request=req,
-                                 content_type="text/plain",
-                                 body=("Invalid X-Storage-Policy '%s'"
-                                       % policy_name))
 
 
 def update_headers(response, headers):
