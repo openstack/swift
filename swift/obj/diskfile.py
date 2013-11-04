@@ -938,7 +938,7 @@ class DiskFile(object):
             return read_metadata(source)
         except Exception as err:
             self._quarantine(quarantine_filename,
-                             "Exception reading metadata: %s" % err.message)
+                             "Exception reading metadata: %s" % err)
 
     def _construct_from_data_file(self, data_file, meta_file):
         """
