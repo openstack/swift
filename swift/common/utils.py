@@ -869,7 +869,7 @@ class SwiftLogFormatter(logging.Formatter):
 
 
 def get_logger(conf, name=None, log_to_console=False, log_route=None,
-               fmt="%(server)s %(message)s"):
+               fmt="%(server)s: %(message)s"):
     """
     Get the current system logger using config settings.
 
