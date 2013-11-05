@@ -267,10 +267,6 @@ class Connection(object):
                           for (x, y) in parms.items()]
             path = '%s?%s' % (path, '&'.join(query_args))
 
-            query_args = ['%s=%s' % (urllib.quote(x),
-                          urllib.quote(str(y))) for (x, y) in parms.items()]
-            path = '%s?%s' % (path, '&'.join(query_args))
-
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
         #self.connection.set_debuglevel(3)
