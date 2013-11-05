@@ -617,26 +617,10 @@ class ObjectController(Controller):
             if len(listing_page1) >= CONTAINER_LISTING_LIMIT:
                 resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
-                if req.method == 'HEAD':
-                    # These shenanigans are because swob translates the HEAD
-                    # request into a swob EmptyResponse for the body, which
-                    # has a len, which eventlet translates as needing a
-                    # content-length header added. So we call the original
-                    # swob resp for the headers but return an empty iterator
-                    # for the body.
-
-                    def head_response(environ, start_response):
-                        resp(environ, start_response)
-                        return iter([])
-
-                    head_response.status_int = resp.status_int
-                    return head_response
-                else:
-                    resp.app_iter = SegmentedIterable(
-                        self, lcontainer, listing, resp,
-                        is_slo=(large_object == 'SLO'),
-                        max_lo_time=self.app.max_large_object_get_time)
-
+                resp.app_iter = SegmentedIterable(
+                    self, lcontainer, listing, resp,
+                    is_slo=(large_object == 'SLO'),
+                    max_lo_time=self.app.max_large_object_get_time)
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
