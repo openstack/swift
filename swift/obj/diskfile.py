@@ -40,6 +40,7 @@ import hashlib
 import logging
 import traceback
 from os.path import basename, dirname, exists, getmtime, join
+from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
 from collections import defaultdict
@@ -52,7 +53,7 @@ from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
-    config_true_value
+    config_true_value, listdir
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir
@@ -290,6 +291,67 @@ def get_hashes(partition_dir, recalculate=None, do_listdir=False,
         return hashed, hashes
 
 
+class AuditLocation(object):
+    """
+    Represents an object location to be audited.
+
+    Other than being a bucket of data, the only useful thing this does is
+    stringify to a filesystem path so the auditor's logs look okay.
+    """
+
+    def __init__(self, path, device, partition):
+        self.path, self.device, self.partition = path, device, partition
+
+    def __str__(self):
+        return str(self.path)
+
+
+def object_audit_location_generator(devices, mount_check=True, logger=None):
+    """
+    Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
+    objects stored under that directory. The AuditLocation only knows the path
+    to the hash directory, not to the .data file therein (if any). This is to
+    avoid a double listdir(hash_dir); the DiskFile object will always do one,
+    so we don't.
+
+    :param devices: parent directory of the devices to be audited
+    :param mount_check: flag to check if a mount check should be performed
+                        on devices
+    :param logger: a logger object
+    """
+    device_dirs = listdir(devices)
+    # randomize devices in case of process restart before sweep completed
+    shuffle(device_dirs)
+    for device in device_dirs:
+        if mount_check and not \
+                os.path.ismount(os.path.join(devices, device)):
+            if logger:
+                logger.debug(
+                    _('Skipping %s as it is not mounted'), device)
+            continue
+        datadir_path = os.path.join(devices, device, DATADIR)
+        partitions = listdir(datadir_path)
+        for partition in partitions:
+            part_path = os.path.join(datadir_path, partition)
+            try:
+                suffixes = listdir(part_path)
+            except OSError as e:
+                if e.errno != errno.ENOTDIR:
+                    raise
+                continue
+            for asuffix in suffixes:
+                suff_path = os.path.join(part_path, asuffix)
+                try:
+                    hashes = listdir(suff_path)
+                except OSError as e:
+                    if e.errno != errno.ENOTDIR:
+                        raise
+                    continue
+                for hsh in hashes:
+                    hsh_path = os.path.join(suff_path, hsh)
+                    yield AuditLocation(hsh_path, device, partition)
+
+
 class DiskFileManager(object):
     """
     Management class for devices, providing common place for shared parameters
@@ -332,16 +394,19 @@ class DiskFileManager(object):
         """
         return os.path.join(self.devices, device)
 
-    def get_dev_path(self, device):
+    def get_dev_path(self, device, mount_check=None):
         """
         Return the path to a device, checking to see that it is a proper mount
         point based on a configuration parameter.
 
         :param device: name of target device
+        :param mount_check: whether or not to check mountedness of device.
+                            Defaults to bool(self.mount_check).
         :returns: full path to the device, None if the path to the device is
                   not a proper mount point.
         """
-        if self.mount_check and not check_mount(self.devices, device):
+        should_check = self.mount_check if mount_check is None else mount_check
+        if should_check and not check_mount(self.devices, device):
             dev_path = None
         else:
             dev_path = os.path.join(self.devices, device)
@@ -367,6 +432,16 @@ class DiskFileManager(object):
             raise DiskFileDeviceUnavailable()
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj, **kwargs)
+
+    def object_audit_location_generator(self):
+        return object_audit_location_generator(self.devices, self.mount_check,
+                                               self.logger)
+
+    def get_diskfile_from_audit_location(self, audit_location):
+        dev_path = self.get_dev_path(audit_location.device, mount_check=False)
+        return DiskFile.from_hash_dir(
+            self, audit_location.path, dev_path,
+            audit_location.partition)
 
     def get_hashes(self, device, partition, suffix):
         dev_path = self.get_dev_path(device)
@@ -516,12 +591,13 @@ class DiskFileReader(object):
     :param keep_cache_size: maximum object size that will be kept in cache
     :param device_path: on-disk device path, used when quarantining an obj
     :param logger: logger caller wants this object to use
+    :param quarantine_hook: 1-arg callable called w/reason when quarantined
     :param iter_hook: called when __iter__ returns a chunk
     :param keep_cache: should resulting reads be kept in the buffer cache
     """
     def __init__(self, fp, data_file, obj_size, etag, threadpool,
                  disk_chunk_size, keep_cache_size, device_path, logger,
-                 iter_hook=None, keep_cache=False):
+                 quarantine_hook, iter_hook=None, keep_cache=False):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
@@ -531,6 +607,7 @@ class DiskFileReader(object):
         self._disk_chunk_size = disk_chunk_size
         self._device_path = device_path
         self._logger = logger
+        self._quarantine_hook = quarantine_hook
         self._iter_hook = iter_hook
         if keep_cache:
             # Caller suggests we keep this in cache, only do it if the
@@ -546,8 +623,6 @@ class DiskFileReader(object):
         self._read_to_eof = False
         self._suppress_file_closing = False
         self._quarantined_dir = None
-        # Currently referenced by the object Auditor only
-        self.was_quarantined = ''
 
     def __iter__(self):
         """Returns an iterator over the data file."""
@@ -630,7 +705,7 @@ class DiskFileReader(object):
         self._quarantined_dir = self._threadpool.run_in_thread(
             quarantine_renamer, self._device_path, self._data_file)
         self._logger.increment('quarantines')
-        self.was_quarantined = msg
+        self._quarantine_hook(msg)
 
     def _handle_close_quarantine(self):
         """Check if file needs to be quarantined"""
@@ -655,6 +730,8 @@ class DiskFileReader(object):
             try:
                 if self._started_at_0 and self._read_to_eof:
                     self._handle_close_quarantine()
+            except DiskFileQuarantined:
+                raise
             except (Exception, Timeout) as e:
                 self._logger.error(_(
                     'ERROR DiskFile %(data_file)s'
@@ -689,22 +766,34 @@ class DiskFile(object):
     """
 
     def __init__(self, mgr, device_path, threadpool, partition,
-                 account, container, obj):
+                 account=None, container=None, obj=None, _datadir=None):
         self._mgr = mgr
         self._device_path = device_path
         self._threadpool = threadpool or ThreadPool(nthreads=0)
         self._logger = mgr.logger
         self._disk_chunk_size = mgr.disk_chunk_size
         self._bytes_per_sync = mgr.bytes_per_sync
-        self._name = '/' + '/'.join((account, container, obj))
-        name_hash = hash_path(account, container, obj)
-        self._datadir = join(
-            device_path, storage_directory(DATADIR, partition, name_hash))
+        if account and container and obj:
+            self._name = '/' + '/'.join((account, container, obj))
+        else:
+            # gets populated when we read the metadata
+            self._name = None
         self._tmpdir = join(device_path, 'tmp')
         self._metadata = None
         self._data_file = None
         self._fp = None
         self._quarantined_dir = None
+
+        if _datadir:
+            self._datadir = _datadir
+        else:
+            name_hash = hash_path(account, container, obj)
+            self._datadir = join(
+                device_path, storage_directory(DATADIR, partition, name_hash))
+
+    @classmethod
+    def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition):
+        return cls(mgr, device_path, None, partition, _datadir=hash_dir_path)
 
     def open(self):
         """
@@ -767,7 +856,7 @@ class DiskFile(object):
 
     def _quarantine(self, data_file, msg):
         """
-        Quarantine a file; responsible for incrementing the associated loggers
+        Quarantine a file; responsible for incrementing the associated logger's
         count of quarantines.
 
         :param data_file: full path of data file to quarantine
@@ -804,8 +893,18 @@ class DiskFile(object):
         try:
             files = sorted(os.listdir(self._datadir), reverse=True)
         except OSError as err:
-            if err.errno != errno.ENOENT:
-                raise DiskFileError()
+            if err.errno == errno.ENOTDIR:
+                # If there's a file here instead of a directory, quarantine
+                # it; something's gone wrong somewhere.
+                self._quarantine(
+                    # hack: quarantine_renamer actually renames the directory
+                    # enclosing the filename you give it, but here we just
+                    # want this one file and not its parent.
+                    os.path.join(self._datadir, "made-up-filename"),
+                    "Expected directory, found file at %s" % self._datadir)
+            elif err.errno != errno.ENOENT:
+                raise DiskFileError(
+                    "Error listing directory %s: %s" % (self._datadir, err))
             # The data directory does not exist, so the object cannot exist.
         else:
             for afile in files:
@@ -863,6 +962,14 @@ class DiskFile(object):
                 exc = DiskFileDeleted()
                 exc.timestamp = metadata['X-Timestamp']
         return exc
+
+    def _verify_name_matches_hash(self, data_file):
+        hash_from_fs = os.path.basename(self._datadir)
+        hash_from_name = hash_path(self._name.lstrip('/'))
+        if hash_from_fs != hash_from_name:
+            self._quarantine(
+                data_file,
+                "Hash of name in metadata does not match directory name")
 
     def _verify_data_file(self, data_file, fp):
         """
@@ -962,6 +1069,12 @@ class DiskFile(object):
             self._metadata.update(sys_metadata)
         else:
             self._metadata = datafile_metadata
+        if self._name is None:
+            # If we don't know our name, we were just given a hash dir at
+            # instantiation, so we'd better validate that the name hashes back
+            # to us
+            self._name = self._metadata['name']
+            self._verify_name_matches_hash(data_file)
         self._verify_data_file(data_file, fp)
         return fp
 
@@ -990,7 +1103,8 @@ class DiskFile(object):
         with self.open():
             return self.get_metadata()
 
-    def reader(self, iter_hook=None, keep_cache=False):
+    def reader(self, iter_hook=None, keep_cache=False,
+               _quarantine_hook=lambda m: None):
         """
         Return a :class:`swift.common.swob.Response` class compatible
         "`app_iter`" object as defined by
@@ -1002,12 +1116,17 @@ class DiskFile(object):
         :param iter_hook: called when __iter__ returns a chunk
         :param keep_cache: caller's preference for keeping data read in the
                            OS buffer cache
+        :param _quarantine_hook: 1-arg callable called when obj quarantined;
+                                 the arg is the reason for quarantine.
+                                 Default is to ignore it.
+                                 Not needed by the REST layer.
         :returns: a :class:`swift.obj.diskfile.DiskFileReader` object
         """
         dr = DiskFileReader(
             self._fp, self._data_file, int(self._metadata['Content-Length']),
             self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
             self._mgr.keep_cache_size, self._device_path, self._logger,
+            quarantine_hook=_quarantine_hook,
             iter_hook=iter_hook, keep_cache=keep_cache)
         # At this point the reader object is now responsible for closing
         # the file pointer.

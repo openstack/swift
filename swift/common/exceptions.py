@@ -30,10 +30,6 @@ class SwiftException(Exception):
     pass
 
 
-class AuditException(SwiftException):
-    pass
-
-
 class DiskFileError(SwiftException):
     pass
 

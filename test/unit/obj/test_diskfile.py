@@ -34,7 +34,7 @@ from contextlib import closing
 from gzip import GzipFile
 
 from eventlet import tpool
-from test.unit import FakeLogger, mock as unit_mock
+from test.unit import FakeLogger, mock as unit_mock, temptree
 
 from swift.obj import diskfile
 from swift.common import utils
@@ -345,6 +345,129 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               [file3])
 
 
+class TestObjectAuditLocationGenerator(unittest.TestCase):
+    def _make_file(self, path):
+        try:
+            os.makedirs(os.path.dirname(path))
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
+
+        with open(path, 'w'):
+            pass
+
+    def test_finding_of_hashdirs(self):
+        with temptree([]) as tmpdir:
+            # the good
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                                     "5c1fdc1ffb12e5eaf84edc30d8b67aca"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                                     "fdfd184d39080020bc8b487f8a7beaca"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "df2",
+                                     "b0fe7af831cc7b1af5bf486b1c841df2"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
+                                     "4a943bc72c2e647c4675923d58cf4ca5"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
+
+            # the bad
+            self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
+                                         "fed"))
+            self._make_file(os.path.join(tmpdir, "sdq", "objects", "9876"))
+
+            # the empty
+            os.makedirs(os.path.join(tmpdir, "sdr"))
+            os.makedirs(os.path.join(tmpdir, "sds", "objects"))
+            os.makedirs(os.path.join(tmpdir, "sdt", "objects", "9601"))
+            os.makedirs(os.path.join(tmpdir, "sdu", "objects", "6499", "f80"))
+
+            # the irrelevant
+            os.makedirs(os.path.join(tmpdir, "sdv", "accounts", "77", "421",
+                                     "4b8c86149a6d532f4af018578fd9f421"))
+            os.makedirs(os.path.join(tmpdir, "sdw", "containers", "28", "51e",
+                                     "4f9eee668b66c6f0250bfa3c7ab9e51e"))
+
+            locations = [(loc.path, loc.device, loc.partition)
+                         for loc in diskfile.object_audit_location_generator(
+                             devices=tmpdir, mount_check=False)]
+            locations.sort()
+
+            self.assertEqual(
+                locations,
+                [(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                               "5c1fdc1ffb12e5eaf84edc30d8b67aca"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                               "fdfd184d39080020bc8b487f8a7beaca"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "df2",
+                               "b0fe7af831cc7b1af5bf486b1c841df2"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
+                               "4a943bc72c2e647c4675923d58cf4ca5"),
+                  "sdp", "9720"),
+                 (os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "3071")])
+
+    def test_skipping_unmounted_devices(self):
+        def mock_ismount(path):
+            return path.endswith('sdp')
+
+        with mock.patch('os.path.ismount', mock_ismount):
+            with temptree([]) as tmpdir:
+                os.makedirs(os.path.join(tmpdir, "sdp", "objects",
+                                         "2607", "df3",
+                                         "ec2871fe724411f91787462f97d30df3"))
+                os.makedirs(os.path.join(tmpdir, "sdq", "objects",
+                                         "9785", "a10",
+                                         "4993d582f41be9771505a8d4cb237a10"))
+
+                locations = [
+                    (loc.path, loc.device, loc.partition)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=tmpdir, mount_check=True)]
+                locations.sort()
+
+                self.assertEqual(
+                    locations,
+                    [(os.path.join(tmpdir, "sdp", "objects",
+                                   "2607", "df3",
+                                   "ec2871fe724411f91787462f97d30df3"),
+                      "sdp", "2607")])
+
+    def test_only_catch_expected_errors(self):
+        # Crazy exceptions should still escape object_audit_location_generator
+        # so that errors get logged and a human can see what's going wrong;
+        # only normal FS corruption should be skipped over silently.
+
+        def list_locations(dirname):
+            return [(loc.path, loc.device, loc.partition)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=dirname, mount_check=False)]
+
+        real_listdir = os.listdir
+
+        def splode_if_endswith(suffix):
+            def sploder(path):
+                if path.endswith(suffix):
+                    raise OSError(errno.ELIBBAD, "don't try to ad-lib")
+                else:
+                    return real_listdir(path)
+            return sploder
+
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects",
+                                     "2607", "b54",
+                                     "fe450ec990a88cc4b252b181bab04b54"))
+            with mock.patch('os.listdir', splode_if_endswith("sdf/objects")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+            with mock.patch('os.listdir', splode_if_endswith("2607")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+            with mock.patch('os.listdir', splode_if_endswith("b54")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+
+
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
 
@@ -387,10 +510,14 @@ class TestDiskFile(unittest.TestCase):
             xattr.setxattr(f.fileno(), diskfile.METADATA_KEY,
                            pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
-    def _create_test_file(self, data, timestamp=None, metadata=None):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+    def _create_test_file(self, data, timestamp=None, metadata=None,
+                          account='a', container='c', object='o'):
+        if metadata is None:
+            metadata = {}
+        metadata.setdefault('name', '/%s/%s/%s' % (account, container, object))
+        df = self.df_mgr.get_diskfile('sda', '0', account, container, object)
         self._create_ondisk_file(df, data, timestamp, metadata)
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self.df_mgr.get_diskfile('sda', '0', account, container, object)
         df.open()
         return df
 
@@ -435,10 +562,11 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_corners(self):
         df = self._create_test_file('1234567890')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         self.assertEquals(''.join(reader.app_iter_range(0, None)),
                           '1234567890')
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
         with df.open():
             reader = df.reader()
@@ -446,19 +574,21 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_partial_closes(self):
         df = self._create_test_file('1234567890')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_range(0, 5)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         self.assertEqual(''.join(it), '12345')
         self.assertTrue(reader._fp is None)
 
     def test_disk_file_app_iter_ranges(self):
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10), (10, 20), (20, 30)],
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         value = ''.join(it)
         self.assert_('0123456789' in value)
         self.assert_('1123456789' in value)
@@ -466,11 +596,12 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_ranges_edges(self):
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         self.assert_('3456789' in value)
         self.assert_('01' in value)
 
@@ -480,7 +611,8 @@ class TestDiskFile(unittest.TestCase):
         long_str = '01234567890' * 65536
         target_strs = ['3456789', long_str[0:65590]]
         df = self._create_test_file(long_str)
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 65590)], 'plain/text',
                                     '5e816ff8b8b8e9a5d355497e5d9e0301', 655360)
 
@@ -493,7 +625,7 @@ class TestDiskFile(unittest.TestCase):
                           '5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
 
         value = header + ''.join(it)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
 
         parts = map(lambda p: p.get_payload(decode=True),
                     email.message_from_string(value).walk())[1:3]
@@ -504,7 +636,8 @@ class TestDiskFile(unittest.TestCase):
         # When ranges passed into the method is either empty array or None,
         # this method will yield empty string
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([], 'application/whatever',
                                     '\r\n--someheader\r\n', 100)
         self.assertEqual(''.join(it), '')
@@ -514,7 +647,7 @@ class TestDiskFile(unittest.TestCase):
             reader = df.reader()
             it = reader.app_iter_ranges(None, 'app/something',
                                         '\r\n--someheader\r\n', 150)
-            self.assertFalse(reader.was_quarantined)
+            self.assertEquals(quarantine_msgs, [])
             self.assertEqual(''.join(it), '')
 
     def test_disk_file_mkstemp_creates_dir(self):
@@ -657,9 +790,10 @@ class TestDiskFile(unittest.TestCase):
             open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
                                         'Corrupt-Xattrs', 'Truncated-Xattrs')
             reader = None
+            quarantine_msgs = []
             try:
                 df = self._get_open_disk_file(**kwargs)
-                reader = df.reader()
+                reader = df.reader(_quarantine_hook=quarantine_msgs.append)
             except DiskFileQuarantined as err:
                 if not open_exc:
                     self.fail(
@@ -675,7 +809,7 @@ class TestDiskFile(unittest.TestCase):
                 self.fail("Unexpected DiskFileQuarantine raised: :%r" % err)
             else:
                 if not open_exc:
-                    self.assertTrue(reader.was_quarantined)
+                    self.assertEqual(1, len(quarantine_msgs))
 
         verify(invalid_type=invalid_type, obj_name='1')
 
@@ -798,6 +932,27 @@ class TestDiskFile(unittest.TestCase):
             else:
                 self.fail("Expected DiskFileQuarantined exception")
 
+    def test_quarantine_hashdir_not_a_directory(self):
+        df = self._create_test_file('1234567890', account="abc",
+                                    container='123', object='xyz')
+        hashdir = df._datadir
+        rmtree(hashdir)
+        with open(hashdir, 'w'):
+            pass
+
+        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        try:
+            df.open()
+        except DiskFileQuarantined:
+            pass
+        else:
+            self.fail("Expected DiskFileQuarantined, didn't get it")
+
+        # make sure the right thing got quarantined; the suffix dir should not
+        # have moved, as that could have many objects in it
+        self.assertFalse(os.path.exists(hashdir))
+        self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
+
     def test_write_metadata(self):
         df = self._create_test_file('1234567890')
         timestamp = normalize_timestamp(time())
@@ -846,6 +1001,29 @@ class TestDiskFile(unittest.TestCase):
         df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
         self.assertRaises(DiskFileNotExist, df.open)
         self.assertFalse(os.path.exists(ts_fullpath))
+
+    def test_from_audit_location(self):
+        hashdir = self._create_test_file(
+            'blah blah',
+            account='three', container='blind', object='mice')._datadir
+        df = self.df_mgr.get_diskfile_from_audit_location(
+            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+        df.open()
+        self.assertEqual(df._name, '/three/blind/mice')
+
+    def test_from_audit_location_with_mismatched_hash(self):
+        hashdir = self._create_test_file(
+            'blah blah',
+            account='this', container='is', object='right')._datadir
+
+        datafile = os.path.join(hashdir, os.listdir(hashdir)[0])
+        meta = diskfile.read_metadata(datafile)
+        meta['name'] = '/this/is/wrong'
+        diskfile.write_metadata(datafile, meta)
+
+        df = self.df_mgr.get_diskfile_from_audit_location(
+            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+        self.assertRaises(DiskFileQuarantined, df.open)
 
     def test_close_error(self):
 
