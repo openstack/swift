@@ -20,7 +20,7 @@ from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type
 from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
-from swift.common.http import HTTP_NOT_FOUND
+from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 
@@ -48,9 +48,12 @@ class AccountController(Controller):
         resp = self.GETorHEAD_base(
             req, _('Account'), self.app.account_ring, partition,
             req.path_info.rstrip('/'))
-        if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            resp = account_listing_response(self.account_name, req,
-                                            get_listing_content_type(req))
+        if resp.status_int == HTTP_NOT_FOUND:
+            if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
+                resp.status = HTTP_GONE
+            elif self.app.account_autocreate:
+                resp = account_listing_response(self.account_name, req,
+                                                get_listing_content_type(req))
         if not req.environ.get('swift_owner', False):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:
