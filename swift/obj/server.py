@@ -18,6 +18,7 @@
 from __future__ import with_statement
 import cPickle as pickle
 import os
+import multiprocessing
 import time
 import traceback
 import socket
@@ -35,6 +36,7 @@ from swift.common.constraints import check_object_creation, \
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable
+from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import split_and_validate_path
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
@@ -59,6 +61,8 @@ class ObjectController(object):
         self.logger = get_logger(conf, log_route='object-server')
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.client_timeout = int(conf.get('client_timeout', 60))
+        self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.max_upload_time = int(conf.get('max_upload_time', 86400))
@@ -122,6 +126,17 @@ class ObjectController(object):
         # Common on-disk hierarchy shared across account, container and object
         # servers.
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
+        # This is populated by global_conf_callback way below as the semaphore
+        # is shared by all workers.
+        if 'replication_semaphore' in conf:
+            # The value was put in a list so it could get past paste
+            self.replication_semaphore = conf['replication_semaphore'][0]
+        else:
+            self.replication_semaphore = None
+        self.replication_failure_threshold = int(
+            conf.get('replication_failure_threshold') or 100)
+        self.replication_failure_ratio = float(
+            conf.get('replication_failure_ratio') or 1.0)
 
     def get_diskfile(self, device, partition, account, container, obj,
                      **kwargs):
@@ -414,7 +429,9 @@ class ObjectController(object):
                 metadata.update(val for val in request.headers.iteritems()
                                 if val[0].lower().startswith('x-object-meta-')
                                 and len(val[0]) > 14)
-                for header_key in self.allowed_headers:
+                for header_key in (
+                        request.headers.get('X-Backend-Replication-Headers') or
+                        self.allowed_headers):
                     if header_key in request.headers:
                         header_caps = header_key.title()
                         metadata[header_caps] = request.headers[header_key]
@@ -619,6 +636,12 @@ class ObjectController(object):
             resp = Response(body=pickle.dumps(hashes))
         return resp
 
+    @public
+    @replication
+    @timing_stats(sample_rate=0.1)
+    def REPLICATION(self, request):
+        return Response(app_iter=ssync_receiver.Receiver(self, request)())
+
     def __call__(self, env, start_response):
         """WSGI Application entry point for the Swift Object Server."""
         start_time = time.time()
@@ -661,7 +684,8 @@ class ObjectController(object):
                 req.headers.get('x-trans-id', '-'),
                 req.user_agent or '-',
                 trans_time)
-            if req.method == 'REPLICATE':
+            if req.method in ('REPLICATE', 'REPLICATION') or \
+                    'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)
             else:
                 self.logger.info(log_line)
@@ -670,6 +694,30 @@ class ObjectController(object):
             if slow > 0:
                 sleep(slow)
         return res(env, start_response)
+
+
+def global_conf_callback(preloaded_app_conf, global_conf):
+    """
+    Callback for swift.common.wsgi.run_wsgi during the global_conf
+    creation so that we can add our replication_semaphore, used to
+    limit the number of concurrent REPLICATION_REQUESTS across all
+    workers.
+
+    :param preloaded_app_conf: The preloaded conf for the WSGI app.
+                               This conf instance will go away, so
+                               just read from it, don't write.
+    :param global_conf: The global conf that will eventually be
+                        passed to the app_factory function later.
+                        This conf is created before the worker
+                        subprocesses are forked, so can be useful to
+                        set up semaphores, shared memory, etc.
+    """
+    replication_concurrency = int(
+        preloaded_app_conf.get('replication_concurrency') or 4)
+    if replication_concurrency:
+        # Have to put the value in a list so it can get past paste
+        global_conf['replication_semaphore'] = [
+            multiprocessing.BoundedSemaphore(replication_concurrency)]
 
 
 def app_factory(global_conf, **local_conf):

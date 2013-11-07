@@ -30,7 +30,7 @@ from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
 from hashlib import md5
-from contextlib import closing
+from contextlib import closing, nested
 from gzip import GzipFile
 
 from eventlet import tpool
@@ -1160,3 +1160,371 @@ class TestDiskFile(unittest.TestCase):
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
         self.assert_('a very special error' in log_lines[-1])
+
+    def test_get_diskfile_from_hash_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileDeviceUnavailable,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_not_dir(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata'),
+                mock.patch('swift.obj.diskfile.quarantine_renamer')) as \
+                (dfclass, hclistdir, readmeta, quarantine_renamer):
+            osexc = OSError()
+            osexc.errno = errno.ENOTDIR
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            quarantine_renamer.assert_called_once_with(
+                '/srv/dev/',
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_dir(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            osexc = OSError()
+            osexc.errno = errno.ENOENT
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_other_oserror(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            osexc = OSError()
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                OSError,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_actual_files(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = []
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_read_metadata_problem(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.side_effect = EOFError()
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_meta_name(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {}
+            try:
+                self.df_mgr.get_diskfile_from_hash(
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            except DiskFileNotExist as err:
+                exc = err
+            self.assertEqual(str(exc), '')
+
+    def test_get_diskfile_from_hash_bad_meta_name(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': 'bad'}
+            try:
+                self.df_mgr.get_diskfile_from_hash(
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            except DiskFileNotExist as err:
+                exc = err
+            self.assertEqual(str(exc), '')
+
+    def test_get_diskfile_from_hash(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.df_mgr.get_diskfile_from_hash(
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            dfclass.assert_called_once_with(
+                self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
+                'a', 'c', 'o')
+            hclistdir.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
+                604800)
+            readmeta.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/'
+                '1381679759.90941.data')
+
+    def test_listdir_enoent(self):
+        oserror = OSError()
+        oserror.errno = errno.ENOENT
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', side_effect=oserror):
+            self.assertEqual(self.df_mgr._listdir('path'), [])
+            self.assertEqual(self.df_mgr.logger.error.mock_calls, [])
+
+    def test_listdir_other_oserror(self):
+        oserror = OSError()
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', side_effect=oserror):
+            self.assertEqual(self.df_mgr._listdir('path'), [])
+            self.df_mgr.logger.error.assert_called_once_with(
+                'ERROR: Skipping %r due to error with listdir attempt: %s',
+                'path', oserror)
+
+    def test_listdir(self):
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', return_value=['abc', 'def']):
+            self.assertEqual(self.df_mgr._listdir('path'), ['abc', 'def'])
+            self.assertEqual(self.df_mgr.logger.error.mock_calls, [])
+
+    def test_yield_suffixes_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        exc = None
+        try:
+            list(self.df_mgr.yield_suffixes('dev', '9'))
+        except DiskFileDeviceUnavailable as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_yield_suffixes(self):
+        self.df_mgr._listdir = mock.MagicMock(return_value=[
+            'abc', 'def', 'ghi', 'abcd', '012'])
+        self.assertEqual(
+            list(self.df_mgr.yield_suffixes('dev', '9')),
+            [(self.testdir + '/dev/objects/9/abc', 'abc'),
+             (self.testdir + '/dev/objects/9/def', 'def'),
+             (self.testdir + '/dev/objects/9/012', '012')])
+
+    def test_yield_hashes_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        exc = None
+        try:
+            list(self.df_mgr.yield_hashes('dev', '9'))
+        except DiskFileDeviceUnavailable as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_yield_hashes_empty(self):
+        def _listdir(path):
+            return []
+
+        with mock.patch('os.listdir', _listdir):
+            self.assertEqual(list(self.df_mgr.yield_hashes('dev', '9')), [])
+
+    def test_yield_hashes_empty_suffixes(self):
+        def _listdir(path):
+            return []
+
+        with mock.patch('os.listdir', _listdir):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes('dev', '9', suffixes=['456'])),
+                [])
+
+    def test_yield_hashes(self):
+        fresh_ts = normalize_timestamp(time() - 10)
+        fresher_ts = normalize_timestamp(time() - 1)
+
+        def _listdir(path):
+            if path.endswith('/dev/objects/9'):
+                return ['abc', '456', 'def']
+            elif path.endswith('/dev/objects/9/abc'):
+                return ['9373a92d072897b136b3fc06595b4abc']
+            elif path.endswith(
+                    '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc'):
+                return [fresh_ts + '.ts']
+            elif path.endswith('/dev/objects/9/456'):
+                return ['9373a92d072897b136b3fc06595b0456',
+                        '9373a92d072897b136b3fc06595b7456']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456'):
+                return ['1383180000.12345.data']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456'):
+                return [fresh_ts + '.ts',
+                        fresher_ts + '.data']
+            elif path.endswith('/dev/objects/9/def'):
+                return []
+            else:
+                raise Exception('Unexpected listdir of %r' % path)
+
+        with nested(
+                mock.patch('os.listdir', _listdir),
+                mock.patch('os.unlink')):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes('dev', '9')),
+                [(self.testdir +
+                  '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc',
+                  '9373a92d072897b136b3fc06595b4abc', fresh_ts),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456',
+                  '9373a92d072897b136b3fc06595b0456', '1383180000.12345'),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456',
+                  '9373a92d072897b136b3fc06595b7456', fresher_ts)])
+
+    def test_yield_hashes_suffixes(self):
+        fresh_ts = normalize_timestamp(time() - 10)
+        fresher_ts = normalize_timestamp(time() - 1)
+
+        def _listdir(path):
+            if path.endswith('/dev/objects/9'):
+                return ['abc', '456', 'def']
+            elif path.endswith('/dev/objects/9/abc'):
+                return ['9373a92d072897b136b3fc06595b4abc']
+            elif path.endswith(
+                    '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc'):
+                return [fresh_ts + '.ts']
+            elif path.endswith('/dev/objects/9/456'):
+                return ['9373a92d072897b136b3fc06595b0456',
+                        '9373a92d072897b136b3fc06595b7456']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456'):
+                return ['1383180000.12345.data']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456'):
+                return [fresh_ts + '.ts',
+                        fresher_ts + '.data']
+            elif path.endswith('/dev/objects/9/def'):
+                return []
+            else:
+                raise Exception('Unexpected listdir of %r' % path)
+
+        with nested(
+                mock.patch('os.listdir', _listdir),
+                mock.patch('os.unlink')):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes(
+                    'dev', '9', suffixes=['456'])),
+                [(self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456',
+                  '9373a92d072897b136b3fc06595b0456', '1383180000.12345'),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456',
+                  '9373a92d072897b136b3fc06595b7456', fresher_ts)])
+
+    def test_diskfile_names(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        self.assertEqual(df.account, 'a')
+        self.assertEqual(df.container, 'c')
+        self.assertEqual(df.obj, 'o')
+
+    def test_diskfile_content_length_not_open(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            df.content_length
+        except DiskFileNotOpen as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_content_length_deleted(self):
+        df = self._get_open_disk_file()
+        ts = time()
+        df.delete(ts)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 1)
+        self.assertTrue(exp_name in set(dl))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            with df.open():
+                df.content_length
+        except DiskFileDeleted as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_content_length(self):
+        self._get_open_disk_file()
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        with df.open():
+            self.assertEqual(df.content_length, 1024)
+
+    def test_diskfile_timestamp_not_open(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            df.timestamp
+        except DiskFileNotOpen as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_timestamp_deleted(self):
+        df = self._get_open_disk_file()
+        ts = time()
+        df.delete(ts)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 1)
+        self.assertTrue(exp_name in set(dl))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            with df.open():
+                df.timestamp
+        except DiskFileDeleted as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_timestamp(self):
+        self._get_open_disk_file(ts='1383181759.12345')
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        with df.open():
+            self.assertEqual(df.timestamp, '1383181759.12345')
+
+
+if __name__ == '__main__':
+    unittest.main()

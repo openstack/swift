@@ -16,12 +16,14 @@
 # TODO(creiht): Tests
 
 import unittest
+from swift.common import exceptions
 
 
 class TestExceptions(unittest.TestCase):
 
-    def test_placeholder(self):
-        pass
+    def test_replication_exception(self):
+        self.assertEqual(str(exceptions.ReplicationException()), '')
+        self.assertEqual(str(exceptions.ReplicationException('test')), 'test')
 
 
 if __name__ == '__main__':

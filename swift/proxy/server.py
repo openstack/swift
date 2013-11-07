@@ -196,6 +196,11 @@ class Application(object):
         try:
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
+            # Remove any x-backend-* headers since those are reserved for use
+            # by backends communicating with each other; no end user should be
+            # able to send those into the cluster.
+            for key in list(k for k in env if k.startswith('HTTP_X_BACKEND_')):
+                del env[key]
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
