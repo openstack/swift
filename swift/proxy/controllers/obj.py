@@ -28,6 +28,7 @@ import itertools
 import mimetypes
 import re
 import time
+import math
 from datetime import datetime
 from swift import gettext_ as _
 from urllib import unquote, quote
@@ -1169,7 +1170,7 @@ class ObjectController(Controller):
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
             copy_headers_into(req, resp)
-        resp.last_modified = float(req.headers['X-Timestamp'])
+        resp.last_modified = math.ceil(float(req.headers['X-Timestamp']))
         return resp
 
     @public
