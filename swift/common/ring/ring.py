@@ -150,9 +150,12 @@ class Ring(object):
             #                and replication_port are required for
             #                replication process. An old replication
             #                ring doesn't contain this parameters into
-            #                device.
+            #                device. Old-style pickled rings won't have
+            #                region information.
             for dev in self._devs:
                 if dev:
+                    if 'region' not in dev:
+                        dev.setdefault('region', 1)
                     if 'ip' in dev:
                         dev.setdefault('replication_ip', dev['ip'])
                     if 'port' in dev:
