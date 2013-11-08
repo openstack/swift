@@ -433,3 +433,16 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(
             resp,
             headers_to_object_info(headers.items(), 200))
+
+    def test_have_quorum(self):
+        base = Controller(self.app)
+        # just throw a bunch of test cases at it
+        self.assertEqual(base.have_quorum([201, 404], 3), False)
+        self.assertEqual(base.have_quorum([201, 201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), False)
+        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201], 3), True)
+        self.assertEqual(base.have_quorum([404, 404], 3), True)
+        self.assertEqual(base.have_quorum([201, 201], 2), True)
+        self.assertEqual(base.have_quorum([404, 404], 2), True)
+        self.assertEqual(base.have_quorum([201, 404, 201, 201], 4), True)

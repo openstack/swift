@@ -32,13 +32,13 @@ import itertools
 from swift import gettext_ as _
 from urllib import quote
 
-from eventlet import sleep, GreenPile
+from eventlet import sleep
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import normalize_timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    quorum_size
+    quorum_size, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout
@@ -836,17 +836,42 @@ class Controller(object):
         """
         start_nodes = ring.get_part_nodes(part)
         nodes = GreenthreadSafeIterator(self.iter_nodes(ring, part))
-        pile = GreenPile(len(start_nodes))
+        pile = GreenAsyncPile(len(start_nodes))
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, self.app.logger.thread_locals)
-        response = [resp for resp in pile if resp]
+        response = []
+        statuses = []
+        for resp in pile:
+            if not resp:
+                continue
+            response.append(resp)
+            statuses.append(resp[0])
+            if self.have_quorum(statuses, len(start_nodes)):
+                break
         while len(response) < len(start_nodes):
             response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
         statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),
                                   headers=resp_headers)
+
+    def have_quorum(self, statuses, node_count):
+        """
+        Given a list of statuses from several requests, determine if
+        a quorum response can already be decided.
+
+        :param statuses: list of statuses returned
+        :param node_count: number of nodes being queried (basically ring count)
+        :returns: True or False, depending on if quorum is established
+        """
+        quorum = quorum_size(node_count)
+        if len(statuses) >= quorum:
+            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
+                if sum(1 for s in statuses
+                       if hundred <= s < hundred + 100) >= quorum:
+                    return True
+        return False
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
                       etag=None, headers=None):

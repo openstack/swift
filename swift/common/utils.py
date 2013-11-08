@@ -52,6 +52,7 @@ import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool, greenthread, \
     greenio, event
 from eventlet.green import socket, threading
+import eventlet.queue
 import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
@@ -1589,6 +1590,51 @@ class ContextPool(GreenPool):
     def __exit__(self, type, value, traceback):
         for coro in list(self.coroutines_running):
             coro.kill()
+
+
+class GreenAsyncPile(object):
+    """
+    Runs jobs in a pool of green threads, and the results can be retrieved by
+    using this object as an iterator.
+
+    This is very similar in principle to eventlet.GreenPile, except it returns
+    results as they become available rather than in the order they were
+    launched.
+
+    Correlating results with jobs (if necessary) is left to the caller.
+    """
+    def __init__(self, size):
+        """
+        :param size: size pool of green threads to use
+        """
+        self._pool = GreenPool(size)
+        self._responses = eventlet.queue.LightQueue(size)
+        self._inflight = 0
+
+    def _run_func(self, func, args, kwargs):
+        try:
+            self._responses.put(func(*args, **kwargs))
+        finally:
+            self._inflight -= 1
+
+    def spawn(self, func, *args, **kwargs):
+        """
+        Spawn a job in a green thread on the pile.
+        """
+        self._inflight += 1
+        self._pool.spawn(self._run_func, func, args, kwargs)
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        try:
+            return self._responses.get_nowait()
+        except Empty:
+            if self._inflight == 0:
+                raise StopIteration()
+            else:
+                return self._responses.get()
 
 
 class ModifiedParseResult(ParseResult):
