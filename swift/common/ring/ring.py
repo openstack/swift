@@ -154,8 +154,7 @@ class Ring(object):
             #                region information.
             for dev in self._devs:
                 if dev:
-                    if 'region' not in dev:
-                        dev.setdefault('region', 1)
+                    dev.setdefault('region', 1)
                     if 'ip' in dev:
                         dev.setdefault('replication_ip', dev['ip'])
                     if 'port' in dev:
