@@ -25,6 +25,13 @@ class TestExceptions(unittest.TestCase):
         self.assertEqual(str(exceptions.ReplicationException()), '')
         self.assertEqual(str(exceptions.ReplicationException('test')), 'test')
 
+    def test_replication_lock_timeout(self):
+        exc = exceptions.ReplicationLockTimeout(15, 'test')
+        try:
+            self.assertTrue(isinstance(exc, exceptions.MessageTimeout))
+        finally:
+            exc.cancel()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -97,13 +97,20 @@ class Receiver(object):
                     if not self.app.replication_semaphore.acquire(False):
                         raise swob.HTTPServiceUnavailable()
                 try:
-                    for data in self.missing_check():
-                        yield data
-                    for data in self.updates():
-                        yield data
+                    with self.app._diskfile_mgr.replication_lock(self.device):
+                        for data in self.missing_check():
+                            yield data
+                        for data in self.updates():
+                            yield data
                 finally:
                     if self.app.replication_semaphore:
                         self.app.replication_semaphore.release()
+            except exceptions.ReplicationLockTimeout as err:
+                self.app.logger.debug(
+                    '%s/%s/%s REPLICATION LOCK TIMEOUT: %s' % (
+                        self.request.remote_addr, self.device, self.partition,
+                        err))
+                yield ':ERROR: %d %r\n' % (0, str(err))
             except exceptions.MessageTimeout as err:
                 self.app.logger.error(
                     '%s/%s/%s TIMEOUT in replication.Receiver: %s' % (

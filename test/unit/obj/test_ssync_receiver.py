@@ -24,6 +24,7 @@ import eventlet
 import mock
 
 from swift.common import constraints
+from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
 from swift.obj import diskfile
@@ -45,7 +46,10 @@ class TestReceiver(unittest.TestCase):
         self.testdir = os.path.join(
             tempfile.mkdtemp(), 'tmp_test_ssync_receiver')
         utils.mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        conf = {
+            'devices': self.testdir,
+            'mount_check': 'false',
+            'replication_one_per_device': 'false'}
         self.controller = server.ObjectController(conf)
         self.controller.bytes_per_sync = 1
 
@@ -103,6 +107,46 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.error.called)
             self.assertFalse(self.controller.logger.exception.called)
+
+    def test_REPLICATION_calls_replication_lock(self):
+        with mock.patch.object(
+                self.controller._diskfile_mgr, 'replication_lock') as \
+                mocked_replication_lock:
+            req = swob.Request.blank(
+                '/sda1/1',
+                environ={'REQUEST_METHOD': 'REPLICATION'},
+                body=':MISSING_CHECK: START\r\n'
+                     ':MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n:UPDATES: END\r\n')
+            resp = self.controller.REPLICATION(req)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+                 ':UPDATES: START', ':UPDATES: END'])
+            self.assertEqual(resp.status_int, 200)
+            mocked_replication_lock.assert_called_once_with('sda1')
+
+    def test_REPLICATION_replication_lock_fail(self):
+        def _mock(path):
+            with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
+                eventlet.sleep(0.05)
+        with mock.patch.object(
+                self.controller._diskfile_mgr, 'replication_lock', _mock):
+            self.controller._diskfile_mgr
+            self.controller.logger = mock.MagicMock()
+            req = swob.Request.blank(
+                '/sda1/1',
+                environ={'REQUEST_METHOD': 'REPLICATION'},
+                body=':MISSING_CHECK: START\r\n'
+                     ':MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n:UPDATES: END\r\n')
+            resp = self.controller.REPLICATION(req)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
+            self.controller.logger.debug.assert_called_once_with(
+                'None/sda1/1 REPLICATION LOCK TIMEOUT: 0.01 seconds: '
+                '/somewhere/sda1')
 
     def test_REPLICATION_initial_path(self):
         with mock.patch.object(

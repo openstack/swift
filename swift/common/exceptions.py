@@ -122,3 +122,7 @@ class SegmentError(SwiftException):
 
 class ReplicationException(Exception):
     pass
+
+
+class ReplicationLockTimeout(LockTimeout):
+    pass

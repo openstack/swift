@@ -105,6 +105,16 @@ use = egg:swift#object
 # Note that REPLICATION is currently an ssync only item
 # replication_concurrency = 4
 #
+# Restricts incoming REPLICATION requests to one per device,
+# replication_currency above allowing. This can help control I/O to each
+# device, but you may wish to set this to False to allow multiple REPLICATION
+# requests (up to the above replication_concurrency setting) per device.
+# replication_one_per_device = True
+#
+# Number of seconds to wait for an existing replication device lock before
+# giving up.
+# replication_lock_timeout = 15
+#
 # These next two settings control when the REPLICATION subrequest handler will
 # abort an incoming REPLICATION attempt. An abort will occur if there are at
 # least threshold number of failures and the value of failures / successes

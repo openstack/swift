@@ -49,7 +49,8 @@ from netifaces import AF_INET6
 from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
-                                     ConnectionTimeout, LockTimeout)
+                                     ConnectionTimeout, LockTimeout,
+                                     ReplicationLockTimeout)
 from swift.common import utils
 from swift.common.swob import Response
 from test.unit import FakeLogger
@@ -137,6 +138,55 @@ class TestUtils(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
+
+    def test_lock_path(self):
+        tmpdir = mkdtemp()
+        try:
+            with utils.lock_path(tmpdir, 0.1):
+                exc = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+                except LockTimeout as err:
+                    exc = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(not success)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_lock_path_class(self):
+        tmpdir = mkdtemp()
+        try:
+            with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                exc = None
+                exc2 = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                        success = True
+                except ReplicationLockTimeout as err:
+                    exc = err
+                except LockTimeout as err:
+                    exc2 = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(exc2 is None)
+                self.assertTrue(not success)
+                exc = None
+                exc2 = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+                except ReplicationLockTimeout as err:
+                    exc = err
+                except LockTimeout as err:
+                    exc2 = err
+                self.assertTrue(exc is None)
+                self.assertTrue(exc2 is not None)
+                self.assertTrue(not success)
+        finally:
+            shutil.rmtree(tmpdir)
 
     def test_normalize_timestamp(self):
         # Test swift.common.utils.normalize_timestamp
