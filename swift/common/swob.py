@@ -288,6 +288,9 @@ class HeaderKeyDict(dict):
             self[key] = value
         return self[key]
 
+    def pop(self, key, default=None):
+        return dict.pop(self, key.title(), default)
+
 
 def _resp_status_property():
     """

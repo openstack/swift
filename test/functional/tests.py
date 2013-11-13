@@ -118,7 +118,7 @@ def timeout(seconds, method, *args, **kwargs):
     return False
 
 
-class Utils:
+class Utils(object):
     @classmethod
     def create_ascii_name(cls, length=None):
         return uuid.uuid4().hex
@@ -170,7 +170,7 @@ class Base2(object):
         Utils.create_name = Utils.create_ascii_name
 
 
-class TestAccountEnv:
+class TestAccountEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)
@@ -357,7 +357,7 @@ class TestAccountUTF8(Base2, TestAccount):
     set_up = False
 
 
-class TestAccountNoContainersEnv:
+class TestAccountNoContainersEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)
@@ -386,7 +386,7 @@ class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
     set_up = False
 
 
-class TestContainerEnv:
+class TestContainerEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)
@@ -677,7 +677,7 @@ class TestContainerUTF8(Base2, TestContainer):
     set_up = False
 
 
-class TestContainerPathsEnv:
+class TestContainerPathsEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)
@@ -856,7 +856,7 @@ class TestContainerPaths(Base):
                        ['dir1/subdir with spaces/file B'])
 
 
-class TestFileEnv:
+class TestFileEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)
@@ -1650,7 +1650,7 @@ class TestDloUTF8(Base2, TestDlo):
     set_up = False
 
 
-class TestFileComparisonEnv:
+class TestFileComparisonEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(config)

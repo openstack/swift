@@ -16,12 +16,14 @@
 import mock
 import unittest
 
-from swift.common.swob import Request
+from swift.common.swob import Request, Response
+from swift.common.middleware.acl import format_acl
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH as MAX_ANAME_LEN
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.common.request_helpers import get_sys_meta_prefix
+import swift.proxy.controllers.base
 
 
 class TestAccountController(unittest.TestCase):
@@ -151,6 +153,91 @@ class TestAccountController(unittest.TestCase):
         self.assertTrue(user_meta_key in context['headers'])
         self.assertEqual(context['headers'][user_meta_key], 'bar')
         self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+
+    def _make_user_and_sys_acl_headers_data(self):
+        acl = {
+            'admin': ['AUTH_alice', 'AUTH_bob'],
+            'read-write': ['AUTH_carol'],
+            'read-only': [],
+        }
+        user_prefix = 'x-account-'  # external, user-facing
+        user_headers = {(user_prefix + 'access-control'): format_acl(
+            version=2, acl_dict=acl)}
+        sys_prefix = get_sys_meta_prefix('account')   # internal, system-facing
+        sys_headers = {(sys_prefix + 'core-access-control'): format_acl(
+            version=2, acl_dict=acl)}
+        return user_headers, sys_headers
+
+    def test_account_acl_headers_translated_for_GET_HEAD(self):
+        # Verify that a GET/HEAD which receives X-Account-Sysmeta-Acl-* headers
+        # from the account server will remap those headers to X-Account-Acl-*
+
+        hdrs_ext, hdrs_int = self._make_user_and_sys_acl_headers_data()
+        controller = proxy_server.AccountController(self.app, 'acct')
+
+        for verb in ('GET', 'HEAD'):
+            req = Request.blank('/v1/acct', environ={'swift_owner': True})
+            controller.GETorHEAD_base = lambda *_: Response(
+                headers=hdrs_int, environ={
+                    'PATH_INFO': '/acct',
+                    'REQUEST_METHOD': verb,
+                })
+            method = getattr(controller, verb)
+            resp = method(req)
+            for header, value in hdrs_ext.items():
+                if value:
+                    self.assertEqual(resp.headers.get(header), value)
+                else:
+                    # blank ACLs should result in no header
+                    self.assert_(header not in resp.headers)
+
+    def test_add_acls_impossible_cases(self):
+        # For test coverage: verify that defensive coding does defend, in cases
+        # that shouldn't arise naturally
+
+        # add_acls should do nothing if REQUEST_METHOD isn't HEAD/GET/PUT/POST
+        resp = Response()
+        controller = proxy_server.AccountController(self.app, 'a')
+        resp.environ['PATH_INFO'] = '/a'
+        resp.environ['REQUEST_METHOD'] = 'OPTIONS'
+        controller.add_acls_from_sys_metadata(resp)
+        self.assertEqual(1, len(resp.headers))  # we always get Content-Type
+        self.assertEqual(2, len(resp.environ))
+
+    def test_memcache_key_impossible_cases(self):
+        # For test coverage: verify that defensive coding does defend, in cases
+        # that shouldn't arise naturally
+        self.assertRaises(
+            ValueError,
+            lambda: swift.proxy.controllers.base.get_container_memcache_key(
+                '/a', None))
+
+    def test_stripping_swift_admin_headers(self):
+        # Verify that a GET/HEAD which receives privileged headers from the
+        # account server will strip those headers for non-swift_owners
+
+        hdrs_ext, hdrs_int = self._make_user_and_sys_acl_headers_data()
+        headers = {
+            'x-account-meta-harmless': 'hi mom',
+            'x-account-meta-temp-url-key': 's3kr1t',
+        }
+        controller = proxy_server.AccountController(self.app, 'acct')
+
+        for verb in ('GET', 'HEAD'):
+            for env in ({'swift_owner': True}, {'swift_owner': False}):
+                req = Request.blank('/v1/acct', environ=env)
+                controller.GETorHEAD_base = lambda *_: Response(
+                    headers=headers, environ={
+                        'PATH_INFO': '/acct',
+                        'REQUEST_METHOD': verb,
+                    })
+                method = getattr(controller, verb)
+                resp = method(req)
+                self.assertEqual(resp.headers.get('x-account-meta-harmless'),
+                                 'hi mom')
+                privileged_header_present = (
+                    'x-account-meta-temp-url-key' in resp.headers)
+                self.assertEqual(privileged_header_present, env['swift_owner'])
 
 
 if __name__ == '__main__':

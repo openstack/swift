@@ -18,11 +18,13 @@ from urllib import unquote
 
 from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type
+from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
 from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
+from swift.common.request_helpers import get_sys_meta_prefix
 
 
 class AccountController(Controller):
@@ -35,6 +37,16 @@ class AccountController(Controller):
         if not self.app.allow_account_management:
             self.allowed_methods.remove('PUT')
             self.allowed_methods.remove('DELETE')
+
+    def add_acls_from_sys_metadata(self, resp):
+        if resp.environ['REQUEST_METHOD'] in ('HEAD', 'GET', 'PUT', 'POST'):
+            prefix = get_sys_meta_prefix('account') + 'core-'
+            name = 'access-control'
+            (extname, intname) = ('x-account-' + name, prefix + name)
+            acl_dict = parse_acl(version=2, data=resp.headers.pop(intname))
+            if acl_dict:  # treat empty dict as empty header
+                resp.headers[extname] = format_acl(
+                    version=2, acl_dict=acl_dict)
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
@@ -54,10 +66,11 @@ class AccountController(Controller):
             elif self.app.account_autocreate:
                 resp = account_listing_response(self.account_name, req,
                                                 get_listing_content_type(req))
-        if not req.environ.get('swift_owner', False):
-            for key in self.app.swift_owner_headers:
-                if key in resp.headers:
-                    del resp.headers[key]
+        if req.environ.get('swift_owner'):
+            self.add_acls_from_sys_metadata(resp)
+        else:
+            for header in self.app.swift_owner_headers:
+                resp.headers.pop(header, None)
         return resp
 
     @public
@@ -82,6 +95,7 @@ class AccountController(Controller):
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'PUT',
             req.swift_entity_path, [headers] * len(accounts))
+        self.add_acls_from_sys_metadata(resp)
         return resp
 
     @public
@@ -107,6 +121,7 @@ class AccountController(Controller):
             resp = self.make_requests(
                 req, self.app.account_ring, account_partition, 'POST',
                 req.swift_entity_path, [headers] * len(accounts))
+        self.add_acls_from_sys_metadata(resp)
         return resp
 
     @public

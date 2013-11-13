@@ -99,6 +99,9 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
+        if not req.environ.get('swift_owner'):
+            for key in self.app.swift_owner_headers:
+                req.headers.pop(key, None)
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -138,6 +141,9 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
+        if not req.environ.get('swift_owner'):
+            for key in self.app.swift_owner_headers:
+                req.headers.pop(key, None)
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts:
