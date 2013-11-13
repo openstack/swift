@@ -201,7 +201,14 @@ class ReconMiddleware(object):
         """get disk utilization statistics"""
         devices = []
         for entry in os.listdir(self.devices):
-            if check_mount(self.devices, entry):
+            try:
+                mounted = check_mount(self.devices, entry)
+            except OSError as err:
+                devices.append({'device': entry, 'mounted': str(err),
+                                'size': '', 'used': '', 'avail': ''})
+                continue
+
+            if mounted:
                 path = os.path.join(self.devices, entry)
                 disk = os.statvfs(path)
                 capacity = disk.f_bsize * disk.f_blocks
