@@ -134,19 +134,24 @@ the manifest and the segments it's referring to) in the container and account
 metadata which can be used for stats purposes.
 """
 
+from contextlib import contextmanager
+from time import time
 from urllib import quote
 from cStringIO import StringIO
 from datetime import datetime
+from sys import exc_info
 import mimetypes
 from hashlib import md5
+from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized
-from swift.common.utils import (json, get_logger, config_true_value,
-                                register_swift_info)
+    HTTPUnauthorized, HTTPRequestedRangeNotSatisfiable, Response
+from swift.common.utils import json, get_logger, config_true_value, \
+    get_valid_utf8_str, override_bytes_from_content_type, split_path, \
+    register_swift_info, RateLimitedIterator
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
-from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
+from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
@@ -175,10 +180,9 @@ def parse_input(raw_data):
     return parsed_data
 
 
-class SloContext(WSGIContext):
-
+class SloPutContext(WSGIContext):
     def __init__(self, slo, slo_etag):
-        WSGIContext.__init__(self, slo.app)
+        super(SloPutContext, self).__init__(slo.app)
         self.slo_etag = '"' + slo_etag.hexdigest() + '"'
 
     def handle_slo_put(self, req, start_response):
@@ -193,6 +197,369 @@ class SloContext(WSGIContext):
                        self._response_headers,
                        self._response_exc_info)
         return app_resp
+
+
+def close_if_possible(maybe_closable):
+    close_method = getattr(maybe_closable, 'close', None)
+    if callable(close_method):
+        return close_method()
+
+
+@contextmanager
+def closing_if_possible(maybe_closable):
+    """
+    Like contextlib.closing(), but doesn't crash if the object lacks a close()
+    method.
+
+    PEP 333 (WSGI) says: "If the iterable returned by the application has a
+    close() method, the server or gateway must call that method upon
+    completion of the current request[.]" This function makes that easier.
+    """
+    yield maybe_closable
+    close_if_possible(maybe_closable)
+
+
+class SloIterable(object):
+    """
+    Iterable that returns the object contents for a large object.
+
+    :param req: original request object
+    :param app: WSGI application from which segments will come
+    :param listing_iter: iterable yielding the object segments to fetch,
+                         along with the byte subranges to fetch, in the
+                         form of a tuple (object-path, first-byte, last-byte)
+                         or (object-path, None, None) to fetch the whole thing.
+    :param max_get_time: maximum permitted duration of a GET request (seconds)
+    :param logger: logger object
+    :param ua_suffix: string to append to user-agent.
+    :param name: name of manifest (used in logging only)
+    """
+    def __init__(self, req, app, listing_iter, max_get_time,
+                 logger, ua_suffix, name='<not specified>'):
+        self.req = req
+        self.app = app
+        self.listing_iter = listing_iter
+        self.max_get_time = max_get_time
+        self.logger = logger
+        self.ua_suffix = ua_suffix
+        self.name = name
+
+    def app_iter_range(self, *a, **kw):
+        """
+        swob.Response will only respond with a 206 status in certain cases; one
+        of those is if the body iterator responds to .app_iter_range().
+
+        However, this object (or really, its listing iter) is smart enough to
+        handle the range stuff internally, so we just no-op this out to fool
+        swob.Response.
+
+        """
+        return self
+
+    def __iter__(self):
+        start_time = time()
+        have_yielded_data = False
+        try:
+            for seg_path, seg_etag, seg_size, first_byte, last_byte \
+                    in self.listing_iter:
+                if time() - start_time > self.max_get_time:
+                    raise SegmentError(
+                        'ERROR: While processing manifest %s, '
+                        'max LO GET time of %ds exceeded' %
+                        (self.name, self.max_get_time))
+                seg_req = self.req.copy_get()
+                seg_req.range = None
+                seg_req.environ['PATH_INFO'] = seg_path
+                seg_req.user_agent = "%s %s" % (seg_req.user_agent,
+                                                self.ua_suffix)
+                if first_byte is not None or last_byte is not None:
+                    seg_req.headers['Range'] = "bytes=%s-%s" % (
+                        # The 0 is to avoid having a range like "bytes=-10",
+                        # which actually means the *last* 10 bytes.
+                        '0' if first_byte is None else first_byte,
+                        '' if last_byte is None else last_byte)
+
+                seg_resp = seg_req.get_response(self.app)
+                if not is_success(seg_resp.status_int):
+                    close_if_possible(seg_resp.app_iter)
+                    raise SegmentError(
+                        'ERROR: While processing manifest %s, '
+                        'got %d while retrieving %s' %
+                        (self.name, seg_resp.status_int, seg_path))
+
+                elif ((seg_resp.etag != seg_etag) or
+                        (seg_resp.content_length != seg_size and
+                         not seg_req.range)):
+                    # The content-length check is for security reasons. Seems
+                    # possible that an attacker could upload a >1mb object and
+                    # then replace it with a much smaller object with same
+                    # etag.  Then create a big nested SLO that calls that
+                    # object many times which would hammer our obj servers. If
+                    # this is a range request, don't check content-length
+                    # because it won't match.
+                    close_if_possible(seg_resp.app_iter)
+                    raise SegmentError(
+                        'Object segment no longer valid: '
+                        '%(path)s etag: %(r_etag)s != %(s_etag)s or '
+                        '%(r_size)s != %(s_size)s.' %
+                        {'path': seg_req.path, 'r_etag': seg_resp.etag,
+                         'r_size': seg_resp.content_length,
+                         's_etag': seg_etag,
+                         's_size': seg_size})
+
+                with closing_if_possible(seg_resp.app_iter):
+                    for chunk in seg_resp.app_iter:
+                        yield chunk
+                        have_yielded_data = True
+        except ListingIterError as ex:
+            # I have to save this error because yielding the ' ' below clears
+            # the exception from the current stack frame.
+            err = exc_info()
+            self.logger.error('ERROR: While processing manifest %s, %s',
+                              self.name, ex)
+            # Normally, exceptions before any data has been yielded will
+            # cause Eventlet to send a 5xx response. In this particular
+            # case of ListingIterError we don't want that and we'd rather
+            # just send the normal 2xx response and then hang up early
+            # since 5xx codes are often used to judge Service Level
+            # Agreements and this ListingIterError indicates the user has
+            # created an invalid condition.
+            if not have_yielded_data:
+                yield ' '
+            raise err
+        except SegmentError:
+            self.logger.exception("Error getting segment")
+            raise
+
+
+class SloGetContext(WSGIContext):
+
+    max_slo_recursion_depth = 10
+
+    def __init__(self, slo):
+        self.slo = slo
+        super(SloGetContext, self).__init__(slo.app)
+
+    def _fetch_sub_slo_segments(self, req, version, acc, con, obj):
+        """
+        Fetch the submanifest, parse it, and return it.
+        Raise exception on failures.
+        """
+        sub_req = req.copy_get()
+        sub_req.range = None
+        sub_req.environ['PATH_INFO'] = '/'.join(['', version, acc, con, obj])
+        sub_req.user_agent = "%s SLO MultipartGET" % sub_req.user_agent
+        sub_resp = sub_req.get_response(self.slo.app)
+
+        if not is_success(sub_resp.status_int):
+            raise ListingIterError(
+                'ERROR: while fetching %s, GET of submanifest %s '
+                'failed with status %d' % (req.path, sub_req.path,
+                                           sub_resp.status_int))
+
+        try:
+            with closing_if_possible(sub_resp.app_iter):
+                return json.loads(''.join(sub_resp.app_iter))
+        except ValueError as err:
+            raise ListingIterError(
+                'ERROR: while fetching %s, JSON-decoding of submanifest %s '
+                'failed with %s' % (req.path, sub_req.path, err))
+
+    def _segment_listing_iterator(self, req, version, account, segments,
+                                  first_byte=None, last_byte=None,
+                                  recursion_depth=1):
+        for seg_dict in segments:
+            if config_true_value(seg_dict.get('sub_slo')):
+                override_bytes_from_content_type(seg_dict,
+                                                 logger=self.slo.logger)
+
+        # We handle the range stuff here so that we can be smart about
+        # skipping unused submanifests. For example, if our first segment is a
+        # submanifest referencing 50 MiB total, but first_byte falls in the
+        # 51st MiB, then we can avoid fetching the first submanifest.
+        #
+        # If we were to let SloIterable handle all the range calculations, we
+        # would be unable to make this optimization.
+        total_length = sum(int(seg['bytes']) for seg in segments)
+        if first_byte is None:
+            first_byte = 0
+        if last_byte is None:
+            last_byte = total_length - 1
+
+        for seg_dict in segments:
+            seg_length = int(seg_dict['bytes'])
+
+            if first_byte >= seg_length:
+                # don't need any bytes from this segment
+                first_byte = max(first_byte - seg_length, -1)
+                last_byte = max(last_byte - seg_length, -1)
+                continue
+
+            if last_byte < 0:
+                # no bytes are needed from this or any future segment
+                break
+
+            if config_true_value(seg_dict.get('sub_slo')):
+                # do this check here so that we can avoid fetching this last
+                # manifest before raising the exception
+                if recursion_depth >= self.max_slo_recursion_depth:
+                    raise ListingIterError("Max recursion depth exceeded")
+
+                sub_path = get_valid_utf8_str(seg_dict['name'])
+                sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
+                sub_segments = self._fetch_sub_slo_segments(
+                    req, version, account, sub_cont, sub_obj)
+                for sub_seg_dict, sb, eb in self._segment_listing_iterator(
+                        req, version, account, sub_segments,
+                        first_byte=first_byte, last_byte=last_byte,
+                        recursion_depth=recursion_depth + 1):
+                    sub_seg_length = int(sub_seg_dict['bytes'])
+                    first_byte = max(first_byte - sub_seg_length, -1)
+                    last_byte = max(last_byte - sub_seg_length, -1)
+                    yield sub_seg_dict, sb, eb
+            else:
+                if isinstance(seg_dict['name'], unicode):
+                    seg_dict['name'] = seg_dict['name'].encode("utf-8")
+                seg_length = int(seg_dict['bytes'])
+                yield (seg_dict,
+                       (None if first_byte <= 0 else first_byte),
+                       (None if last_byte >= seg_length - 1 else last_byte))
+                first_byte = max(first_byte - seg_length, -1)
+                last_byte = max(last_byte - seg_length, -1)
+
+    def handle_slo_get_or_head(self, req, start_response):
+        """
+        Takes a request and a start_response callable and does the normal WSGI
+        thing with them. Returns an iterator suitable for sending up the WSGI
+        chain.
+
+        :param req: swob.Request object; is a GET or HEAD request aimed at
+                    what may be a static large object manifest (or may not).
+        :param start_response: WSGI start_response callable
+        """
+        resp_iter = self._app_call(req.environ)
+
+        # make sure this response is for a static large object manifest
+        for header, value in self._response_headers:
+            if (header.lower() == 'x-static-large-object' and
+                    config_true_value(value)):
+                break
+        else:
+            # Not a static large object manifest. Just pass it through.
+            start_response(self._response_status,
+                           self._response_headers,
+                           self._response_exc_info)
+            return resp_iter
+
+        # Handle pass-through request for the manifest itself
+        if req.params.get('multipart-manifest') == 'get':
+            new_headers = []
+            for header, value in self._response_headers:
+                if header.lower() == 'content-type':
+                    new_headers.append(('Content-Type',
+                                        'application/json; charset=utf-8'))
+                else:
+                    new_headers.append((header, value))
+            self._response_headers = new_headers
+            start_response(self._response_status,
+                           self._response_headers,
+                           self._response_exc_info)
+            return resp_iter
+
+        # Just because a response shows that an object is a SLO manifest does
+        # not mean that response's body contains the entire SLO manifest. If
+        # it doesn't, we need to make a second request to actually get the
+        # whole thing.
+        if req.method == 'HEAD' or req.range:
+            req.environ['swift.non_client_disconnect'] = True
+            close_if_possible(resp_iter)
+            del req.environ['swift.non_client_disconnect']
+
+            get_req = req.copy_get()
+            get_req.range = None
+            get_req.user_agent = "%s SLO MultipartGET" % get_req.user_agent
+            resp_iter = self._app_call(get_req.environ)
+
+        response = self.get_or_head_response(req, self._response_headers,
+                                             resp_iter)
+        return response(req.environ, start_response)
+
+    def get_or_head_response(self, req, resp_headers, resp_iter):
+        resp_body = ''.join(resp_iter)
+        try:
+            segments = json.loads(resp_body)
+        except ValueError:
+            segments = []
+
+        etag = md5()
+        content_length = 0
+        for seg_dict in segments:
+            etag.update(seg_dict['hash'])
+
+            if config_true_value(seg_dict.get('sub_slo')):
+                override_bytes_from_content_type(
+                    seg_dict, logger=self.slo.logger)
+            content_length += int(seg_dict['bytes'])
+
+        response_headers = [(h, v) for h, v in resp_headers
+                            if h.lower() not in ('etag', 'content-length')]
+        response_headers.append(('Content-Length', str(content_length)))
+        response_headers.append(('Etag', '"%s"' % etag.hexdigest()))
+
+        if req.method == 'HEAD':
+            return self._manifest_head_response(req, response_headers)
+        else:
+            return self._manifest_get_response(
+                req, content_length, response_headers, segments)
+
+    def _manifest_head_response(self, req, response_headers):
+        return HTTPOk(request=req, headers=response_headers, body='')
+
+    def _manifest_get_response(self, req, content_length, response_headers,
+                               segments):
+        first_byte, last_byte = None, None
+        if req.range:
+            byteranges = req.range.ranges_for_length(content_length)
+            if len(byteranges) == 0:
+                return HTTPRequestedRangeNotSatisfiable(request=req)
+            elif len(byteranges) == 1:
+                first_byte, last_byte = byteranges[0]
+                # For some reason, swob.Range.ranges_for_length adds 1 to the
+                # last byte's position.
+                last_byte -= 1
+            else:
+                req.range = None
+
+        ver, account, _junk = req.split_path(3, 3, rest_with_last=True)
+        plain_listing_iter = self._segment_listing_iterator(
+            req, ver, account, segments, first_byte, last_byte)
+
+        ratelimited_listing_iter = RateLimitedIterator(
+            plain_listing_iter,
+            self.slo.rate_limit_segments_per_sec,
+            limit_after=self.slo.rate_limit_after_segment)
+
+        # self._segment_listing_iterator gives us 3-tuples of (segment dict,
+        # start byte, end byte), but SloIterable wants (obj path, etag, size,
+        # start byte, end byte), so we clean that up here
+        segment_listing_iter = (
+            ("/{ver}/{acc}/{conobj}".format(
+                ver=ver, acc=account, conobj=seg_dict['name'].lstrip('/')),
+                seg_dict['hash'], int(seg_dict['bytes']),
+                start_byte, end_byte)
+            for seg_dict, start_byte, end_byte in ratelimited_listing_iter)
+
+        response = Response(request=req, content_length=content_length,
+                            headers=response_headers,
+                            conditional_response=True,
+                            app_iter=SloIterable(
+                                req, self.slo.app, segment_listing_iter,
+                                name=req.path, logger=self.slo.logger,
+                                ua_suffix="SLO MultipartGET",
+                                max_get_time=self.slo.max_get_time))
+        if req.range:
+            response.headers.pop('Etag')
+        return response
 
 
 class StaticLargeObject(object):
@@ -218,14 +585,42 @@ class StaticLargeObject(object):
                                      1024 * 1024 * 2))
         self.min_segment_size = int(self.conf.get('min_segment_size',
                                     1024 * 1024))
+        self.max_get_time = int(self.conf.get('max_get_time', 86400))
+        self.rate_limit_after_segment = int(self.conf.get(
+            'rate_limit_after_segment', '10'))
+        self.rate_limit_segments_per_sec = int(self.conf.get(
+            'rate_limit_segments_per_sec', '0'))
         self.bulk_deleter = Bulk(app, {})
+
+    def handle_multipart_get_or_head(self, req, start_response):
+        """
+        Handles the GET or HEAD of a SLO manifest.
+
+        The response body (only on GET, of course) will consist of the
+        concatenation of the segments.
+
+        :params req: a swob.Request with a path referencing an object
+        :raises: HttpException on errors
+        """
+        return SloGetContext(self).handle_slo_get_or_head(req, start_response)
+
+    def copy_response_hook(self, inner_hook):
+
+        def slo_hook(req, resp):
+            if (config_true_value(resp.headers.get('X-Static-Large-Object'))
+                    and req.params.get('multipart-manifest') != 'get'):
+                resp = SloGetContext(self).get_or_head_response(
+                    req, resp.headers.items(), resp.app_iter)
+            return inner_hook(req, resp)
+
+        return slo_hook
 
     def handle_multipart_put(self, req, start_response):
         """
         Will handle the PUT of a SLO manifest.
         Heads every object in manifest to check if is valid and if so will
         save a manifest generated from the user input. Uses WSGIContext to
-        call self.app and start_response and returns a WSGI iterator.
+        call self and start_response and returns a WSGI iterator.
 
         :params req: a swob.Request with an obj in path
         :raises: HttpException on errors
@@ -239,7 +634,7 @@ class StaticLargeObject(object):
                 "Manifest File > %d bytes" % self.max_manifest_size)
         if req.headers.get('X-Copy-From'):
             raise HTTPMethodNotAllowed(
-                'Multipart Manifest PUTs cannot be Copy requests')
+                'Multipart Manifest PUTs cannot be COPY requests')
         if req.content_length is None and \
                 req.headers.get('transfer-encoding', '').lower() != 'chunked':
             raise HTTPLengthRequired(request=req)
@@ -248,7 +643,8 @@ class StaticLargeObject(object):
 
         if len(parsed_data) > self.max_manifest_segments:
             raise HTTPRequestEntityTooLarge(
-                'Number segments must be <= %d' % self.max_manifest_segments)
+                'Number of segments must be <= %d' %
+                self.max_manifest_segments)
         total_size = 0
         out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
         if not out_content_type:
@@ -267,7 +663,7 @@ class StaticLargeObject(object):
             if seg_size < self.min_segment_size and \
                     (index == 0 or index < len(parsed_data) - 1):
                 raise HTTPBadRequest(
-                    'Each segment, except the last, must be larger than '
+                    'Each segment, except the last, must be at least '
                     '%d bytes.' % self.min_segment_size)
 
             new_env = req.environ.copy()
@@ -280,7 +676,7 @@ class StaticLargeObject(object):
             new_env['HTTP_USER_AGENT'] = \
                 '%s MultipartPUT' % req.environ.get('HTTP_USER_AGENT')
             head_seg_resp = \
-                Request.blank(obj_path, new_env).get_response(self.app)
+                Request.blank(obj_path, new_env).get_response(self)
             if head_seg_resp.is_success:
                 total_size += seg_size
                 if seg_size != head_seg_resp.content_length:
@@ -319,15 +715,15 @@ class StaticLargeObject(object):
         if not env.get('CONTENT_TYPE'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             env['CONTENT_TYPE'] = guessed_type or 'application/octet-stream'
-        env['swift.content_type_overriden'] = True
+        env['swift.content_type_overridden'] = True
         env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
         env['HTTP_X_STATIC_LARGE_OBJECT'] = 'True'
         json_data = json.dumps(data_for_storage)
         env['CONTENT_LENGTH'] = str(len(json_data))
         env['wsgi.input'] = StringIO(json_data)
 
-        slo_context = SloContext(self, slo_etag)
-        return slo_context.handle_slo_put(req, start_response)
+        slo_put_context = SloPutContext(self, slo_etag)
+        return slo_put_context.handle_slo_put(req, start_response)
 
     def get_segments_to_delete_iter(self, req):
         """
@@ -342,10 +738,7 @@ class StaticLargeObject(object):
         if not check_utf8(req.path_info):
             raise HTTPPreconditionFailed(
                 request=req, body='Invalid UTF8 or contains NULL')
-        try:
-            vrs, account, container, obj = req.split_path(4, 4, True)
-        except ValueError:
-            raise HTTPBadRequest('Invalid SLO manifiest path')
+        vrs, account, container, obj = req.split_path(4, 4, True)
 
         segments = [{
             'sub_slo': True,
@@ -391,9 +784,8 @@ class StaticLargeObject(object):
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
         new_env['swift.source'] = 'SLO'
         new_env['PATH_INFO'] = (
-            '/%s/%s/%s' % (
-            vrs, account,
-            obj_name.lstrip('/'))).encode('utf-8')
+            '/%s/%s/%s' % (vrs, account, obj_name.lstrip('/'))
+        ).encode('utf-8')
         resp = Request.blank('', new_env).get_response(self.app)
 
         if resp.is_success:
@@ -435,24 +827,29 @@ class StaticLargeObject(object):
         """
         req = Request(env)
         try:
-            vrs, account, container, obj = req.split_path(1, 4, True)
+            vrs, account, container, obj = req.split_path(4, 4, True)
         except ValueError:
             return self.app(env, start_response)
+
+        # install our COPY-callback hook
+        env['swift.copy_response_hook'] = self.copy_response_hook(
+            env.get('swift.copy_response_hook', lambda req, resp: resp))
+
         try:
-            if obj:
-                if req.method == 'PUT' and \
-                        req.params.get('multipart-manifest') == 'put':
-                    return self.handle_multipart_put(req, start_response)
-                if req.method == 'DELETE' and \
-                        req.params.get('multipart-manifest') == 'delete':
-                    return self.handle_multipart_delete(req)(env,
-                                                             start_response)
-                if 'X-Static-Large-Object' in req.headers:
-                    raise HTTPBadRequest(
-                        request=req,
-                        body='X-Static-Large-Object is a reserved header. '
-                        'To create a static large object add query param '
-                        'multipart-manifest=put.')
+            if req.method == 'PUT' and \
+                    req.params.get('multipart-manifest') == 'put':
+                return self.handle_multipart_put(req, start_response)
+            if req.method == 'DELETE' and \
+                    req.params.get('multipart-manifest') == 'delete':
+                return self.handle_multipart_delete(req)(env, start_response)
+            if req.method == 'GET' or req.method == 'HEAD':
+                return self.handle_multipart_get_or_head(req, start_response)
+            if 'X-Static-Large-Object' in req.headers:
+                raise HTTPBadRequest(
+                    request=req,
+                    body='X-Static-Large-Object is a reserved header. '
+                    'To create a static large object add query param '
+                    'multipart-manifest=put.')
         except HTTPException as err_resp:
             return err_resp(env, start_response)
 

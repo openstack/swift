@@ -626,12 +626,13 @@ class GetOrHeadHandler(object):
             return True
         return is_success(src.status) or is_redirection(src.status)
 
-    def _make_app_iter(self, node, source):
+    def _make_app_iter(self, req, node, source):
         """
         Returns an iterator over the contents of the source (via its read
         func).  There is also quite a bit of cleanup to ensure garbage
         collection works and the underlying socket of the source is closed.
 
+        :param req: incoming request object
         :param source: The httplib.Response object this iterator should read
                        from.
         :param node: The node the source is reading from, for logging purposes.
@@ -698,7 +699,8 @@ class GetOrHeadHandler(object):
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
-            self.app.logger.warn(_('Client disconnected on read'))
+            if not req.environ.get('swift.non_client_disconnect'):
+                self.app.logger.warn(_('Client disconnected on read'))
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
@@ -801,7 +803,7 @@ class GetOrHeadHandler(object):
             res = Response(request=req)
             if req.method == 'GET' and \
                     source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
-                res.app_iter = self._make_app_iter(node, source)
+                res.app_iter = self._make_app_iter(req, node, source)
                 # See NOTE: swift_conn at top of file about this.
                 res.swift_conn = source.swift_conn
             res.status = source.status

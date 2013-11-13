@@ -1968,15 +1968,33 @@ class TestSlo(Base):
 
     def test_slo_copy_the_manifest(self):
         file_item = self.env.container.file("manifest-abcde")
-        file_item.copy(self.env.container.name, "copied-abcde",
+        file_item.copy(self.env.container.name, "copied-abcde-manifest-only",
                        parms={'multipart-manifest': 'get'})
 
-        copied = self.env.container.file("copied-abcde")
+        copied = self.env.container.file("copied-abcde-manifest-only")
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
         try:
             json.loads(copied_contents)
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
+
+    def test_slo_get_the_manifest(self):
+        manifest = self.env.container.file("manifest-abcde")
+        got_body = manifest.read(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         manifest.content_type)
+        try:
+            json.loads(got_body)
+        except ValueError:
+            self.fail("GET with multipart-manifest=get got invalid json")
+
+    def test_slo_head_the_manifest(self):
+        manifest = self.env.container.file("manifest-abcde")
+        got_info = manifest.info(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         got_info['content_type'])
 
 
 class TestSloUTF8(Base2, TestSlo):

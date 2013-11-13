@@ -635,6 +635,34 @@ def validate_device_partition(device, partition):
         raise ValueError('Invalid partition: %s' % quote(partition or ''))
 
 
+class RateLimitedIterator(object):
+    """
+    Wrap an iterator to only yield elements at a rate of N per second.
+
+    :param iterable: iterable to wrap
+    :param elements_per_second: the rate at which to yield elements
+    :param limit_after: rate limiting kicks in only after yielding
+                        this many elements; default is 0 (rate limit
+                        immediately)
+    """
+    def __init__(self, iterable, elements_per_second, limit_after=0):
+        self.iterator = iter(iterable)
+        self.elements_per_second = elements_per_second
+        self.limit_after = limit_after
+        self.running_time = 0
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.limit_after > 0:
+            self.limit_after -= 1
+        else:
+            self.running_time = ratelimit_sleep(self.running_time,
+                                                self.elements_per_second)
+        return self.iterator.next()
+
+
 class GreenthreadSafeIterator(object):
     """
     Wrap an iterator to ensure that only one greenthread is inside its next()

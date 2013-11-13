@@ -2199,6 +2199,36 @@ class TestAffinityLocalityPredicate(unittest.TestCase):
                           utils.affinity_locality_predicate, 'r1z1=1')
 
 
+class TestRateLimitedIterator(unittest.TestCase):
+    def test_rate_limiting(self):
+        limited_iterator = utils.RateLimitedIterator(xrange(9999), 100)
+        got = []
+        started_at = time.time()
+        try:
+            while time.time() - started_at < 0.1:
+                got.append(limited_iterator.next())
+        except StopIteration:
+            pass
+        # it's 11, not 10, because ratelimiting doesn't apply to the very
+        # first element.
+        #
+        # Ideally this'd be == 11, but that might fail on slow machines, and
+        # the last thing we need is another flaky test.
+        self.assertTrue(len(got) <= 11)
+
+    def test_limit_after(self):
+        limited_iterator = utils.RateLimitedIterator(xrange(9999), 100,
+                                                     limit_after=5)
+        got = []
+        started_at = time.time()
+        try:
+            while time.time() - started_at < 0.1:
+                got.append(limited_iterator.next())
+        except StopIteration:
+            pass
+        self.assertTrue(len(got) <= 16)
+
+
 class TestGreenthreadSafeIterator(unittest.TestCase):
 
     def increment(self, iterable):
