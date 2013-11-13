@@ -53,7 +53,7 @@ from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
-    config_true_value, listdir, split_path
+    config_true_value, listdir, split_path, ismount
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir
@@ -324,7 +324,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None):
     shuffle(device_dirs)
     for device in device_dirs:
         if mount_check and not \
-                os.path.ismount(os.path.join(devices, device)):
+                ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)

@@ -29,7 +29,7 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, \
-    compute_eta, get_logger, dump_recon_cache, \
+    compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
     tpool_reraise, config_auto_int_value
 from swift.common.bufferedhttp import http_connect
@@ -407,7 +407,7 @@ class ObjectReplicator(Daemon):
             dev_path = join(self.devices_dir, local_dev['device'])
             obj_path = join(dev_path, 'objects')
             tmp_path = join(dev_path, 'tmp')
-            if self.mount_check and not os.path.ismount(dev_path):
+            if self.mount_check and not ismount(dev_path):
                 self.logger.warn(_('%s is not mounted'), local_dev['device'])
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
@@ -475,7 +475,7 @@ class ObjectReplicator(Daemon):
                         job['partition'] not in override_partitions:
                     continue
                 dev_path = join(self.devices_dir, job['device'])
-                if self.mount_check and not os.path.ismount(dev_path):
+                if self.mount_check and not ismount(dev_path):
                     self.logger.warn(_('%s is not mounted'), job['device'])
                     continue
                 if not self.check_ring():

@@ -27,7 +27,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value
+    dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
 from swift.obj.diskfile import ASYNCDIR
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
@@ -72,7 +72,7 @@ class ObjectUpdater(Daemon):
             self.get_container_ring().get_nodes('')
             for device in os.listdir(self.devices):
                 if self.mount_check and not \
-                        os.path.ismount(os.path.join(self.devices, device)):
+                        ismount(os.path.join(self.devices, device)):
                     self.logger.increment('errors')
                     self.logger.warn(
                         _('Skipping %s as it is not mounted'), device)
@@ -115,7 +115,7 @@ class ObjectUpdater(Daemon):
         self.failures = 0
         for device in os.listdir(self.devices):
             if self.mount_check and \
-                    not os.path.ismount(os.path.join(self.devices, device)):
+                    ismount(os.path.join(self.devices, device)):
                 self.logger.increment('errors')
                 self.logger.warn(
                     _('Skipping %s as it is not mounted'), device)
