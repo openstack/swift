@@ -268,7 +268,8 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here')
             req.remote_addr = mock.MagicMock()
-            req.remote_addr.__str__ = None
+            req.remote_addr.__str__ = mock.Mock(
+                side_effect=Exception("can't stringify this"))
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
             resp = self.controller.REPLICATION(req)
