@@ -36,6 +36,8 @@ class MockedMemcachePool(memcached.MemcacheConnPool):
     def __init__(self, mocks):
         Pool.__init__(self, max_size=2)
         self.mocks = mocks
+        # setting this for the eventlet workaround in the MemcacheConnPool
+        self._parent_class_getter = super(memcached.MemcacheConnPool, self).get
 
     def create(self):
         return self.mocks.pop(0)
@@ -363,6 +365,7 @@ class TestMemcached(unittest.TestCase):
 
             def wait_connect(addr):
                 connected.append(addr)
+                sleep(0.1)  # yield
                 val = connections.get()
                 if val is not None:
                     errors.append(val)
@@ -407,6 +410,68 @@ class TestMemcached(unittest.TestCase):
                              "A client was allowed a third connection")
             connections.get_nowait()
             self.assertTrue(connections.empty())
+
+    # Ensure we exercise the backported-for-pre-eventlet-version-0.9.17 get()
+    # code, even if the executing eventlet's version is already newer.
+    @patch.object(memcached, 'eventlet_version', '0.9.16')
+    def test_connection_pooling_pre_0_9_17(self):
+        with patch('swift.common.memcached.socket') as mock_module:
+            connected = []
+            count = [0]
+
+            def _slow_yielding_connector(addr):
+                count[0] += 1
+                if count[0] % 3 == 0:
+                    raise ValueError('whoops!')
+                sleep(0.1)
+                connected.append(addr)
+
+            mock_module.socket.return_value.connect.side_effect = \
+                _slow_yielding_connector
+
+            # If POOL_SIZE is not small enough relative to USER_COUNT, the
+            # "free_items" business in the eventlet.pools.Pool will cause
+            # spurious failures below.  I found these values to work well on a
+            # VM running in VirtualBox on a late 2013 Retina MacbookPro:
+            POOL_SIZE = 5
+            USER_COUNT = 50
+
+            pool = memcached.MemcacheConnPool('1.2.3.4:11211', size=POOL_SIZE,
+                                              connect_timeout=10)
+            self.assertEqual(POOL_SIZE, pool.max_size)
+
+            def _user():
+                got = None
+                while not got:
+                    try:
+                        got = pool.get()
+                    # This was really supposed to be "except:" but ran afoul
+                    # of the H201 check, which does not implement the "noqa"
+                    # exception.  Once that's fixed, the except here can be
+                    # changed to "except: # noqa"
+                    except (Exception, BaseException):
+                        pass
+                pool.put(got)
+
+            # make a bunch of requests "at the same time"
+            p = GreenPool()
+            for i in range(USER_COUNT):
+                p.spawn(_user)
+            p.waitall()
+
+            # If the except block after the "created = self.create()" call
+            # doesn't correctly decrement self.current_size, this test will
+            # fail by having some number less than POOL_SIZE connections (in my
+            # testing, anyway).
+            self.assertEqual(POOL_SIZE, len(connected))
+
+            # Subsequent requests should get and use the existing
+            # connections, not creating any more.
+            for i in range(USER_COUNT):
+                p.spawn(_user)
+            p.waitall()
+
+            self.assertEqual(POOL_SIZE, len(connected))
 
     def test_connection_pool_timeout(self):
         orig_conn_pool = memcached.MemcacheConnPool
