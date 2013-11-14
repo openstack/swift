@@ -171,7 +171,7 @@ class ContainerController(Controller):
             return error_response
         policy_index = self._convert_policy_to_index(req)
         additional_headers = {}
-        if policy_index:
+        if policy_index is not None:
             additional_headers[POLICY_INDEX] = str(policy_index)
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)

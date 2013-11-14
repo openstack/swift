@@ -54,9 +54,9 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPNotFound, \
-    HTTPUnauthorized
+    HTTPUnauthorized, HTTPException
 from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection
+    StoragePolicyCollection, POLICY, POLICY_INDEX
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -5176,12 +5176,27 @@ class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
     def setUp(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
+        policy = [StoragePolicy(0, 'zero', True, FakeRing()),
+                  StoragePolicy(1, 'one', False, FakeRing())]
         policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             storage_policies=policy_coll)
+
+    def test_convert_policy_to_index(self):
+        controller = swift.proxy.controllers.ContainerController(self.app,
+                                                                 'a', 'c')
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                            'Content-Type': 'text/plain', POLICY: 'zero'})
+        self.assertEqual(controller._convert_policy_to_index(req), 0)
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                            'Content-Type': 'text/plain', POLICY: 'one'})
+        self.assertEqual(controller._convert_policy_to_index(req), 1)
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                            'Content-Type': 'text/plain', POLICY: 'nada'})
+        self.assertRaises(HTTPException, controller._convert_policy_to_index,
+                          req)
 
     def test_transfer_headers(self):
         src_headers = {'x-remove-versions-location': 'x',
@@ -5289,6 +5304,40 @@ class TestContainerController(unittest.TestCase):
             # This should make no difference
             self.app.account_autocreate = True
             test_status_map((404, 404, 404), 404, None, 404)
+
+    def test_policy_header(self):
+        with save_globals():
+            global idx
+            idx = []
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+
+            def fake_make_requests(req, ring, part, method, path, headers,
+                                   query_string=''):
+                global idx
+                idx = [header[POLICY_INDEX]
+                       for header in headers if POLICY_INDEX in header.keys()]
+
+            controller.make_requests = fake_make_requests
+
+            def test_policy_backend(policy, func):
+                set_http_connect(201, missing_container=False)
+                self.app.memcache.store = {}
+                req = Request.blank('/a/cs', {})
+                req.headers[POLICY] = policy
+                req.content_length = 0
+                self.app.update_request(req)
+                func(req)
+
+            # make sure both polcies are sent to the back w/correct indicies
+            test_policy_backend('zero', controller.PUT)
+            self.assert_('0' in idx)
+            test_policy_backend('one', controller.PUT)
+            self.assert_('1' in idx)
+            test_policy_backend('zero', controller.POST)
+            self.assert_('0' in idx)
+            test_policy_backend('one', controller.POST)
+            self.assert_('1' in idx)
 
     def test_PUT(self):
         with save_globals():

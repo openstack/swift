@@ -321,11 +321,18 @@ class TestContainerController(unittest.TestCase):
 
     def test_POST_good_policy_specified(self):
         # Set metadata header
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': normalize_timestamp(1),
                                      POLICY_INDEX: '3'})
         resp = self.controller.PUT(req)
         self.assertEquals(resp.status_int, 201)
+
+        # now POST w/good policy
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(1),
+                                     POLICY_INDEX: '3'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
 
         # now make sure we read it back
         req = Request.blank('/sda1/p/a/c')
@@ -357,11 +364,24 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.headers.get(POLICY_INDEX), '2')
 
     def test_POST_bad_policy_specified(self):
+        # first create cont with good policy
+        # Set metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(1),
+                                     POLICY_INDEX: '2'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        # make sure we get the right index back
+        self.assertEquals(resp.headers.get(POLICY_INDEX), '2')
+
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': normalize_timestamp(1),
                                      POLICY_INDEX: 'nada'})
-        resp = self.controller.PUT(req)
+        resp = self.controller.POST(req)
         # make sure we get bad response
         self.assertEquals(resp.status_int, 400)
 
