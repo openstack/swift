@@ -35,12 +35,13 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
+from swift.common.middleware import proxy_logging
 from swift.common.exceptions import ChunkReadTimeout, SegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
@@ -130,17 +131,26 @@ def do_setup(the_object_server):
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': obj2lis.getsockname()[1]}], 30),
                     f)
-    prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone())
-    acc1srv = account_server.AccountController(conf)
-    acc2srv = account_server.AccountController(conf)
-    con1srv = container_server.ContainerController(conf)
-    con2srv = container_server.ContainerController(conf)
-    obj1srv = the_object_server.ObjectController(conf)
-    obj2srv = the_object_server.ObjectController(conf)
+    prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
+                                      logger=debug_logger('proxy'))
+    acc1srv = account_server.AccountController(
+        conf, logger=debug_logger('acct1'))
+    acc2srv = account_server.AccountController(
+        conf, logger=debug_logger('acct2'))
+    con1srv = container_server.ContainerController(
+        conf, logger=debug_logger('cont1'))
+    con2srv = container_server.ContainerController(
+        conf, logger=debug_logger('cont2'))
+    obj1srv = the_object_server.ObjectController(
+        conf, logger=debug_logger('obj1'))
+    obj2srv = the_object_server.ObjectController(
+        conf, logger=debug_logger('obj2'))
     _test_servers = \
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
     nl = NullLogger()
-    prospa = spawn(wsgi.server, prolis, prosrv, nl)
+    logging_prosv = proxy_logging.ProxyLoggingMiddleware(prosrv, conf,
+                                                         logger=prosrv.logger)
+    prospa = spawn(wsgi.server, prolis, logging_prosv, nl)
     acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
     acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)
     con1spa = spawn(wsgi.server, con1lis, con1srv, nl)
@@ -4584,6 +4594,7 @@ class TestObjectController(unittest.TestCase):
         fd.read(1)
         fd.close()
         sock.close()
+        sleep(0)  # let eventlet do it's thing
         # Make sure the GC is run again for pythons without reference counting
         for i in xrange(4):
             gc.collect()

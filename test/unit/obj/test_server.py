@@ -28,7 +28,7 @@ from tempfile import mkdtemp
 from hashlib import md5
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout
-from test.unit import FakeLogger
+from test.unit import FakeLogger, debug_logger
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -55,7 +55,8 @@ class TestObjectController(unittest.TestCase):
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.object_controller = object_server.ObjectController(conf)
+        self.object_controller = object_server.ObjectController(
+            conf, logger=debug_logger())
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)

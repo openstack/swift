@@ -51,14 +51,14 @@ from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
 class ObjectController(object):
     """Implements the WSGI application for the Swift Object Server."""
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         """
         Creates a new WSGI application for the Swift Object Server. An
         example configuration is given at
         <source-dir>/etc/object-server.conf-sample or
         /etc/swift/object-server.conf-sample.
         """
-        self.logger = get_logger(conf, log_route='object-server')
+        self.logger = logger or get_logger(conf, log_route='object-server')
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))

@@ -47,8 +47,8 @@ DATADIR = 'accounts'
 class AccountController(object):
     """WSGI controller for the account server."""
 
-    def __init__(self, conf):
-        self.logger = get_logger(conf, log_route='account-server')
+    def __init__(self, conf, logger=None):
+        self.logger = logger or get_logger(conf, log_route='account-server')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         replication_server = conf.get('replication_server', None)

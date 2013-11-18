@@ -54,8 +54,8 @@ class ContainerController(object):
     save_headers = ['x-container-read', 'x-container-write',
                     'x-container-sync-key', 'x-container-sync-to']
 
-    def __init__(self, conf):
-        self.logger = get_logger(conf, log_route='container-server')
+    def __init__(self, conf, logger=None):
+        self.logger = logger or get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
