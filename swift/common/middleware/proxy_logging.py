@@ -126,9 +126,7 @@ class ProxyLoggingMiddleware(object):
         req.environ['swift.proxy_access_log_made'] = True
 
     def obscure_sensitive(self, value):
-        if not value:
-            return '-'
-        if len(value) > self.reveal_sensitive_prefix:
+        if value and len(value) > self.reveal_sensitive_prefix:
             return value[:self.reveal_sensitive_prefix] + '...'
         return value
 
@@ -174,7 +172,7 @@ class ProxyLoggingMiddleware(object):
                 logged_headers,
                 '%.4f' % request_time,
                 req.environ.get('swift.source'),
-                ','.join(req.environ.get('swift.log_info') or '-'),
+                ','.join(req.environ.get('swift.log_info') or ''),
             )))
         self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
