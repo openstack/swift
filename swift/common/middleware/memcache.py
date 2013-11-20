@@ -28,9 +28,17 @@ class MemcacheMiddleware(object):
         self.app = app
         self.memcache_servers = conf.get('memcache_servers')
         serialization_format = conf.get('memcache_serialization_support')
-        max_conns = int(conf.get('max_connections', 2))
+        try:
+            # Originally, while we documented using memcache_max_connections
+            # we only accepted max_connections
+            max_conns = int(conf.get('memcache_max_connections',
+                                     conf.get('max_connections', 0)))
+        except ValueError:
+            max_conns = 0
 
-        if not self.memcache_servers or serialization_format is None:
+        if (not self.memcache_servers
+                or serialization_format is None
+                or max_conns <= 0):
             path = os.path.join(conf.get('swift_dir', '/etc/swift'),
                                 'memcache.conf')
             memcache_conf = ConfigParser()
@@ -48,9 +56,19 @@ class MemcacheMiddleware(object):
                                               'memcache_serialization_support')
                     except (NoSectionError, NoOptionError):
                         pass
+                if max_conns <= 0:
+                    try:
+                        new_max_conns = \
+                            memcache_conf.get('memcache',
+                                              'memcache_max_connections')
+                        max_conns = int(new_max_conns)
+                    except (NoSectionError, NoOptionError, ValueError):
+                        pass
 
         if not self.memcache_servers:
             self.memcache_servers = '127.0.0.1:11211'
+        if max_conns <= 0:
+            max_conns = 2
         if serialization_format is None:
             serialization_format = 2
         else:

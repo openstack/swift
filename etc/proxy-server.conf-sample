@@ -298,6 +298,9 @@ use = egg:swift#memcache
 # set to 2 and reload.
 # In the future, the ability to use pickle serialization will be removed.
 # memcache_serialization_support = 2
+#
+# Sets the maximum number of connections to each memcached server per worker
+# memcache_max_connections = 2
 
 [filter:ratelimit]
 use = egg:swift#ratelimit
