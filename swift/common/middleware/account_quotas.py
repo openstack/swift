@@ -63,7 +63,7 @@ class AccountQuotaMiddleware(object):
     @wsgify
     def __call__(self, request):
 
-        if request.method not in ("POST", "PUT"):
+        if request.method not in ("POST", "PUT", "COPY"):
             return self.app
 
         try:
@@ -98,7 +98,11 @@ class AccountQuotaMiddleware(object):
         if obj and request.method == "POST" or not obj:
             return self.app
 
-        copy_from = request.headers.get('X-Copy-From')
+        if request.method == 'COPY':
+            copy_from = container + '/' + obj
+        else:
+            copy_from = request.headers.get('X-Copy-From')
+
         content_length = (request.content_length or 0)
 
         account_info = get_account_info(request.environ, self.app)
