@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from swift import gettext_ as _
-from eventlet import Timeout
 
 from swift.common.swob import Request, HTTPServerError
 from swift.common.utils import get_logger, generate_trans_id
@@ -35,8 +34,8 @@ class CatchErrorsContext(WSGIContext):
         try:
             # catch any errors in the pipeline
             resp = self._app_call(env)
-        except (Exception, Timeout) as err:
-            self.logger.exception(_('Error: %s'), err)
+        except:  # noqa
+            self.logger.exception(_('Error: An error occurred'))
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')
