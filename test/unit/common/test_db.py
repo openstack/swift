@@ -29,7 +29,8 @@ from eventlet.timeout import Timeout
 
 import swift.common.db
 from swift.common.db import chexor, dict_factory, get_db_connection, \
-    DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists
+    DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
+    GreenDBConnection
 from swift.common.utils import normalize_timestamp
 from swift.common.exceptions import LockTimeout
 
@@ -82,6 +83,41 @@ class TestChexor(unittest.TestCase):
                           normalize_timestamp(1))
 
 
+class TestGreenDBConnection(unittest.TestCase):
+
+    def test_execute_when_locked(self):
+        # This test is dependant on the code under test calling execute and
+        # commit as sqlite3.Cursor.execute in a subclass.
+        class InterceptCursor(sqlite3.Cursor):
+            pass
+        db_error = sqlite3.OperationalError('database is locked')
+        InterceptCursor.execute = MagicMock(side_effect=db_error)
+        with patch('sqlite3.Cursor', new=InterceptCursor):
+            conn = sqlite3.connect(':memory:', check_same_thread=False,
+                                   factory=GreenDBConnection, timeout=0.1)
+            self.assertRaises(Timeout, conn.execute, 'select 1')
+            self.assertTrue(InterceptCursor.execute.called)
+            self.assertEqual(InterceptCursor.execute.call_args_list,
+                             list((InterceptCursor.execute.call_args,) *
+                                  InterceptCursor.execute.call_count))
+
+    def text_commit_when_locked(self):
+        # This test is dependant on the code under test calling commit and
+        # commit as sqlite3.Connection.commit in a subclass.
+        class InterceptConnection(sqlite3.Connection):
+            pass
+        db_error = sqlite3.OperationalError('database is locked')
+        InterceptConnection.commit = MagicMock(side_effect=db_error)
+        with patch('sqlite3.Connection', new=InterceptConnection):
+            conn = sqlite3.connect(':memory:', check_same_thread=False,
+                                   factory=GreenDBConnection, timeout=0.1)
+            self.assertRaises(Timeout, conn.commit)
+            self.assertTrue(InterceptConnection.commit.called)
+            self.assertEqual(InterceptConnection.commit.call_args_list,
+                             list((InterceptConnection.commit.call_args,) *
+                                  InterceptConnection.commit.call_count))
+
+
 class TestGetDBConnection(unittest.TestCase):
 
     def test_normal_case(self):
@@ -94,22 +130,15 @@ class TestGetDBConnection(unittest.TestCase):
 
     def test_locked_db(self):
         # This test is dependant on the code under test calling execute and
-        # commit as sqlite3.<Connection/Cursor>.<execute/commit> in a subclass.
-        class InterceptConnection(sqlite3.Connection):
-            pass
-
+        # commit as sqlite3.Cursor.execute in a subclass.
         class InterceptCursor(sqlite3.Cursor):
             pass
 
         db_error = sqlite3.OperationalError('database is locked')
         mock_db_cmd = MagicMock(side_effect=db_error)
-        InterceptConnection.execute = mock_db_cmd
-        InterceptConnection.commit = mock_db_cmd
         InterceptCursor.execute = mock_db_cmd
-        InterceptCursor.commit = mock_db_cmd
 
-        with patch.multiple('sqlite3', Connection=InterceptConnection,
-                            Cursor=InterceptCursor):
+        with patch('sqlite3.Cursor', new=InterceptCursor):
             self.assertRaises(Timeout, get_db_connection, ':memory:',
                               timeout=0.1)
             self.assertTrue(mock_db_cmd.called)

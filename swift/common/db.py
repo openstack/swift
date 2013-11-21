@@ -57,6 +57,19 @@ def utf8encodekeys(metadata):
         metadata[k.encode('utf-8')] = sv
 
 
+def _db_timeout(timeout, db_file, call):
+    with LockTimeout(timeout, db_file):
+        retry_wait = 0.001
+        while True:
+            try:
+                return call()
+            except sqlite3.OperationalError as e:
+                if 'locked' not in str(e):
+                    raise
+            sleep(retry_wait)
+            retry_wait = min(retry_wait * 2, 0.05)
+
+
 class DatabaseConnectionError(sqlite3.DatabaseError):
     """More friendly error messages for DB Errors."""
 
@@ -94,6 +107,11 @@ class GreenDBConnection(sqlite3.Connection):
             cls = GreenDBCursor
         return sqlite3.Connection.cursor(self, cls)
 
+    def commit(self):
+        return _db_timeout(
+            self.timeout, self.db_file,
+            lambda: sqlite3.Connection.commit(self))
+
 
 class GreenDBCursor(sqlite3.Cursor):
     """SQLite Cursor handler that plays well with eventlet."""
@@ -103,24 +121,10 @@ class GreenDBCursor(sqlite3.Cursor):
         self.db_file = args[0].db_file
         sqlite3.Cursor.__init__(self, *args, **kwargs)
 
-    def _timeout(self, call):
-        with LockTimeout(self.timeout, self.db_file):
-            retry_wait = 0.001
-            while True:
-                try:
-                    return call()
-                except sqlite3.OperationalError as e:
-                    if 'locked' not in str(e):
-                        raise
-                sleep(retry_wait)
-                retry_wait = min(retry_wait * 2, 0.05)
-
     def execute(self, *args, **kwargs):
-        return self._timeout(lambda: sqlite3.Cursor.execute(
-            self, *args, **kwargs))
-
-    def commit(self):
-        return self._timeout(lambda: sqlite3.Cursor.commit(self))
+        return _db_timeout(
+            self.timeout, self.db_file, lambda: sqlite3.Cursor.execute(
+                self, *args, **kwargs))
 
 
 def dict_factory(crs, row):
