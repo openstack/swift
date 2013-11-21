@@ -89,22 +89,38 @@ class GreenDBConnection(sqlite3.Connection):
         self.db_file = args[0] if args else'-'
         sqlite3.Connection.__init__(self, *args, **kwargs)
 
+    def cursor(self, cls=None):
+        if cls is None:
+            cls = GreenDBCursor
+        return sqlite3.Connection.cursor(self, cls)
+
+
+class GreenDBCursor(sqlite3.Cursor):
+    """SQLite Cursor handler that plays well with eventlet."""
+
+    def __init__(self, *args, **kwargs):
+        self.timeout = args[0].timeout
+        self.db_file = args[0].db_file
+        sqlite3.Cursor.__init__(self, *args, **kwargs)
+
     def _timeout(self, call):
         with LockTimeout(self.timeout, self.db_file):
+            retry_wait = 0.001
             while True:
                 try:
                     return call()
                 except sqlite3.OperationalError as e:
                     if 'locked' not in str(e):
                         raise
-                sleep(0.05)
+                sleep(retry_wait)
+                retry_wait = min(retry_wait * 2, 0.05)
 
     def execute(self, *args, **kwargs):
-        return self._timeout(lambda: sqlite3.Connection.execute(
+        return self._timeout(lambda: sqlite3.Cursor.execute(
             self, *args, **kwargs))
 
     def commit(self):
-        return self._timeout(lambda: sqlite3.Connection.commit(self))
+        return self._timeout(lambda: sqlite3.Cursor.commit(self))
 
 
 def dict_factory(crs, row):
