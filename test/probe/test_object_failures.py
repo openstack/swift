@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from os import listdir, unlink
 from os.path import join as path_join
 from unittest import main, TestCase
@@ -27,8 +28,22 @@ from swift.obj.diskfile import write_metadata, read_metadata
 from test.probe.common import kill_servers, reset_environment
 
 
+RETRIES = 5
+
+
 def get_data_file_path(obj_dir):
-    files = sorted(listdir(obj_dir), reverse=True)
+    files = []
+    # We might need to try a few times if a request hasn't yet settled. For
+    # instance, a PUT can return success when just 2 of 3 nodes has completed.
+    for attempt in xrange(RETRIES + 1):
+        try:
+            files = sorted(listdir(obj_dir), reverse=True)
+            break
+        except Exception:
+            if attempt < RETRIES:
+                time.sleep(1)
+            else:
+                raise
     for filename in files:
         return path_join(obj_dir, filename)
 
