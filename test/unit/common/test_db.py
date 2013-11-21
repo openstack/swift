@@ -193,15 +193,10 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
-
-        def my_ismount(*a, **kw):
-            return True
-
-        with patch('os.path.ismount', my_ismount):
-            broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-            broker._initialize = stub
-            self.assertRaises(DatabaseAlreadyExists,
-                              broker.initialize, normalize_timestamp('1'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker._initialize = stub
+        self.assertRaises(DatabaseAlreadyExists,
+                          broker.initialize, normalize_timestamp('1'))
 
     def test_delete_db(self):
         def init_stub(conn, put_timestamp):

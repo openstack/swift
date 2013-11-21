@@ -24,7 +24,7 @@ from time import sleep, time
 from swiftclient import get_auth, head_account
 
 from swift.common.ring import Ring
-from swift.common.utils import readconf
+from swift.common.utils import readconf, ismount
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -154,7 +154,7 @@ def get_ring(server, force_validate=None):
         for device in os.listdir(conf['devices']):
             if device == dev['device']:
                 full_path = path.realpath(path.join(conf['devices'], device))
-                assert path.ismount(full_path), \
+                assert ismount(full_path), \
                     'device %s in %s was not mounted (%s)' % (
                         device, conf['devices'], full_path)
                 break

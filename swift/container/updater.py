@@ -30,7 +30,8 @@ from swift.container.server import DATADIR
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, config_true_value, dump_recon_cache
+from swift.common.utils import get_logger, config_true_value, ismount, \
+    dump_recon_cache
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -79,7 +80,7 @@ class ContainerUpdater(Daemon):
         paths = []
         for device in os.listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
-            if self.mount_check and not os.path.ismount(dev_path):
+            if self.mount_check and not ismount(dev_path):
                 self.logger.warn(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)

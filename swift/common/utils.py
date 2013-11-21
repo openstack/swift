@@ -1511,8 +1511,7 @@ def audit_location_generator(devices, datadir, suffix='',
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dir)
     for device in device_dir:
-        if mount_check and not \
-                os.path.ismount(os.path.join(devices, device)):
+        if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)

@@ -414,7 +414,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         def mock_ismount(path):
             return path.endswith('sdp')
 
-        with mock.patch('os.path.ismount', mock_ismount):
+        with mock.patch('swift.obj.diskfile.ismount', mock_ismount):
             with temptree([]) as tmpdir:
                 os.makedirs(os.path.join(tmpdir, "sdp", "objects",
                                          "2607", "df3",

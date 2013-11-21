@@ -448,13 +448,13 @@ class TestReaper(unittest.TestCase):
         devices = prepare_data_dir()
         r = init_reaper(devices)
 
-        with patch('swift.account.reaper.os.path.ismount', lambda x: True):
+        with patch('swift.account.reaper.ismount', lambda x: True):
             with patch(
                     'swift.account.reaper.AccountReaper.reap_device') as foo:
                 r.run_once()
         self.assertEqual(foo.called, 1)
 
-        with patch('swift.account.reaper.os.path.ismount', lambda x: False):
+        with patch('swift.account.reaper.ismount', lambda x: False):
             with patch(
                     'swift.account.reaper.AccountReaper.reap_device') as foo:
                 r.run_once()
