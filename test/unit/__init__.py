@@ -18,6 +18,7 @@
 import os
 import copy
 import logging
+import errno
 from sys import exc_info
 from contextlib import contextmanager
 from collections import defaultdict
@@ -170,7 +171,7 @@ def _getxattr(fd, k):
     inode = _get_inode(fd)
     data = xattr_data.get(inode, {}).get(k)
     if not data:
-        raise IOError
+        raise IOError(errno.ENODATA, "Fake IOError")
     return data
 
 import xattr
