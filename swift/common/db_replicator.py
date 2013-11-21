@@ -127,7 +127,7 @@ class ReplConnection(BufferedHTTPConnection):
 
         :param args: list of json-encodable objects
 
-        :returns: httplib response object
+        :returns: bufferedhttp response object
         """
         try:
             body = simplejson.dumps(args)

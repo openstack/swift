@@ -15,7 +15,7 @@
 
 # NOTE: swift_conn
 # You'll see swift_conn passed around a few places in this file. This is the
-# source httplib connection of whatever it is attached to.
+# source bufferedhttp connection of whatever it is attached to.
 #   It is used when early termination of reading from the connection should
 # happen, such as when a range request is satisfied but there's still more the
 # source connection would like to send. To prevent having to read all the data
@@ -71,7 +71,7 @@ def source_key(resp):
     Provide the timestamp of the swift http response as a floating
     point value.  Used as a sort key.
 
-    :param resp: httplib response object
+    :param resp: bufferedhttp response object
     """
     return float(resp.getheader('x-put-timestamp') or
                  resp.getheader('x-timestamp') or 0)
@@ -935,8 +935,8 @@ class Controller(object):
         func).  There is also quite a bit of cleanup to ensure garbage
         collection works and the underlying socket of the source is closed.
 
-        :param source: The httplib.Response object this iterator should read
-                       from.
+        :param source: The bufferedhttp.Response object this iterator should
+                       read from.
         :param node: The node the source is reading from, for logging purposes.
         """
         try:
