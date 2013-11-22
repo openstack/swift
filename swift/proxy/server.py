@@ -19,6 +19,7 @@ import socket
 from swift import gettext_ as _
 from random import shuffle
 from time import time
+import itertools
 
 from eventlet import Timeout
 
@@ -331,6 +332,126 @@ class Application(object):
         now = time()
         timing = round(timing, 3)  # sort timings to the millisecond
         self.node_timings[node['ip']] = (timing, now + self.timing_expiry)
+
+    def error_limited(self, node):
+        """
+        Check if the node is currently error limited.
+
+        :param node: dictionary of node to check
+        :returns: True if error limited, False otherwise
+        """
+        now = time()
+        if 'errors' not in node:
+            return False
+        if 'last_error' in node and node['last_error'] < \
+                now - self.error_suppression_interval:
+            del node['last_error']
+            if 'errors' in node:
+                del node['errors']
+            return False
+        limited = node['errors'] > self.error_suppression_limit
+        if limited:
+            self.logger.debug(
+                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
+        return limited
+
+    def error_limit(self, node, msg):
+        """
+        Mark a node as error limited. This immediately pretends the
+        node received enough errors to trigger error suppression. Use
+        this for errors like Insufficient Storage. For other errors
+        use :func:`error_occurred`.
+
+        :param node: dictionary of node to error limit
+        :param msg: error message
+        """
+        node['errors'] = self.error_suppression_limit + 1
+        node['last_error'] = time()
+        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
+                          {'msg': msg, 'ip': node['ip'],
+                          'port': node['port'], 'device': node['device']})
+
+    def error_occurred(self, node, msg):
+        """
+        Handle logging, and handling of errors.
+
+        :param node: dictionary of node to handle errors for
+        :param msg: error message
+        """
+        node['errors'] = node.get('errors', 0) + 1
+        node['last_error'] = time()
+        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
+                          {'msg': msg, 'ip': node['ip'],
+                          'port': node['port'], 'device': node['device']})
+
+    def iter_nodes(self, ring, partition, node_iter=None):
+        """
+        Yields nodes for a ring partition, skipping over error
+        limited nodes and stopping at the configurable number of
+        nodes. If a node yielded subsequently gets error limited, an
+        extra node will be yielded to take its place.
+
+        Note that if you're going to iterate over this concurrently from
+        multiple greenthreads, you'll want to use a
+        swift.common.utils.GreenthreadSafeIterator to serialize access.
+        Otherwise, you may get ValueErrors from concurrent access. (You also
+        may not, depending on how logging is configured, the vagaries of
+        socket IO and eventlet, and the phase of the moon.)
+
+        :param ring: ring to get yield nodes from
+        :param partition: ring partition to yield nodes for
+        :param node_iter: optional iterable of nodes to try. Useful if you
+            want to filter or reorder the nodes.
+        """
+        part_nodes = ring.get_part_nodes(partition)
+        if node_iter is None:
+            node_iter = itertools.chain(part_nodes,
+                                        ring.get_more_nodes(partition))
+        num_primary_nodes = len(part_nodes)
+
+        # Use of list() here forcibly yanks the first N nodes (the primary
+        # nodes) from node_iter, so the rest of its values are handoffs.
+        primary_nodes = self.sort_nodes(
+            list(itertools.islice(node_iter, num_primary_nodes)))
+        handoff_nodes = node_iter
+        nodes_left = self.request_node_count(ring)
+
+        for node in primary_nodes:
+            if not self.error_limited(node):
+                yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
+        handoffs = 0
+        for node in handoff_nodes:
+            if not self.error_limited(node):
+                handoffs += 1
+                if self.log_handoffs:
+                    self.logger.increment('handoff_count')
+                    self.logger.warning(
+                        'Handoff requested (%d)' % handoffs)
+                    if handoffs == len(primary_nodes):
+                        self.logger.increment('handoff_all_count')
+                yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
+
+    def exception_occurred(self, node, typ, additional_info):
+        """
+        Handle logging of generic exceptions.
+
+        :param node: dictionary of node to log the error for
+        :param typ: server type
+        :param additional_info: additional information to log
+        """
+        self.logger.exception(
+            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
+              '%(info)s'),
+            {'type': typ, 'ip': node['ip'], 'port': node['port'],
+             'device': node['device'], 'info': additional_info})
 
 
 def app_factory(global_conf, **local_conf):

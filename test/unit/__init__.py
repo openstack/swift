@@ -426,6 +426,8 @@ def fake_http_connect(*code_iter, **kwargs):
             self.body = body
             self.headers = headers or {}
             self.timestamp = timestamp
+            if kwargs.get('slow') and isinstance(kwargs['slow'], list):
+                kwargs['slow'][0] -= 1
 
         def getresponse(self):
             if kwargs.get('raise_exc'):
@@ -469,13 +471,18 @@ def fake_http_connect(*code_iter, **kwargs):
                     headers['x-container-timestamp'] = '1'
             except StopIteration:
                 pass
-            if 'slow' in kwargs:
+            if self.am_slow():
                 headers['content-length'] = '4'
             headers.update(self.headers)
             return headers.items()
 
+        def am_slow(self):
+            if kwargs.get('slow') and isinstance(kwargs['slow'], list):
+                return kwargs['slow'][0] >= 0
+            return bool(kwargs.get('slow'))
+
         def read(self, amt=None):
-            if 'slow' in kwargs:
+            if self.am_slow():
                 if self.sent < 4:
                     self.sent += 1
                     sleep(0.1)
@@ -485,7 +492,7 @@ def fake_http_connect(*code_iter, **kwargs):
             return rv
 
         def send(self, amt=None):
-            if 'slow' in kwargs:
+            if self.am_slow():
                 if self.received < 4:
                     self.received += 1
                     sleep(0.1)

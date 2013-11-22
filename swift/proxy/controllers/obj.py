@@ -504,7 +504,7 @@ class ObjectController(Controller):
         is_local = self.app.write_affinity_is_local_fn
 
         if is_local is None:
-            return self.iter_nodes(ring, partition)
+            return self.app.iter_nodes(ring, partition)
 
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
@@ -519,19 +519,8 @@ class ObjectController(Controller):
             itertools.ifilter(lambda node: node not in first_n_local_nodes,
                               all_nodes))
 
-        return self.iter_nodes(
+        return self.app.iter_nodes(
             ring, partition, node_iter=local_first_node_iter)
-
-    def is_good_source(self, src):
-        """
-        Indicates whether or not the request made to the backend found
-        what it was looking for.
-
-        In the case of an object, a 416 indicates that we found a
-        backend with the object.
-        """
-        return src.status == 416 or \
-            super(ObjectController, self).is_good_source(src)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -800,8 +789,9 @@ class ObjectController(Controller):
                         conn.send(chunk)
                 except (Exception, ChunkWriteTimeout):
                     conn.failed = True
-                    self.exception_occurred(conn.node, _('Object'),
-                                            _('Trying to write to %s') % path)
+                    self.app.exception_occurred(
+                        conn.node, _('Object'),
+                        _('Trying to write to %s') % path)
             conn.queue.task_done()
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -827,10 +817,11 @@ class ObjectController(Controller):
                     conn.node = node
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.error_limit(node, _('ERROR Insufficient Storage'))
+                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
-                self.exception_occurred(node, _('Object'),
-                                        _('Expect: 100-continue on %s') % path)
+                self.app.exception_occurred(
+                    node, _('Object'),
+                    _('Expect: 100-continue on %s') % path)
 
     def _get_put_responses(self, req, conns, nodes):
         statuses = []
@@ -846,7 +837,7 @@ class ObjectController(Controller):
                     else:
                         return conn.getresponse()
             except (Exception, Timeout):
-                self.exception_occurred(
+                self.app.exception_occurred(
                     conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
         pile = GreenAsyncPile(len(conns))
@@ -858,7 +849,7 @@ class ObjectController(Controller):
                 reasons.append(response.reason)
                 bodies.append(response.read())
                 if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                    self.error_occurred(
+                    self.app.error_occurred(
                         conn.node,
                         _('ERROR %(status)d %(body)s From Object Server '
                           're: %(path)s') %
