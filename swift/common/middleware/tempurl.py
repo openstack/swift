@@ -255,7 +255,8 @@ class TempURL(object):
         """
         if env['REQUEST_METHOD'] == 'OPTIONS':
             return self.app(env, start_response)
-        temp_url_sig, temp_url_expires, filename = self._get_temp_url_info(env)
+        info = self._get_temp_url_info(env)
+        temp_url_sig, temp_url_expires, filename, inline_disposition = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -291,21 +292,30 @@ class TempURL(object):
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
             if env['REQUEST_METHOD'] == 'GET' and status[0] == '2':
-                already = False
+                # figure out the right value for content-disposition
+                # 1) use the value from the query string
+                # 2) use the value from the object metadata
+                # 3) use the object name (default)
+                out_headers = []
+                existing_disposition = None
                 for h, v in headers:
-                    if h.lower() == 'content-disposition':
-                        already = True
-                        break
-                if already and filename:
-                    headers = list((h, v) for h, v in headers
-                                   if h.lower() != 'content-disposition')
-                    already = False
-                if not already:
-                    name = filename or basename(env['PATH_INFO'].rstrip('/'))
-                    headers.append((
-                        'Content-Disposition',
-                        'attachment; filename="%s"' % (
-                            name.replace('"', '\\"'))))
+                    if h.lower() != 'content-disposition':
+                        out_headers.append((h, v))
+                    else:
+                        existing_disposition = v
+                if inline_disposition:
+                    disposition_value = 'inline'
+                elif filename:
+                    disposition_value = 'attachment; filename="%s"' % (
+                        filename.replace('"', '\\"'))
+                elif existing_disposition:
+                    disposition_value = existing_disposition
+                else:
+                    name = basename(env['PATH_INFO'].rstrip('/'))
+                    disposition_value = 'attachment; filename="%s"' % (
+                        name.replace('"', '\\"'))
+                out_headers.append(('Content-Disposition', disposition_value))
+                headers = out_headers
             return start_response(status, headers, exc_info)
 
         return self.app(env, _start_response)
@@ -336,10 +346,10 @@ class TempURL(object):
         expiration (returns 0 if expired).
 
         :param env: The WSGI environment for the request.
-        :returns: (sig, expires) as described above.
+        :returns: (sig, expires, filename, inline) as described above.
         """
-        temp_url_sig = temp_url_expires = filename = None
-        qs = parse_qs(env.get('QUERY_STRING', ''))
+        temp_url_sig = temp_url_expires = filename = inline = None
+        qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
         if 'temp_url_expires' in qs:
@@ -351,7 +361,9 @@ class TempURL(object):
                 temp_url_expires = 0
         if 'filename' in qs:
             filename = qs['filename'][0]
-        return temp_url_sig, temp_url_expires, filename
+        if 'inline' in qs:
+            inline = True
+        return temp_url_sig, temp_url_expires, filename, inline
 
     def _get_keys(self, env, account):
         """
