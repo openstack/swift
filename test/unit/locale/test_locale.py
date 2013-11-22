@@ -31,30 +31,29 @@ except ImportError:
 class TestTranslations(unittest.TestCase):
 
     def setUp(self):
-        self.la = os.environ.get('LC_ALL')
-        self.sl = os.environ.get('SWIFT_LOCALEDIR')
+        self.orig_env = {}
+        for var in 'LC_ALL', 'SWIFT_LOCALEDIR', 'LANGUAGE':
+            self.orig_env[var] = os.environ.get(var)
         os.environ['LC_ALL'] = 'eo'
         os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
+        os.environ['LANGUAGE'] = ''
         self.orig_stop = threading._DummyThread._Thread__stop
         # See http://stackoverflow.com/questions/13193278/\
         #     understand-python-threading-bug
         threading._DummyThread._Thread__stop = lambda x: 42
 
     def tearDown(self):
-        if self.la is not None:
-            os.environ['LC_ALL'] = self.la
-        else:
-            del os.environ['LC_ALL']
-        if self.sl is not None:
-            os.environ['SWIFT_LOCALEDIR'] = self.sl
-        else:
-            del os.environ['SWIFT_LOCALEDIR']
+        for var, val in self.orig_env.iteritems():
+            if val is not None:
+                os.environ[var] = val
+            else:
+                del os.environ[var]
         threading._DummyThread._Thread__stop = self.orig_stop
 
     def test_translations(self):
         path = ':'.join(sys.path)
         translated_message = check_output(['python', __file__, path])
-        self.assertEquals(translated_message, 'testo mesaĝon\n')
+        self.assertEquals(translated_message, 'prova mesaĝo\n')
 
 
 if __name__ == "__main__":

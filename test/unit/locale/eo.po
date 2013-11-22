@@ -1,2 +1,2 @@
 msgid "test message"
-msgstr "testo mesaĝon"
+msgstr "prova mesaĝo"
