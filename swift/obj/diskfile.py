@@ -30,7 +30,6 @@ The remaining methods in this module are considered implementation specifc and
 are also not considered part of the backend API.
 """
 
-from __future__ import with_statement
 import cPickle as pickle
 import errno
 import os

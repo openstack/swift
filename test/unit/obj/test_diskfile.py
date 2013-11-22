@@ -16,8 +16,6 @@
 
 """Tests for swift.obj.diskfile"""
 
-from __future__ import with_statement
-
 import cPickle as pickle
 import os
 import errno

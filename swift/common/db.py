@@ -15,7 +15,6 @@
 
 """ Database code for Swift """
 
-from __future__ import with_statement
 from contextlib import contextmanager, closing
 import hashlib
 import logging
