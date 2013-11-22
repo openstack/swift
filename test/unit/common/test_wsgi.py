@@ -33,8 +33,10 @@ from urllib import quote
 
 from eventlet import listen
 
-import swift
 import mock
+
+import swift.common.middleware.catch_errors
+import swift.proxy.server
 
 from swift.common.swob import Request
 from swift.common import wsgi, utils, ring
