@@ -99,7 +99,7 @@ class KeystoneAuth(object):
             return self.app(environ, start_response)
 
         if identity:
-            self.logger.debug('Using identity: %r' % (identity))
+            self.logger.debug('Using identity: %r', identity)
             environ['keystone.identity'] = identity
             environ['REMOTE_USER'] = identity.get('tenant')
             environ['swift.authorize'] = self.authorize
@@ -199,7 +199,7 @@ class KeystoneAuth(object):
         # role.
         if self.reseller_admin_role in user_roles:
             msg = 'User %s has reseller admin authorizing'
-            self.logger.debug(msg % tenant_id)
+            self.logger.debug(msg, tenant_id)
             req.environ['swift_owner'] = True
             return
 
@@ -208,7 +208,7 @@ class KeystoneAuth(object):
         if not container and not obj and req.method == 'DELETE':
             # User is not allowed to issue a DELETE on its own account
             msg = 'User %s:%s is not allowed to delete its own account'
-            self.logger.debug(msg % (tenant_name, user_name))
+            self.logger.debug(msg, tenant_name, user_name)
             return self.denied_response(req)
 
         # cross-tenant authorization
@@ -216,8 +216,8 @@ class KeystoneAuth(object):
                                                    tenant_id, tenant_name,
                                                    roles)
         if matched_acl is not None:
-            log_msg = 'user %s allowed in ACL authorizing.' % matched_acl
-            self.logger.debug(log_msg)
+            log_msg = 'user %s allowed in ACL authorizing.'
+            self.logger.debug(log_msg, matched_acl)
             return
 
         acl_authorized = self._authorize_unconfirmed_identity(req, obj,
@@ -229,8 +229,8 @@ class KeystoneAuth(object):
         # Check if a user tries to access an account that does not match their
         # token
         if not self._reseller_check(account, tenant_id):
-            log_msg = 'tenant mismatch: %s != %s' % (account, tenant_id)
-            self.logger.debug(log_msg)
+            log_msg = 'tenant mismatch: %s != %s'
+            self.logger.debug(log_msg, account, tenant_id)
             return self.denied_response(req)
 
         # Check the roles the user is belonging to. If the user is
@@ -240,8 +240,8 @@ class KeystoneAuth(object):
         for role in self.operator_roles.split(','):
             role = role.strip()
             if role in user_roles:
-                log_msg = 'allow user with role %s as account admin' % (role)
-                self.logger.debug(log_msg)
+                log_msg = 'allow user with role %s as account admin'
+                self.logger.debug(log_msg, role)
                 req.environ['swift_owner'] = True
                 return
 
@@ -260,8 +260,8 @@ class KeystoneAuth(object):
         for user_role in user_roles:
             if user_role in (r.lower() for r in roles):
                 log_msg = 'user %s:%s allowed in ACL: %s authorizing'
-                self.logger.debug(log_msg % (tenant_name, user_name,
-                                             user_role))
+                self.logger.debug(log_msg, tenant_name, user_name,
+                                  user_role)
                 return
 
         return self.denied_response(req)
@@ -306,15 +306,15 @@ class KeystoneAuth(object):
                 and (req.environ['swift_sync_key'] ==
                      req.headers.get('x-container-sync-key', None))
                 and 'x-timestamp' in req.headers):
-            log_msg = 'allowing proxy %s for container-sync' % req.remote_addr
-            self.logger.debug(log_msg)
+            log_msg = 'allowing proxy %s for container-sync'
+            self.logger.debug(log_msg, req.remote_addr)
             return True
 
         # Check if referrer is allowed.
         if swift_acl.referrer_allowed(req.referer, referrers):
             if obj or '.rlistings' in roles:
-                log_msg = 'authorizing %s via referer ACL' % req.referrer
-                self.logger.debug(log_msg)
+                log_msg = 'authorizing %s via referer ACL'
+                self.logger.debug(log_msg, req.referrer)
                 return True
             return False
 
