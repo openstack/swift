@@ -15,7 +15,6 @@
 
 """Tests for swift.common.utils"""
 
-from __future__ import with_statement
 from test.unit import temptree
 
 import ctypes

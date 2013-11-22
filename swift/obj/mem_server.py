@@ -15,7 +15,6 @@
 
 """ In-Memory Object Server for Swift """
 
-from __future__ import with_statement
 import os
 from swift import gettext_ as _
 

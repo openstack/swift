@@ -15,7 +15,6 @@
 
 """ In-Memory Disk File Interface for Swift Object Server"""
 
-from __future__ import with_statement
 import cStringIO
 import time
 import hashlib

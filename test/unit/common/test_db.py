@@ -15,7 +15,6 @@
 
 """Tests for swift.common.db"""
 
-from __future__ import with_statement
 import os
 import unittest
 from shutil import rmtree, copy

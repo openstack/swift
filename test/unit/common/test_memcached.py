@@ -16,7 +16,6 @@
 
 """Tests for swift.common.utils"""
 
-from __future__ import with_statement
 from collections import defaultdict
 import logging
 import socket
