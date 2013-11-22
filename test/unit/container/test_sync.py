@@ -144,7 +144,7 @@ class TestContainerSync(unittest.TestCase):
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
             sync.audit_location_generator = fake_audit_location_generator
-            cs.run_forever()
+            cs.run_forever(1, 2, a=3, b=4, verbose=True)
         except Exception as err:
             if str(err) != 'we are now done':
                 raise
@@ -199,7 +199,7 @@ class TestContainerSync(unittest.TestCase):
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
             sync.audit_location_generator = fake_audit_location_generator
-            cs.run_once()
+            cs.run_once(1, 2, a=3, b=4, verbose=True)
             self.assertEquals(time_calls, [6])
             self.assertEquals(audit_location_generator_calls, [1])
             self.assertEquals(cs.reported, 3602)
