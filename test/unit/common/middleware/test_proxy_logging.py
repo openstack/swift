@@ -18,6 +18,7 @@ import time
 from urllib import unquote
 import cStringIO as StringIO
 from logging.handlers import SysLogHandler
+import mock
 
 from test.unit import FakeLogger
 from swift.common.utils import get_logger
@@ -38,6 +39,12 @@ class FakeApp(object):
         while env['wsgi.input'].read(5):
             pass
         return self.body
+
+
+class FakeAppThatExcepts(object):
+
+    def __call__(self, env, start_response):
+        raise Exception("We take exception to that!")
 
 
 class FakeAppNoContentLengthNoTransferEncoding(object):
@@ -172,10 +179,8 @@ class TestProxyLogging(unittest.TestCase):
             '/v1/a/c/o/p/': 'object',
             '/v1/a/c/o/p/p2': 'object',
         }
-        for path, exp_type in path_types.iteritems():
-            orig_time = time.time
-            try:
-                time.time = stub_time
+        with mock.patch("time.time", stub_time):
+            for path, exp_type in path_types.iteritems():
                 # GET
                 app = proxy_logging.ProxyLoggingMiddleware(
                     FakeApp(body='7654321', response_str='321 Fubar'), {})
@@ -230,8 +235,6 @@ class TestProxyLogging(unittest.TestCase):
                     '%s.PUT.314.first-byte.timing' % exp_type, app)
                 self.assertUpdateStats(
                     '%s.PUT.314.xfer' % exp_type, 6 + 8, app)
-            finally:
-                time.time = orig_time
 
     def test_log_request_stat_method_filtering_default(self):
         method_map = {
@@ -326,16 +329,17 @@ class TestProxyLogging(unittest.TestCase):
         self.assertUpdateStats('SOS.GET.200.xfer', len(resp_body), app)
 
     def test_log_headers(self):
-        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
-                                                   {'log_headers': 'yes'})
-        app.access_logger = FakeLogger()
-        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
-        resp = app(req.environ, start_response)
-        # exhaust generator
-        [x for x in resp]
-        log_parts = self._log_parts(app)
-        headers = unquote(log_parts[14]).split('\n')
-        self.assert_('Host: localhost:80' in headers)
+        for conf_key in ['access_log_headers', 'log_headers']:
+            app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
+                                                       {conf_key: 'yes'})
+            app.access_logger = FakeLogger()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+            resp = app(req.environ, start_response)
+            # exhaust generator
+            [x for x in resp]
+            log_parts = self._log_parts(app)
+            headers = unquote(log_parts[14]).split('\n')
+            self.assert_('Host: localhost:80' in headers)
 
     def test_upload_size(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
@@ -481,6 +485,19 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[6], '499')
         self.assertEquals(log_parts[10], '-')  # read length
 
+    def test_app_exception(self):
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeAppThatExcepts(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        try:
+            app(req.environ, start_response)
+        except Exception:
+            pass
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[6], '500')
+        self.assertEquals(log_parts[10], '-')  # read length
+
     def test_no_content_length_no_transfer_encoding_with_list_body(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeAppNoContentLengthNoTransferEncoding(
@@ -516,6 +533,31 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[6], '200')
         self.assertEquals(resp_body, '')
         self.assertEquals(log_parts[11], '-')
+
+    def test_no_content_length_no_transfer_encoding_with_generator(self):
+
+        class BodyGen(object):
+            def __init__(self, data):
+                self.data = data
+
+            def __iter__(self):
+                yield self.data
+
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeAppNoContentLengthNoTransferEncoding(
+                body=BodyGen('abc'),
+            ), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(resp_body, 'abc')
+        self.assertEquals(log_parts[11], '3')
 
     def test_req_path_info_popping(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
@@ -659,6 +701,41 @@ class TestProxyLogging(unittest.TestCase):
         # Avoids pyflakes error, "local variable 'resp_body' is assigned to
         # but never used
         self.assertTrue(resp_body is not None)
+
+    def test_ensure_fields(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        with mock.patch.multiple('time',
+                                 time=mock.MagicMock(
+                                     side_effect=[10000000.0, 10000001.0]),
+                                 gmtime=mock.MagicMock(
+                                     side_effect=[
+                                         time.gmtime(10000001.00001)])):
+            resp = app(req.environ, start_response)
+            resp_body = ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(len(log_parts), 18)
+        self.assertEquals(log_parts[0], '-')
+        self.assertEquals(log_parts[1], '-')
+        self.assertEquals(log_parts[2], '26/Apr/1970/17/46/41')
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(log_parts[7], '-')
+        self.assertEquals(log_parts[8], '-')
+        self.assertEquals(log_parts[9], '-')
+        self.assertEquals(log_parts[10], '-')
+        self.assertEquals(resp_body, 'FAKE APP')
+        self.assertEquals(log_parts[11], str(len(resp_body)))
+        self.assertEquals(log_parts[12], '-')
+        self.assertEquals(log_parts[13], '-')
+        self.assertEquals(log_parts[14], '-')
+        self.assertEquals(log_parts[15], '1.0000')
+        self.assertEquals(log_parts[16], '-')
+        self.assertEquals(log_parts[17], '-')
+
 
 if __name__ == '__main__':
     unittest.main()
