@@ -408,6 +408,19 @@ threads_per_disk               0              Size of the per-disk thread pool
 replication_concurrency        4              Set to restrict the number of
                                               concurrent incoming REPLICATION
                                               requests; set to 0 for unlimited
+replication_one_per_device     True           Restricts incoming REPLICATION
+                                              requests to one per device,
+                                              replication_currency above
+                                              allowing. This can help control
+                                              I/O to each device, but you may
+                                              wish to set this to False to
+                                              allow multiple REPLICATION
+                                              requests (up to the above
+                                              replication_concurrency setting)
+                                              per device.
+replication_lock_timeout       15             Number of seconds to wait for an
+                                              existing replication device lock
+                                              before giving up.
 replication_failure_threshold  100            The number of subrequest failures
                                               before the
                                               replication_failure_ratio is

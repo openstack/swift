@@ -1179,7 +1179,7 @@ def hash_path(account, container=None, object=None, raw_digest=False):
 
 
 @contextmanager
-def lock_path(directory, timeout=10):
+def lock_path(directory, timeout=10, timeout_class=LockTimeout):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -1191,12 +1191,16 @@ def lock_path(directory, timeout=10):
 
     :param directory: directory to be locked
     :param timeout: timeout (in seconds)
+    :param timeout_class: The class of the exception to raise if the
+        lock cannot be granted within the timeout. Will be
+        constructed as timeout_class(timeout, lockpath). Default:
+        LockTimeout
     """
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
     fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
     try:
-        with LockTimeout(timeout, lockpath):
+        with timeout_class(timeout, lockpath):
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

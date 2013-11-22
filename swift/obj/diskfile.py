@@ -55,7 +55,8 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
     config_true_value, listdir, split_path, ismount
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
-    DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir
+    DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
+    ReplicationLockTimeout
 from swift.common.swob import multi_range_iterator
 
 
@@ -381,6 +382,10 @@ class DiskFileManager(object):
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.reclaim_age = int(conf.get('reclaim_age', ONE_WEEK))
+        self.replication_one_per_device = config_true_value(
+            conf.get('replication_one_per_device', 'true'))
+        self.replication_lock_timeout = int(conf.get(
+            'replication_lock_timeout', 15))
         threads_per_disk = int(conf.get('threads_per_disk', '0'))
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=threads_per_disk))
@@ -411,6 +416,25 @@ class DiskFileManager(object):
         else:
             dev_path = os.path.join(self.devices, device)
         return dev_path
+
+    @contextmanager
+    def replication_lock(self, device):
+        """
+        A context manager that will lock on the device given, if
+        configured to do so.
+
+        :raises ReplicationLockTimeout: If the lock on the device
+            cannot be granted within the configured timeout.
+        """
+        if self.replication_one_per_device:
+            dev_path = self.get_dev_path(device)
+            with lock_path(
+                    dev_path,
+                    timeout=self.replication_lock_timeout,
+                    timeout_class=ReplicationLockTimeout):
+                yield True
+        else:
+            yield True
 
     def pickle_async_update(self, device, account, container, obj, data,
                             timestamp):
