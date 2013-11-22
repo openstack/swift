@@ -166,46 +166,6 @@ class TestConstraints(unittest.TestCase):
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         self.assert_('Content-Type' in resp.body)
 
-    def test_check_object_manifest_header(self):
-        resp = constraints.check_object_creation(Request.blank(
-            '/',
-            headers={'X-Object-Manifest': 'container/prefix',
-                     'Content-Length': '0',
-                     'Content-Type': 'text/plain'}), 'manifest')
-        self.assert_(not resp)
-        resp = constraints.check_object_creation(Request.blank(
-            '/',
-            headers={'X-Object-Manifest': 'container',
-                     'Content-Length': '0',
-                     'Content-Type': 'text/plain'}), 'manifest')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        resp = constraints.check_object_creation(Request.blank(
-            '/',
-            headers={'X-Object-Manifest': '/container/prefix',
-                     'Content-Length': '0',
-                     'Content-Type': 'text/plain'}), 'manifest')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        resp = constraints.check_object_creation(Request.blank(
-            '/',
-            headers={'X-Object-Manifest': 'container/prefix?query=param',
-                     'Content-Length': '0',
-                     'Content-Type': 'text/plain'}), 'manifest')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        resp = constraints.check_object_creation(Request.blank(
-            '/',
-            headers={'X-Object-Manifest': 'container/prefix&query=param',
-                     'Content-Length': '0',
-                     'Content-Type': 'text/plain'}), 'manifest')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        resp = constraints.check_object_creation(
-            Request.blank(
-                '/', headers={
-                    'X-Object-Manifest': 'http://host/container/prefix',
-                    'Content-Length': '0',
-                    'Content-Type': 'text/plain'}),
-                'manifest')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
         with mock.patch("swift.common.constraints.ismount", MockTrue()):

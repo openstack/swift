@@ -141,15 +141,23 @@ class TestWSGI(unittest.TestCase):
             _fake_rings(t)
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_file, 'proxy-server')
-        # verify pipeline is catch_errors -> proxy-server
+        # verify pipeline is catch_errors -> dlo -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
         self.assert_(isinstance(app, expected))
+
         app = app.app
         expected = swift.common.middleware.gatekeeper.GatekeeperMiddleware
         self.assert_(isinstance(app, expected))
-        self.assert_(isinstance(app.app, swift.proxy.server.Application))
+
+        app = app.app
+        expected = swift.common.middleware.dlo.DynamicLargeObject
+        self.assert_(isinstance(app, expected))
+
+        app = app.app
+        expected = swift.proxy.server.Application
+        self.assert_(isinstance(app, expected))
         # config settings applied to app instance
-        self.assertEquals(0.2, app.app.conn_timeout)
+        self.assertEquals(0.2, app.conn_timeout)
         # appconfig returns values from 'proxy-server' section
         expected = {
             '__file__': conf_file,
@@ -841,7 +849,8 @@ class TestPipelineModification(unittest.TestCase):
 
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
-                         'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.dlo',
                           'swift.proxy.server'])
 
     def test_proxy_modify_wsgi_pipeline(self):
@@ -870,9 +879,10 @@ class TestPipelineModification(unittest.TestCase):
 
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
-                         'swift.common.middleware.gatekeeper',
-                         'swift.common.middleware.healthcheck',
-                         'swift.proxy.server'])
+                          'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.dlo',
+                          'swift.common.middleware.healthcheck',
+                          'swift.proxy.server'])
 
     def test_proxy_modify_wsgi_pipeline_ordering(self):
         config = """
@@ -904,10 +914,10 @@ class TestPipelineModification(unittest.TestCase):
             {'name': 'catch_errors'},
             # already in pipeline
             {'name': 'proxy_logging',
-             'after': ['catch_errors']},
+             'after_fn': lambda _: ['catch_errors']},
             # not in pipeline, comes after more than one thing
             {'name': 'container_quotas',
-             'after': ['catch_errors', 'bulk']}]
+             'after_fn': lambda _: ['catch_errors', 'bulk']}]
 
         contents = dedent(config)
         with temptree(['proxy-server.conf']) as t:
@@ -967,6 +977,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app), [
             'swift.common.middleware.catch_errors',
             'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.dlo',
             'swift.common.middleware.healthcheck',
             'swift.proxy.server'])
 
@@ -979,6 +990,7 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.gatekeeper',
             'swift.common.middleware.healthcheck',
             'swift.common.middleware.catch_errors',
+            'swift.common.middleware.dlo',
             'swift.proxy.server'])
 
     def test_catch_errors_gatekeeper_configured_not_at_start(self):
@@ -990,6 +1002,7 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.healthcheck',
             'swift.common.middleware.catch_errors',
             'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.dlo',
             'swift.proxy.server'])
 
 if __name__ == '__main__':

@@ -160,6 +160,13 @@ Static Large Objects
     :members:
     :show-inheritance:
 
+Dynamic Large Objects
+====================
+
+.. automodule:: swift.common.middleware.dlo
+    :members:
+    :show-inheritance:
+
 List Endpoints
 ==============
 
