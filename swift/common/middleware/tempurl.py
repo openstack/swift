@@ -267,17 +267,16 @@ class TempURL(object):
         if not keys:
             return self._invalid(env, start_response)
         if env['REQUEST_METHOD'] == 'HEAD':
-            hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
-                                        request_method='GET')
-            if temp_url_sig not in hmac_vals:
-                hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
-                                            request_method='PUT')
-                if temp_url_sig not in hmac_vals:
-                    return self._invalid(env, start_response)
+            hmac_vals = (
+                self._get_hmacs(env, temp_url_expires, keys) +
+                self._get_hmacs(env, temp_url_expires, keys,
+                                request_method='GET') +
+                self._get_hmacs(env, temp_url_expires, keys,
+                                request_method='PUT'))
         else:
             hmac_vals = self._get_hmacs(env, temp_url_expires, keys)
-            if temp_url_sig not in hmac_vals:
-                return self._invalid(env, start_response)
+        if temp_url_sig not in hmac_vals:
+            return self._invalid(env, start_response)
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
@@ -387,6 +386,11 @@ class TempURL(object):
                         expires.
         :param keys: Key strings, from the X-Account-Meta-Temp-URL-Key[-2] of
                      the account.
+        :param request_method: Optional override of the request in
+                               the WSGI env. For example, if a HEAD
+                               does not match, you may wish to
+                               override with GET to still allow the
+                               HEAD.
         """
         if not request_method:
             request_method = env['REQUEST_METHOD']
