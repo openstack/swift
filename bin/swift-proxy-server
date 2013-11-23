@@ -14,9 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from swift.common.utils import parse_options
 from swift.common.wsgi import run_wsgi
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    run_wsgi(conf_file, 'proxy-server', default_port=8080, **options)
+    sys.exit(run_wsgi(conf_file, 'proxy-server', default_port=8080, **options))

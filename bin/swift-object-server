@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from swift.common.utils import parse_options
 from swift.common.wsgi import run_wsgi
 from swift.obj import server
@@ -21,5 +22,6 @@ from swift.obj import server
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    run_wsgi(conf_file, 'object-server', default_port=6000,
-             global_conf_callback=server.global_conf_callback, **options)
+    sys.exit(run_wsgi(conf_file, 'object-server', default_port=6000,
+                      global_conf_callback=server.global_conf_callback,
+                      **options))
