@@ -450,7 +450,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         def splode_if_endswith(suffix):
             def sploder(path):
                 if path.endswith(suffix):
-                    raise OSError(errno.ELIBBAD, "don't try to ad-lib")
+                    raise OSError(errno.EACCES, "don't try to ad-lib")
                 else:
                     return real_listdir(path)
             return sploder
