@@ -1590,6 +1590,24 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertEqual(df.timestamp, '1383181759.12345')
 
+    def test_error_in_hashdir_cleanup_listdir(self):
+
+        def mock_hcl(*args, **kwargs):
+            raise OSError()
+
+        df = self._get_open_disk_file()
+        ts = time()
+        with mock.patch("swift.obj.diskfile.hash_cleanup_listdir",
+                        mock_hcl):
+            try:
+                df.delete(ts)
+            except OSError:
+                self.fail("OSError raised when it should have been swallowed")
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 2)
+        self.assertTrue(exp_name in set(dl))
+
 
 if __name__ == '__main__':
     unittest.main()

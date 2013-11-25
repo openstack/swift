@@ -662,7 +662,10 @@ class DiskFileWriter(object):
         # After the rename completes, this object will be available for other
         # requests to reference.
         renamer(self._tmppath, target_path)
-        hash_cleanup_listdir(self._datadir)
+        try:
+            hash_cleanup_listdir(self._datadir)
+        except OSError:
+            logging.exception(_('Problem cleaning up %s'), self._datadir)
 
     def put(self, metadata):
         """
