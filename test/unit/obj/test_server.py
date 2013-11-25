@@ -27,7 +27,10 @@ from time import gmtime, strftime, time
 from tempfile import mkdtemp
 from hashlib import md5
 
-from eventlet import sleep, spawn, wsgi, listen, Timeout
+from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
+
+from nose import SkipTest
+
 from test.unit import FakeLogger, debug_logger
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
@@ -36,7 +39,6 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
-from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
 
 
@@ -2826,8 +2828,14 @@ class TestObjectController(unittest.TestCase):
         object_server.global_conf_callback(preloaded_app_conf, global_conf)
         self.assertEqual(preloaded_app_conf, {})
         self.assertEqual(global_conf.keys(), ['replication_semaphore'])
-        self.assertEqual(
-            global_conf['replication_semaphore'][0].get_value(), 4)
+        try:
+            value = global_conf['replication_semaphore'][0].get_value()
+        except NotImplementedError:
+            # On some operating systems (at a minimum, OS X) it's not possible
+            # to introspect the value of a semaphore
+            raise SkipTest
+        else:
+            self.assertEqual(value, 4)
 
     def test_global_conf_callback_replication_semaphore(self):
         preloaded_app_conf = {'replication_concurrency': 123}
