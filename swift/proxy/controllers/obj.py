@@ -859,6 +859,8 @@ class ObjectController(Controller):
                     etags.add(response.getheader('etag').strip('"'))
                 if self.have_quorum(statuses, len(nodes)):
                     break
+        # give any pending requests *some* chance to finish
+        pile.waitall(self.app.post_quorum_timeout)
         while len(statuses) < len(nodes):
             statuses.append(HTTP_SERVICE_UNAVAILABLE)
             reasons.append('')
