@@ -19,7 +19,7 @@ import mock
 from test import safe_repr
 from test.unit import MockTrue
 
-from swift.common.swob import HTTPBadRequest, Request
+from swift.common.swob import HTTPBadRequest, Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
     HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED
 from swift.common import constraints
@@ -256,6 +256,33 @@ class TestConstraints(unittest.TestCase):
         self.assertTrue(c.MAX_META_OVERALL_SIZE > c.MAX_META_VALUE_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_NAME_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_VALUE_LENGTH)
+
+    def test_validate_copy_from(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'x-copy-from': 'c/o2'})
+        src_cont, src_obj = constraints.check_copy_from_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'x-copy-from': 'c/subdir/o2'})
+        src_cont, src_obj = constraints.check_copy_from_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'subdir/o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'x-copy-from': '/c/o2'})
+        src_cont, src_obj = constraints.check_copy_from_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+
+    def test_validate_bad_copy_from(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'x-copy-from': 'bad_object'})
+        self.assertRaises(HTTPException,
+                          constraints.check_copy_from_header, req)
 
 
 if __name__ == '__main__':

@@ -45,7 +45,7 @@ from swift.common.utils import ContextPool, normalize_timestamp, \
     get_valid_utf8_str, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
+    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE, check_copy_from_header
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError, SegmentError
@@ -992,21 +992,12 @@ class ObjectController(Controller):
             if req.environ.get('swift.orig_req_method', req.method) != 'POST':
                 req.environ.setdefault('swift.log_info', []).append(
                     'x-copy-from:%s' % source_header)
-            source_header = unquote(source_header)
-            acct = req.swift_entity_path.split('/', 2)[1]
+            src_container_name, src_obj_name = check_copy_from_header(req)
+            ver, acct, _rest = req.split_path(2, 3, True)
             if isinstance(acct, unicode):
                 acct = acct.encode('utf-8')
-            if not source_header.startswith('/'):
-                source_header = '/' + source_header
-            source_header = '/v1/' + acct + source_header
-            try:
-                src_container_name, src_obj_name = \
-                    source_header.split('/', 4)[3:]
-            except ValueError:
-                return HTTPPreconditionFailed(
-                    request=req,
-                    body='X-Copy-From header must be of the form'
-                         '<container name>/<object name>')
+            source_header = '/%s/%s/%s/%s' % (ver, acct,
+                                              src_container_name, src_obj_name)
             source_req = req.copy_get()
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'

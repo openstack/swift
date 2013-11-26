@@ -41,7 +41,7 @@ set:
 |                                             | container.                    |
 +---------------------------------------------+-------------------------------+
 """
-
+from swift.common.constraints import check_copy_from_header
 from swift.common.http import is_success
 from swift.common.swob import Response, HTTPBadRequest, wsgify
 from swift.common.utils import register_swift_info
@@ -90,10 +90,10 @@ class ContainerQuotaMiddleware(object):
                     'bytes' in container_info and \
                     container_info['meta']['quota-bytes'].isdigit():
                 content_length = (req.content_length or 0)
-                copy_from = req.headers.get('X-Copy-From')
-                if copy_from:
-                    path = '/%s/%s/%s' % (version, account,
-                                          copy_from.lstrip('/'))
+                if 'x-copy-from' in req.headers:
+                    src_cont, src_obj = check_copy_from_header(req)
+                    path = '/%s/%s/%s/%s' % (version, account,
+                                             src_cont, src_obj)
                     object_info = get_object_info(req.environ, self.app, path)
                     if not object_info or not object_info['length']:
                         content_length = 0
