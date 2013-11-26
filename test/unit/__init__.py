@@ -19,7 +19,7 @@ import os
 import copy
 import logging
 import errno
-from sys import exc_info
+import sys
 from contextlib import contextmanager
 from collections import defaultdict
 from tempfile import NamedTemporaryFile
@@ -28,7 +28,7 @@ from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, LogAdapter
 from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
@@ -234,6 +234,7 @@ class FakeLogger(logging.Logger):
         self.level = logging.NOTSET
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
+        self.statsd_client = None
 
     def _clear(self):
         self.log_dict = defaultdict(list)
@@ -259,7 +260,8 @@ class FakeLogger(logging.Logger):
     debug = _store_and_log_in('debug')
 
     def exception(self, *args, **kwargs):
-        self.log_dict['exception'].append((args, kwargs, str(exc_info()[1])))
+        self.log_dict['exception'].append((args, kwargs,
+                                           str(sys.exc_info()[1])))
         print 'FakeLogger Exception: %s' % self.log_dict
 
     # mock out the StatsD logging methods:
@@ -303,7 +305,7 @@ class FakeLogger(logging.Logger):
     def emit(self, record):
         pass
 
-    def handle(self, record):
+    def _handle(self, record):
         try:
             line = record.getMessage()
         except TypeError:
@@ -312,11 +314,31 @@ class FakeLogger(logging.Logger):
             raise
         self.lines_dict[record.levelno].append(line)
 
+    def handle(self, record):
+        self._handle(record)
+
     def flush(self):
         pass
 
     def handleError(self, record):
         pass
+
+
+class DebugLogger(FakeLogger):
+    """A simple stdout logging version of FakeLogger"""
+
+    def __init__(self, *args, **kwargs):
+        FakeLogger.__init__(self, *args, **kwargs)
+        self.formatter = logging.Formatter("%(server)s: %(message)s")
+
+    def handle(self, record):
+        self._handle(record)
+        print self.formatter.format(record)
+
+
+def debug_logger(name='test'):
+    """get a named adapted debug logger"""
+    return LogAdapter(DebugLogger(), name)
 
 
 original_syslog_handler = logging.handlers.SysLogHandler

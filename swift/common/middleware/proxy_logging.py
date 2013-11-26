@@ -87,7 +87,7 @@ class ProxyLoggingMiddleware(object):
     Middleware that logs Swift proxy requests in the swift log format.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger=None):
         self.app = app
         self.log_hdrs = config_true_value(conf.get(
             'access_log_headers',
@@ -110,8 +110,8 @@ class ProxyLoggingMiddleware(object):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
-        self.access_logger = get_logger(access_log_conf,
-                                        log_route='proxy-access')
+        self.access_logger = logger or get_logger(access_log_conf,
+                                                  log_route='proxy-access')
         self.access_logger.set_statsd_prefix('proxy-server')
         self.reveal_sensitive_prefix = int(conf.get('reveal_sensitive_prefix',
                                                     MAX_HEADER_SIZE))
