@@ -444,11 +444,7 @@ class TestMemcached(unittest.TestCase):
                 while not got:
                     try:
                         got = pool.get()
-                    # This was really supposed to be "except:" but ran afoul
-                    # of the H201 check, which does not implement the "noqa"
-                    # exception.  Once that's fixed, the except here can be
-                    # changed to "except: # noqa"
-                    except (Exception, BaseException):
+                    except:  # noqa
                         pass
                 pool.put(got)
 

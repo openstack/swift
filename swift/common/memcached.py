@@ -150,10 +150,7 @@ class MemcacheConnPool(Pool):
         if self.current_size <= self.max_size:
             try:
                 created = self.create()
-            # This was really supposed to be "except:" but ran afoul of the
-            # H201 check, which does not implement the "noqa" exception.  Once
-            # that's fixed, the except here can be changed to "except:  # noqa"
-            except (Exception, BaseException):
+            except:  # noqa
                 self.current_size -= 1
                 raise
             return created
