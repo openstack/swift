@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import cPickle as pickle
+import mock
 import os
 import unittest
 from contextlib import closing
@@ -45,11 +46,15 @@ class TestObjectUpdater(unittest.TestCase):
         ring_file = os.path.join(self.testdir, 'container.ring.gz')
         with closing(GzipFile(ring_file, 'wb')) as f:
             pickle.dump(
-                RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                RingData([[0, 1, 2, 0, 1, 2],
+                          [1, 2, 0, 1, 2, 0],
+                          [2, 3, 1, 2, 3, 1]],
                          [{'id': 0, 'ip': '127.0.0.1', 'port': 1,
                            'device': 'sda1', 'zone': 0},
                           {'id': 1, 'ip': '127.0.0.1', 'port': 1,
-                           'device': 'sda1', 'zone': 2}], 30),
+                           'device': 'sda1', 'zone': 2},
+                          {'id': 2, 'ip': '127.0.0.1', 'port': 1,
+                           'device': 'sda1', 'zone': 4}], 30),
                 f)
         self.devices_dir = os.path.join(self.testdir, 'devices')
         os.mkdir(self.devices_dir)
@@ -79,6 +84,11 @@ class TestObjectUpdater(unittest.TestCase):
     def test_object_sweep(self):
         prefix_dir = os.path.join(self.sda1, ASYNCDIR, 'abc')
         mkpath(prefix_dir)
+
+        # A non-directory where directory is expected should just be skipped...
+        not_a_dir_path = os.path.join(self.sda1, ASYNCDIR, 'not_a_dir')
+        with open(not_a_dir_path, 'w'):
+            pass
 
         objects = {
             'a': [1089.3, 18.37, 12.83, 1.3],
@@ -112,9 +122,12 @@ class TestObjectUpdater(unittest.TestCase):
             'node_timeout': '5'})
         cu.object_sweep(self.sda1)
         self.assert_(not os.path.exists(prefix_dir))
+        self.assert_(os.path.exists(not_a_dir_path))
         self.assertEqual(expected, seen)
 
-    def test_run_once(self):
+    @mock.patch.object(object_updater, 'ismount')
+    def test_run_once_with_disk_unmounted(self, mock_ismount):
+        mock_ismount.return_value = False
         cu = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -127,12 +140,62 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
+        # mount_check == False means no call to ismount
+        self.assertEqual([], mock_ismount.mock_calls)
 
+        cu = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'TrUe',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15'})
+        odd_dir = os.path.join(async_dir, 'not really supposed to be here')
+        os.mkdir(odd_dir)
+        cu.logger = FakeLogger()
+        cu.run_once()
+        self.assert_(os.path.exists(async_dir))
+        self.assert_(os.path.exists(odd_dir))  # skipped because not mounted!
+        # mount_check == True means ismount was checked
+        self.assertEqual([
+            mock.call(self.sda1),
+        ], mock_ismount.mock_calls)
+        self.assertEqual(cu.logger.get_increment_counts(), {'errors': 1})
+
+    @mock.patch.object(object_updater, 'ismount')
+    def test_run_once(self, mock_ismount):
+        mock_ismount.return_value = True
+        cu = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15'})
+        cu.run_once()
+        async_dir = os.path.join(self.sda1, ASYNCDIR)
+        os.mkdir(async_dir)
+        cu.run_once()
+        self.assert_(os.path.exists(async_dir))
+        # mount_check == False means no call to ismount
+        self.assertEqual([], mock_ismount.mock_calls)
+
+        cu = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'TrUe',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15'})
         odd_dir = os.path.join(async_dir, 'not really supposed to be here')
         os.mkdir(odd_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
         self.assert_(not os.path.exists(odd_dir))
+        # mount_check == True means ismount was checked
+        self.assertEqual([
+            mock.call(self.sda1),
+        ], mock_ismount.mock_calls)
 
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
@@ -147,7 +210,8 @@ class TestObjectUpdater(unittest.TestCase):
             with open(path, 'wb') as async_pending:
                 pickle.dump({'op': 'PUT', 'account': 'a', 'container': 'c',
                              'obj': 'o', 'headers': {
-                            'X-Container-Timestamp': normalize_timestamp(0)}},
+                                 'X-Container-Timestamp':
+                                 normalize_timestamp(0)}},
                             async_pending)
         cu.logger = FakeLogger()
         cu.run_once()
@@ -155,6 +219,8 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
+        self.assertEqual(None,
+                         pickle.load(open(op_path)).get('successes'))
 
         bindsock = listen(('127.0.0.1', 0))
 
@@ -196,7 +262,7 @@ class TestObjectUpdater(unittest.TestCase):
                 return err
             return None
 
-        event = spawn(accept, [201, 500])
+        event = spawn(accept, [201, 500, 500])
         for dev in cu.get_container_ring().devs:
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
@@ -209,6 +275,20 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
+        self.assertEqual([0],
+                         pickle.load(open(op_path)).get('successes'))
+
+        event = spawn(accept, [404, 500])
+        cu.logger = FakeLogger()
+        cu.run_once()
+        err = event.wait()
+        if err:
+            raise err
+        self.assert_(os.path.exists(op_path))
+        self.assertEqual(cu.logger.get_increment_counts(),
+                         {'failures': 1})
+        self.assertEqual([0, 1],
+                         pickle.load(open(op_path)).get('successes'))
 
         event = spawn(accept, [201])
         cu.logger = FakeLogger()

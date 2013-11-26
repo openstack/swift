@@ -71,8 +71,8 @@ class ObjectUpdater(Daemon):
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
             for device in os.listdir(self.devices):
-                if self.mount_check and not \
-                        ismount(os.path.join(self.devices, device)):
+                if self.mount_check and \
+                        not ismount(os.path.join(self.devices, device)):
                     self.logger.increment('errors')
                     self.logger.warn(
                         _('Skipping %s as it is not mounted'), device)
@@ -115,7 +115,7 @@ class ObjectUpdater(Daemon):
         self.failures = 0
         for device in os.listdir(self.devices):
             if self.mount_check and \
-                    ismount(os.path.join(self.devices, device)):
+                    not ismount(os.path.join(self.devices, device)):
                 self.logger.increment('errors')
                 self.logger.warn(
                     _('Skipping %s as it is not mounted'), device)
