@@ -257,6 +257,7 @@ class FakeLogger(logging.Logger):
     error = _store_and_log_in('error')
     info = _store_and_log_in('info')
     warning = _store_and_log_in('warning')
+    warn = _store_and_log_in('warning')
     debug = _store_and_log_in('debug')
 
     def exception(self, *args, **kwargs):
