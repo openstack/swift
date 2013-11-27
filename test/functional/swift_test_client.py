@@ -604,7 +604,7 @@ class File(Base):
         return data
 
     def read(self, size=-1, offset=0, hdrs=None, buffer=None,
-             callback=None, cfg={}):
+             callback=None, cfg={}, parms={}):
 
         if size > 0:
             range_string = 'bytes=%d-%d' % (offset, (offset + size) - 1)
@@ -614,7 +614,7 @@ class File(Base):
                 hdrs = {'Range': range_string}
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
-                                        cfg=cfg)
+                                        cfg=cfg, parms=parms)
 
         if(status < 200) or (status > 299):
             raise ResponseError(self.conn.response)
@@ -734,6 +734,10 @@ class File(Base):
            (self.conn.response.status > 299):
             raise ResponseError(self.conn.response)
 
+        try:
+            data.seek(0)
+        except IOError:
+            pass
         self.md5 = self.compute_md5sum(data)
 
         return True

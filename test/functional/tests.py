@@ -15,6 +15,8 @@
 # limitations under the License.
 
 from datetime import datetime
+import hashlib
+import json
 import locale
 import random
 import StringIO
@@ -884,7 +886,7 @@ class TestFile(Base):
     set_up = False
 
     def testCopy(self):
-        # makes sure to test encoded characters"
+        # makes sure to test encoded characters
         source_filename = 'dealde%2Fl04 011e%204c8df/flash.png'
         file_item = self.env.container.file(source_filename)
 
@@ -1623,6 +1625,229 @@ class TestFileComparison(Base):
 
 class TestFileComparisonUTF8(Base2, TestFileComparison):
     set_up = False
+
+
+class TestSloEnv(object):
+    slo_enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
+        cls.account.delete_containers()
+
+        cls.container = cls.account.container(Utils.create_name())
+
+        if not cls.container.create():
+            raise ResponseError(cls.conn.response)
+
+        # TODO(seriously, anyone can do this): make this use the /info API once
+        # it lands, both for detection of SLO and for minimum segment size
+        if cls.slo_enabled is None:
+            test_file = cls.container.file(".test-slo")
+            try:
+                # If SLO is enabled, this'll raise an error since
+                # X-Static-Large-Object is a reserved header.
+                #
+                # If SLO is not enabled, then this will get the usual 2xx
+                # response.
+                test_file.write(
+                    "some contents",
+                    hdrs={'X-Static-Large-Object': 'true'})
+            except ResponseError as err:
+                if err.status == 400:
+                    cls.slo_enabled = True
+                else:
+                    raise
+            else:
+                cls.slo_enabled = False
+                return
+
+        seg_info = {}
+        for letter, size in (('a', 1024 * 1024),
+                             ('b', 1024 * 1024),
+                             ('c', 1024 * 1024),
+                             ('d', 1024 * 1024),
+                             ('e', 1)):
+            seg_name = "seg_%s" % letter
+            file_item = cls.container.file(seg_name)
+            file_item.write(letter * size)
+            seg_info[seg_name] = {
+                'size_bytes': size,
+                'etag': file_item.md5,
+                'path': '/%s/%s' % (cls.container.name, seg_name)}
+
+        file_item = cls.container.file("manifest-abcde")
+        file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+
+        file_item = cls.container.file('manifest-cd')
+        cd_json = json.dumps([seg_info['seg_c'], seg_info['seg_d']])
+        file_item.write(cd_json, parms={'multipart-manifest': 'put'})
+        cd_etag = hashlib.md5(seg_info['seg_c']['etag'] +
+                              seg_info['seg_d']['etag']).hexdigest()
+
+        file_item = cls.container.file("manifest-bcd-submanifest")
+        file_item.write(
+            json.dumps([seg_info['seg_b'],
+                        {'etag': cd_etag,
+                         'size_bytes': (seg_info['seg_c']['size_bytes'] +
+                                        seg_info['seg_d']['size_bytes']),
+                         'path': '/%s/%s' % (cls.container.name,
+                                             'manifest-cd')}]),
+            parms={'multipart-manifest': 'put'})
+        bcd_submanifest_etag = hashlib.md5(
+            seg_info['seg_b']['etag'] + cd_etag).hexdigest()
+
+        file_item = cls.container.file("manifest-abcde-submanifest")
+        file_item.write(
+            json.dumps([
+                seg_info['seg_a'],
+                {'etag': bcd_submanifest_etag,
+                 'size_bytes': (seg_info['seg_b']['size_bytes'] +
+                                seg_info['seg_c']['size_bytes'] +
+                                seg_info['seg_d']['size_bytes']),
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'manifest-bcd-submanifest')},
+                seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+
+
+class TestSlo(Base):
+    env = TestSloEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestSlo, self).setUp()
+        if self.env.slo_enabled is False:
+            raise SkipTest("SLO not enabled")
+        elif self.env.slo_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected slo_enabled to be True/False, got %r" %
+                (self.env.slo_enabled,))
+
+    def test_slo_get_simple_manifest(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_contents = file_item.read()
+        self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
+        self.assertEqual('a', file_contents[0])
+        self.assertEqual('a', file_contents[1024 * 1024 - 1])
+        self.assertEqual('b', file_contents[1024 * 1024])
+        self.assertEqual('d', file_contents[-2])
+        self.assertEqual('e', file_contents[-1])
+
+    def test_slo_get_nested_manifest(self):
+        file_item = self.env.container.file('manifest-abcde-submanifest')
+        file_contents = file_item.read()
+        self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
+        self.assertEqual('a', file_contents[0])
+        self.assertEqual('a', file_contents[1024 * 1024 - 1])
+        self.assertEqual('b', file_contents[1024 * 1024])
+        self.assertEqual('d', file_contents[-2])
+        self.assertEqual('e', file_contents[-1])
+
+    def test_slo_ranged_get(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_contents = file_item.read(size=1024 * 1024 + 2,
+                                       offset=1024 * 1024 - 1)
+        self.assertEqual('a', file_contents[0])
+        self.assertEqual('b', file_contents[1])
+        self.assertEqual('b', file_contents[-2])
+        self.assertEqual('c', file_contents[-1])
+
+    def test_slo_ranged_submanifest(self):
+        file_item = self.env.container.file('manifest-abcde-submanifest')
+        file_contents = file_item.read(size=1024 * 1024 + 2,
+                                       offset=1024 * 1024 * 2 - 1)
+        self.assertEqual('b', file_contents[0])
+        self.assertEqual('c', file_contents[1])
+        self.assertEqual('c', file_contents[-2])
+        self.assertEqual('d', file_contents[-1])
+
+    def test_slo_etag_is_hash_of_etags(self):
+        expected_hash = hashlib.md5()
+        expected_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
+        expected_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
+        expected_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
+        expected_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
+        expected_hash.update(hashlib.md5('e').hexdigest())
+        expected_etag = expected_hash.hexdigest()
+
+        file_item = self.env.container.file('manifest-abcde')
+        self.assertEqual(expected_etag, file_item.info()['etag'])
+
+    def test_slo_etag_is_hash_of_etags_submanifests(self):
+
+        def hd(x):
+            return hashlib.md5(x).hexdigest()
+
+        expected_etag = hd(hd('a' * 1024 * 1024) +
+                           hd(hd('b' * 1024 * 1024) +
+                              hd(hd('c' * 1024 * 1024) +
+                                 hd('d' * 1024 * 1024))) +
+                           hd('e'))
+
+        file_item = self.env.container.file('manifest-abcde-submanifest')
+        self.assertEqual(expected_etag, file_item.info()['etag'])
+
+    def test_slo_etag_mismatch(self):
+        file_item = self.env.container.file("manifest-a-bad-etag")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'size_bytes': 1024 * 1024,
+                    'etag': 'not it',
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_size_mismatch(self):
+        file_item = self.env.container.file("manifest-a-bad-size")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'size_bytes': 1024 * 1024 - 1,
+                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_copy(self):
+        file_item = self.env.container.file("manifest-abcde")
+        file_item.copy(self.env.container.name, "copied-abcde")
+
+        copied = self.env.container.file("copied-abcde")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
+
+    def test_slo_copy_the_manifest(self):
+        file_item = self.env.container.file("manifest-abcde")
+        file_item.copy(self.env.container.name, "copied-abcde",
+                       parms={'multipart-manifest': 'get'})
+
+        copied = self.env.container.file("copied-abcde")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        try:
+            json.loads(copied_contents)
+        except ValueError:
+            self.fail("COPY didn't copy the manifest (invalid json on GET)")
+
+
+class TestSloUTF8(Base2, TestSlo):
+    set_up = False
+
 
 if __name__ == '__main__':
     unittest.main()
