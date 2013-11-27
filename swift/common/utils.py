@@ -1595,6 +1595,10 @@ class ContextPool(GreenPool):
             coro.kill()
 
 
+class GreenAsyncPileWaitallTimeout(Timeout):
+    pass
+
+
 class GreenAsyncPile(object):
     """
     Runs jobs in a pool of green threads, and the results can be retrieved by
@@ -1626,6 +1630,22 @@ class GreenAsyncPile(object):
         """
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
+
+    def waitall(self, timeout):
+        """
+        Wait timeout seconds for any results to come in.
+
+        :param timeout: seconds to wait for results
+        :returns: list of results accrued in that time
+        """
+        results = []
+        try:
+            with GreenAsyncPileWaitallTimeout(timeout):
+                while True:
+                    results.append(self.next())
+        except (GreenAsyncPileWaitallTimeout, StopIteration):
+            pass
+        return results
 
     def __iter__(self):
         return self

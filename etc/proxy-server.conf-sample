@@ -74,6 +74,9 @@ use = egg:swift#proxy
 # node_timeout = 10
 # conn_timeout = 0.5
 #
+# How long to wait for requests to finish after a quorum has been established.
+# post_quorum_timeout = 0.5
+#
 # How long without an error before a node's error count is reset. This will
 # also be how long before a node is reenabled after suppression is triggered.
 # error_suppression_interval = 60

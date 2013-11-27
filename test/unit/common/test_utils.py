@@ -2567,6 +2567,32 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(next(pile), None)
         self.assertRaises(StopIteration, lambda: next(pile))
 
+    def test_waitall_timeout_timesout(self):
+        def run_test(sleep_duration):
+            eventlet.sleep(sleep_duration)
+            completed[0] += 1
+            return sleep_duration
+
+        completed = [0]
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 0.1)
+        pile.spawn(run_test, 1.0)
+        self.assertEqual(pile.waitall(0.2), [0.1])
+        self.assertEqual(completed[0], 1)
+
+    def test_waitall_timeout_completes(self):
+        def run_test(sleep_duration):
+            eventlet.sleep(sleep_duration)
+            completed[0] += 1
+            return sleep_duration
+
+        completed = [0]
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 0.1)
+        pile.spawn(run_test, 0.1)
+        self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
+        self.assertEqual(completed[0], 2)
+
 
 if __name__ == '__main__':
     unittest.main()

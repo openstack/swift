@@ -1012,6 +1012,8 @@ class Controller(object):
             statuses.append(resp[0])
             if self.have_quorum(statuses, len(start_nodes)):
                 break
+        # give any pending requests *some* chance to finish
+        pile.waitall(self.app.post_quorum_timeout)
         while len(response) < len(start_nodes):
             response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
         statuses, reasons, resp_headers, bodies = zip(*response)
