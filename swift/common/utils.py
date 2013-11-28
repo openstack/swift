@@ -2257,14 +2257,18 @@ class ThreadPool(object):
 
         Exceptions thrown will be reraised in the calling thread.
 
-        If the threadpool was initialized with nthreads=0, just calls
-        func(*args, **kwargs).
+        If the threadpool was initialized with nthreads=0, it invokes
+        func(*args, **kwargs) directly, followed by eventlet.sleep() to ensure
+        the eventlet hub has a chance to execute. It is more likely the hub
+        will be invoked when queuing operations to an external thread.
 
         :returns: result of calling func
         :raises: whatever func raises
         """
         if self.nthreads <= 0:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            sleep()
+            return result
 
         ev = event.Event()
         self._run_queue.put((ev, func, args, kwargs), block=False)
