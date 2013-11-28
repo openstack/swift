@@ -281,7 +281,7 @@ class DiskFile(object):
         try:
             mname = self._metadata['name']
         except KeyError:
-            self._quarantine(self._name, "missing name metadata")
+            raise self._quarantine(self._name, "missing name metadata")
         else:
             if mname != self._name:
                 raise DiskFileCollision('Client path does not match path '
@@ -293,7 +293,7 @@ class DiskFile(object):
         except ValueError:
             # Quarantine, the x-delete-at key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
@@ -302,12 +302,12 @@ class DiskFile(object):
         try:
             metadata_size = int(self._metadata['Content-Length'])
         except KeyError:
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "missing content-length in metadata")
         except ValueError:
             # Quarantine, the content-length key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "bad metadata content-length value %s" % (
                     self._metadata['Content-Length']))
         try:
@@ -316,9 +316,9 @@ class DiskFile(object):
             fp.seek(0, 0)
         except OSError as err:
             # Quarantine, we can't successfully stat the file.
-            self._quarantine(self._name, "not stat-able: %s" % err)
+            raise self._quarantine(self._name, "not stat-able: %s" % err)
         if obj_size != metadata_size:
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "metadata content-length %s does"
                 " not match actual object size %s" % (
                     metadata_size, obj_size))
