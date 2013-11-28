@@ -45,14 +45,23 @@ class ResponseError(Exception):
         self.reason = response.reason
         self.method = method
         self.path = path
+        self.headers = response.getheaders()
+
+        for name, value in self.headers:
+            if name.lower() == 'x-trans-id':
+                self.txid = value
+                break
+        else:
+            self.txid = None
+
         super(ResponseError, self).__init__()
 
     def __str__(self):
         return repr(self)
 
     def __repr__(self):
-        return '%d: %r (%r %r)' % (self.status, self.reason, self.method,
-                                   self.path)
+        return '%d: %r (%r %r) txid=%s' % (
+            self.status, self.reason, self.method, self.path, self.txid)
 
 
 def listing_empty(method):
