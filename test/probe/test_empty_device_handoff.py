@@ -16,6 +16,7 @@
 
 import os
 import shutil
+import time
 
 from subprocess import call
 from unittest import main, TestCase
@@ -104,14 +105,24 @@ class TestEmptyDevice(TestCase):
                 client.get_container(self.url, self.token, container)[1]]
         if obj not in objs:
             raise Exception('Container listing did not know about object')
-        for cnode in cnodes:
-            objs = [o['name'] for o in
-                    direct_client.direct_get_container(
-                        cnode, cpart, self.account, container)[1]]
-            if obj not in objs:
-                raise Exception(
-                    'Container server %s:%s did not know about object' %
-                    (cnode['ip'], cnode['port']))
+        timeout = time.time() + 5
+        found_objs_on_cnode = []
+        while time.time() < timeout:
+            for cnode in [c for c in cnodes if cnodes not in
+                          found_objs_on_cnode]:
+                objs = [o['name'] for o in
+                        direct_client.direct_get_container(
+                            cnode, cpart, self.account, container)[1]]
+                if obj in objs:
+                    found_objs_on_cnode.append(cnode)
+            if len(found_objs_on_cnode) >= len(cnodes):
+                break
+            time.sleep(0.3)
+        if len(found_objs_on_cnode) < len(cnodes):
+            missing = ['%s:%s' % (cnode['ip'], cnode['port']) for cnode in
+                       cnodes if cnode not in found_objs_on_cnode]
+            raise Exception('Container servers %r did not know about object' %
+                            missing)
         start_server(onode['port'], self.port2server, self.pids)
         self.assertFalse(os.path.exists(obj_dir))
         exc = None
