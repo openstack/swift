@@ -212,10 +212,13 @@ class ProxyLoggingMiddleware(object):
         def status_int_for_logging(client_disconnect=False, start_status=None):
             # log disconnected clients as '499' status code
             if client_disconnect or input_proxy.client_disconnect:
-                return 499
+                ret_status_int = 499
             elif start_status is None:
-                return int(start_response_args[0][0].split(' ', 1)[0])
-            return start_status
+                ret_status_int = int(
+                    start_response_args[0][0].split(' ', 1)[0])
+            else:
+                ret_status_int = start_status
+            return ret_status_int
 
         def iter_response(iterable):
             iterator = iter(iterable)
