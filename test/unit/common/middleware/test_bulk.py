@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import numbers
 import unittest
 import os
 import tarfile
@@ -22,6 +23,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from StringIO import StringIO
 from mock import patch
+from swift.common import utils
 from swift.common.middleware import bulk
 from swift.common.swob import Request, Response, HTTPException
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
@@ -735,6 +737,30 @@ class TestDelete(unittest.TestCase):
                               [['/c/f1', '401 Unauthorized'],
                                ['/c/f2', '401 Unauthorized']])
 
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        bulk.filter_factory({})
+        swift_info = utils.get_swift_info()
+        self.assertTrue('bulk_upload' in swift_info)
+        self.assertTrue(isinstance(
+            swift_info['bulk_upload'].get('max_containers_per_extraction'),
+            numbers.Integral))
+        self.assertTrue(isinstance(
+            swift_info['bulk_upload'].get('max_failed_extractions'),
+            numbers.Integral))
+
+        self.assertTrue('bulk_delete' in swift_info)
+        self.assertTrue(isinstance(
+            swift_info['bulk_delete'].get('max_deletes_per_request'),
+            numbers.Integral))
+        self.assertTrue(isinstance(
+            swift_info['bulk_delete'].get('max_failed_deletes'),
+            numbers.Integral))
 
 if __name__ == '__main__':
     unittest.main()
