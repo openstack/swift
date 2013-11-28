@@ -23,13 +23,15 @@ import itertools
 
 from eventlet import Timeout
 
+from swift import __canonical_version__ as swift_version
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
-    affinity_key_function, affinity_locality_predicate
+    affinity_key_function, affinity_locality_predicate, list_from_csv, \
+    register_swift_info
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
-    ContainerController
+    ContainerController, InfoController
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
@@ -164,6 +166,12 @@ class Application(object):
         # ** Because it affects the client as well, currently, we use the
         # client chunk size as the govenor and not the object chunk size.
         socket._fileobject.default_bufsize = self.client_chunk_size
+        self.expose_info = config_true_value(
+            conf.get('expose_info', 'yes'))
+        self.disallowed_sections = list_from_csv(
+            conf.get('disallowed_sections'))
+        self.admin_key = conf.get('admin_key', None)
+        register_swift_info(version=swift_version)
 
     def get_controller(self, path):
         """
@@ -174,6 +182,13 @@ class Application(object):
 
         :raises: ValueError (thrown by split_path) if given invalid path
         """
+        if path == '/info':
+            d = dict(version=None,
+                     expose_info=self.expose_info,
+                     disallowed_sections=self.disallowed_sections,
+                     admin_key=self.admin_key)
+            return InfoController, d
+
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
                  account_name=account,

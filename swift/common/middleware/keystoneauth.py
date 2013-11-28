@@ -15,6 +15,7 @@
 from swift.common import utils as swift_utils
 from swift.common.middleware import acl as swift_acl
 from swift.common.swob import HTTPNotFound, HTTPForbidden, HTTPUnauthorized
+from swift.common.utils import register_swift_info
 
 
 class KeystoneAuth(object):
@@ -334,6 +335,7 @@ def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('keystoneauth')
 
     def auth_filter(app):
         return KeystoneAuth(app, conf)

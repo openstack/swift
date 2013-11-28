@@ -687,17 +687,17 @@ class TestTempURL(unittest.TestCase):
                     s, e)}),
             (s, 0, None, None))
 
-    def test_get_hmac(self):
+    def test_get_hmacs(self):
         self.assertEquals(
-            self.tempurl._get_hmac(
+            self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'},
-                1, 'abc'),
-            '026d7f7cc25256450423c7ad03fc9f5ffc1dab6d')
+                1, ['abc']),
+            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
         self.assertEquals(
-            self.tempurl._get_hmac(
+            self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'},
-                1, 'abc', request_method='GET'),
-            '026d7f7cc25256450423c7ad03fc9f5ffc1dab6d')
+                1, ['abc'], request_method='GET'),
+            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
 
     def test_invalid(self):
 

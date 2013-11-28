@@ -15,7 +15,7 @@
 import hmac
 from hashlib import sha1
 from os.path import basename
-from sys import argv, exit
+from sys import argv, exit, stderr
 from time import time
 
 
@@ -59,9 +59,11 @@ if __name__ == '__main__':
     # have '/'s.
     if len(parts) != 5 or parts[0] or parts[1] != 'v1' or not parts[2] or \
             not parts[3] or not parts[4].strip('/'):
-        print '<path> must point to an object.'
-        print 'For example: /v1/account/container/object'
-        exit(1)
+        stderr.write(
+            'WARNING: "%s" does not refer to an object '
+            '(e.g. /v1/account/container/object).\n' % path)
+        stderr.write(
+            'WARNING: Non-object paths will be rejected by tempurl.\n')
     sig = hmac.new(key, '%s\n%s\n%s' % (method, expires, path),
                    sha1).hexdigest()
     print '%s?temp_url_sig=%s&temp_url_expires=%s' % (path, sig, expires)

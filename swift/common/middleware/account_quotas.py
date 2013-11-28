@@ -48,6 +48,7 @@ post -m quota-bytes:
 
 from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
     HTTPBadRequest, wsgify
+from swift.common.utils import register_swift_info
 from swift.proxy.controllers.base import get_account_info, get_object_info
 
 
@@ -132,6 +133,8 @@ class AccountQuotaMiddleware(object):
 
 def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
+    register_swift_info('account_quotas')
+
     def account_quota_filter(app):
         return AccountQuotaMiddleware(app)
     return account_quota_filter

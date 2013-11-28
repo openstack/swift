@@ -43,8 +43,9 @@ set:
 """
 
 from swift.common.http import is_success
-from swift.proxy.controllers.base import get_container_info, get_object_info
 from swift.common.swob import Response, HTTPBadRequest, wsgify
+from swift.common.utils import register_swift_info
+from swift.proxy.controllers.base import get_container_info, get_object_info
 
 
 class ContainerQuotaMiddleware(object):
@@ -113,6 +114,8 @@ class ContainerQuotaMiddleware(object):
 
 
 def filter_factory(global_conf, **local_conf):
+    register_swift_info('container_quotas')
+
     def container_quota_filter(app):
         return ContainerQuotaMiddleware(app)
     return container_quota_filter

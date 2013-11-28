@@ -650,6 +650,34 @@ class TestProxyServer(unittest.TestCase):
                           {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}]
             self.assertEquals(exp_sorted, app_sorted)
 
+    def test_info_defaults(self):
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       object_ring=FakeRing())
+
+        self.assertTrue(app.expose_info)
+        self.assertTrue(isinstance(app.disallowed_sections, list))
+        self.assertEqual(0, len(app.disallowed_sections))
+        self.assertTrue(app.admin_key is None)
+
+    def test_get_info_controller(self):
+        path = '/info'
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       object_ring=FakeRing())
+
+        controller, path_parts = app.get_controller(path)
+
+        self.assertTrue('version' in path_parts)
+        self.assertTrue(path_parts['version'] is None)
+        self.assertTrue('disallowed_sections' in path_parts)
+        self.assertTrue('expose_info' in path_parts)
+        self.assertTrue('admin_key' in path_parts)
+
+        self.assertEqual(controller.__name__, 'InfoController')
+
 
 class TestObjectController(unittest.TestCase):
 

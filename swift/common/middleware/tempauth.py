@@ -28,7 +28,7 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.utils import cache_from_env, get_logger, \
-    split_path, config_true_value
+    split_path, config_true_value, register_swift_info
 
 
 class TempAuth(object):
@@ -510,6 +510,7 @@ def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('tempauth')
 
     def auth_filter(app):
         return TempAuth(app, conf)

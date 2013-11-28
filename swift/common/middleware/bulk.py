@@ -22,7 +22,7 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
-from swift.common.utils import json, get_logger
+from swift.common.utils import json, get_logger, register_swift_info
 from swift.common.constraints import check_utf8, MAX_FILE_SIZE
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH, \
@@ -542,6 +542,7 @@ class Bulk(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('bulk')
 
     def bulk_filter(app):
         return Bulk(app, conf)

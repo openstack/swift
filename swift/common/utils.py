@@ -17,6 +17,7 @@
 
 import errno
 import fcntl
+import hmac
 import operator
 import os
 import pwd
@@ -26,7 +27,7 @@ import threading as stdlib_threading
 import time
 import uuid
 import functools
-from hashlib import md5
+from hashlib import md5, sha1
 from random import random, shuffle
 from urllib import quote as _quote
 from contextlib import contextmanager, closing
@@ -98,6 +99,78 @@ if hash_conf.read('/etc/swift/swift.conf'):
                                          'swift_hash_path_prefix')
     except (NoSectionError, NoOptionError):
         pass
+
+
+def get_hmac(request_method, path, expires, key):
+    """
+    Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
+    the request.
+
+    :param request_method: Request method to allow.
+    :param path: The path to the resource to allow access to.
+    :param expires: Unix timestamp as an int for when the URL
+                    expires.
+    :param key: HMAC shared secret.
+
+    :returns: hexdigest str of the HMAC-SHA1 for the request.
+    """
+    return hmac.new(
+        key, '%s\n%s\n%s' % (request_method, expires, path), sha1).hexdigest()
+
+
+# Used by get_swift_info and register_swift_info to store information about
+# the swift cluster.
+_swift_info = {}
+_swift_admin_info = {}
+
+
+def get_swift_info(admin=False, disallowed_sections=None):
+    """
+    Returns information about the swift cluster that has been previously
+    registered with the register_swift_info call.
+
+    :param admin: boolean value, if True will additionally return an 'admin'
+                  section with information previously registered as admin
+                  info.
+    :param disallowed_sections: list of section names to be withheld from the
+                                information returned.
+    :returns: dictionary of information about the swift cluster.
+    """
+    disallowed_sections = disallowed_sections or []
+    info = {}
+    for section in _swift_info:
+        if section in disallowed_sections:
+            continue
+        info[section] = dict(_swift_info[section].items())
+    if admin:
+        info['admin'] = dict(_swift_admin_info)
+        info['admin']['disallowed_sections'] = list(disallowed_sections)
+    return info
+
+
+def register_swift_info(name='swift', admin=False, **kwargs):
+    """
+    Registers information about the swift cluster to be retrieved with calls
+    to get_swift_info.
+
+    :param name: string, the section name to place the information under.
+    :param admin: boolean, if True, information will be registered to an
+                  admin section which can optionally be withheld when
+                  requesting the information.
+    :param kwargs: key value arguments representing the information to be
+                   added.
+    """
+    if name == 'admin' or name == 'disallowed_sections':
+        raise ValueError('\'{0}\' is reserved name.'.format(name))
+
+    if admin:
+        dict_to_use = _swift_admin_info
+    else:
+        dict_to_use = _swift_info
+    if name not in dict_to_use:
+        dict_to_use[name] = {}
+    for key, val in kwargs.iteritems():
+        dict_to_use[name][key] = val
 
 
 def backward(f, blocksize=4096):

@@ -1662,6 +1662,159 @@ log_name = %(yarr)s'''
         self.assertEquals('abc_%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
                           utils.quote(invalid_utf8_str))
 
+    def test_get_hmac(self):
+        self.assertEquals(
+            utils.get_hmac('GET', '/path', 1, 'abc'),
+            'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
+
+
+class TestSwiftInfo(unittest.TestCase):
+
+    def tearDown(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_register_swift_info(self):
+        utils.register_swift_info(foo='bar')
+        utils.register_swift_info(lorem='ipsum')
+        utils.register_swift_info('cap1', cap1_foo='cap1_bar')
+        utils.register_swift_info('cap1', cap1_lorem='cap1_ipsum')
+
+        self.assertTrue('swift' in utils._swift_info)
+        self.assertTrue('foo' in utils._swift_info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+        self.assertTrue('lorem' in utils._swift_info['swift'])
+        self.assertEqual(utils._swift_info['swift']['lorem'], 'ipsum')
+
+        self.assertTrue('cap1' in utils._swift_info)
+        self.assertTrue('cap1_foo' in utils._swift_info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+        self.assertTrue('cap1_lorem' in utils._swift_info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_lorem'], 'cap1_ipsum')
+
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'admin', foo='bar')
+
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'disallowed_sections',
+                          disallowed_sections=None)
+
+    def test_get_swift_info(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info()
+
+        self.assertTrue('admin' not in info)
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' in info)
+        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+
+    def test_get_swift_info_with_disallowed_sections(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'},
+                             'cap2': {'cap2_foo': 'cap2_bar'},
+                             'cap3': {'cap3_foo': 'cap3_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(disallowed_sections=['cap1', 'cap3'])
+
+        self.assertTrue('admin' not in info)
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' not in info)
+
+        self.assertTrue('cap2' in info)
+        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
+
+        self.assertTrue('cap3' not in info)
+
+    def test_register_swift_admin_info(self):
+        utils.register_swift_info(admin=True, admin_foo='admin_bar')
+        utils.register_swift_info(admin=True, admin_lorem='admin_ipsum')
+        utils.register_swift_info('cap1', admin=True, ac1_foo='ac1_bar')
+        utils.register_swift_info('cap1', admin=True, ac1_lorem='ac1_ipsum')
+
+        self.assertTrue('swift' in utils._swift_admin_info)
+        self.assertTrue('admin_foo' in utils._swift_admin_info['swift'])
+        self.assertEqual(
+            utils._swift_admin_info['swift']['admin_foo'], 'admin_bar')
+        self.assertTrue('admin_lorem' in utils._swift_admin_info['swift'])
+        self.assertEqual(
+            utils._swift_admin_info['swift']['admin_lorem'], 'admin_ipsum')
+
+        self.assertTrue('cap1' in utils._swift_admin_info)
+        self.assertTrue('ac1_foo' in utils._swift_admin_info['cap1'])
+        self.assertEqual(
+            utils._swift_admin_info['cap1']['ac1_foo'], 'ac1_bar')
+        self.assertTrue('ac1_lorem' in utils._swift_admin_info['cap1'])
+        self.assertEqual(
+            utils._swift_admin_info['cap1']['ac1_lorem'], 'ac1_ipsum')
+
+        self.assertTrue('swift' not in utils._swift_info)
+        self.assertTrue('cap1' not in utils._swift_info)
+
+    def test_get_swift_admin_info(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(admin=True)
+
+        self.assertTrue('admin' in info)
+        self.assertTrue('admin_cap1' in info['admin'])
+        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' in info)
+        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+
+    def test_get_swift_admin_info_with_disallowed_sections(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'},
+                             'cap2': {'cap2_foo': 'cap2_bar'},
+                             'cap3': {'cap3_foo': 'cap3_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(
+            admin=True, disallowed_sections=['cap1', 'cap3'])
+
+        self.assertTrue('admin' in info)
+        self.assertTrue('admin_cap1' in info['admin'])
+        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
+        self.assertTrue('disallowed_sections' in info['admin'])
+        self.assertTrue('cap1' in info['admin']['disallowed_sections'])
+        self.assertTrue('cap2' not in info['admin']['disallowed_sections'])
+        self.assertTrue('cap3' in info['admin']['disallowed_sections'])
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' not in info)
+
+        self.assertTrue('cap2' in info)
+        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
+
+        self.assertTrue('cap3' not in info)
+
 
 class TestFileLikeIter(unittest.TestCase):
 
