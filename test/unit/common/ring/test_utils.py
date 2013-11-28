@@ -17,7 +17,8 @@ import unittest
 
 from swift.common.ring.utils import (build_tier_tree, tiers_for_dev,
                                      parse_search_value, parse_args,
-                                     build_dev_from_opts)
+                                     build_dev_from_opts,
+                                     parse_builder_ring_filename_args)
 
 
 class TestUtils(unittest.TestCase):
@@ -138,6 +139,25 @@ class TestUtils(unittest.TestCase):
             'zone': 1,
         }
         self.assertEquals(device, expected)
+
+    def test_parse_builder_ring_filename_args(self):
+        args = 'swift-ring-builder object.builder write_ring'
+        self.assertEquals((
+            'object.builder', 'object.ring.gz'
+        ), parse_builder_ring_filename_args(args.split()))
+        args = 'swift-ring-builder container.ring.gz write_builder'
+        self.assertEquals((
+            'container.builder', 'container.ring.gz'
+        ), parse_builder_ring_filename_args(args.split()))
+        # builer name arg should always fall through
+        args = 'swift-ring-builder test create'
+        self.assertEquals((
+            'test', 'test.ring.gz'
+        ), parse_builder_ring_filename_args(args.split()))
+        args = 'swift-ring-builder my.file.name create'
+        self.assertEquals((
+            'my.file.name', 'my.file.name.ring.gz'
+        ), parse_builder_ring_filename_args(args.split()))
 
 
 if __name__ == '__main__':

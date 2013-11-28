@@ -269,6 +269,22 @@ def parse_args(argvish):
     return parser.parse_args(argvish)
 
 
+def parse_builder_ring_filename_args(argvish):
+    first_arg = argvish[1]
+    if first_arg.endswith('.ring.gz'):
+        ring_file = first_arg
+        builder_file = first_arg[:-len('.ring.gz')] + '.builder'
+    else:
+        builder_file = first_arg
+        if not builder_file.endswith('.builder'):
+            ring_file = first_arg
+        else:
+            ring_file = builder_file[:-len('.builder')]
+    if not first_arg.endswith('.ring.gz'):
+        ring_file += '.ring.gz'
+    return builder_file, ring_file
+
+
 def build_dev_from_opts(opts):
     """
     Convert optparse stype options into a device dictionary.
