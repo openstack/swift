@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
-
 import os
 import time
 import traceback
@@ -57,8 +55,8 @@ class ContainerController(object):
                     'x-container-sync-key', 'x-container-sync-to',
                     POLICY_INDEX.lower()]
 
-    def __init__(self, conf, storage_policies=None):
-        self.logger = get_logger(conf, log_route='container-server')
+    def __init__(self, conf, logger=None, storage_policies=None):
+        self.logger = logger or get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node/')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
@@ -278,7 +276,7 @@ class ContainerController(object):
                     broker.initialize(timestamp)
                     created = True
                 except DatabaseAlreadyExists:
-                    pass
+                    created = False
             else:
                 created = broker.is_deleted()
                 broker.update_put_timestamp(timestamp)

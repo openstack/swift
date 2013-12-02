@@ -13,32 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NOTE: swift_conn
-# You'll see swift_conn passed around a few places in this file. This is the
-# source httplib connection of whatever it is attached to.
-#   It is used when early termination of reading from the connection should
-# happen, such as when a range request is satisfied but there's still more the
-# source connection would like to send. To prevent having to read all the data
-# that could be left, the source connection can be .close() and then reads
-# commence to empty out any buffers.
-#   These shenanigans are to ensure all related objects can be garbage
-# collected. We've seen objects hang around forever otherwise.
-
 import mimetypes
 import os
+import socket
 from swift import gettext_ as _
 from random import shuffle
 from time import time
+import itertools
 
 from eventlet import Timeout
 
+from swift import __canonical_version__ as swift_version
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
-    affinity_key_function, affinity_locality_predicate
+    affinity_key_function, affinity_locality_predicate, list_from_csv, \
+    register_swift_info
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ObjectController, \
-    ContainerController
+    ContainerController, InfoController
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
@@ -66,6 +59,7 @@ class Application(object):
         self.object_chunk_size = int(conf.get('object_chunk_size', 65536))
         self.client_chunk_size = int(conf.get('client_chunk_size', 65536))
         self.trans_id_suffix = conf.get('trans_id_suffix', '')
+        self.post_quorum_timeout = float(conf.get('post_quorum_timeout', 0.5))
         self.error_suppression_interval = \
             int(conf.get('error_suppression_interval', 60))
         self.error_suppression_limit = \
@@ -165,6 +159,24 @@ class Application(object):
         self.swift_owner_headers = [
             name.strip()
             for name in swift_owner_headers.split(',') if name.strip()]
+        # Initialization was successful, so now apply the client chunk size
+        # parameter as the default read / write buffer size for the network
+        # sockets.
+        #
+        # NOTE WELL: This is a class setting, so until we get set this on a
+        # per-connection basis, this affects reading and writing on ALL
+        # sockets, those between the proxy servers and external clients, and
+        # those between the proxy servers and the other internal servers.
+        #
+        # ** Because it affects the client as well, currently, we use the
+        # client chunk size as the govenor and not the object chunk size.
+        socket._fileobject.default_bufsize = self.client_chunk_size
+        self.expose_info = config_true_value(
+            conf.get('expose_info', 'yes'))
+        self.disallowed_sections = list_from_csv(
+            conf.get('disallowed_sections'))
+        self.admin_key = conf.get('admin_key', None)
+        register_swift_info(version=swift_version)
 
     def get_object_ring(self, policy_idx):
         """
@@ -196,6 +208,13 @@ class Application(object):
 
         :raises: ValueError (thrown by split_path) if given invalid path
         """
+        if path == '/info':
+            d = dict(version=None,
+                     expose_info=self.expose_info,
+                     disallowed_sections=self.disallowed_sections,
+                     admin_key=self.admin_key)
+            return InfoController, d
+
         version, account, container, obj = split_path(path, 1, 4, True)
         d = dict(version=version,
                  account_name=account,
@@ -220,6 +239,11 @@ class Application(object):
         try:
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
+            # Remove any x-backend-* headers since those are reserved for use
+            # by backends communicating with each other; no end user should be
+            # able to send those into the cluster.
+            for key in list(k for k in env if k.startswith('HTTP_X_BACKEND_')):
+                del env[key]
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
@@ -350,6 +374,126 @@ class Application(object):
         now = time()
         timing = round(timing, 3)  # sort timings to the millisecond
         self.node_timings[node['ip']] = (timing, now + self.timing_expiry)
+
+    def error_limited(self, node):
+        """
+        Check if the node is currently error limited.
+
+        :param node: dictionary of node to check
+        :returns: True if error limited, False otherwise
+        """
+        now = time()
+        if 'errors' not in node:
+            return False
+        if 'last_error' in node and node['last_error'] < \
+                now - self.error_suppression_interval:
+            del node['last_error']
+            if 'errors' in node:
+                del node['errors']
+            return False
+        limited = node['errors'] > self.error_suppression_limit
+        if limited:
+            self.logger.debug(
+                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
+        return limited
+
+    def error_limit(self, node, msg):
+        """
+        Mark a node as error limited. This immediately pretends the
+        node received enough errors to trigger error suppression. Use
+        this for errors like Insufficient Storage. For other errors
+        use :func:`error_occurred`.
+
+        :param node: dictionary of node to error limit
+        :param msg: error message
+        """
+        node['errors'] = self.error_suppression_limit + 1
+        node['last_error'] = time()
+        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
+                          {'msg': msg, 'ip': node['ip'],
+                          'port': node['port'], 'device': node['device']})
+
+    def error_occurred(self, node, msg):
+        """
+        Handle logging, and handling of errors.
+
+        :param node: dictionary of node to handle errors for
+        :param msg: error message
+        """
+        node['errors'] = node.get('errors', 0) + 1
+        node['last_error'] = time()
+        self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
+                          {'msg': msg, 'ip': node['ip'],
+                          'port': node['port'], 'device': node['device']})
+
+    def iter_nodes(self, ring, partition, node_iter=None):
+        """
+        Yields nodes for a ring partition, skipping over error
+        limited nodes and stopping at the configurable number of
+        nodes. If a node yielded subsequently gets error limited, an
+        extra node will be yielded to take its place.
+
+        Note that if you're going to iterate over this concurrently from
+        multiple greenthreads, you'll want to use a
+        swift.common.utils.GreenthreadSafeIterator to serialize access.
+        Otherwise, you may get ValueErrors from concurrent access. (You also
+        may not, depending on how logging is configured, the vagaries of
+        socket IO and eventlet, and the phase of the moon.)
+
+        :param ring: ring to get yield nodes from
+        :param partition: ring partition to yield nodes for
+        :param node_iter: optional iterable of nodes to try. Useful if you
+            want to filter or reorder the nodes.
+        """
+        part_nodes = ring.get_part_nodes(partition)
+        if node_iter is None:
+            node_iter = itertools.chain(part_nodes,
+                                        ring.get_more_nodes(partition))
+        num_primary_nodes = len(part_nodes)
+
+        # Use of list() here forcibly yanks the first N nodes (the primary
+        # nodes) from node_iter, so the rest of its values are handoffs.
+        primary_nodes = self.sort_nodes(
+            list(itertools.islice(node_iter, num_primary_nodes)))
+        handoff_nodes = node_iter
+        nodes_left = self.request_node_count(ring)
+
+        for node in primary_nodes:
+            if not self.error_limited(node):
+                yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
+        handoffs = 0
+        for node in handoff_nodes:
+            if not self.error_limited(node):
+                handoffs += 1
+                if self.log_handoffs:
+                    self.logger.increment('handoff_count')
+                    self.logger.warning(
+                        'Handoff requested (%d)' % handoffs)
+                    if handoffs == len(primary_nodes):
+                        self.logger.increment('handoff_all_count')
+                yield node
+                if not self.error_limited(node):
+                    nodes_left -= 1
+                    if nodes_left <= 0:
+                        return
+
+    def exception_occurred(self, node, typ, additional_info):
+        """
+        Handle logging of generic exceptions.
+
+        :param node: dictionary of node to log the error for
+        :param typ: server type
+        :param additional_info: additional information to log
+        """
+        self.logger.exception(
+            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
+              '%(info)s'),
+            {'type': typ, 'ip': node['ip'], 'port': node['port'],
+             'device': node['device'], 'info': additional_info})
 
 
 def app_factory(global_conf, **local_conf):

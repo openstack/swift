@@ -5,7 +5,20 @@
 # backlog = 4096
 # swift_dir = /etc/swift
 # user = swift
+
+# Enables exposing configuration settings via HTTP GET /info.
+# expose_info = true
+
+# Key to use for admin calls that are HMAC signed.  Default is empty,
+# which will disable admin calls to /info.
+# admin_key = secret_admin_key
 #
+# Allows the ability to withhold sections from showing up in the public
+# calls to /info.  The following would cause the sections 'container_quotas'
+# and 'tempurl' to not be listed.  Default is empty, allowing all registered
+# fetures to be listed via HTTP GET /info.
+# disallowed_sections = container_quotas, tempurl
+
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu
 # cores in the system.  It's worth noting that individual workers will
@@ -73,6 +86,9 @@ use = egg:swift#proxy
 # client_chunk_size = 8192
 # node_timeout = 10
 # conn_timeout = 0.5
+#
+# How long to wait for requests to finish after a quorum has been established.
+# post_quorum_timeout = 0.5
 #
 # How long without an error before a node's error count is reset. This will
 # also be how long before a node is reenabled after suppression is triggered.
@@ -298,6 +314,9 @@ use = egg:swift#memcache
 # set to 2 and reload.
 # In the future, the ability to use pickle serialization will be removed.
 # memcache_serialization_support = 2
+#
+# Sets the maximum number of connections to each memcached server per worker
+# memcache_max_connections = 2
 
 [filter:ratelimit]
 use = egg:swift#ratelimit

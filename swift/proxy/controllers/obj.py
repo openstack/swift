@@ -15,7 +15,7 @@
 
 # NOTE: swift_conn
 # You'll see swift_conn passed around a few places in this file. This is the
-# source httplib connection of whatever it is attached to.
+# source bufferedhttp connection of whatever it is attached to.
 #   It is used when early termination of reading from the connection should
 # happen, such as when a range request is satisfied but there's still more the
 # source connection would like to send. To prevent having to read all the data
@@ -41,7 +41,7 @@ from eventlet.timeout import Timeout
 from swift.common.utils import ContextPool, normalize_timestamp, \
     config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
     quorum_size, split_path, override_bytes_from_content_type, \
-    get_valid_utf8_str
+    get_valid_utf8_str, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -508,7 +508,7 @@ class ObjectController(Controller):
         is_local = self.app.write_affinity_is_local_fn
 
         if is_local is None:
-            return self.iter_nodes(ring, partition)
+            return self.app.iter_nodes(ring, partition)
 
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
@@ -523,19 +523,8 @@ class ObjectController(Controller):
             itertools.ifilter(lambda node: node not in first_n_local_nodes,
                               all_nodes))
 
-        return self.iter_nodes(
+        return self.app.iter_nodes(
             ring, partition, node_iter=local_first_node_iter)
-
-    def is_good_source(self, src):
-        """
-        Indicates whether or not the request made to the backend found
-        what it was looking for.
-
-        In the case of an object, a 416 indicates that we found a
-        backend with the object.
-        """
-        return src.status == 416 or \
-            super(ObjectController, self).is_good_source(src)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -624,26 +613,11 @@ class ObjectController(Controller):
             if len(listing_page1) >= CONTAINER_LISTING_LIMIT:
                 resp = Response(headers=resp.headers, request=req,
                                 conditional_response=True)
-                if req.method == 'HEAD':
-                    # These shenanigans are because swob translates the HEAD
-                    # request into a swob EmptyResponse for the body, which
-                    # has a len, which eventlet translates as needing a
-                    # content-length header added. So we call the original
-                    # swob resp for the headers but return an empty iterator
-                    # for the body.
-
-                    def head_response(environ, start_response):
-                        resp(environ, start_response)
-                        return iter([])
-
-                    head_response.status_int = resp.status_int
-                    return head_response
-                else:
-                    resp.app_iter = SegmentedIterable(
-                        self, lcontainer, listing,
-                        obj_ring, resp,
-                        is_slo=(large_object == 'SLO'),
-                        max_lo_time=self.app.max_large_object_get_time)
+                resp.app_iter = SegmentedIterable(
+                    self, lcontainer, listing,
+                    obj_ring, resp,
+                    is_slo=(large_object == 'SLO'),
+                    max_lo_time=self.app.max_large_object_get_time)
             else:
                 # For objects with a reasonable number of segments, we'll serve
                 # them with a set content-length and computed etag.
@@ -828,8 +802,9 @@ class ObjectController(Controller):
                         conn.send(chunk)
                 except (Exception, ChunkWriteTimeout):
                     conn.failed = True
-                    self.exception_occurred(conn.node, _('Object'),
-                                            _('Trying to write to %s') % path)
+                    self.app.exception_occurred(
+                        conn.node, _('Object'),
+                        _('Trying to write to %s') % path)
             conn.queue.task_done()
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -855,10 +830,55 @@ class ObjectController(Controller):
                     conn.node = node
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.error_limit(node, _('ERROR Insufficient Storage'))
+                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
-                self.exception_occurred(node, _('Object'),
-                                        _('Expect: 100-continue on %s') % path)
+                self.app.exception_occurred(
+                    node, _('Object'),
+                    _('Expect: 100-continue on %s') % path)
+
+    def _get_put_responses(self, req, conns, nodes):
+        statuses = []
+        reasons = []
+        bodies = []
+        etags = set()
+
+        def get_conn_response(conn):
+            try:
+                with Timeout(self.app.node_timeout):
+                    if conn.resp:
+                        return conn.resp
+                    else:
+                        return conn.getresponse()
+            except (Exception, Timeout):
+                self.app.exception_occurred(
+                    conn.node, _('Object'),
+                    _('Trying to get final status of PUT to %s') % req.path)
+        pile = GreenAsyncPile(len(conns))
+        for conn in conns:
+            pile.spawn(get_conn_response, conn)
+        for response in pile:
+            if response:
+                statuses.append(response.status)
+                reasons.append(response.reason)
+                bodies.append(response.read())
+                if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+                    self.app.error_occurred(
+                        conn.node,
+                        _('ERROR %(status)d %(body)s From Object Server '
+                          're: %(path)s') %
+                        {'status': response.status,
+                         'body': bodies[-1][:1024], 'path': req.path})
+                elif is_success(response.status):
+                    etags.add(response.getheader('etag').strip('"'))
+                if self.have_quorum(statuses, len(nodes)):
+                    break
+        # give any pending requests *some* chance to finish
+        pile.waitall(self.app.post_quorum_timeout)
+        while len(statuses) < len(nodes):
+            statuses.append(HTTP_SERVICE_UNAVAILABLE)
+            reasons.append('')
+            bodies.append('')
+        return statuses, reasons, bodies, etags
 
     @public
     @cors_validation
@@ -1140,42 +1160,15 @@ class ObjectController(Controller):
                 _('Client disconnected without sending enough data'))
             self.app.logger.increment('client_disconnects')
             return HTTPClientDisconnect(request=req)
-        statuses = []
-        reasons = []
-        bodies = []
-        etags = set()
-        for conn in conns:
-            try:
-                with Timeout(self.app.node_timeout):
-                    if conn.resp:
-                        response = conn.resp
-                    else:
-                        response = conn.getresponse()
-                    statuses.append(response.status)
-                    reasons.append(response.reason)
-                    bodies.append(response.read())
-                    if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                        self.error_occurred(
-                            conn.node,
-                            _('ERROR %(status)d %(body)s From Object Server '
-                              're: %(path)s') %
-                            {'status': response.status,
-                             'body': bodies[-1][:1024], 'path': req.path})
-                    elif is_success(response.status):
-                        etags.add(response.getheader('etag').strip('"'))
-            except (Exception, Timeout):
-                self.exception_occurred(
-                    conn.node, _('Object'),
-                    _('Trying to get final status of PUT to %s') % req.path)
+
+        statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
+                                                                   nodes)
+
         if len(etags) > 1:
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
-        while len(statuses) < len(nodes):
-            statuses.append(HTTP_SERVICE_UNAVAILABLE)
-            reasons.append('')
-            bodies.append('')
         resp = self.best_response(req, statuses, reasons, bodies,
                                   _('Object PUT'), etag=etag)
         if source_header:

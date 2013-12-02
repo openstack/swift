@@ -89,8 +89,6 @@ __all__ = ['TempURL', 'filter_factory',
            'DEFAULT_OUTGOING_ALLOW_HEADERS']
 
 
-import hmac
-from hashlib import sha1
 from os.path import basename
 from time import time
 from urllib import urlencode
@@ -98,7 +96,8 @@ from urlparse import parse_qs
 
 from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict, HTTPUnauthorized
-from swift.common.utils import split_path, get_valid_utf8_str
+from swift.common.utils import split_path, get_valid_utf8_str, \
+    register_swift_info, get_hmac
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -255,7 +254,8 @@ class TempURL(object):
         """
         if env['REQUEST_METHOD'] == 'OPTIONS':
             return self.app(env, start_response)
-        temp_url_sig, temp_url_expires, filename = self._get_temp_url_info(env)
+        info = self._get_temp_url_info(env)
+        temp_url_sig, temp_url_expires, filename, inline_disposition = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
@@ -291,21 +291,30 @@ class TempURL(object):
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
             if env['REQUEST_METHOD'] == 'GET' and status[0] == '2':
-                already = False
+                # figure out the right value for content-disposition
+                # 1) use the value from the query string
+                # 2) use the value from the object metadata
+                # 3) use the object name (default)
+                out_headers = []
+                existing_disposition = None
                 for h, v in headers:
-                    if h.lower() == 'content-disposition':
-                        already = True
-                        break
-                if already and filename:
-                    headers = list((h, v) for h, v in headers
-                                   if h.lower() != 'content-disposition')
-                    already = False
-                if not already:
-                    name = filename or basename(env['PATH_INFO'].rstrip('/'))
-                    headers.append((
-                        'Content-Disposition',
-                        'attachment; filename="%s"' % (
-                            name.replace('"', '\\"'))))
+                    if h.lower() != 'content-disposition':
+                        out_headers.append((h, v))
+                    else:
+                        existing_disposition = v
+                if inline_disposition:
+                    disposition_value = 'inline'
+                elif filename:
+                    disposition_value = 'attachment; filename="%s"' % (
+                        filename.replace('"', '\\"'))
+                elif existing_disposition:
+                    disposition_value = existing_disposition
+                else:
+                    name = basename(env['PATH_INFO'].rstrip('/'))
+                    disposition_value = 'attachment; filename="%s"' % (
+                        name.replace('"', '\\"'))
+                out_headers.append(('Content-Disposition', disposition_value))
+                headers = out_headers
             return start_response(status, headers, exc_info)
 
         return self.app(env, _start_response)
@@ -336,10 +345,10 @@ class TempURL(object):
         expiration (returns 0 if expired).
 
         :param env: The WSGI environment for the request.
-        :returns: (sig, expires) as described above.
+        :returns: (sig, expires, filename, inline) as described above.
         """
-        temp_url_sig = temp_url_expires = filename = None
-        qs = parse_qs(env.get('QUERY_STRING', ''))
+        temp_url_sig = temp_url_expires = filename = inline = None
+        qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
         if 'temp_url_expires' in qs:
@@ -351,7 +360,9 @@ class TempURL(object):
                 temp_url_expires = 0
         if 'filename' in qs:
             filename = qs['filename'][0]
-        return temp_url_sig, temp_url_expires, filename
+        if 'inline' in qs:
+            inline = True
+        return temp_url_sig, temp_url_expires, filename, inline
 
     def _get_keys(self, env, account):
         """
@@ -377,31 +388,10 @@ class TempURL(object):
         :param keys: Key strings, from the X-Account-Meta-Temp-URL-Key[-2] of
                      the account.
         """
-        return [self._get_hmac(env, expires, key, request_method)
-                for key in keys]
-
-    def _get_hmac(self, env, expires, key, request_method=None):
-        """
-        Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
-        the request.
-
-        :param env: The WSGI environment for the request.
-        :param expires: Unix timestamp as an int for when the URL
-                        expires.
-        :param key: Key str, from the X-Account-Meta-Temp-URL-Key of
-                    the account.
-        :param request_method: Optional override of the request in
-                               the WSGI env. For example, if a HEAD
-                               does not match, you may wish to
-                               override with GET to still allow the
-                               HEAD.
-        :returns: hexdigest str of the HMAC-SHA1 for the request.
-        """
         if not request_method:
             request_method = env['REQUEST_METHOD']
-        return hmac.new(
-            key, '%s\n%s\n%s' % (request_method, expires,
-                                 env['PATH_INFO']), sha1).hexdigest()
+        return [get_hmac(
+            request_method, env['PATH_INFO'], expires, key) for key in keys]
 
     def _invalid(self, env, start_response):
         """
@@ -480,4 +470,5 @@ def filter_factory(global_conf, **local_conf):
     """Returns the WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('tempurl')
     return lambda app: TempURL(app, conf)

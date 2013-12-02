@@ -16,12 +16,21 @@
 # TODO(creiht): Tests
 
 import unittest
+from swift.common import exceptions
 
 
 class TestExceptions(unittest.TestCase):
 
-    def test_placeholder(self):
-        pass
+    def test_replication_exception(self):
+        self.assertEqual(str(exceptions.ReplicationException()), '')
+        self.assertEqual(str(exceptions.ReplicationException('test')), 'test')
+
+    def test_replication_lock_timeout(self):
+        exc = exceptions.ReplicationLockTimeout(15, 'test')
+        try:
+            self.assertTrue(isinstance(exc, exceptions.MessageTimeout))
+        finally:
+            exc.cancel()
 
 
 if __name__ == '__main__':

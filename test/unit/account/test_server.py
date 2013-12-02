@@ -259,6 +259,44 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)
 
+    def test_PUT_simulated_create_race(self):
+        state = ['initial']
+
+        from swift.account.backend import AccountBroker as OrigAcBr
+
+        class InterceptedAcBr(OrigAcBr):
+
+            def __init__(self, *args, **kwargs):
+                super(InterceptedAcBr, self).__init__(*args, **kwargs)
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Save the original db_file attribute value
+                    self._saved_db_file = self.db_file
+                    self.db_file += '.doesnotexist'
+
+            def initialize(self, *args, **kwargs):
+                if state[0] == 'initial':
+                    # Do nothing initially
+                    pass
+                elif state[0] == 'race':
+                    # Restore the original db_file attribute to get the race
+                    # behavior
+                    self.db_file = self._saved_db_file
+                return super(InterceptedAcBr, self).initialize(*args, **kwargs)
+
+        with mock.patch("swift.account.server.AccountBroker", InterceptedAcBr):
+            req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                      'HTTP_X_TIMESTAMP': '0'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+            state[0] = "race"
+            req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
+                                                      'HTTP_X_TIMESTAMP': '1'})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 202)
+
     def test_PUT_after_DELETE(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': normalize_timestamp(1)})
@@ -420,10 +458,12 @@ class TestAccountController(unittest.TestCase):
     def test_POST_after_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
-        req.get_response(self.controller)
+        resp = req.get_response(self.controller)
+        self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
                                                   'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
+        self.assertEquals(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST',
                                                   'HTTP_X_TIMESTAMP': '2'})
         resp = req.get_response(self.controller)
@@ -914,7 +954,8 @@ class TestAccountController(unittest.TestCase):
     def test_GET_accept_application_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
-        req.get_response(self.controller)
+        resp = req.get_response(self.controller)
+        self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -922,6 +963,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         resp = req.get_response(self.controller)
+        self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/*'
         resp = req.get_response(self.controller)
@@ -1318,7 +1360,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(resp.status_int, 204,
                              "%d on param %s" % (resp.status_int, param))
 
-    def test_put_auto_create(self):
+    def test_PUT_auto_create(self):
         headers = {'x-put-timestamp': normalize_timestamp(1),
                    'x-delete-timestamp': normalize_timestamp(0),
                    'x-object-count': '0',

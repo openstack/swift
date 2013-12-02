@@ -30,10 +30,6 @@ class SwiftException(Exception):
     pass
 
 
-class AuditException(SwiftException):
-    pass
-
-
 class DiskFileError(SwiftException):
     pass
 
@@ -121,4 +117,12 @@ class ListingIterNotAuthorized(ListingIterError):
 
 
 class SegmentError(SwiftException):
+    pass
+
+
+class ReplicationException(Exception):
+    pass
+
+
+class ReplicationLockTimeout(LockTimeout):
     pass

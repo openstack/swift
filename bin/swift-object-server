@@ -16,7 +16,10 @@
 
 from swift.common.utils import parse_options
 from swift.common.wsgi import run_wsgi
+from swift.obj import server
+
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    run_wsgi(conf_file, 'object-server', default_port=6000, **options)
+    run_wsgi(conf_file, 'object-server', default_port=6000,
+             global_conf_callback=server.global_conf_callback, **options)

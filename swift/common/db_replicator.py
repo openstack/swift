@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
 import os
 import random
 import math
@@ -32,7 +31,7 @@ import swift.common.db
 from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
-    unlink_older_than, dump_recon_cache, rsync_ip
+    unlink_older_than, dump_recon_cache, rsync_ip, ismount
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
@@ -127,7 +126,7 @@ class ReplConnection(BufferedHTTPConnection):
 
         :param args: list of json-encodable objects
 
-        :returns: httplib response object
+        :returns: bufferedhttp response object
         """
         try:
             body = simplejson.dumps(args)
@@ -529,7 +528,7 @@ class Replicator(Daemon):
         for node in self.ring.devs:
             if (node and node['replication_ip'] in ips and
                     node['replication_port'] == self.port):
-                if self.mount_check and not os.path.ismount(
+                if self.mount_check and not ismount(
                         os.path.join(self.root, node['device'])):
                     self.logger.warn(
                         _('Skipping %(device)s as it is not mounted') % node)
@@ -580,8 +579,7 @@ class ReplicatorRpc(object):
             return HTTPBadRequest(body='Invalid object type')
         op = args.pop(0)
         drive, partition, hsh = replicate_args
-        if self.mount_check and \
-                not os.path.ismount(os.path.join(self.root, drive)):
+        if self.mount_check and not ismount(os.path.join(self.root, drive)):
             return Response(status='507 %s is not mounted' % drive)
         db_file = os.path.join(self.root, drive,
                                storage_directory(self.datadir, partition, hsh),

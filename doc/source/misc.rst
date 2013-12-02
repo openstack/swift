@@ -216,3 +216,22 @@ List Endpoints
 .. automodule:: swift.common.middleware.list_endpoints
     :members:
     :show-inheritance:
+
+Discoverability
+===============
+
+Swift can optionally be configured to provide clients with an interface
+providing details about the installation. If configured, a GET request to
+/info will return configuration data in JSON format.  An example
+response::
+
+    {"swift": {"version": "1.8.1"}, "staticweb": {}, "tempurl": {}}
+
+This would signify to the client that swift version 1.8.1 is running and that
+staticweb and tempurl are available in this installation.
+
+There may be administrator-only information available via /info. To
+retrieve it, one must use an HMAC-signed request, similar to TempURL.
+The signature may be produced like so:
+
+    swift-temp-url GET 3600 /info secret 2>/dev/null | sed s/temp_url/swiftinfo/g

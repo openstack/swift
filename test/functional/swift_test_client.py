@@ -40,16 +40,28 @@ class RequestError(Exception):
 
 
 class ResponseError(Exception):
-    def __init__(self, response):
+    def __init__(self, response, method, path):
         self.status = response.status
         self.reason = response.reason
-        Exception.__init__(self)
+        self.method = method
+        self.path = path
+        self.headers = response.getheaders()
+
+        for name, value in self.headers:
+            if name.lower() == 'x-trans-id':
+                self.txid = value
+                break
+        else:
+            self.txid = None
+
+        super(ResponseError, self).__init__()
 
     def __str__(self):
-        return '%d: %s' % (self.status, self.reason)
+        return repr(self)
 
     def __repr__(self):
-        return '%d: %s' % (self.status, self.reason)
+        return '%d: %r (%r %r) txid=%s' % (
+            self.status, self.reason, self.method, self.path, self.txid)
 
 
 def listing_empty(method):
@@ -267,10 +279,6 @@ class Connection(object):
                           for (x, y) in parms.items()]
             path = '%s?%s' % (path, '&'.join(query_args))
 
-            query_args = ['%s=%s' % (urllib.quote(x),
-                          urllib.quote(str(y))) for (x, y) in parms.items()]
-            path = '%s?%s' % (path, '&'.join(query_args))
-
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
         #self.connection.set_debuglevel(3)
@@ -356,7 +364,8 @@ class Account(Base):
         elif status == 204:
             return []
 
-        raise ResponseError(self.conn.response)
+        raise ResponseError(self.conn.response, 'GET',
+                            self.conn.make_path(self.path))
 
     def delete_containers(self):
         for c in listing_items(self.containers):
@@ -370,7 +379,8 @@ class Account(Base):
         if self.conn.make_request('HEAD', self.path, hdrs=hdrs,
                                   parms=parms, cfg=cfg) != 204:
 
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'HEAD',
+                                self.conn.make_path(self.path))
 
         fields = [['object_count', 'x-account-object-count'],
                   ['container_count', 'x-account-container-count'],
@@ -458,7 +468,8 @@ class Container(Base):
         elif status == 204:
             return []
 
-        raise ResponseError(self.conn.response)
+        raise ResponseError(self.conn.response, 'GET',
+                            self.conn.make_path(self.path))
 
     def info(self, hdrs={}, parms={}, cfg={}):
         self.conn.make_request('HEAD', self.path, hdrs=hdrs,
@@ -470,7 +481,8 @@ class Container(Base):
 
             return self.header_fields(fields)
 
-        raise ResponseError(self.conn.response)
+        raise ResponseError(self.conn.response, 'HEAD',
+                            self.conn.make_path(self.path))
 
     @property
     def path(self):
@@ -545,7 +557,8 @@ class File(Base):
         if self.conn.make_request('DELETE', self.path, hdrs=hdrs,
                                   parms=parms) != 204:
 
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'DELETE',
+                                self.conn.make_path(self.path))
 
         return True
 
@@ -553,7 +566,8 @@ class File(Base):
         if self.conn.make_request('HEAD', self.path, hdrs=hdrs,
                                   parms=parms, cfg=cfg) != 200:
 
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'HEAD',
+                                self.conn.make_path(self.path))
 
         fields = [['content_length', 'content-length'],
                   ['content_type', 'content-type'],
@@ -573,7 +587,8 @@ class File(Base):
         if status == 404:
             return False
         elif (status < 200) or (status > 299):
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'HEAD',
+                                self.conn.make_path(self.path))
 
         for hdr in self.conn.response.getheaders():
             if hdr[0].lower() == 'content-type':
@@ -608,7 +623,7 @@ class File(Base):
         return data
 
     def read(self, size=-1, offset=0, hdrs=None, buffer=None,
-             callback=None, cfg={}):
+             callback=None, cfg={}, parms={}):
 
         if size > 0:
             range_string = 'bytes=%d-%d' % (offset, (offset + size) - 1)
@@ -618,10 +633,11 @@ class File(Base):
                 hdrs = {'Range': range_string}
 
         status = self.conn.make_request('GET', self.path, hdrs=hdrs,
-                                        cfg=cfg)
+                                        cfg=cfg, parms=parms)
 
-        if(status < 200) or (status > 299):
-            raise ResponseError(self.conn.response)
+        if (status < 200) or (status > 299):
+            raise ResponseError(self.conn.response, 'GET',
+                                self.conn.make_path(self.path))
 
         for hdr in self.conn.response.getheaders():
             if hdr[0].lower() == 'content-type':
@@ -644,8 +660,9 @@ class File(Base):
     def read_md5(self):
         status = self.conn.make_request('GET', self.path)
 
-        if(status < 200) or (status > 299):
-            raise ResponseError(self.conn.response)
+        if (status < 200) or (status > 299):
+            raise ResponseError(self.conn.response, 'GET',
+                                self.conn.make_path(self.path))
 
         checksum = hashlib.md5()
 
@@ -678,7 +695,8 @@ class File(Base):
             self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
 
             if self.conn.response.status not in (201, 202):
-                raise ResponseError(self.conn.response)
+                raise ResponseError(self.conn.response, 'POST',
+                                    self.conn.make_path(self.path))
 
         return True
 
@@ -736,8 +754,13 @@ class File(Base):
 
         if (self.conn.response.status < 200) or \
            (self.conn.response.status > 299):
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'PUT',
+                                self.conn.make_path(self.path))
 
+        try:
+            data.seek(0)
+        except IOError:
+            pass
         self.md5 = self.compute_md5sum(data)
 
         return True
@@ -745,6 +768,7 @@ class File(Base):
     def write_random(self, size=None, hdrs={}, parms={}, cfg={}):
         data = self.random_data(size)
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
-            raise ResponseError(self.conn.response)
+            raise ResponseError(self.conn.response, 'PUT',
+                                self.conn.make_path(self.path))
         self.md5 = self.compute_md5sum(StringIO.StringIO(data))
         return data

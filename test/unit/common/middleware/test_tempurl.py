@@ -146,6 +146,40 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
+    def test_get_valid_with_filename_and_inline(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'filename=bob%%20%%22killer%%22.txt&inline=' % (sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-disposition'], 'inline')
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_with_inline(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'inline=' % (sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-disposition'], 'inline')
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
     def test_obj_trailing_slash(self):
         method = 'GET'
         expires = int(time() + 86400)
@@ -614,46 +648,56 @@ class TestTempURL(unittest.TestCase):
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                     s, e)}),
-            (s, e, None))
+            (s, e, None, None))
         self.assertEquals(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                  'filename=bobisyouruncle' % (s, e)}),
-            (s, e, 'bobisyouruncle'))
+            (s, e, 'bobisyouruncle', None))
         self.assertEquals(
             self.tempurl._get_temp_url_info({}),
-            (None, None, None))
+            (None, None, None, None))
         self.assertEquals(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_expires=%s' % e}),
-            (None, e, None))
+            (None, e, None, None))
         self.assertEquals(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s' % s}),
-            (s, None, None))
+            (s, None, None, None))
         self.assertEquals(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=bad' % (
                     s)}),
-            (s, 0, None))
+            (s, 0, None, None))
+        self.assertEquals(
+            self.tempurl._get_temp_url_info(
+                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                 'inline=' % (s, e)}),
+            (s, e, None, True))
+        self.assertEquals(
+            self.tempurl._get_temp_url_info(
+                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                 'filename=bobisyouruncle&inline=' % (s, e)}),
+            (s, e, 'bobisyouruncle', True))
         e = int(time() - 1)
         self.assertEquals(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                     s, e)}),
-            (s, 0, None))
+            (s, 0, None, None))
 
-    def test_get_hmac(self):
+    def test_get_hmacs(self):
         self.assertEquals(
-            self.tempurl._get_hmac(
+            self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'},
-                1, 'abc'),
-            '026d7f7cc25256450423c7ad03fc9f5ffc1dab6d')
+                1, ['abc']),
+            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
         self.assertEquals(
-            self.tempurl._get_hmac(
+            self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'},
-                1, 'abc', request_method='GET'),
-            '026d7f7cc25256450423c7ad03fc9f5ffc1dab6d')
+                1, ['abc'], request_method='GET'),
+            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
 
     def test_invalid(self):
 

@@ -15,7 +15,6 @@
 
 """ Tests for swift.container.backend """
 
-from __future__ import with_statement
 import hashlib
 import unittest
 from time import sleep, time

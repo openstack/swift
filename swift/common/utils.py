@@ -17,6 +17,7 @@
 
 import errno
 import fcntl
+import hmac
 import operator
 import os
 import pwd
@@ -26,7 +27,7 @@ import threading as stdlib_threading
 import time
 import uuid
 import functools
-from hashlib import md5
+from hashlib import md5, sha1
 from random import random, shuffle
 from urllib import quote as _quote
 from contextlib import contextmanager, closing
@@ -52,6 +53,7 @@ import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool, greenthread, \
     greenio, event
 from eventlet.green import socket, threading
+import eventlet.queue
 import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
@@ -97,6 +99,78 @@ if hash_conf.read('/etc/swift/swift.conf'):
                                          'swift_hash_path_prefix')
     except (NoSectionError, NoOptionError):
         pass
+
+
+def get_hmac(request_method, path, expires, key):
+    """
+    Returns the hexdigest string of the HMAC-SHA1 (RFC 2104) for
+    the request.
+
+    :param request_method: Request method to allow.
+    :param path: The path to the resource to allow access to.
+    :param expires: Unix timestamp as an int for when the URL
+                    expires.
+    :param key: HMAC shared secret.
+
+    :returns: hexdigest str of the HMAC-SHA1 for the request.
+    """
+    return hmac.new(
+        key, '%s\n%s\n%s' % (request_method, expires, path), sha1).hexdigest()
+
+
+# Used by get_swift_info and register_swift_info to store information about
+# the swift cluster.
+_swift_info = {}
+_swift_admin_info = {}
+
+
+def get_swift_info(admin=False, disallowed_sections=None):
+    """
+    Returns information about the swift cluster that has been previously
+    registered with the register_swift_info call.
+
+    :param admin: boolean value, if True will additionally return an 'admin'
+                  section with information previously registered as admin
+                  info.
+    :param disallowed_sections: list of section names to be withheld from the
+                                information returned.
+    :returns: dictionary of information about the swift cluster.
+    """
+    disallowed_sections = disallowed_sections or []
+    info = {}
+    for section in _swift_info:
+        if section in disallowed_sections:
+            continue
+        info[section] = dict(_swift_info[section].items())
+    if admin:
+        info['admin'] = dict(_swift_admin_info)
+        info['admin']['disallowed_sections'] = list(disallowed_sections)
+    return info
+
+
+def register_swift_info(name='swift', admin=False, **kwargs):
+    """
+    Registers information about the swift cluster to be retrieved with calls
+    to get_swift_info.
+
+    :param name: string, the section name to place the information under.
+    :param admin: boolean, if True, information will be registered to an
+                  admin section which can optionally be withheld when
+                  requesting the information.
+    :param kwargs: key value arguments representing the information to be
+                   added.
+    """
+    if name == 'admin' or name == 'disallowed_sections':
+        raise ValueError('\'{0}\' is reserved name.'.format(name))
+
+    if admin:
+        dict_to_use = _swift_admin_info
+    else:
+        dict_to_use = _swift_info
+    if name not in dict_to_use:
+        dict_to_use[name] = {}
+    for key, val in kwargs.iteritems():
+        dict_to_use[name][key] = val
 
 
 def backward(f, blocksize=4096):
@@ -869,7 +943,7 @@ class SwiftLogFormatter(logging.Formatter):
 
 
 def get_logger(conf, name=None, log_to_console=False, log_route=None,
-               fmt="%(server)s %(message)s"):
+               fmt="%(server)s: %(message)s"):
     """
     Get the current system logger using config settings.
 
@@ -1178,7 +1252,7 @@ def hash_path(account, container=None, object=None, raw_digest=False):
 
 
 @contextmanager
-def lock_path(directory, timeout=10):
+def lock_path(directory, timeout=10, timeout_class=LockTimeout):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -1190,12 +1264,16 @@ def lock_path(directory, timeout=10):
 
     :param directory: directory to be locked
     :param timeout: timeout (in seconds)
+    :param timeout_class: The class of the exception to raise if the
+        lock cannot be granted within the timeout. Will be
+        constructed as timeout_class(timeout, lockpath). Default:
+        LockTimeout
     """
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
     fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
     try:
-        with LockTimeout(timeout, lockpath):
+        with timeout_class(timeout, lockpath):
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1510,8 +1588,7 @@ def audit_location_generator(devices, datadir, suffix='',
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dir)
     for device in device_dir:
-        if mount_check and not \
-                os.path.ismount(os.path.join(devices, device)):
+        if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)
@@ -1589,6 +1666,71 @@ class ContextPool(GreenPool):
     def __exit__(self, type, value, traceback):
         for coro in list(self.coroutines_running):
             coro.kill()
+
+
+class GreenAsyncPileWaitallTimeout(Timeout):
+    pass
+
+
+class GreenAsyncPile(object):
+    """
+    Runs jobs in a pool of green threads, and the results can be retrieved by
+    using this object as an iterator.
+
+    This is very similar in principle to eventlet.GreenPile, except it returns
+    results as they become available rather than in the order they were
+    launched.
+
+    Correlating results with jobs (if necessary) is left to the caller.
+    """
+    def __init__(self, size):
+        """
+        :param size: size pool of green threads to use
+        """
+        self._pool = GreenPool(size)
+        self._responses = eventlet.queue.LightQueue(size)
+        self._inflight = 0
+
+    def _run_func(self, func, args, kwargs):
+        try:
+            self._responses.put(func(*args, **kwargs))
+        finally:
+            self._inflight -= 1
+
+    def spawn(self, func, *args, **kwargs):
+        """
+        Spawn a job in a green thread on the pile.
+        """
+        self._inflight += 1
+        self._pool.spawn(self._run_func, func, args, kwargs)
+
+    def waitall(self, timeout):
+        """
+        Wait timeout seconds for any results to come in.
+
+        :param timeout: seconds to wait for results
+        :returns: list of results accrued in that time
+        """
+        results = []
+        try:
+            with GreenAsyncPileWaitallTimeout(timeout):
+                while True:
+                    results.append(self.next())
+        except (GreenAsyncPileWaitallTimeout, StopIteration):
+            pass
+        return results
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        try:
+            return self._responses.get_nowait()
+        except Empty:
+            if self._inflight == 0:
+                raise StopIteration()
+            else:
+                return self._responses.get()
 
 
 class ModifiedParseResult(ParseResult):
@@ -2115,14 +2257,18 @@ class ThreadPool(object):
 
         Exceptions thrown will be reraised in the calling thread.
 
-        If the threadpool was initialized with nthreads=0, just calls
-        func(*args, **kwargs).
+        If the threadpool was initialized with nthreads=0, it invokes
+        func(*args, **kwargs) directly, followed by eventlet.sleep() to ensure
+        the eventlet hub has a chance to execute. It is more likely the hub
+        will be invoked when queuing operations to an external thread.
 
         :returns: result of calling func
         :raises: whatever func raises
         """
         if self.nthreads <= 0:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            sleep()
+            return result
 
         ev = event.Event()
         self._run_queue.put((ev, func, args, kwargs), block=False)

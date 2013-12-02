@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from os import listdir, unlink
 from os.path import join as path_join
 from unittest import main, TestCase
@@ -27,8 +28,22 @@ from swift.obj.diskfile import write_metadata, read_metadata
 from test.probe.common import kill_servers, reset_environment
 
 
+RETRIES = 5
+
+
 def get_data_file_path(obj_dir):
-    files = sorted(listdir(obj_dir), reverse=True)
+    files = []
+    # We might need to try a few times if a request hasn't yet settled. For
+    # instance, a PUT can return success when just 2 of 3 nodes has completed.
+    for attempt in xrange(RETRIES + 1):
+        try:
+            files = sorted(listdir(obj_dir), reverse=True)
+            break
+        except Exception:
+            if attempt < RETRIES:
+                time.sleep(1)
+            else:
+                raise
     for filename in files:
         return path_join(obj_dir, filename)
 
@@ -67,11 +82,9 @@ class TestObjectFailures(TestCase):
         obj = 'object-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'VERIFY')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
-        with open(data_file) as fpointer:
-            write_metadata(fpointer, metadata)
+        write_metadata(data_file, metadata)
 
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj)[-1]
@@ -88,11 +101,10 @@ class TestObjectFailures(TestCase):
         obj = 'object-range-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'RANGE')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+
+        metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
-        with open(data_file) as fpointer:
-            write_metadata(fpointer, metadata)
+        write_metadata(data_file, metadata)
         for header, result in [({'Range': 'bytes=0-2'}, 'RAN'),
                                ({'Range': 'bytes=1-11'}, 'ANGE'),
                                ({'Range': 'bytes=0-11'}, 'RANGE')]:
@@ -111,8 +123,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:
@@ -129,8 +140,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:
@@ -147,8 +157,7 @@ class TestObjectFailures(TestCase):
         container = 'container-zbyte-%s' % uuid4()
         obj = 'object-zbyte-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj, 'DATA')
-        with open(data_file) as fpointer:
-            metadata = read_metadata(fpointer)
+        metadata = read_metadata(data_file)
         unlink(data_file)
 
         with open(data_file, 'w') as fpointer:

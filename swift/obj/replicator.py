@@ -29,13 +29,14 @@ from eventlet.support.greenlets import GreenletExit
 
 from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, \
-    compute_eta, get_logger, dump_recon_cache, \
+    compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
     tpool_reraise, config_auto_int_value
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
-from swift.obj.diskfile import get_hashes
+from swift.obj import ssync_sender
+from swift.obj.diskfile import DiskFileManager, get_hashes
 
 
 hubs.use_hub(get_hub())
@@ -78,6 +79,11 @@ class ObjectReplicator(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.node_timeout = float(conf.get('node_timeout', 10))
+        self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
+        self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
+        self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.headers = {
             'Content-Length': '0',
             'user-agent': 'obj-replicator %s' % os.getpid()}
@@ -87,6 +93,20 @@ class ObjectReplicator(Daemon):
                                                          False))
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
+        self._diskfile_mgr = DiskFileManager(conf, self.logger)
+
+    def sync(self, node, job, suffixes):  # Just exists for doc anchor point
+        """
+        Synchronize local suffix directories from a partition with a remote
+        node.
+
+        :param node: the "dev" entry for the remote node to sync with
+        :param job: information about the partition being synced
+        :param suffixes: a list of suffixes which need to be pushed
+
+        :returns: boolean indicating success or failure
+        """
+        return self.sync_method(node, job, suffixes)
 
     def _rsync(self, args):
         """
@@ -135,14 +155,8 @@ class ObjectReplicator(Daemon):
 
     def rsync(self, node, job, suffixes):
         """
-        Synchronize local suffix directories from a partition with a remote
-        node.
-
-        :param node: the "dev" entry for the remote node to sync with
-        :param job: information about the partition being synced
-        :param suffixes: a list of suffixes which need to be pushed
-
-        :returns: boolean indicating success or failure
+        Uses rsync to implement the sync method. This was the first
+        sync method in Swift.
         """
         if not os.path.exists(job['path']):
             return False
@@ -175,6 +189,9 @@ class ObjectReplicator(Daemon):
                     'objects', job['partition']))
         return self._rsync(args) == 0
 
+    def ssync(self, node, job, suffixes):
+        return ssync_sender.Sender(self, node, job, suffixes)()
+
     def check_ring(self):
         """
         Check to see if the ring has been updated
@@ -206,7 +223,7 @@ class ObjectReplicator(Daemon):
             suffixes = tpool.execute(tpool_get_suffixes, job['path'])
             if suffixes:
                 for node in job['nodes']:
-                    success = self.rsync(node, job, suffixes)
+                    success = self.sync(node, job, suffixes)
                     if success:
                         with Timeout(self.http_timeout):
                             conn = http_connect(
@@ -290,7 +307,7 @@ class ObjectReplicator(Daemon):
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
-                    self.rsync(node, job, suffixes)
+                    self.sync(node, job, suffixes)
                     with Timeout(self.http_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
@@ -380,7 +397,7 @@ class ObjectReplicator(Daemon):
     def collect_jobs(self):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
-        partitions, nodes, etc to be rsynced.
+        partitions, nodes, etc to be synced.
         """
         jobs = []
         ips = whataremyips()
@@ -390,7 +407,7 @@ class ObjectReplicator(Daemon):
             dev_path = join(self.devices_dir, local_dev['device'])
             obj_path = join(dev_path, 'objects')
             tmp_path = join(dev_path, 'tmp')
-            if self.mount_check and not os.path.ismount(dev_path):
+            if self.mount_check and not ismount(dev_path):
                 self.logger.warn(_('%s is not mounted'), local_dev['device'])
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
@@ -458,7 +475,7 @@ class ObjectReplicator(Daemon):
                         job['partition'] not in override_partitions:
                     continue
                 dev_path = join(self.devices_dir, job['device'])
-                if self.mount_check and not os.path.ismount(dev_path):
+                if self.mount_check and not ismount(dev_path):
                     self.logger.warn(_('%s is not mounted'), job['device'])
                     continue
                 if not self.check_ring():

@@ -5,6 +5,7 @@ import os
 import unittest
 import string
 import sys
+import threading
 
 try:
     from subprocess import check_output
@@ -27,19 +28,37 @@ except ImportError:
         return output
 
 
-os.environ['LC_ALL'] = 'eo'
-os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-
-
 class TestTranslations(unittest.TestCase):
+
+    def setUp(self):
+        self.orig_env = {}
+        for var in 'LC_ALL', 'SWIFT_LOCALEDIR', 'LANGUAGE':
+            self.orig_env[var] = os.environ.get(var)
+        os.environ['LC_ALL'] = 'eo'
+        os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
+        os.environ['LANGUAGE'] = ''
+        self.orig_stop = threading._DummyThread._Thread__stop
+        # See http://stackoverflow.com/questions/13193278/\
+        #     understand-python-threading-bug
+        threading._DummyThread._Thread__stop = lambda x: 42
+
+    def tearDown(self):
+        for var, val in self.orig_env.iteritems():
+            if val is not None:
+                os.environ[var] = val
+            else:
+                del os.environ[var]
+        threading._DummyThread._Thread__stop = self.orig_stop
 
     def test_translations(self):
         path = ':'.join(sys.path)
         translated_message = check_output(['python', __file__, path])
-        self.assertEquals(translated_message, 'testo mesaĝon\n')
+        self.assertEquals(translated_message, 'prova mesaĝo\n')
 
 
 if __name__ == "__main__":
+    os.environ['LC_ALL'] = 'eo'
+    os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
     sys.path = string.split(sys.argv[1], ':')
     from swift import gettext_ as _
     print _('test message')

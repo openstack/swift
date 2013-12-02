@@ -1,10 +1,12 @@
 [dispersion]
+# Please create a new account solely for using dispersion tools, which is
+# helpful for keep your own data clean.
 auth_url = http://localhost:8080/auth/v1.0
 auth_user = test:tester
 auth_key = testing
-# auth_url = http://saio:5000/v2.0/
-# auth_user = test:tester
-# auth_key = testing
+# auth_url = http://localhost:5000/v2.0/
+# auth_user = tenant:user
+# auth_key = password
 # auth_version = 2.0
 # endpoint_type = publicURL
 # keystone_api_insecure = no

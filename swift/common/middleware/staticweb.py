@@ -120,7 +120,7 @@ import cgi
 import time
 
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    json, quote, get_valid_utf8_str
+    json, quote, get_valid_utf8_str, register_swift_info
 from swift.common.wsgi import make_pre_authed_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
@@ -468,6 +468,7 @@ def filter_factory(global_conf, **local_conf):
     """Returns a Static Web WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('staticweb')
 
     def staticweb_filter(app):
         return StaticWeb(app, conf)

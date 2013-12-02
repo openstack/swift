@@ -27,8 +27,11 @@ from time import gmtime, strftime, time
 from tempfile import mkdtemp
 from hashlib import md5
 
-from eventlet import sleep, spawn, wsgi, listen, Timeout
-from test.unit import FakeLogger
+from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
+
+from nose import SkipTest
+
+from test.unit import FakeLogger, debug_logger
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -36,7 +39,6 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
-from eventlet import tpool
 from swift.common.swob import Request, HeaderKeyDict
 from swift.common.storage_policy import POLICY_INDEX
 
@@ -56,7 +58,8 @@ class TestObjectController(unittest.TestCase):
             os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.object_controller = object_server.ObjectController(conf)
+        self.object_controller = object_server.ObjectController(
+            conf, logger=debug_logger())
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
@@ -2820,6 +2823,32 @@ class TestObjectController(unittest.TestCase):
         finally:
             diskfile.fallocate = orig_fallocate
 
+    def test_global_conf_callback_does_nothing(self):
+        preloaded_app_conf = {}
+        global_conf = {}
+        object_server.global_conf_callback(preloaded_app_conf, global_conf)
+        self.assertEqual(preloaded_app_conf, {})
+        self.assertEqual(global_conf.keys(), ['replication_semaphore'])
+        try:
+            value = global_conf['replication_semaphore'][0].get_value()
+        except NotImplementedError:
+            # On some operating systems (at a minimum, OS X) it's not possible
+            # to introspect the value of a semaphore
+            raise SkipTest
+        else:
+            self.assertEqual(value, 4)
+
+    def test_global_conf_callback_replication_semaphore(self):
+        preloaded_app_conf = {'replication_concurrency': 123}
+        global_conf = {}
+        with mock.patch.object(
+                object_server.multiprocessing, 'BoundedSemaphore',
+                return_value='test1') as mocked_Semaphore:
+            object_server.global_conf_callback(preloaded_app_conf, global_conf)
+        self.assertEqual(preloaded_app_conf, {'replication_concurrency': 123})
+        self.assertEqual(global_conf, {'replication_semaphore': ['test1']})
+        mocked_Semaphore.assert_called_once_with(123)
+
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
@@ -2837,7 +2866,7 @@ class TestObjectController(unittest.TestCase):
     def test_list_allowed_methods(self):
         # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
-        repl_methods = ['REPLICATE']
+        repl_methods = ['REPLICATE', 'REPLICATION']
         for method_name in obj_methods:
             method = getattr(self.object_controller, method_name)
             self.assertFalse(hasattr(method, 'replication'))

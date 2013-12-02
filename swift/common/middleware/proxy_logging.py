@@ -87,7 +87,7 @@ class ProxyLoggingMiddleware(object):
     Middleware that logs Swift proxy requests in the swift log format.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger=None):
         self.app = app
         self.log_hdrs = config_true_value(conf.get(
             'access_log_headers',
@@ -110,8 +110,8 @@ class ProxyLoggingMiddleware(object):
             value = conf.get('access_' + key, conf.get(key, None))
             if value:
                 access_log_conf[key] = value
-        self.access_logger = get_logger(access_log_conf,
-                                        log_route='proxy-access')
+        self.access_logger = logger or get_logger(access_log_conf,
+                                                  log_route='proxy-access')
         self.access_logger.set_statsd_prefix('proxy-server')
         self.reveal_sensitive_prefix = int(conf.get('reveal_sensitive_prefix',
                                                     MAX_HEADER_SIZE))
@@ -126,9 +126,7 @@ class ProxyLoggingMiddleware(object):
         req.environ['swift.proxy_access_log_made'] = True
 
     def obscure_sensitive(self, value):
-        if not value:
-            return '-'
-        if len(value) > self.reveal_sensitive_prefix:
+        if value and len(value) > self.reveal_sensitive_prefix:
             return value[:self.reveal_sensitive_prefix] + '...'
         return value
 
@@ -174,7 +172,7 @@ class ProxyLoggingMiddleware(object):
                 logged_headers,
                 '%.4f' % request_time,
                 req.environ.get('swift.source'),
-                ','.join(req.environ.get('swift.log_info') or '-'),
+                ','.join(req.environ.get('swift.log_info') or ''),
             )))
         self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
@@ -214,10 +212,13 @@ class ProxyLoggingMiddleware(object):
         def status_int_for_logging(client_disconnect=False, start_status=None):
             # log disconnected clients as '499' status code
             if client_disconnect or input_proxy.client_disconnect:
-                return 499
+                ret_status_int = 499
             elif start_status is None:
-                return int(start_response_args[0][0].split(' ', 1)[0])
-            return start_status
+                ret_status_int = int(
+                    start_response_args[0][0].split(' ', 1)[0])
+            else:
+                ret_status_int = start_status
+            return ret_status_int
 
         def iter_response(iterable):
             iterator = iter(iterable)

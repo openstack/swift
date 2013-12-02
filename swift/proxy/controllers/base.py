@@ -15,7 +15,7 @@
 
 # NOTE: swift_conn
 # You'll see swift_conn passed around a few places in this file. This is the
-# source httplib connection of whatever it is attached to.
+# source bufferedhttp connection of whatever it is attached to.
 #   It is used when early termination of reading from the connection should
 # happen, such as when a range request is satisfied but there's still more the
 # source connection would like to send. To prevent having to read all the data
@@ -28,17 +28,17 @@ import os
 import time
 import functools
 import inspect
-import itertools
+from sys import exc_info
 from swift import gettext_ as _
 from urllib import quote
 
-from eventlet import sleep, GreenPile
+from eventlet import sleep
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import normalize_timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    quorum_size
+    quorum_size, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout
@@ -46,7 +46,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
-from swift.common.swob import Request, Response, HeaderKeyDict
+from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
+    HTTPException, HTTPRequestedRangeNotSatisfiable
 import swift.common.storage_policy as storage_policy
 POLICY_INDEX = storage_policy.POLICY_INDEX
 POLICY = storage_policy.POLICY
@@ -74,7 +75,7 @@ def source_key(resp):
     Provide the timestamp of the swift http response as a floating
     point value.  Used as a sort key.
 
-    :param resp: httplib response object
+    :param resp: bufferedhttp response object
     """
     return float(resp.getheader('x-put-timestamp') or
                  resp.getheader('x-timestamp') or 0)
@@ -334,7 +335,7 @@ def _set_info_cache(app, env, account, container, resp):
 
     :param  app: the application object
     :param  account: the unquoted account name
-    :param  container: the unquoted containr name or None
+    :param  container: the unquoted container name or None
     :param resp: the response received or None if info cache should be cleared
     """
 
@@ -525,6 +526,286 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     return None
 
 
+def close_swift_conn(src):
+    """
+    Force close the http connection to the backend.
+
+    :param src: the response from the backend
+    """
+    try:
+        # Since the backends set "Connection: close" in their response
+        # headers, the response object (src) is solely responsible for the
+        # socket. The connection object (src.swift_conn) has no references
+        # to the socket, so calling its close() method does nothing, and
+        # therefore we don't do it.
+        #
+        # Also, since calling the response's close() method might not
+        # close the underlying socket but only decrement some
+        # reference-counter, we have a special method here that really,
+        # really kills the underlying socket with a close() syscall.
+        src.nuke_from_orbit()  # it's the only way to be sure
+    except Exception:
+        pass
+
+
+class GetOrHeadHandler(object):
+
+    def __init__(self, app, req, server_type, ring, partition, path,
+                 backend_headers):
+        self.app = app
+        self.ring = ring
+        self.server_type = server_type
+        self.partition = partition
+        self.path = path
+        self.backend_headers = backend_headers
+        self.used_nodes = []
+        self.used_source_etag = ''
+
+        # stuff from request
+        self.req_method = req.method
+        self.req_path = req.path
+        self.req_query_string = req.query_string
+        self.newest = config_true_value(req.headers.get('x-newest', 'f'))
+
+        # populated when finding source
+        self.statuses = []
+        self.reasons = []
+        self.bodies = []
+        self.source_headers = []
+
+    def fast_forward(self, num_bytes):
+        """
+        Will skip num_bytes into the current ranges.
+        :params num_bytes: the number of bytes that have already been read on
+                           this request. This will change the Range header
+                           so that the next req will start where it left off.
+        :raises NotImplementedError: if this is a multirange request
+        :raises ValueError: if invalid range header
+        :raises HTTPRequestedRangeNotSatisfiable: if begin + num_bytes
+                                                  > end of range
+        """
+        if 'Range' in self.backend_headers:
+            req_range = Range(self.backend_headers['Range'])
+
+            if len(req_range.ranges) > 1:
+                raise NotImplementedError()
+            begin, end = req_range.ranges.pop()
+            if begin is None:
+                # this is a -50 range req (last 50 bytes of file)
+                end -= num_bytes
+            else:
+                begin += num_bytes
+            if end and begin > end:
+                raise HTTPRequestedRangeNotSatisfiable()
+            req_range.ranges = [(begin, end)]
+            self.backend_headers['Range'] = str(req_range)
+        else:
+            self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
+
+    def is_good_source(self, src):
+        """
+        Indicates whether or not the request made to the backend found
+        what it was looking for.
+
+        :param src: the response from the backend
+        :returns: True if found, False if not
+        """
+        if self.server_type == 'Object' and src.status == 416:
+            return True
+        return is_success(src.status) or is_redirection(src.status)
+
+    def _make_app_iter(self, node, source):
+        """
+        Returns an iterator over the contents of the source (via its read
+        func).  There is also quite a bit of cleanup to ensure garbage
+        collection works and the underlying socket of the source is closed.
+
+        :param source: The httplib.Response object this iterator should read
+                       from.
+        :param node: The node the source is reading from, for logging purposes.
+        """
+        try:
+            nchunks = 0
+            bytes_read_from_source = 0
+            while True:
+                try:
+                    with ChunkReadTimeout(self.app.node_timeout):
+                        chunk = source.read(self.app.object_chunk_size)
+                        nchunks += 1
+                        bytes_read_from_source += len(chunk)
+                except ChunkReadTimeout:
+                    exc_type, exc_value, exc_traceback = exc_info()
+                    if self.newest:
+                        raise exc_type, exc_value, exc_traceback
+                    try:
+                        self.fast_forward(bytes_read_from_source)
+                    except (NotImplementedError, HTTPException, ValueError):
+                        raise exc_type, exc_value, exc_traceback
+                    new_source, new_node = self._get_source_and_node()
+                    if new_source:
+                        self.app.exception_occurred(
+                            node, _('Object'),
+                            _('Trying to read during GET (retrying)'))
+                        # Close-out the connection as best as possible.
+                        if getattr(source, 'swift_conn', None):
+                            close_swift_conn(source)
+                        source = new_source
+                        node = new_node
+                        bytes_read_from_source = 0
+                        continue
+                    else:
+                        raise exc_type, exc_value, exc_traceback
+                if not chunk:
+                    break
+                with ChunkWriteTimeout(self.app.client_timeout):
+                    yield chunk
+                # This is for fairness; if the network is outpacing the CPU,
+                # we'll always be able to read and write data without
+                # encountering an EWOULDBLOCK, and so eventlet will not switch
+                # greenthreads on its own. We do it manually so that clients
+                # don't starve.
+                #
+                # The number 5 here was chosen by making stuff up. It's not
+                # every single chunk, but it's not too big either, so it seemed
+                # like it would probably be an okay choice.
+                #
+                # Note that we may trampoline to other greenthreads more often
+                # than once every 5 chunks, depending on how blocking our
+                # network IO is; the explicit sleep here simply provides a
+                # lower bound on the rate of trampolining.
+                if nchunks % 5 == 0:
+                    sleep()
+
+        except ChunkReadTimeout:
+            self.app.exception_occurred(node, _('Object'),
+                                        _('Trying to read during GET'))
+            raise
+        except ChunkWriteTimeout:
+            self.app.logger.warn(
+                _('Client did not read from proxy within %ss') %
+                self.app.client_timeout)
+            self.app.logger.increment('client_timeouts')
+        except GeneratorExit:
+            self.app.logger.warn(_('Client disconnected on read'))
+        except Exception:
+            self.app.logger.exception(_('Trying to send to client'))
+            raise
+        finally:
+            # Close-out the connection as best as possible.
+            if getattr(source, 'swift_conn', None):
+                close_swift_conn(source)
+
+    def _get_source_and_node(self):
+
+        self.statuses = []
+        self.reasons = []
+        self.bodies = []
+        self.source_headers = []
+        sources = []
+
+        for node in self.app.iter_nodes(self.ring, self.partition):
+            if node in self.used_nodes:
+                continue
+            start_node_timing = time.time()
+            try:
+                with ConnectionTimeout(self.app.conn_timeout):
+                    conn = http_connect(
+                        node['ip'], node['port'], node['device'],
+                        self.partition, self.req_method, self.path,
+                        headers=self.backend_headers,
+                        query_string=self.req_query_string)
+                self.app.set_node_timing(node, time.time() - start_node_timing)
+
+                with Timeout(self.app.node_timeout):
+                    possible_source = conn.getresponse()
+                    # See NOTE: swift_conn at top of file about this.
+                    possible_source.swift_conn = conn
+            except (Exception, Timeout):
+                self.app.exception_occurred(
+                    node, self.server_type,
+                    _('Trying to %(method)s %(path)s') %
+                    {'method': self.req_method, 'path': self.req_path})
+                continue
+            if self.is_good_source(possible_source):
+                # 404 if we know we don't have a synced copy
+                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
+                    self.statuses.append(HTTP_NOT_FOUND)
+                    self.reasons.append('')
+                    self.bodies.append('')
+                    self.source_headers.append('')
+                    close_swift_conn(possible_source)
+                else:
+                    if self.used_source_etag:
+                        src_headers = dict(
+                            (k.lower(), v) for k, v in
+                            possible_source.getheaders())
+                        if src_headers.get('etag', '').strip('"') != \
+                                self.used_source_etag:
+                            self.statuses.append(HTTP_NOT_FOUND)
+                            self.reasons.append('')
+                            self.bodies.append('')
+                            self.source_headers.append('')
+                            continue
+
+                    self.statuses.append(possible_source.status)
+                    self.reasons.append(possible_source.reason)
+                    self.bodies.append('')
+                    self.source_headers.append('')
+                    sources.append((possible_source, node))
+                    if not self.newest:  # one good source is enough
+                        break
+            else:
+                self.statuses.append(possible_source.status)
+                self.reasons.append(possible_source.reason)
+                self.bodies.append(possible_source.read())
+                self.source_headers.append(possible_source.getheaders())
+                if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
+                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                elif is_server_error(possible_source.status):
+                    self.app.error_occurred(
+                        node, _('ERROR %(status)d %(body)s '
+                                'From %(type)s Server') %
+                        {'status': possible_source.status,
+                         'body': self.bodies[-1][:1024],
+                         'type': self.server_type})
+
+        if sources:
+            sources.sort(key=lambda s: source_key(s[0]))
+            source, node = sources.pop()
+            for src, _junk in sources:
+                close_swift_conn(src)
+            self.used_nodes.append(node)
+            src_headers = dict(
+                (k.lower(), v) for k, v in
+                possible_source.getheaders())
+            self.used_source_etag = src_headers.get('etag', '').strip('"')
+            return source, node
+        return None, None
+
+    def get_working_response(self, req):
+        source, node = self._get_source_and_node()
+        res = None
+        if source:
+            res = Response(request=req)
+            if req.method == 'GET' and \
+                    source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
+                res.app_iter = self._make_app_iter(node, source)
+                # See NOTE: swift_conn at top of file about this.
+                res.swift_conn = source.swift_conn
+            res.status = source.status
+            update_headers(res, source.getheaders())
+            if not res.environ:
+                res.environ = {}
+            res.environ['swift_x_timestamp'] = \
+                source.getheader('x-timestamp')
+            res.accept_ranges = 'bytes'
+            res.content_length = source.getheader('Content-Length')
+            if source.getheader('Content-Type'):
+                res.charset = None
+                res.content_type = source.getheader('Content-Type')
+        return res
+
+
 class Controller(object):
     """Base WSGI controller class for the proxy"""
     server_type = 'Base'
@@ -609,71 +890,6 @@ class Controller(object):
         headers['referer'] = referer
         return headers
 
-    def error_occurred(self, node, msg):
-        """
-        Handle logging, and handling of errors.
-
-        :param node: dictionary of node to handle errors for
-        :param msg: error message
-        """
-        node['errors'] = node.get('errors', 0) + 1
-        node['last_error'] = time.time()
-        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                              {'msg': msg, 'ip': node['ip'],
-                              'port': node['port'], 'device': node['device']})
-
-    def exception_occurred(self, node, typ, additional_info):
-        """
-        Handle logging of generic exceptions.
-
-        :param node: dictionary of node to log the error for
-        :param typ: server type
-        :param additional_info: additional information to log
-        """
-        self.app.logger.exception(
-            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
-              '%(info)s'),
-            {'type': typ, 'ip': node['ip'], 'port': node['port'],
-             'device': node['device'], 'info': additional_info})
-
-    def error_limited(self, node):
-        """
-        Check if the node is currently error limited.
-
-        :param node: dictionary of node to check
-        :returns: True if error limited, False otherwise
-        """
-        now = time.time()
-        if 'errors' not in node:
-            return False
-        if 'last_error' in node and node['last_error'] < \
-                now - self.app.error_suppression_interval:
-            del node['last_error']
-            if 'errors' in node:
-                del node['errors']
-            return False
-        limited = node['errors'] > self.app.error_suppression_limit
-        if limited:
-            self.app.logger.debug(
-                _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
-        return limited
-
-    def error_limit(self, node, msg):
-        """
-        Mark a node as error limited. This immediately pretends the
-        node received enough errors to trigger error suppression. Use
-        this for errors like Insufficient Storage. For other errors
-        use :func:`error_occurred`.
-
-        :param node: dictionary of node to error limit
-        :param msg: error message
-        """
-        node['errors'] = self.app.error_suppression_limit + 1
-        node['last_error'] = time.time()
-        self.app.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                              {'msg': msg, 'ip': node['ip'],
-                              'port': node['port'], 'device': node['device']})
-
     def account_info(self, account, req=None):
         """
         Get account information, and also verify that the account exists.
@@ -726,68 +942,13 @@ class Controller(object):
             info['nodes'] = nodes
         return info
 
-    def iter_nodes(self, ring, partition, node_iter=None):
-        """
-        Yields nodes for a ring partition, skipping over error
-        limited nodes and stopping at the configurable number of
-        nodes. If a node yielded subsequently gets error limited, an
-        extra node will be yielded to take its place.
-
-        Note that if you're going to iterate over this concurrently from
-        multiple greenthreads, you'll want to use a
-        swift.common.utils.GreenthreadSafeIterator to serialize access.
-        Otherwise, you may get ValueErrors from concurrent access. (You also
-        may not, depending on how logging is configured, the vagaries of
-        socket IO and eventlet, and the phase of the moon.)
-
-        :param ring: ring to get yield nodes from
-        :param partition: ring partition to yield nodes for
-        :param node_iter: optional iterable of nodes to try. Useful if you
-            want to filter or reorder the nodes.
-        """
-        part_nodes = ring.get_part_nodes(partition)
-        if node_iter is None:
-            node_iter = itertools.chain(part_nodes,
-                                        ring.get_more_nodes(partition))
-        num_primary_nodes = len(part_nodes)
-
-        # Use of list() here forcibly yanks the first N nodes (the primary
-        # nodes) from node_iter, so the rest of its values are handoffs.
-        primary_nodes = self.app.sort_nodes(
-            list(itertools.islice(node_iter, num_primary_nodes)))
-        handoff_nodes = node_iter
-        nodes_left = self.app.request_node_count(ring)
-
-        for node in primary_nodes:
-            if not self.error_limited(node):
-                yield node
-                if not self.error_limited(node):
-                    nodes_left -= 1
-                    if nodes_left <= 0:
-                        return
-
-        handoffs = 0
-        for node in handoff_nodes:
-            if not self.error_limited(node):
-                handoffs += 1
-                if self.app.log_handoffs:
-                    self.app.logger.increment('handoff_count')
-                    self.app.logger.warning(
-                        'Handoff requested (%d)' % handoffs)
-                    if handoffs == len(primary_nodes):
-                        self.app.logger.increment('handoff_all_count')
-                yield node
-                if not self.error_limited(node):
-                    nodes_left -= 1
-                    if nodes_left <= 0:
-                        return
-
     def _make_request(self, nodes, part, method, path, headers, query,
                       logger_thread_locals):
         """
-        Sends an HTTP request to a single node and aggregates the result.
-        It attempts the primary node, then iterates over the handoff nodes
-        as needed.
+        Iterates over the given node iterator, sending an HTTP request to one
+        node at a time.  The first non-informational, non-server-error
+        response is returned.  If no non-informational, non-server-error
+        response is received from any of the nodes, returns None.
 
         :param nodes: an iterator of the backend server and handoff servers
         :param part: the partition number
@@ -799,7 +960,7 @@ class Controller(object):
         :param logger_thread_locals: The thread local values to be set on the
                                      self.app.logger to retain transaction
                                      logging information.
-        :returns: a swob.Response object
+        :returns: a swob.Response object, or None if no responses were received
         """
         self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
@@ -818,11 +979,13 @@ class Controller(object):
                         return resp.status, resp.reason, resp.getheaders(), \
                             resp.read()
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                        self.error_limit(node, _('ERROR Insufficient Storage'))
+                        self.app.error_limit(node,
+                                             _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
-                self.exception_occurred(node, self.server_type,
-                                        _('Trying to %(method)s %(path)s') %
-                                        {'method': method, 'path': path})
+                self.app.exception_occurred(
+                    node, self.server_type,
+                    _('Trying to %(method)s %(path)s') %
+                    {'method': method, 'path': path})
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string=''):
@@ -842,18 +1005,45 @@ class Controller(object):
         :returns: a swob.Response object
         """
         start_nodes = ring.get_part_nodes(part)
-        nodes = GreenthreadSafeIterator(self.iter_nodes(ring, part))
-        pile = GreenPile(len(start_nodes))
+        nodes = GreenthreadSafeIterator(self.app.iter_nodes(ring, part))
+        pile = GreenAsyncPile(len(start_nodes))
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, self.app.logger.thread_locals)
-        response = [resp for resp in pile if resp]
+        response = []
+        statuses = []
+        for resp in pile:
+            if not resp:
+                continue
+            response.append(resp)
+            statuses.append(resp[0])
+            if self.have_quorum(statuses, len(start_nodes)):
+                break
+        # give any pending requests *some* chance to finish
+        pile.waitall(self.app.post_quorum_timeout)
         while len(response) < len(start_nodes):
             response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
         statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),
                                   headers=resp_headers)
+
+    def have_quorum(self, statuses, node_count):
+        """
+        Given a list of statuses from several requests, determine if
+        a quorum response can already be decided.
+
+        :param statuses: list of statuses returned
+        :param node_count: number of nodes being queried (basically ring count)
+        :returns: True or False, depending on if quorum is established
+        """
+        quorum = quorum_size(node_count)
+        if len(statuses) >= quorum:
+            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
+                if sum(1 for s in statuses
+                       if hundred <= s < hundred + 100) >= quorum:
+                    return True
+        return False
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
                       etag=None, headers=None):
@@ -910,92 +1100,6 @@ class Controller(object):
         """
         return self.GETorHEAD(req)
 
-    def _make_app_iter(self, node, source):
-        """
-        Returns an iterator over the contents of the source (via its read
-        func).  There is also quite a bit of cleanup to ensure garbage
-        collection works and the underlying socket of the source is closed.
-
-        :param source: The httplib.Response object this iterator should read
-                       from.
-        :param node: The node the source is reading from, for logging purposes.
-        """
-        try:
-            nchunks = 0
-            while True:
-                with ChunkReadTimeout(self.app.node_timeout):
-                    chunk = source.read(self.app.object_chunk_size)
-                    nchunks += 1
-                if not chunk:
-                    break
-                with ChunkWriteTimeout(self.app.client_timeout):
-                    yield chunk
-                # This is for fairness; if the network is outpacing the CPU,
-                # we'll always be able to read and write data without
-                # encountering an EWOULDBLOCK, and so eventlet will not switch
-                # greenthreads on its own. We do it manually so that clients
-                # don't starve.
-                #
-                # The number 5 here was chosen by making stuff up. It's not
-                # every single chunk, but it's not too big either, so it seemed
-                # like it would probably be an okay choice.
-                #
-                # Note that we may trampoline to other greenthreads more often
-                # than once every 5 chunks, depending on how blocking our
-                # network IO is; the explicit sleep here simply provides a
-                # lower bound on the rate of trampolining.
-                if nchunks % 5 == 0:
-                    sleep()
-        except ChunkReadTimeout:
-            self.exception_occurred(node, _('Object'),
-                                    _('Trying to read during GET'))
-            raise
-        except ChunkWriteTimeout:
-            self.app.logger.warn(
-                _('Client did not read from proxy within %ss') %
-                self.app.client_timeout)
-            self.app.logger.increment('client_timeouts')
-        except GeneratorExit:
-            self.app.logger.warn(_('Client disconnected on read'))
-        except Exception:
-            self.app.logger.exception(_('Trying to send to client'))
-            raise
-        finally:
-            # Close-out the connection as best as possible.
-            if getattr(source, 'swift_conn', None):
-                self.close_swift_conn(source)
-
-    def close_swift_conn(self, src):
-        """
-        Force close the http connection to the backend.
-
-        :param src: the response from the backend
-        """
-        try:
-            # Since the backends set "Connection: close" in their response
-            # headers, the response object (src) is solely responsible for the
-            # socket. The connection object (src.swift_conn) has no references
-            # to the socket, so calling its close() method does nothing, and
-            # therefore we don't do it.
-            #
-            # Also, since calling the response's close() method might not
-            # close the underlying socket but only decrement some
-            # reference-counter, we have a special method here that really,
-            # really kills the underlying socket with a close() syscall.
-            src.nuke_from_orbit()  # it's the only way to be sure
-        except Exception:
-            pass
-
-    def is_good_source(self, src):
-        """
-        Indicates whether or not the request made to the backend found
-        what it was looking for.
-
-        :param src: the response from the backend
-        :returns: True if found, False if not
-        """
-        return is_success(src.status) or is_redirection(src.status)
-
     def autocreate_account(self, env, account):
         """
         Autocreate an account
@@ -1028,87 +1132,18 @@ class Controller(object):
         :param path: path for the request
         :returns: swob.Response object
         """
-        statuses = []
-        reasons = []
-        bodies = []
-        source_headers = []
-        sources = []
-        newest = config_true_value(req.headers.get('x-newest', 'f'))
-        headers = self.generate_request_headers(req, additional=req.headers)
-        for node in self.iter_nodes(ring, partition):
-            start_node_timing = time.time()
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(
-                        node['ip'], node['port'], node['device'], partition,
-                        req.method, path, headers=headers,
-                        query_string=req.query_string)
-                self.app.set_node_timing(node, time.time() - start_node_timing)
-                with Timeout(self.app.node_timeout):
-                    possible_source = conn.getresponse()
-                    # See NOTE: swift_conn at top of file about this.
-                    possible_source.swift_conn = conn
-            except (Exception, Timeout):
-                self.exception_occurred(
-                    node, server_type, _('Trying to %(method)s %(path)s') %
-                    {'method': req.method, 'path': req.path})
-                continue
-            if self.is_good_source(possible_source):
-                # 404 if we know we don't have a synced copy
-                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                    statuses.append(HTTP_NOT_FOUND)
-                    reasons.append('')
-                    bodies.append('')
-                    source_headers.append('')
-                    self.close_swift_conn(possible_source)
-                else:
-                    statuses.append(possible_source.status)
-                    reasons.append(possible_source.reason)
-                    bodies.append('')
-                    source_headers.append('')
-                    sources.append((possible_source, node))
-                    if not newest:  # one good source is enough
-                        break
-            else:
-                statuses.append(possible_source.status)
-                reasons.append(possible_source.reason)
-                bodies.append(possible_source.read())
-                source_headers.append(possible_source.getheaders())
-                if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.error_limit(node, _('ERROR Insufficient Storage'))
-                elif is_server_error(possible_source.status):
-                    self.error_occurred(node, _('ERROR %(status)d %(body)s '
-                                                'From %(type)s Server') %
-                                        {'status': possible_source.status,
-                                         'body': bodies[-1][:1024],
-                                         'type': server_type})
-        res = None
-        if sources:
-            sources.sort(key=lambda s: source_key(s[0]))
-            source, node = sources.pop()
-            for src, _junk in sources:
-                self.close_swift_conn(src)
-            res = Response(request=req)
-            if req.method == 'GET' and \
-                    source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
-                res.app_iter = self._make_app_iter(node, source)
-                # See NOTE: swift_conn at top of file about this.
-                res.swift_conn = source.swift_conn
-            res.status = source.status
-            update_headers(res, source.getheaders())
-            if not res.environ:
-                res.environ = {}
-            res.environ['swift_x_timestamp'] = \
-                source.getheader('x-timestamp')
-            res.accept_ranges = 'bytes'
-            res.content_length = source.getheader('Content-Length')
-            if source.getheader('Content-Type'):
-                res.charset = None
-                res.content_type = source.getheader('Content-Type')
+        backend_headers = self.generate_request_headers(
+            req, additional=req.headers)
+
+        handler = GetOrHeadHandler(self.app, req, server_type, ring,
+                                   partition, path, backend_headers)
+        res = handler.get_working_response(req)
+
         if not res:
-            res = self.best_response(req, statuses, reasons, bodies,
-                                     '%s %s' % (server_type, req.method),
-                                     headers=source_headers)
+            res = self.best_response(
+                req, handler.statuses, handler.reasons, handler.bodies,
+                '%s %s' % (server_type, req.method),
+                headers=handler.source_headers)
         try:
             (account, container) = split_path(req.path_info, 1, 2)
             _set_info_cache(self.app, req.environ, account, container, res)

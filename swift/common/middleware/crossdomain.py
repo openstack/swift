@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from swift.common.swob import Request, Response
+from swift.common.utils import register_swift_info
 
 
 class CrossDomainMiddleware(object):
@@ -84,6 +85,7 @@ class CrossDomainMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('crossdomain')
 
     def crossdomain_filter(app):
         return CrossDomainMiddleware(app, conf)

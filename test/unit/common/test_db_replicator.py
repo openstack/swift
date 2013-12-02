@@ -29,6 +29,7 @@ from swift.common import db_replicator
 from swift.common.utils import normalize_timestamp
 from swift.container import server as container_server
 from swift.common.exceptions import DriveNotMounted
+from swift.common.swob import HTTPException
 
 from test.unit import FakeLogger
 
@@ -200,6 +201,9 @@ class FakeBroker:
 
     def get_info(self):
         return self.info
+
+    def newid(self, remote_d):
+        pass
 
 
 class FakeAccountBroker(FakeBroker):
@@ -564,6 +568,8 @@ class TestDBReplicator(unittest.TestCase):
         replicator = TestReplicator({'devices': '/some/root'})
         self.assertEqual('some_device', replicator.extract_device(
             '/some/root/some_device/deeper/and/deeper'))
+        self.assertEqual('UNKNOWN', replicator.extract_device(
+            '/some/foo/some_device/deeper/and/deeper'))
 
 #    def test_dispatch(self):
 #        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
@@ -599,6 +605,34 @@ class TestDBReplicator(unittest.TestCase):
         args = ('a', 'b')
         rpc.merge_syncs(fake_broker, args)
         self.assertEquals(fake_broker.args, (args[0],))
+
+    def test_complete_rsync_with_bad_input(self):
+        drive = '/some/root'
+        db_file = __file__
+        args = ['old_file']
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        resp = rpc.complete_rsync(drive, db_file, args)
+        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertEquals(404, resp.status_int)
+        resp = rpc.complete_rsync(drive, 'new_db_file', args)
+        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertEquals(404, resp.status_int)
+
+    def test_complete_rsync(self):
+        drive = mkdtemp()
+        args = ['old_file']
+        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
+        os.mkdir('%s/tmp' % drive)
+        old_file = '%s/tmp/old_file' % drive
+        new_file = '%s/new_db_file' % drive
+        try:
+            fp = open(old_file, 'w')
+            fp.write('void')
+            fp.close
+            resp = rpc.complete_rsync(drive, new_file, args)
+            self.assertEquals(204, resp.status_int)
+        finally:
+            rmtree(drive)
 
     def test_roundrobin_datadirs(self):
         listdir_calls = []

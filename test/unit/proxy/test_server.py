@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
 import cPickle as pickle
 import logging
 import os
@@ -36,12 +35,13 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
+from swift.common.middleware import proxy_logging
 from swift.common.exceptions import ChunkReadTimeout, SegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
@@ -165,19 +165,26 @@ def do_setup(the_object_server):
                       'port': obj2lis.getsockname()[1]}], 30),
                     f)
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
+                                      logger=debug_logger('proxy'),
                                       storage_policies=_policies)
-    acc1srv = account_server.AccountController(conf)
-    acc2srv = account_server.AccountController(conf)
-    con1srv = container_server.ContainerController(conf,
-                                                   storage_policies=_policies)
-    con2srv = container_server.ContainerController(conf,
-                                                   storage_policies=_policies)
-    obj1srv = the_object_server.ObjectController(conf)
-    obj2srv = the_object_server.ObjectController(conf)
+    acc1srv = account_server.AccountController(
+        conf, logger=debug_logger('acct1'))
+    acc2srv = account_server.AccountController(
+        conf, logger=debug_logger('acct2'))
+    con1srv = container_server.ContainerController(
+        conf, logger=debug_logger('cont1'), storage_policies=_policies)
+    con2srv = container_server.ContainerController(
+        conf, logger=debug_logger('cont2'), storage_policies=_policies)
+    obj1srv = the_object_server.ObjectController(
+        conf, logger=debug_logger('obj1'))
+    obj2srv = the_object_server.ObjectController(
+        conf, logger=debug_logger('obj2'))
     _test_servers = \
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
     nl = NullLogger()
-    prospa = spawn(wsgi.server, prolis, prosrv, nl)
+    logging_prosv = proxy_logging.ProxyLoggingMiddleware(prosrv, conf,
+                                                         logger=prosrv.logger)
+    prospa = spawn(wsgi.server, prolis, logging_prosv, nl)
     acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
     acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)
     con1spa = spawn(wsgi.server, con1lis, con1srv, nl)
@@ -746,6 +753,38 @@ class TestProxyServer(unittest.TestCase):
                           {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}]
             self.assertEquals(exp_sorted, app_sorted)
 
+    def test_info_defaults(self):
+        policy = [StoragePolicy(0, '', True, FakeRing())]
+        policy_coll = StoragePolicyCollection(policy)
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       storage_policies=policy_coll)
+
+        self.assertTrue(app.expose_info)
+        self.assertTrue(isinstance(app.disallowed_sections, list))
+        self.assertEqual(0, len(app.disallowed_sections))
+        self.assertTrue(app.admin_key is None)
+
+    def test_get_info_controller(self):
+        path = '/info'
+        policy = [StoragePolicy(0, '', True, FakeRing())]
+        policy_coll = StoragePolicyCollection(policy)
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       storage_policies=policy_coll)
+
+        controller, path_parts = app.get_controller(path)
+
+        self.assertTrue('version' in path_parts)
+        self.assertTrue(path_parts['version'] is None)
+        self.assertTrue('disallowed_sections' in path_parts)
+        self.assertTrue('expose_info' in path_parts)
+        self.assertTrue('admin_key' in path_parts)
+
+        self.assertEqual(controller.__name__, 'InfoController')
+
 
 class TestObjectController(unittest.TestCase):
 
@@ -1023,10 +1062,10 @@ class TestObjectController(unittest.TestCase):
 
             controller = \
                 proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
-            controller.error_limit(
+            self.app.error_limit(
                 object_ring.get_part_nodes(1)[0], 'test')
-            set_http_connect(200, 200,       # account, container
-                             201, 201, 201,  # 3 working backends
+            set_http_connect(200, 200,        # account, container
+                             201, 201, 201,   # 3 working backends
                              give_connect=test_connect)
             req = Request.blank('/a/c/o.jpg', {})
             req.content_length = 1
@@ -2485,6 +2524,74 @@ class TestObjectController(unittest.TestCase):
                 got_exc = True
             self.assert_(got_exc)
 
+    def test_node_read_timeout_retry(self):
+        with save_globals():
+            self.app.account_ring.get_nodes('account')
+            for dev in self.app.account_ring.devs.values():
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
+            self.app.container_ring.get_nodes('account')
+            for dev in self.app.container_ring.devs.values():
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
+            object_ring = self.app.get_object_ring(None)
+            object_ring.get_nodes('account')
+            for dev in object_ring.devs.values():
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
+            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+            self.app.update_request(req)
+
+            self.app.node_timeout = 0.1
+            set_http_connect(200, 200, 200, slow=[3])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                resp.body
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(got_exc)
+
+            set_http_connect(200, 200, 200, body='lalala', slow=[2])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                self.assertEquals(resp.body, 'lalala')
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(not got_exc)
+
+            set_http_connect(200, 200, 200, body='lalala', slow=[2],
+                             etags=['a', 'a', 'a'])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                self.assertEquals(resp.body, 'lalala')
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(not got_exc)
+
+            set_http_connect(200, 200, 200, body='lalala', slow=[2],
+                             etags=['a', 'b', 'a'])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                self.assertEquals(resp.body, 'lalala')
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(not got_exc)
+
+            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+            set_http_connect(200, 200, 200, body='lalala', slow=[2],
+                             etags=['a', 'b', 'b'])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                resp.body
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(got_exc)
+
     def test_node_write_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
@@ -2525,44 +2632,35 @@ class TestObjectController(unittest.TestCase):
             try:
                 object_ring = self.app.get_object_ring(None)
                 object_ring.max_more_nodes = 2
-                controller = proxy_server.ObjectController(self.app, 'account',
-                                                           'container',
-                                                           'object')
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(object_ring,
-                                                  partition):
+                for node in self.app.iter_nodes(object_ring,
+                                                partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
 
                 object_ring.max_more_nodes = 20
                 self.app.request_node_count = lambda r: 20
-                controller = proxy_server.ObjectController(self.app, 'account',
-                                                           'container',
-                                                           'object')
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(object_ring,
-                                                  partition):
+                for node in self.app.iter_nodes(object_ring,
+                                                partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 9)
 
                 self.app.log_handoffs = True
                 self.app.logger = FakeLogger()
                 object_ring.max_more_nodes = 2
-                controller = proxy_server.ObjectController(self.app, 'account',
-                                                           'container',
-                                                           'object')
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(object_ring,
-                                                  partition):
+                for node in self.app.iter_nodes(object_ring,
+                                                partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
                 self.assertEquals(
@@ -2573,15 +2671,12 @@ class TestObjectController(unittest.TestCase):
                 self.app.log_handoffs = False
                 self.app.logger = FakeLogger()
                 object_ring.max_more_nodes = 2
-                controller = proxy_server.ObjectController(self.app, 'account',
-                                                           'container',
-                                                           'object')
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in controller.iter_nodes(object_ring,
-                                                  partition):
+                for node in self.app.iter_nodes(object_ring,
+                                                partition):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 5)
                 self.assertEquals(self.app.logger.log_dict['warning'], [])
@@ -2590,23 +2685,21 @@ class TestObjectController(unittest.TestCase):
 
     def test_iter_nodes_calls_sort_nodes(self):
         with mock.patch.object(self.app, 'sort_nodes') as sort_nodes:
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
             object_ring = self.app.get_object_ring(None)
-            for node in controller.iter_nodes(object_ring, 0):
+            for node in self.app.iter_nodes(object_ring, 0):
                 pass
             sort_nodes.assert_called_once_with(
                 object_ring.get_part_nodes(0))
 
     def test_iter_nodes_skips_error_limited(self):
         with mock.patch.object(self.app, 'sort_nodes', lambda n: n):
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
             object_ring = self.app.get_object_ring(None)
-            first_nodes = list(controller.iter_nodes(object_ring, 0))
-            second_nodes = list(controller.iter_nodes(object_ring, 0))
+            first_nodes = list(self.app.iter_nodes(object_ring, 0))
+            second_nodes = list(self.app.iter_nodes(object_ring, 0))
             self.assertTrue(first_nodes[0] in second_nodes)
 
-            controller.error_limit(first_nodes[0], 'test')
-            second_nodes = list(controller.iter_nodes(object_ring, 0))
+            self.app.error_limit(first_nodes[0], 'test')
+            second_nodes = list(self.app.iter_nodes(object_ring, 0))
             self.assertTrue(first_nodes[0] not in second_nodes)
 
     def test_iter_nodes_gives_extra_if_error_limited_inline(self):
@@ -2616,34 +2709,32 @@ class TestObjectController(unittest.TestCase):
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 6),
                 mock.patch.object(object_ring, 'max_more_nodes', 99)):
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
-            first_nodes = list(controller.iter_nodes(object_ring, 0))
+            first_nodes = list(self.app.iter_nodes(object_ring, 0))
             second_nodes = []
-            for node in controller.iter_nodes(object_ring, 0):
+            for node in self.app.iter_nodes(object_ring, 0):
                 if not second_nodes:
-                    controller.error_limit(node, 'test')
+                    self.app.error_limit(node, 'test')
                 second_nodes.append(node)
             self.assertEquals(len(first_nodes), 6)
             self.assertEquals(len(second_nodes), 7)
 
     def test_iter_nodes_with_custom_node_iter(self):
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         object_ring = self.app.get_object_ring(None)
         node_list = [dict(id=n) for n in xrange(10)]
         with nested(
                 mock.patch.object(self.app, 'sort_nodes', lambda n: n),
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 3)):
-            got_nodes = list(controller.iter_nodes(object_ring, 0,
-                                                   node_iter=iter(node_list)))
+            got_nodes = list(self.app.iter_nodes(object_ring, 0,
+                                                 node_iter=iter(node_list)))
         self.assertEqual(node_list[:3], got_nodes)
 
         with nested(
                 mock.patch.object(self.app, 'sort_nodes', lambda n: n),
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 1000000)):
-            got_nodes = list(controller.iter_nodes(object_ring, 0,
-                                                   node_iter=iter(node_list)))
+            got_nodes = list(self.app.iter_nodes(object_ring, 0,
+                                                 node_iter=iter(node_list)))
         self.assertEqual(node_list, got_nodes)
 
     def test_best_response_sets_headers(self):
@@ -3132,7 +3223,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/a/c/o', environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': 'c/o'})
             req.account = 'a'
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201, 200, 200)
             #                acct cont acct cont objc objc objc obj  obj  obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
@@ -3144,7 +3235,7 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Destination': 'c/o'})
             req.account = 'a'
             controller.object_name = 'o/o2'
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201, 200, 200)
             #                acct cont acct cont objc objc objc obj  obj  obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
@@ -3155,7 +3246,7 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Destination': '/c/o'})
             req.account = 'a'
             controller.object_name = 'o'
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201, 200, 200)
             #                acct cont acct cont objc objc objc obj  obj  obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
@@ -3167,7 +3258,7 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Destination': '/c/o'})
             req.account = 'a'
             controller.object_name = 'o/o2'
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201, 200, 200)
             #                acct cont acct cont objc objc objc obj  obj  obj
             self.app.memcache.store = {}
             resp = controller.COPY(req)
@@ -4809,6 +4900,7 @@ class TestObjectController(unittest.TestCase):
         fd.read(1)
         fd.close()
         sock.close()
+        sleep(0)  # let eventlet do it's thing
         # Make sure the GC is run again for pythons without reference counting
         for i in xrange(4):
             gc.collect()
@@ -5427,7 +5519,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             self.assert_status_map(controller.PUT,
-                                   (200, 200, 200, 201, 201, 201), 201,
+                                   (200, 201, 201, 201), 201,
                                    missing_container=True)
 
             self.app.max_containers_per_account = 12345
@@ -5441,7 +5533,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             self.assert_status_map(controller.PUT,
-                                   (200, 200, 200, 201, 201, 201), 201,
+                                   (200, 201, 201, 201), 201,
                                    missing_container=True)
 
     def test_PUT_max_container_name_length(self):
@@ -5450,7 +5542,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           '1' * limit)
             self.assert_status_map(controller.PUT,
-                                   (200, 200, 200, 201, 201, 201), 201,
+                                   (200, 201, 201, 201), 201,
                                    missing_container=True)
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           '2' * (limit + 1))
@@ -5535,7 +5627,7 @@ class TestContainerController(unittest.TestCase):
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
             self.app.memcache = MockMemcache(allow_lock=True)
-            set_http_connect(200, 200, 200, 201, 201, 201,
+            set_http_connect(200, 201, 201, 201,
                              missing_container=True)
             req = Request.blank('/a/c', environ={'REQUEST_METHOD': 'PUT'})
             self.app.update_request(req)
@@ -7030,6 +7122,65 @@ class TestSegmentedIterable(unittest.TestCase):
                                   self.controller.object_ring)
         segit.response = Stub()
         self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
+
+
+class TestProxyObjectPerformance(unittest.TestCase):
+
+    def setUp(self):
+        # This is just a simple test that can be used to verify and debug the
+        # various data paths between the proxy server and the object
+        # server. Used as a play ground to debug buffer sizes for sockets.
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        # Client is transmitting in 2 MB chunks
+        fd = sock.makefile('wb', 2 * 1024 * 1024)
+        # Small, fast for testing
+        obj_len = 2 * 64 * 1024
+        # Use 1 GB or more for measurements
+        #obj_len = 2 * 512 * 1024 * 1024
+        self.path = '/v1/a/c/o.large'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n' % (self.path, str(obj_len)))
+        fd.write('a' * obj_len)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        self.obj_len = obj_len
+
+    def test_GET_debug_large_file(self):
+        for i in range(0, 10):
+            start = time.time()
+
+            prolis = _test_sockets[0]
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            # Client is reading in 2 MB chunks
+            fd = sock.makefile('wb', 2 * 1024 * 1024)
+            fd.write('GET %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n' % self.path)
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+
+            total = 0
+            while True:
+                buf = fd.read(100000)
+                if not buf:
+                    break
+                total += len(buf)
+            self.assertEqual(total, self.obj_len)
+
+            end = time.time()
+            print "Run %02d took %07.03f" % (i, end - start)
 
 
 if __name__ == '__main__':

@@ -17,11 +17,12 @@ import tarfile
 from urllib import quote, unquote
 from xml.sax import saxutils
 from time import time
+import zlib
 from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
-from swift.common.utils import json, get_logger
+from swift.common.utils import json, get_logger, register_swift_info
 from swift.common.constraints import check_utf8, MAX_FILE_SIZE
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH, \
@@ -143,12 +144,12 @@ class Bulk(object):
     Bulk Delete:
 
     Will delete multiple objects or containers from their account with a
-    single request. Responds to DELETE requests with query parameter
+    single request. Responds to POST requests with query parameter
     ?bulk-delete set. The request url is your storage url. The Content-Type
-    should be set to text/plain. The body of the DELETE request will be a
+    should be set to text/plain. The body of the POST request will be a
     newline separated list of url encoded objects to delete. You can delete
     10,000 (configurable) objects per request. The objects specified in the
-    DELETE request body must be URL encoded and in the form:
+    POST request body must be URL encoded and in the form:
 
     /container_name/obj_name
 
@@ -500,7 +501,7 @@ class Bulk(object):
         except HTTPException as err:
             resp_dict['Response Status'] = err.status
             resp_dict['Response Body'] = err.body
-        except tarfile.TarError as tar_error:
+        except (tarfile.TarError, zlib.error) as tar_error:
             resp_dict['Response Status'] = HTTPBadRequest().status
             resp_dict['Response Body'] = 'Invalid Tar File: %s' % tar_error
         except Exception:
@@ -527,7 +528,7 @@ class Bulk(object):
                     req, archive_type, out_content_type=out_content_type)
             else:
                 resp = HTTPBadRequest("Unsupported archive format")
-        if 'bulk-delete' in req.params and req.method == 'DELETE':
+        if 'bulk-delete' in req.params and req.method in ['POST', 'DELETE']:
             resp = HTTPOk(request=req)
             out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
             if out_content_type:
@@ -541,6 +542,7 @@ class Bulk(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('bulk')
 
     def bulk_filter(app):
         return Bulk(app, conf)

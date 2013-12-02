@@ -28,7 +28,8 @@ from swift.account.backend import AccountBroker
 from swift.common.direct_client import ClientException, \
     direct_delete_container, direct_delete_object, direct_get_container
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, whataremyips, config_true_value
+from swift.common.utils import get_logger, whataremyips, ismount, \
+    config_true_value
 from swift.common.daemon import Daemon
 
 
@@ -120,7 +121,7 @@ class AccountReaper(Daemon):
         begin = time()
         try:
             for device in os.listdir(self.devices):
-                if self.mount_check and not os.path.ismount(
+                if self.mount_check and not ismount(
                         os.path.join(self.devices, device)):
                     self.logger.increment('errors')
                     self.logger.debug(

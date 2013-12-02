@@ -143,7 +143,8 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized
-from swift.common.utils import json, get_logger, config_true_value
+from swift.common.utils import (json, get_logger, config_true_value,
+                                register_swift_info)
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 from swift.common.wsgi import WSGIContext
@@ -461,6 +462,7 @@ class StaticLargeObject(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('slo')
 
     def slo_filter(app):
         return StaticLargeObject(app, conf)

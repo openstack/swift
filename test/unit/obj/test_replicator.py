@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
-
 import unittest
 import os
 import mock
@@ -554,6 +552,12 @@ class TestObjectReplicator(unittest.TestCase):
                             mock_http_connect(200)):
                 self.replicator.replicate()
 
+    def test_sync_just_calls_sync_method(self):
+        self.replicator.sync_method = mock.MagicMock()
+        self.replicator.sync('node', 'job', 'suffixes')
+        self.replicator.sync_method.assert_called_once_with(
+            'node', 'job', 'suffixes')
+
     @mock.patch('swift.obj.replicator.tpool_reraise', autospec=True)
     @mock.patch('swift.obj.replicator.http_connect', autospec=True)
     def test_update(self, mock_http, mock_tpool_reraise):
@@ -638,13 +642,13 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertEquals(self.replicator.suffix_count, 0)
             mock_logger.reset_mock()
 
-        # Check seccesfull http_connect and rsync for local node
+        # Check successful http_connect and sync for local node
         mock_tpool_reraise.return_value = (1, {'a83': 'ba47fd314242ec8c'
                                                       '7efb91f5d57336e4'})
         resp.read.return_value = pickle.dumps({'a83': 'c130a2c17ed45102a'
                                                       'ada0f4eee69494ff'})
         set_default(self)
-        self.replicator.rsync = fake_func = mock.MagicMock()
+        self.replicator.sync = fake_func = mock.MagicMock()
         self.replicator.update(local_job)
         reqs = []
         for node in local_job['nodes']:

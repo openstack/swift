@@ -15,12 +15,12 @@
 
 """Tests for swift.common.utils"""
 
-from __future__ import with_statement
 from test.unit import temptree
 
 import ctypes
 import errno
 import eventlet
+import eventlet.event
 import logging
 import os
 import random
@@ -48,7 +48,8 @@ from netifaces import AF_INET6
 from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
-                                     ConnectionTimeout, LockTimeout)
+                                     ConnectionTimeout, LockTimeout,
+                                     ReplicationLockTimeout)
 from swift.common import utils
 from swift.common.swob import Response
 from test.unit import FakeLogger
@@ -136,6 +137,55 @@ class TestUtils(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
+
+    def test_lock_path(self):
+        tmpdir = mkdtemp()
+        try:
+            with utils.lock_path(tmpdir, 0.1):
+                exc = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+                except LockTimeout as err:
+                    exc = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(not success)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_lock_path_class(self):
+        tmpdir = mkdtemp()
+        try:
+            with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                exc = None
+                exc2 = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                        success = True
+                except ReplicationLockTimeout as err:
+                    exc = err
+                except LockTimeout as err:
+                    exc2 = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(exc2 is None)
+                self.assertTrue(not success)
+                exc = None
+                exc2 = None
+                success = False
+                try:
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+                except ReplicationLockTimeout as err:
+                    exc = err
+                except LockTimeout as err:
+                    exc2 = err
+                self.assertTrue(exc is None)
+                self.assertTrue(exc2 is not None)
+                self.assertTrue(not success)
+        finally:
+            shutil.rmtree(tmpdir)
 
     def test_normalize_timestamp(self):
         # Test swift.common.utils.normalize_timestamp
@@ -1612,6 +1662,159 @@ log_name = %(yarr)s'''
         self.assertEquals('abc_%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
                           utils.quote(invalid_utf8_str))
 
+    def test_get_hmac(self):
+        self.assertEquals(
+            utils.get_hmac('GET', '/path', 1, 'abc'),
+            'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
+
+
+class TestSwiftInfo(unittest.TestCase):
+
+    def tearDown(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_register_swift_info(self):
+        utils.register_swift_info(foo='bar')
+        utils.register_swift_info(lorem='ipsum')
+        utils.register_swift_info('cap1', cap1_foo='cap1_bar')
+        utils.register_swift_info('cap1', cap1_lorem='cap1_ipsum')
+
+        self.assertTrue('swift' in utils._swift_info)
+        self.assertTrue('foo' in utils._swift_info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+        self.assertTrue('lorem' in utils._swift_info['swift'])
+        self.assertEqual(utils._swift_info['swift']['lorem'], 'ipsum')
+
+        self.assertTrue('cap1' in utils._swift_info)
+        self.assertTrue('cap1_foo' in utils._swift_info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+        self.assertTrue('cap1_lorem' in utils._swift_info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_lorem'], 'cap1_ipsum')
+
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'admin', foo='bar')
+
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'disallowed_sections',
+                          disallowed_sections=None)
+
+    def test_get_swift_info(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info()
+
+        self.assertTrue('admin' not in info)
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' in info)
+        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+
+    def test_get_swift_info_with_disallowed_sections(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'},
+                             'cap2': {'cap2_foo': 'cap2_bar'},
+                             'cap3': {'cap3_foo': 'cap3_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(disallowed_sections=['cap1', 'cap3'])
+
+        self.assertTrue('admin' not in info)
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' not in info)
+
+        self.assertTrue('cap2' in info)
+        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
+
+        self.assertTrue('cap3' not in info)
+
+    def test_register_swift_admin_info(self):
+        utils.register_swift_info(admin=True, admin_foo='admin_bar')
+        utils.register_swift_info(admin=True, admin_lorem='admin_ipsum')
+        utils.register_swift_info('cap1', admin=True, ac1_foo='ac1_bar')
+        utils.register_swift_info('cap1', admin=True, ac1_lorem='ac1_ipsum')
+
+        self.assertTrue('swift' in utils._swift_admin_info)
+        self.assertTrue('admin_foo' in utils._swift_admin_info['swift'])
+        self.assertEqual(
+            utils._swift_admin_info['swift']['admin_foo'], 'admin_bar')
+        self.assertTrue('admin_lorem' in utils._swift_admin_info['swift'])
+        self.assertEqual(
+            utils._swift_admin_info['swift']['admin_lorem'], 'admin_ipsum')
+
+        self.assertTrue('cap1' in utils._swift_admin_info)
+        self.assertTrue('ac1_foo' in utils._swift_admin_info['cap1'])
+        self.assertEqual(
+            utils._swift_admin_info['cap1']['ac1_foo'], 'ac1_bar')
+        self.assertTrue('ac1_lorem' in utils._swift_admin_info['cap1'])
+        self.assertEqual(
+            utils._swift_admin_info['cap1']['ac1_lorem'], 'ac1_ipsum')
+
+        self.assertTrue('swift' not in utils._swift_info)
+        self.assertTrue('cap1' not in utils._swift_info)
+
+    def test_get_swift_admin_info(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(admin=True)
+
+        self.assertTrue('admin' in info)
+        self.assertTrue('admin_cap1' in info['admin'])
+        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' in info)
+        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
+
+    def test_get_swift_admin_info_with_disallowed_sections(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar'},
+                             'cap2': {'cap2_foo': 'cap2_bar'},
+                             'cap3': {'cap3_foo': 'cap3_bar'}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(
+            admin=True, disallowed_sections=['cap1', 'cap3'])
+
+        self.assertTrue('admin' in info)
+        self.assertTrue('admin_cap1' in info['admin'])
+        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
+        self.assertTrue('disallowed_sections' in info['admin'])
+        self.assertTrue('cap1' in info['admin']['disallowed_sections'])
+        self.assertTrue('cap2' not in info['admin']['disallowed_sections'])
+        self.assertTrue('cap3' in info['admin']['disallowed_sections'])
+
+        self.assertTrue('swift' in info)
+        self.assertTrue('foo' in info['swift'])
+        self.assertEqual(info['swift']['foo'], 'bar')
+
+        self.assertTrue('cap1' not in info)
+
+        self.assertTrue('cap2' in info)
+        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
+
+        self.assertTrue('cap3' not in info)
+
 
 class TestFileLikeIter(unittest.TestCase):
 
@@ -2481,6 +2684,67 @@ class TestAuditLocationGenerator(unittest.TestCase):
             )
             self.assertEqual(list(locations),
                              [(obj_path, "drive", "partition2")])
+
+
+class TestGreenAsyncPile(unittest.TestCase):
+    def test_runs_everything(self):
+        def run_test():
+            tests_ran[0] += 1
+            return tests_ran[0]
+        tests_ran = [0]
+        pile = utils.GreenAsyncPile(3)
+        for x in xrange(3):
+            pile.spawn(run_test)
+        self.assertEqual(sorted(x for x in pile), [1, 2, 3])
+
+    def test_is_asynchronous(self):
+        def run_test(index):
+            events[index].wait()
+            return index
+
+        pile = utils.GreenAsyncPile(3)
+        for order in ((1, 2, 0), (0, 1, 2), (2, 1, 0), (0, 2, 1)):
+            events = [eventlet.event.Event(), eventlet.event.Event(),
+                      eventlet.event.Event()]
+            for x in xrange(3):
+                pile.spawn(run_test, x)
+            for x in order:
+                events[x].send()
+                self.assertEqual(next(pile), x)
+
+    def test_next_when_empty(self):
+        def run_test():
+            pass
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test)
+        self.assertEqual(next(pile), None)
+        self.assertRaises(StopIteration, lambda: next(pile))
+
+    def test_waitall_timeout_timesout(self):
+        def run_test(sleep_duration):
+            eventlet.sleep(sleep_duration)
+            completed[0] += 1
+            return sleep_duration
+
+        completed = [0]
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 0.1)
+        pile.spawn(run_test, 1.0)
+        self.assertEqual(pile.waitall(0.2), [0.1])
+        self.assertEqual(completed[0], 1)
+
+    def test_waitall_timeout_completes(self):
+        def run_test(sleep_duration):
+            eventlet.sleep(sleep_duration)
+            completed[0] += 1
+            return sleep_duration
+
+        completed = [0]
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 0.1)
+        pile.spawn(run_test, 0.1)
+        self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
+        self.assertEqual(completed[0], 2)
 
 
 if __name__ == '__main__':

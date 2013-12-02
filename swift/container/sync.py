@@ -147,7 +147,7 @@ class ContainerSync(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
 
-    def run_forever(self):
+    def run_forever(self, *args, **kwargs):
         """
         Runs container sync scans until stopped.
         """
@@ -167,7 +167,7 @@ class ContainerSync(Daemon):
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
 
-    def run_once(self):
+    def run_once(self, *args, **kwargs):
         """
         Runs a single container sync scan.
         """

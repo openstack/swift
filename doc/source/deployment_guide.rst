@@ -357,43 +357,80 @@ fallocate_reserve    0           You can set fallocate_reserve to the number of
                                  when they completely run out of space; you can
                                  make the services pretend they're out of space
                                  early.
+conn_timeout         0.5         Time to wait while attempting to connect to
+                                 another backend node.
+node_timeout         3           Time to wait while sending each chunk of data
+                                 to another backend node.
+client_timeout       60          Time to wait while receiving each chunk of
+                                 data from a client or another backend node.
+network_chunk_size   65536       Size of chunks to read/write over the network
+disk_chunk_size      65536       Size of chunks to read/write to disk
 ===================  ==========  =============================================
 
 .. _object-server-options:
 
 [object-server]
 
-==================  =============  ===========================================
-Option              Default        Description
-------------------  -------------  -------------------------------------------
-use                                paste.deploy entry point for the object
-                                   server.  For most cases, this should be
-                                   `egg:swift#object`.
-set log_name        object-server  Label used when logging
-set log_facility    LOG_LOCAL0     Syslog log facility
-set log_level       INFO           Logging level
-set log_requests    True           Whether or not to log each request
-user                swift          User to run as
-node_timeout        3              Request timeout to external services
-conn_timeout        0.5            Connection timeout to external services
-network_chunk_size  65536          Size of chunks to read/write over the
-                                   network
-disk_chunk_size     65536          Size of chunks to read/write to disk
-max_upload_time     86400          Maximum time allowed to upload an object
-slow                0              If > 0, Minimum time in seconds for a PUT
-                                   or DELETE request to complete
-mb_per_sync         512            On PUT requests, sync file every n MB
-keep_cache_size     5242880        Largest object size to keep in buffer cache
-keep_cache_private  false          Allow non-public objects to stay in
-                                   kernel's buffer cache
-threads_per_disk    0              Size of the per-disk thread pool used for
-                                   performing disk I/O. The default of 0 means
-                                   to not use a per-disk thread pool. It is
-                                   recommended to keep this value small, as
-                                   large values can result in high read
-                                   latencies due to large queue depths. A good
-                                   starting point is 4 threads per disk.
-==================  =============  ===========================================
+=============================  =============  =================================
+Option                         Default        Description
+-----------------------------  -------------  ---------------------------------
+use                                           paste.deploy entry point for the
+                                              object server.  For most cases,
+                                              this should be
+                                              `egg:swift#object`.
+set log_name                   object-server  Label used when logging
+set log_facility               LOG_LOCAL0     Syslog log facility
+set log_level                  INFO           Logging level
+set log_requests               True           Whether or not to log each
+                                              request
+user                           swift          User to run as
+max_upload_time                86400          Maximum time allowed to upload an
+                                              object
+slow                           0              If > 0, Minimum time in seconds
+                                              for a PUT or DELETE request to
+                                              complete
+mb_per_sync                    512            On PUT requests, sync file every
+                                              n MB
+keep_cache_size                5242880        Largest object size to keep in
+                                              buffer cache
+keep_cache_private             false          Allow non-public objects to stay
+                                              in kernel's buffer cache
+threads_per_disk               0              Size of the per-disk thread pool
+                                              used for performing disk I/O. The
+                                              default of 0 means to not use a
+                                              per-disk thread pool. It is
+                                              recommended to keep this value
+                                              small, as large values can result
+                                              in high read latencies due to
+                                              large queue depths. A good
+                                              starting point is 4 threads per
+                                              disk.
+replication_concurrency        4              Set to restrict the number of
+                                              concurrent incoming REPLICATION
+                                              requests; set to 0 for unlimited
+replication_one_per_device     True           Restricts incoming REPLICATION
+                                              requests to one per device,
+                                              replication_currency above
+                                              allowing. This can help control
+                                              I/O to each device, but you may
+                                              wish to set this to False to
+                                              allow multiple REPLICATION
+                                              requests (up to the above
+                                              replication_concurrency setting)
+                                              per device.
+replication_lock_timeout       15             Number of seconds to wait for an
+                                              existing replication device lock
+                                              before giving up.
+replication_failure_threshold  100            The number of subrequest failures
+                                              before the
+                                              replication_failure_ratio is
+                                              checked
+replication_failure_ratio      1.0            If the value of failures /
+                                              successes of REPLICATION
+                                              subrequests exceeds this ratio,
+                                              the overall REPLICATION request
+                                              will be aborted
+=============================  =============  =================================
 
 [object-replicator]
 
@@ -427,6 +464,11 @@ handoff_delete      auto               By default handoff partitions will be
                                        replicated to n nodes.  The default
                                        setting should not be changed, except
                                        for extremem situations.
+node_timeout        DEFAULT or 10      Request timeout to external services.
+                                       This uses what's set here, or what's set
+                                       in the DEFAULT section, or 10 (though
+                                       other sections use 3 as the final
+                                       default).
 ==================  =================  =======================================
 
 [object-updater]
@@ -439,8 +481,10 @@ log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
 interval            300             Minimum time for a pass to take
 concurrency         1               Number of updater workers to spawn
-node_timeout        10              Request timeout to external services
-conn_timeout        0.5             Connection timeout to external services
+node_timeout        DEFAULT or 10   Request timeout to external services. This
+                                    uses what's set here, or what's set in the
+                                    DEFAULT section, or 10 (though other
+                                    sections use 3 as the final default).
 slowdown            0.01            Time in seconds to wait between objects
 ==================  ==============  ==========================================
 

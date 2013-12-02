@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 from test.unit import FakeLogger
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
-    DATADIR_REPL, DiskFileManager
+    DATADIR_REPL, DiskFileManager, AuditLocation
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
 
@@ -77,14 +77,12 @@ class TestAuditor(unittest.TestCase):
             pre_quarantines = auditor_worker.quarantines
 
             auditor_worker.object_audit(
-                os.path.join(self.disk_file._datadir, timestamp + '.data'),
-                'sda', '0')
+                AuditLocation(self.disk_file._datadir, 'sda', '0'))
             self.assertEquals(auditor_worker.quarantines, pre_quarantines)
 
             os.write(writer._fd, 'extra_data')
             auditor_worker.object_audit(
-                os.path.join(self.disk_file._datadir, timestamp + '.data'),
-                'sda', '0')
+                AuditLocation(self.disk_file._datadir, 'sda', '0'))
             self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_diff_data(self):
@@ -108,8 +106,7 @@ class TestAuditor(unittest.TestCase):
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
 
         auditor_worker.object_audit(
-            os.path.join(self.disk_file._datadir, timestamp + '.data'),
-            'sda', '0')
+            AuditLocation(self.disk_file._datadir, 'sda', '0'))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines)
         etag = md5()
         etag.update('1' + '0' * 1023)
@@ -121,8 +118,7 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
 
         auditor_worker.object_audit(
-            os.path.join(self.disk_file._datadir, timestamp + '.data'),
-            'sda', '0')
+            AuditLocation(self.disk_file._datadir, 'sda', '0'))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
@@ -136,8 +132,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
         pre_quarantines = auditor_worker.quarantines
         auditor_worker.object_audit(
-            os.path.join(self.disk_file._datadir, timestamp + '.data'),
-            'sda', '0')
+            AuditLocation(self.disk_file._datadir, 'sda', '0'))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_will_not_swallow_errors_in_tests(self):
@@ -150,10 +145,10 @@ class TestAuditor(unittest.TestCase):
 
         def blowup(*args):
             raise NameError('tpyo')
-        with mock.patch('swift.obj.diskfile.DiskFile',
-                        blowup):
+        with mock.patch.object(DiskFileManager,
+                               'get_diskfile_from_audit_location', blowup):
             self.assertRaises(NameError, auditor_worker.object_audit,
-                              path, 'sda', '0')
+                              AuditLocation(os.path.dirname(path), 'sda', '0'))
 
     def test_failsafe_object_audit_will_swallow_errors_in_tests(self):
         timestamp = str(normalize_timestamp(time.time()))
@@ -167,7 +162,8 @@ class TestAuditor(unittest.TestCase):
             raise NameError('tpyo')
         with mock.patch('swift.obj.diskfile.DiskFile',
                         blowup):
-            auditor_worker.failsafe_object_audit(path, 'sda', '0')
+            auditor_worker.failsafe_object_audit(
+                AuditLocation(os.path.dirname(path), 'sda', '0'))
         self.assertEquals(auditor_worker.errors, 1)
 
     def test_generic_exception_handling(self):
@@ -308,6 +304,7 @@ class TestAuditor(unittest.TestCase):
             if not os.path.exists(dir_path):
                 mkdirs(dir_path)
             fp = open(ts_file_path, 'w')
+            write_metadata(fp, {'X-Timestamp': '99999', 'name': '/a/c/o'})
             fp.close()
 
         etag = md5()
@@ -362,8 +359,8 @@ class TestAuditor(unittest.TestCase):
 
     def test_with_tombstone(self):
         ts_file_path = self.setup_bad_zero_byte(with_ts=True)
-        self.auditor.run_once()
         self.assertTrue(ts_file_path.endswith('ts'))
+        self.auditor.run_once()
         self.assertTrue(os.path.exists(ts_file_path))
 
     def test_sleeper(self):

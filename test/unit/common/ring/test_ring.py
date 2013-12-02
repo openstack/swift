@@ -263,6 +263,58 @@ class TestRing(unittest.TestCase):
             ring_name='without_replication')
         self.assertEquals(self.ring.devs, intended_devs)
 
+    def test_reload_old_style_pickled_ring(self):
+        devs = [{'id': 0, 'zone': 0,
+                'weight': 1.0, 'ip': '10.1.1.1',
+                'port': 6000},
+                {'id': 1, 'zone': 0,
+                 'weight': 1.0, 'ip': '10.1.1.1',
+                 'port': 6000},
+                None,
+                {'id': 3, 'zone': 2,
+                 'weight': 1.0, 'ip': '10.1.2.1',
+                 'port': 6000},
+                {'id': 4, 'zone': 2,
+                 'weight': 1.0, 'ip': '10.1.2.2',
+                 'port': 6000}]
+        intended_devs = [{'id': 0, 'region': 1, 'zone': 0, 'weight': 1.0,
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'replication_ip': '10.1.1.1',
+                          'replication_port': 6000},
+                         {'id': 1, 'region': 1, 'zone': 0, 'weight': 1.0,
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'replication_ip': '10.1.1.1',
+                          'replication_port': 6000},
+                         None,
+                         {'id': 3, 'region': 1, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.1', 'port': 6000,
+                          'replication_ip': '10.1.2.1',
+                          'replication_port': 6000},
+                         {'id': 4, 'region': 1, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.2', 'port': 6000,
+                          'replication_ip': '10.1.2.2',
+                          'replication_port': 6000}]
+
+        # simulate an old-style pickled ring
+        testgz = os.path.join(self.testdir,
+                              'without_replication_or_region.ring.gz')
+        ring_data = ring.RingData(self.intended_replica2part2dev_id,
+                                  devs,
+                                  self.intended_part_shift)
+        # an old-style pickled ring won't have region data
+        for dev in ring_data.devs:
+            if dev:
+                del dev["region"]
+        gz_file = GzipFile(testgz, 'wb')
+        pickle.dump(ring_data, gz_file, protocol=2)
+        gz_file.close()
+
+        self.ring = ring.Ring(
+            self.testdir,
+            reload_time=self.intended_reload_time,
+            ring_name='without_replication_or_region')
+        self.assertEquals(self.ring.devs, intended_devs)
+
     def test_get_part(self):
         part1 = self.ring.get_part('a')
         nodes1 = self.ring.get_part_nodes(part1)

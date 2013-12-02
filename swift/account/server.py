@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import with_statement
-
 import os
 import time
 import traceback
@@ -47,8 +45,8 @@ DATADIR = 'accounts'
 class AccountController(object):
     """WSGI controller for the account server."""
 
-    def __init__(self, conf):
-        self.logger = get_logger(conf, log_route='account-server')
+    def __init__(self, conf, logger=None):
+        self.logger = logger or get_logger(conf, log_route='account-server')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         replication_server = conf.get('replication_server', None)
@@ -142,7 +140,7 @@ class AccountController(object):
                     broker.initialize(timestamp)
                     created = True
                 except DatabaseAlreadyExists:
-                    pass
+                    created = False
             elif broker.is_status_deleted():
                 return self._deleted_response(broker, req, HTTPForbidden,
                                               body='Recently deleted')

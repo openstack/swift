@@ -49,11 +49,12 @@ different users' uploads, such as::
 Note the form method must be POST and the enctype must be set as
 "multipart/form-data".
 
-The redirect attribute is the URL to redirect the browser to after
-the upload completes. The URL will have status and message query
-parameters added to it, indicating the HTTP status code for the
-upload (2xx is success) and a possible message for further
-information if there was an error (such as "max_file_size exceeded").
+The redirect attribute is the URL to redirect the browser to after the upload
+completes. This is an optional parameter. If you are uploading the form via an
+XMLHttpRequest the redirect should not be included. The URL will have status
+and message query parameters added to it, indicating the HTTP status code for
+the upload (2xx is success) and a possible message for further information if
+there was an error (such as "max_file_size exceeded").
 
 The max_file_size attribute must be included and indicates the
 largest single file upload that can be done, in bytes.
@@ -73,7 +74,7 @@ sample code for computing the signature::
     from hashlib import sha1
     from time import time
     path = '/v1/account/container/object_prefix'
-    redirect = 'https://myserver.com/some-page'
+    redirect = 'https://srv.com/some-page'  # set to '' if redirect not in form
     max_file_size = 104857600
     max_file_count = 10
     expires = int(time() + 600)
@@ -109,7 +110,7 @@ from time import time
 from urllib import quote
 
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
-from swift.common.utils import streq_const_time
+from swift.common.utils import streq_const_time, register_swift_info
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized
 from swift.proxy.controllers.base import get_account_info
@@ -350,6 +351,7 @@ class FormPost(object):
         keys = self._get_keys(env)
         status = message = ''
         attributes = {}
+        subheaders = []
         file_count = 0
         for fp in _iter_requests(env['wsgi.input'], boundary):
             hdrs = rfc822.Message(fp, 0)
@@ -368,8 +370,8 @@ class FormPost(object):
                 if 'content-type' not in attributes and 'content-type' in hdrs:
                     attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
-                status, message = self._perform_subrequest(env, attributes, fp,
-                                                           keys)
+                status, subheaders, message = \
+                    self._perform_subrequest(env, attributes, fp, keys)
                 if status[:1] != '2':
                     break
             else:
@@ -388,13 +390,17 @@ class FormPost(object):
         if not status:
             status = '400 Bad Request'
             message = 'no files to process'
+
+        headers = [(k, v) for k, v in subheaders
+                   if k.lower().startswith('access-control')]
+
         redirect = attributes.get('redirect')
         if not redirect:
             body = status
             if message:
                 body = status + '\r\nFormPost: ' + message.title()
-            headers = [('Content-Type', 'text/plain'),
-                       ('Content-Length', len(body))]
+            headers.extend([('Content-Type', 'text/plain'),
+                            ('Content-Length', len(body))])
             return status, headers, body
         status = status.split(' ', 1)[0]
         if '?' in redirect:
@@ -404,7 +410,8 @@ class FormPost(object):
         redirect += 'status=%s&message=%s' % (quote(status), quote(message))
         body = '<html><body><p><a href="%s">' \
                'Click to continue...</a></p></body></html>' % redirect
-        headers = [('Location', redirect), ('Content-Length', str(len(body)))]
+        headers.extend(
+            [('Location', redirect), ('Content-Length', str(len(body)))])
         return '303 See Other', headers, body
 
     def _perform_subrequest(self, orig_env, attributes, fp, keys):
@@ -416,7 +423,7 @@ class FormPost(object):
         :param attributes: dict of the attributes of the form so far.
         :param fp: The file-like object containing the request body.
         :param keys: The account keys to validate the signature with.
-        :returns: (status_line, message)
+        :returns: (status_line, headers_list, message)
         """
         if not keys:
             raise FormUnauthorized('invalid signature')
@@ -461,16 +468,18 @@ class FormPost(object):
             raise FormUnauthorized('invalid signature')
 
         substatus = [None]
+        subheaders = [None]
 
         def _start_response(status, headers, exc_info=None):
             substatus[0] = status
+            subheaders[0] = headers
 
         i = iter(self.app(subenv, _start_response))
         try:
             i.next()
         except StopIteration:
             pass
-        return substatus[0], ''
+        return substatus[0], subheaders[0], ''
 
     def _get_keys(self, env):
         """
@@ -493,4 +502,5 @@ def filter_factory(global_conf, **local_conf):
     """Returns the WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+    register_swift_info('formpost')
     return lambda app: FormPost(app, conf)

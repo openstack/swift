@@ -20,6 +20,10 @@ from swift.common.middleware import catch_errors
 from swift.common.utils import get_logger
 
 
+class StrangeException(BaseException):
+    pass
+
+
 class FakeApp(object):
 
     def __init__(self, error=False, body_iter=None):
@@ -30,6 +34,8 @@ class FakeApp(object):
         if 'swift.trans_id' not in env:
             raise Exception('Trans id should always be in env')
         if self.error:
+            if self.error == 'strange':
+                raise StrangeException('whoa')
             raise Exception('An error occurred')
         if self.body_iter is None:
             return ["FAKE APP"]
@@ -96,6 +102,12 @@ class TestCatchErrors(unittest.TestCase):
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
         self.assertTrue(self.logger.txn_id.endswith('-stuff'))
+
+    def test_catcherrors_with_unexpected_error(self):
+        app = catch_errors.CatchErrorMiddleware(FakeApp(error='strange'), {})
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        self.assertEquals(list(resp), ['An error occurred'])
 
 
 if __name__ == '__main__':

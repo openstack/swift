@@ -15,7 +15,6 @@
 
 """ In-Memory Disk File Interface for Swift Object Server"""
 
-from __future__ import with_statement
 import cStringIO
 import time
 import hashlib
@@ -113,14 +112,12 @@ class DiskFileReader(object):
     :param fp: open file object pointer reference
     :param obj_size: on-disk size of object in bytes
     :param etag: MD5 hash of object from metadata
-    :param iter_hook: called when __iter__ returns a chunk
     """
-    def __init__(self, name, fp, obj_size, etag, iter_hook=None):
+    def __init__(self, name, fp, obj_size, etag):
         self._name = name
         self._fp = fp
         self._obj_size = obj_size
         self._etag = etag
-        self._iter_hook = iter_hook
         #
         self._iter_etag = None
         self._bytes_read = 0
@@ -145,8 +142,6 @@ class DiskFileReader(object):
                         self._iter_etag.update(chunk)
                     self._bytes_read += len(chunk)
                     yield chunk
-                    if self._iter_hook:
-                        self._iter_hook()
                 else:
                     self._read_to_eof = True
                     break
@@ -235,7 +230,6 @@ class DiskFile(object):
     :param account: account name for the object
     :param container: container name for the object
     :param obj: object name for the object
-    :param iter_hook: called when __iter__ returns a chunk
     :param keep_cache: caller's preference for keeping data read in the cache
     """
 
@@ -287,7 +281,7 @@ class DiskFile(object):
         try:
             mname = self._metadata['name']
         except KeyError:
-            self._quarantine(self._name, "missing name metadata")
+            raise self._quarantine(self._name, "missing name metadata")
         else:
             if mname != self._name:
                 raise DiskFileCollision('Client path does not match path '
@@ -299,7 +293,7 @@ class DiskFile(object):
         except ValueError:
             # Quarantine, the x-delete-at key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
@@ -308,12 +302,12 @@ class DiskFile(object):
         try:
             metadata_size = int(self._metadata['Content-Length'])
         except KeyError:
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "missing content-length in metadata")
         except ValueError:
             # Quarantine, the content-length key is present but not an
             # integer.
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "bad metadata content-length value %s" % (
                     self._metadata['Content-Length']))
         try:
@@ -322,9 +316,9 @@ class DiskFile(object):
             fp.seek(0, 0)
         except OSError as err:
             # Quarantine, we can't successfully stat the file.
-            self._quarantine(self._name, "not stat-able: %s" % err)
+            raise self._quarantine(self._name, "not stat-able: %s" % err)
         if obj_size != metadata_size:
-            self._quarantine(
+            raise self._quarantine(
                 self._name, "metadata content-length %s does"
                 " not match actual object size %s" % (
                     metadata_size, obj_size))
@@ -349,19 +343,17 @@ class DiskFile(object):
         with self.open():
             return self.get_metadata()
 
-    def reader(self, iter_hook=None, keep_cache=False):
+    def reader(self, keep_cache=False):
         """
         Return a swift.common.swob.Response class compatible "app_iter"
         object. The responsibility of closing the open file is passed to the
         DiskFileReader object.
 
-        :param iter_hook:
         :param keep_cache:
         """
         dr = DiskFileReader(self._name, self._fp,
                             int(self._metadata['Content-Length']),
-                            self._metadata['ETag'],
-                            iter_hook=iter_hook)
+                            self._metadata['ETag'])
         # At this point the reader object is now responsible for
         # the file pointer.
         self._fp = None

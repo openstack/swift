@@ -16,8 +16,6 @@
 
 """Tests for swift.obj.diskfile"""
 
-from __future__ import with_statement
-
 import cPickle as pickle
 import os
 import errno
@@ -25,23 +23,24 @@ import mock
 import unittest
 import email
 import tempfile
+import xattr
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
 from hashlib import md5
-from contextlib import closing
+from contextlib import closing, nested
 from gzip import GzipFile
 
 from eventlet import tpool
-from test.unit import FakeLogger, mock as unit_mock
-from test.unit import _setxattr as setxattr
+from test.unit import FakeLogger, mock as unit_mock, temptree
 
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
-    DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, DiskFileError
+    DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
+    DiskFileError, ReplicationLockTimeout
 
 
 def _create_test_ring(path):
@@ -345,6 +344,195 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               [file3])
 
 
+class TestObjectAuditLocationGenerator(unittest.TestCase):
+    def _make_file(self, path):
+        try:
+            os.makedirs(os.path.dirname(path))
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
+
+        with open(path, 'w'):
+            pass
+
+    def test_finding_of_hashdirs(self):
+        with temptree([]) as tmpdir:
+            # the good
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                                     "5c1fdc1ffb12e5eaf84edc30d8b67aca"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                                     "fdfd184d39080020bc8b487f8a7beaca"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "1519", "df2",
+                                     "b0fe7af831cc7b1af5bf486b1c841df2"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
+                                     "4a943bc72c2e647c4675923d58cf4ca5"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
+
+            # the bad
+            self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
+                                         "fed"))
+            self._make_file(os.path.join(tmpdir, "sdq", "objects", "9876"))
+
+            # the empty
+            os.makedirs(os.path.join(tmpdir, "sdr"))
+            os.makedirs(os.path.join(tmpdir, "sds", "objects"))
+            os.makedirs(os.path.join(tmpdir, "sdt", "objects", "9601"))
+            os.makedirs(os.path.join(tmpdir, "sdu", "objects", "6499", "f80"))
+
+            # the irrelevant
+            os.makedirs(os.path.join(tmpdir, "sdv", "accounts", "77", "421",
+                                     "4b8c86149a6d532f4af018578fd9f421"))
+            os.makedirs(os.path.join(tmpdir, "sdw", "containers", "28", "51e",
+                                     "4f9eee668b66c6f0250bfa3c7ab9e51e"))
+
+            locations = [(loc.path, loc.device, loc.partition)
+                         for loc in diskfile.object_audit_location_generator(
+                             devices=tmpdir, mount_check=False)]
+            locations.sort()
+
+            self.assertEqual(
+                locations,
+                [(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                               "5c1fdc1ffb12e5eaf84edc30d8b67aca"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+                               "fdfd184d39080020bc8b487f8a7beaca"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "df2",
+                               "b0fe7af831cc7b1af5bf486b1c841df2"),
+                  "sdp", "1519"),
+                 (os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
+                               "4a943bc72c2e647c4675923d58cf4ca5"),
+                  "sdp", "9720"),
+                 (os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "3071")])
+
+    def test_skipping_unmounted_devices(self):
+        def mock_ismount(path):
+            return path.endswith('sdp')
+
+        with mock.patch('swift.obj.diskfile.ismount', mock_ismount):
+            with temptree([]) as tmpdir:
+                os.makedirs(os.path.join(tmpdir, "sdp", "objects",
+                                         "2607", "df3",
+                                         "ec2871fe724411f91787462f97d30df3"))
+                os.makedirs(os.path.join(tmpdir, "sdq", "objects",
+                                         "9785", "a10",
+                                         "4993d582f41be9771505a8d4cb237a10"))
+
+                locations = [
+                    (loc.path, loc.device, loc.partition)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=tmpdir, mount_check=True)]
+                locations.sort()
+
+                self.assertEqual(
+                    locations,
+                    [(os.path.join(tmpdir, "sdp", "objects",
+                                   "2607", "df3",
+                                   "ec2871fe724411f91787462f97d30df3"),
+                      "sdp", "2607")])
+
+    def test_only_catch_expected_errors(self):
+        # Crazy exceptions should still escape object_audit_location_generator
+        # so that errors get logged and a human can see what's going wrong;
+        # only normal FS corruption should be skipped over silently.
+
+        def list_locations(dirname):
+            return [(loc.path, loc.device, loc.partition)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=dirname, mount_check=False)]
+
+        real_listdir = os.listdir
+
+        def splode_if_endswith(suffix):
+            def sploder(path):
+                if path.endswith(suffix):
+                    raise OSError(errno.EACCES, "don't try to ad-lib")
+                else:
+                    return real_listdir(path)
+            return sploder
+
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects",
+                                     "2607", "b54",
+                                     "fe450ec990a88cc4b252b181bab04b54"))
+            with mock.patch('os.listdir', splode_if_endswith("sdf/objects")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+            with mock.patch('os.listdir', splode_if_endswith("2607")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+            with mock.patch('os.listdir', splode_if_endswith("b54")):
+                self.assertRaises(OSError, list_locations, tmpdir)
+
+
+class TestDiskFileManager(unittest.TestCase):
+
+    def setUp(self):
+        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
+        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        mkdirs(os.path.join(self.testdir, 'sda2', 'tmp'))
+        self._orig_tpool_exc = tpool.execute
+        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
+        self.conf = dict(devices=self.testdir, mount_check='false',
+                         keep_cache_size=2 * 1024)
+        self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
+
+    def test_replication_lock_on(self):
+        # Double check settings
+        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_lock_timeout = 0.1
+        dev_path = os.path.join(self.testdir, 'sda1')
+        with self.df_mgr.replication_lock(dev_path):
+            lock_exc = None
+            exc = None
+            try:
+                with self.df_mgr.replication_lock(dev_path):
+                    raise Exception(
+                        '%r was not replication locked!' % dev_path)
+            except ReplicationLockTimeout as err:
+                lock_exc = err
+            except Exception as err:
+                exc = err
+            self.assertTrue(lock_exc is not None)
+            self.assertTrue(exc is None)
+
+    def test_replication_lock_off(self):
+        # Double check settings
+        self.df_mgr.replication_one_per_device = False
+        self.df_mgr.replication_lock_timeout = 0.1
+        dev_path = os.path.join(self.testdir, 'sda1')
+        with self.df_mgr.replication_lock(dev_path):
+            lock_exc = None
+            exc = None
+            try:
+                with self.df_mgr.replication_lock(dev_path):
+                    raise Exception(
+                        '%r was not replication locked!' % dev_path)
+            except ReplicationLockTimeout as err:
+                lock_exc = err
+            except Exception as err:
+                exc = err
+            self.assertTrue(lock_exc is None)
+            self.assertTrue(exc is not None)
+
+    def test_replication_lock_another_device_fine(self):
+        # Double check settings
+        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_lock_timeout = 0.1
+        dev_path = os.path.join(self.testdir, 'sda1')
+        dev_path2 = os.path.join(self.testdir, 'sda2')
+        with self.df_mgr.replication_lock(dev_path):
+            lock_exc = None
+            try:
+                with self.df_mgr.replication_lock(dev_path2):
+                    pass
+            except ReplicationLockTimeout as err:
+                lock_exc = err
+            self.assertTrue(lock_exc is None)
+
+
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
 
@@ -384,13 +572,17 @@ class TestDiskFile(unittest.TestCase):
         data_file = os.path.join(df._datadir, timestamp + ext)
         with open(data_file, 'wb') as f:
             f.write(data)
-            setxattr(f.fileno(), diskfile.METADATA_KEY,
-                     pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
+            xattr.setxattr(f.fileno(), diskfile.METADATA_KEY,
+                           pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
-    def _create_test_file(self, data, timestamp=None, metadata=None):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+    def _create_test_file(self, data, timestamp=None, metadata=None,
+                          account='a', container='c', object='o'):
+        if metadata is None:
+            metadata = {}
+        metadata.setdefault('name', '/%s/%s/%s' % (account, container, object))
+        df = self.df_mgr.get_diskfile('sda', '0', account, container, object)
         self._create_ondisk_file(df, data, timestamp, metadata)
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self.df_mgr.get_diskfile('sda', '0', account, container, object)
         df.open()
         return df
 
@@ -435,10 +627,11 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_corners(self):
         df = self._create_test_file('1234567890')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         self.assertEquals(''.join(reader.app_iter_range(0, None)),
                           '1234567890')
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
         with df.open():
             reader = df.reader()
@@ -446,19 +639,21 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_partial_closes(self):
         df = self._create_test_file('1234567890')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_range(0, 5)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         self.assertEqual(''.join(it), '12345')
         self.assertTrue(reader._fp is None)
 
     def test_disk_file_app_iter_ranges(self):
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10), (10, 20), (20, 30)],
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         value = ''.join(it)
         self.assert_('0123456789' in value)
         self.assert_('1123456789' in value)
@@ -466,11 +661,12 @@ class TestDiskFile(unittest.TestCase):
 
     def test_disk_file_app_iter_ranges_edges(self):
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
         self.assert_('3456789' in value)
         self.assert_('01' in value)
 
@@ -480,7 +676,8 @@ class TestDiskFile(unittest.TestCase):
         long_str = '01234567890' * 65536
         target_strs = ['3456789', long_str[0:65590]]
         df = self._create_test_file(long_str)
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 65590)], 'plain/text',
                                     '5e816ff8b8b8e9a5d355497e5d9e0301', 655360)
 
@@ -493,7 +690,7 @@ class TestDiskFile(unittest.TestCase):
                           '5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
 
         value = header + ''.join(it)
-        self.assertFalse(reader.was_quarantined)
+        self.assertEquals(quarantine_msgs, [])
 
         parts = map(lambda p: p.get_payload(decode=True),
                     email.message_from_string(value).walk())[1:3]
@@ -504,7 +701,8 @@ class TestDiskFile(unittest.TestCase):
         # When ranges passed into the method is either empty array or None,
         # this method will yield empty string
         df = self._create_test_file('012345678911234567892123456789')
-        reader = df.reader()
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([], 'application/whatever',
                                     '\r\n--someheader\r\n', 100)
         self.assertEqual(''.join(it), '')
@@ -514,7 +712,7 @@ class TestDiskFile(unittest.TestCase):
             reader = df.reader()
             it = reader.app_iter_ranges(None, 'app/something',
                                         '\r\n--someheader\r\n', 150)
-            self.assertFalse(reader.was_quarantined)
+            self.assertEquals(quarantine_msgs, [])
             self.assertEqual(''.join(it), '')
 
     def test_disk_file_mkstemp_creates_dir(self):
@@ -552,18 +750,34 @@ class TestDiskFile(unittest.TestCase):
                 etag = etag.hexdigest()
                 metadata['ETag'] = etag
                 diskfile.write_metadata(writer._fd, metadata)
-            if invalid_type == 'Content-Length':
+            elif invalid_type == 'Content-Length':
                 metadata['Content-Length'] = fsize - 1
                 diskfile.write_metadata(writer._fd, metadata)
-            if invalid_type == 'Bad-Content-Length':
+            elif invalid_type == 'Bad-Content-Length':
                 metadata['Content-Length'] = 'zero'
                 diskfile.write_metadata(writer._fd, metadata)
-            if invalid_type == 'Missing-Content-Length':
+            elif invalid_type == 'Missing-Content-Length':
                 del metadata['Content-Length']
                 diskfile.write_metadata(writer._fd, metadata)
 
         if mark_deleted:
             df.delete(timestamp)
+
+        data_files = [os.path.join(df._datadir, fname)
+                      for fname in sorted(os.listdir(df._datadir),
+                                          reverse=True)
+                      if fname.endswith('.data')]
+        if invalid_type == 'Corrupt-Xattrs':
+            # We have to go below read_metadata/write_metadata to get proper
+            # corruption.
+            meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
+            wrong_byte = 'X' if meta_xattr[0] != 'X' else 'Y'
+            xattr.setxattr(data_files[0], "user.swift.metadata",
+                           wrong_byte + meta_xattr[1:])
+        elif invalid_type == 'Truncated-Xattrs':
+            meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
+            xattr.setxattr(data_files[0], "user.swift.metadata",
+                           meta_xattr[:-1])
 
         self.conf['disk_chunk_size'] = csize
         self.conf['mount_check'] = mount_check
@@ -575,19 +789,6 @@ class TestDiskFile(unittest.TestCase):
             fp.close()
         df.unit_test_len = fsize
         return df
-
-    def test_iter_hook(self):
-        hook_call_count = [0]
-
-        def hook():
-            hook_call_count[0] += 1
-
-        df = self._get_open_disk_file(fsize=65, csize=8)
-        with df.open():
-            for _ in df.reader(iter_hook=hook):
-                pass
-
-        self.assertEquals(hook_call_count[0], 9)
 
     def test_keep_cache(self):
         df = self._get_open_disk_file(fsize=65)
@@ -638,11 +839,13 @@ class TestDiskFile(unittest.TestCase):
     def run_quarantine_invalids(self, invalid_type):
 
         def verify(*args, **kwargs):
-            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length')
+            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
+                                        'Corrupt-Xattrs', 'Truncated-Xattrs')
             reader = None
+            quarantine_msgs = []
             try:
                 df = self._get_open_disk_file(**kwargs)
-                reader = df.reader()
+                reader = df.reader(_quarantine_hook=quarantine_msgs.append)
             except DiskFileQuarantined as err:
                 if not open_exc:
                     self.fail(
@@ -658,7 +861,7 @@ class TestDiskFile(unittest.TestCase):
                 self.fail("Unexpected DiskFileQuarantine raised: :%r" % err)
             else:
                 if not open_exc:
-                    self.assertTrue(reader.was_quarantined)
+                    self.assertEqual(1, len(quarantine_msgs))
 
         verify(invalid_type=invalid_type, obj_name='1')
 
@@ -670,7 +873,8 @@ class TestDiskFile(unittest.TestCase):
 
         def verify_air(params, start=0, adjustment=0):
             """verify (a)pp (i)ter (r)ange"""
-            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length')
+            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
+                                        'Corrupt-Xattrs', 'Truncated-Xattrs')
             reader = None
             try:
                 df = self._get_open_disk_file(**params)
@@ -700,6 +904,12 @@ class TestDiskFile(unittest.TestCase):
         verify_air(dict(invalid_type=invalid_type, obj_name='8'), 0, -1)
 
         verify_air(dict(invalid_type=invalid_type, obj_name='8'), 1, 1)
+
+    def test_quarantine_corrupt_xattrs(self):
+        self.run_quarantine_invalids('Corrupt-Xattrs')
+
+    def test_quarantine_truncated_xattrs(self):
+        self.run_quarantine_invalids('Truncated-Xattrs')
 
     def test_quarantine_invalid_etag(self):
         self.run_quarantine_invalids('ETag')
@@ -774,6 +984,27 @@ class TestDiskFile(unittest.TestCase):
             else:
                 self.fail("Expected DiskFileQuarantined exception")
 
+    def test_quarantine_hashdir_not_a_directory(self):
+        df = self._create_test_file('1234567890', account="abc",
+                                    container='123', object='xyz')
+        hashdir = df._datadir
+        rmtree(hashdir)
+        with open(hashdir, 'w'):
+            pass
+
+        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        try:
+            df.open()
+        except DiskFileQuarantined:
+            pass
+        else:
+            self.fail("Expected DiskFileQuarantined, didn't get it")
+
+        # make sure the right thing got quarantined; the suffix dir should not
+        # have moved, as that could have many objects in it
+        self.assertFalse(os.path.exists(hashdir))
+        self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
+
     def test_write_metadata(self):
         df = self._create_test_file('1234567890')
         timestamp = normalize_timestamp(time())
@@ -803,6 +1034,48 @@ class TestDiskFile(unittest.TestCase):
         self.assertTrue(exp_name in set(dl))
         df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
         self.assertRaises(DiskFileDeleted, df.open)
+
+    def test_open_deleted_with_corrupt_tombstone(self):
+        df = self._get_open_disk_file()
+        ts = time()
+        df.delete(ts)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 1)
+        self.assertTrue(exp_name in set(dl))
+        # it's pickle-format, so removing the last byte is sufficient to
+        # corrupt it
+        ts_fullpath = os.path.join(df._datadir, exp_name)
+        self.assertTrue(os.path.exists(ts_fullpath))  # sanity check
+        meta_xattr = xattr.getxattr(ts_fullpath, "user.swift.metadata")
+        xattr.setxattr(ts_fullpath, "user.swift.metadata", meta_xattr[:-1])
+
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        self.assertRaises(DiskFileNotExist, df.open)
+        self.assertFalse(os.path.exists(ts_fullpath))
+
+    def test_from_audit_location(self):
+        hashdir = self._create_test_file(
+            'blah blah',
+            account='three', container='blind', object='mice')._datadir
+        df = self.df_mgr.get_diskfile_from_audit_location(
+            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+        df.open()
+        self.assertEqual(df._name, '/three/blind/mice')
+
+    def test_from_audit_location_with_mismatched_hash(self):
+        hashdir = self._create_test_file(
+            'blah blah',
+            account='this', container='is', object='right')._datadir
+
+        datafile = os.path.join(hashdir, os.listdir(hashdir)[0])
+        meta = diskfile.read_metadata(datafile)
+        meta['name'] = '/this/is/wrong'
+        diskfile.write_metadata(datafile, meta)
+
+        df = self.df_mgr.get_diskfile_from_audit_location(
+            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+        self.assertRaises(DiskFileQuarantined, df.open)
 
     def test_close_error(self):
 
@@ -939,3 +1212,389 @@ class TestDiskFile(unittest.TestCase):
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
         self.assert_('a very special error' in log_lines[-1])
+
+    def test_get_diskfile_from_hash_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileDeviceUnavailable,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_not_dir(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata'),
+                mock.patch('swift.obj.diskfile.quarantine_renamer')) as \
+                (dfclass, hclistdir, readmeta, quarantine_renamer):
+            osexc = OSError()
+            osexc.errno = errno.ENOTDIR
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            quarantine_renamer.assert_called_once_with(
+                '/srv/dev/',
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_dir(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            osexc = OSError()
+            osexc.errno = errno.ENOENT
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_other_oserror(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            osexc = OSError()
+            hclistdir.side_effect = osexc
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                OSError,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_actual_files(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = []
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_read_metadata_problem(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.side_effect = EOFError()
+            self.assertRaises(
+                DiskFileNotExist,
+                self.df_mgr.get_diskfile_from_hash,
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+
+    def test_get_diskfile_from_hash_no_meta_name(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {}
+            try:
+                self.df_mgr.get_diskfile_from_hash(
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            except DiskFileNotExist as err:
+                exc = err
+            self.assertEqual(str(exc), '')
+
+    def test_get_diskfile_from_hash_bad_meta_name(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': 'bad'}
+            try:
+                self.df_mgr.get_diskfile_from_hash(
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            except DiskFileNotExist as err:
+                exc = err
+            self.assertEqual(str(exc), '')
+
+    def test_get_diskfile_from_hash(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        with nested(
+                mock.patch('swift.obj.diskfile.DiskFile'),
+                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch('swift.obj.diskfile.read_metadata')) as \
+                (dfclass, hclistdir, readmeta):
+            hclistdir.return_value = ['1381679759.90941.data']
+            readmeta.return_value = {'name': '/a/c/o'}
+            self.df_mgr.get_diskfile_from_hash(
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900')
+            dfclass.assert_called_once_with(
+                self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
+                'a', 'c', 'o')
+            hclistdir.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
+                604800)
+            readmeta.assert_called_once_with(
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/'
+                '1381679759.90941.data')
+
+    def test_listdir_enoent(self):
+        oserror = OSError()
+        oserror.errno = errno.ENOENT
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', side_effect=oserror):
+            self.assertEqual(self.df_mgr._listdir('path'), [])
+            self.assertEqual(self.df_mgr.logger.error.mock_calls, [])
+
+    def test_listdir_other_oserror(self):
+        oserror = OSError()
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', side_effect=oserror):
+            self.assertEqual(self.df_mgr._listdir('path'), [])
+            self.df_mgr.logger.error.assert_called_once_with(
+                'ERROR: Skipping %r due to error with listdir attempt: %s',
+                'path', oserror)
+
+    def test_listdir(self):
+        self.df_mgr.logger.error = mock.MagicMock()
+        with mock.patch('os.listdir', return_value=['abc', 'def']):
+            self.assertEqual(self.df_mgr._listdir('path'), ['abc', 'def'])
+            self.assertEqual(self.df_mgr.logger.error.mock_calls, [])
+
+    def test_yield_suffixes_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        exc = None
+        try:
+            list(self.df_mgr.yield_suffixes('dev', '9'))
+        except DiskFileDeviceUnavailable as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_yield_suffixes(self):
+        self.df_mgr._listdir = mock.MagicMock(return_value=[
+            'abc', 'def', 'ghi', 'abcd', '012'])
+        self.assertEqual(
+            list(self.df_mgr.yield_suffixes('dev', '9')),
+            [(self.testdir + '/dev/objects/9/abc', 'abc'),
+             (self.testdir + '/dev/objects/9/def', 'def'),
+             (self.testdir + '/dev/objects/9/012', '012')])
+
+    def test_yield_hashes_dev_path_fail(self):
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
+        exc = None
+        try:
+            list(self.df_mgr.yield_hashes('dev', '9'))
+        except DiskFileDeviceUnavailable as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_yield_hashes_empty(self):
+        def _listdir(path):
+            return []
+
+        with mock.patch('os.listdir', _listdir):
+            self.assertEqual(list(self.df_mgr.yield_hashes('dev', '9')), [])
+
+    def test_yield_hashes_empty_suffixes(self):
+        def _listdir(path):
+            return []
+
+        with mock.patch('os.listdir', _listdir):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes('dev', '9', suffixes=['456'])),
+                [])
+
+    def test_yield_hashes(self):
+        fresh_ts = normalize_timestamp(time() - 10)
+        fresher_ts = normalize_timestamp(time() - 1)
+
+        def _listdir(path):
+            if path.endswith('/dev/objects/9'):
+                return ['abc', '456', 'def']
+            elif path.endswith('/dev/objects/9/abc'):
+                return ['9373a92d072897b136b3fc06595b4abc']
+            elif path.endswith(
+                    '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc'):
+                return [fresh_ts + '.ts']
+            elif path.endswith('/dev/objects/9/456'):
+                return ['9373a92d072897b136b3fc06595b0456',
+                        '9373a92d072897b136b3fc06595b7456']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456'):
+                return ['1383180000.12345.data']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456'):
+                return [fresh_ts + '.ts',
+                        fresher_ts + '.data']
+            elif path.endswith('/dev/objects/9/def'):
+                return []
+            else:
+                raise Exception('Unexpected listdir of %r' % path)
+
+        with nested(
+                mock.patch('os.listdir', _listdir),
+                mock.patch('os.unlink')):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes('dev', '9')),
+                [(self.testdir +
+                  '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc',
+                  '9373a92d072897b136b3fc06595b4abc', fresh_ts),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456',
+                  '9373a92d072897b136b3fc06595b0456', '1383180000.12345'),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456',
+                  '9373a92d072897b136b3fc06595b7456', fresher_ts)])
+
+    def test_yield_hashes_suffixes(self):
+        fresh_ts = normalize_timestamp(time() - 10)
+        fresher_ts = normalize_timestamp(time() - 1)
+
+        def _listdir(path):
+            if path.endswith('/dev/objects/9'):
+                return ['abc', '456', 'def']
+            elif path.endswith('/dev/objects/9/abc'):
+                return ['9373a92d072897b136b3fc06595b4abc']
+            elif path.endswith(
+                    '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc'):
+                return [fresh_ts + '.ts']
+            elif path.endswith('/dev/objects/9/456'):
+                return ['9373a92d072897b136b3fc06595b0456',
+                        '9373a92d072897b136b3fc06595b7456']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456'):
+                return ['1383180000.12345.data']
+            elif path.endswith(
+                    '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456'):
+                return [fresh_ts + '.ts',
+                        fresher_ts + '.data']
+            elif path.endswith('/dev/objects/9/def'):
+                return []
+            else:
+                raise Exception('Unexpected listdir of %r' % path)
+
+        with nested(
+                mock.patch('os.listdir', _listdir),
+                mock.patch('os.unlink')):
+            self.assertEqual(
+                list(self.df_mgr.yield_hashes(
+                    'dev', '9', suffixes=['456'])),
+                [(self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456',
+                  '9373a92d072897b136b3fc06595b0456', '1383180000.12345'),
+                 (self.testdir +
+                  '/dev/objects/9/456/9373a92d072897b136b3fc06595b7456',
+                  '9373a92d072897b136b3fc06595b7456', fresher_ts)])
+
+    def test_diskfile_names(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        self.assertEqual(df.account, 'a')
+        self.assertEqual(df.container, 'c')
+        self.assertEqual(df.obj, 'o')
+
+    def test_diskfile_content_length_not_open(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            df.content_length
+        except DiskFileNotOpen as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_content_length_deleted(self):
+        df = self._get_open_disk_file()
+        ts = time()
+        df.delete(ts)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 1)
+        self.assertTrue(exp_name in set(dl))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            with df.open():
+                df.content_length
+        except DiskFileDeleted as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_content_length(self):
+        self._get_open_disk_file()
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        with df.open():
+            self.assertEqual(df.content_length, 1024)
+
+    def test_diskfile_timestamp_not_open(self):
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            df.timestamp
+        except DiskFileNotOpen as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_timestamp_deleted(self):
+        df = self._get_open_disk_file()
+        ts = time()
+        df.delete(ts)
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 1)
+        self.assertTrue(exp_name in set(dl))
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        exc = None
+        try:
+            with df.open():
+                df.timestamp
+        except DiskFileDeleted as err:
+            exc = err
+        self.assertEqual(str(exc), '')
+
+    def test_diskfile_timestamp(self):
+        self._get_open_disk_file(ts='1383181759.12345')
+        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        with df.open():
+            self.assertEqual(df.timestamp, '1383181759.12345')
+
+    def test_error_in_hashdir_cleanup_listdir(self):
+
+        def mock_hcl(*args, **kwargs):
+            raise OSError()
+
+        df = self._get_open_disk_file()
+        ts = time()
+        with mock.patch("swift.obj.diskfile.hash_cleanup_listdir",
+                        mock_hcl):
+            try:
+                df.delete(ts)
+            except OSError:
+                self.fail("OSError raised when it should have been swallowed")
+        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        dl = os.listdir(df._datadir)
+        self.assertEquals(len(dl), 2)
+        self.assertTrue(exp_name in set(dl))
+
+
+if __name__ == '__main__':
+    unittest.main()

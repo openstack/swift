@@ -27,6 +27,10 @@ from swift.common.middleware import recon
 from swift.common.utils import json
 
 
+def fake_check_mount(a, b):
+    raise OSError('Input/Output Error')
+
+
 class FakeApp(object):
     def __call__(self, env, start_response):
         return "FAKE APP"
@@ -604,6 +608,14 @@ class TestReconSuccess(TestCase):
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
         self.assertEquals(self.mockos.ismount_calls,
                           [(('/srv/node/canhazdrive1',), {})])
+        self.assertEquals(rv, du_resp)
+
+    @mock.patch("swift.common.middleware.recon.check_mount", fake_check_mount)
+    def test_get_diskusage_oserror(self):
+        du_resp = [{'device': 'canhazdrive1', 'avail': '',
+                    'mounted': 'Input/Output Error', 'used': '', 'size': ''}]
+        self.mockos.ls_output = ['canhazdrive1']
+        rv = self.app.get_diskusage()
         self.assertEquals(rv, du_resp)
 
     def test_get_quarantine_count(self):

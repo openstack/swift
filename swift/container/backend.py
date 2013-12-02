@@ -16,7 +16,6 @@
 Pluggable Back-ends for Container Server
 """
 
-from __future__ import with_statement
 import os
 from uuid import uuid4
 import time

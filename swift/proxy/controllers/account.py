@@ -13,17 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NOTE: swift_conn
-# You'll see swift_conn passed around a few places in this file. This is the
-# source httplib connection of whatever it is attached to.
-#   It is used when early termination of reading from the connection should
-# happen, such as when a range request is satisfied but there's still more the
-# source connection would like to send. To prevent having to read all the data
-# that could be left, the source connection can be .close() and then reads
-# commence to empty out any buffers.
-#   These shenanigans are to ensure all related objects can be garbage
-# collected. We've seen objects hang around forever otherwise.
-
 from swift import gettext_ as _
 from urllib import unquote
 
@@ -31,7 +20,7 @@ from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type
 from swift.common.utils import public
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
-from swift.common.http import HTTP_NOT_FOUND
+from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 
@@ -59,9 +48,12 @@ class AccountController(Controller):
         resp = self.GETorHEAD_base(
             req, _('Account'), self.app.account_ring, partition,
             req.path_info.rstrip('/'))
-        if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
-            resp = account_listing_response(self.account_name, req,
-                                            get_listing_content_type(req))
+        if resp.status_int == HTTP_NOT_FOUND:
+            if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
+                resp.status = HTTP_GONE
+            elif self.app.account_autocreate:
+                resp = account_listing_response(self.account_name, req,
+                                                get_listing_content_type(req))
         if not req.environ.get('swift_owner', False):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:

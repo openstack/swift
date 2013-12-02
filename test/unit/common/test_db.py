@@ -15,7 +15,6 @@
 
 """Tests for swift.common.db"""
 
-from __future__ import with_statement
 import os
 import unittest
 from shutil import rmtree, copy
@@ -23,11 +22,14 @@ from uuid import uuid4
 
 import simplejson
 import sqlite3
-from mock import patch
+from mock import patch, MagicMock
+
+from eventlet.timeout import Timeout
 
 import swift.common.db
 from swift.common.db import chexor, dict_factory, get_db_connection, \
-    DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists
+    DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
+    GreenDBConnection
 from swift.common.utils import normalize_timestamp
 from swift.common.exceptions import LockTimeout
 
@@ -80,6 +82,41 @@ class TestChexor(unittest.TestCase):
                           normalize_timestamp(1))
 
 
+class TestGreenDBConnection(unittest.TestCase):
+
+    def test_execute_when_locked(self):
+        # This test is dependant on the code under test calling execute and
+        # commit as sqlite3.Cursor.execute in a subclass.
+        class InterceptCursor(sqlite3.Cursor):
+            pass
+        db_error = sqlite3.OperationalError('database is locked')
+        InterceptCursor.execute = MagicMock(side_effect=db_error)
+        with patch('sqlite3.Cursor', new=InterceptCursor):
+            conn = sqlite3.connect(':memory:', check_same_thread=False,
+                                   factory=GreenDBConnection, timeout=0.1)
+            self.assertRaises(Timeout, conn.execute, 'select 1')
+            self.assertTrue(InterceptCursor.execute.called)
+            self.assertEqual(InterceptCursor.execute.call_args_list,
+                             list((InterceptCursor.execute.call_args,) *
+                                  InterceptCursor.execute.call_count))
+
+    def text_commit_when_locked(self):
+        # This test is dependant on the code under test calling commit and
+        # commit as sqlite3.Connection.commit in a subclass.
+        class InterceptConnection(sqlite3.Connection):
+            pass
+        db_error = sqlite3.OperationalError('database is locked')
+        InterceptConnection.commit = MagicMock(side_effect=db_error)
+        with patch('sqlite3.Connection', new=InterceptConnection):
+            conn = sqlite3.connect(':memory:', check_same_thread=False,
+                                   factory=GreenDBConnection, timeout=0.1)
+            self.assertRaises(Timeout, conn.commit)
+            self.assertTrue(InterceptConnection.commit.called)
+            self.assertEqual(InterceptConnection.commit.call_args_list,
+                             list((InterceptConnection.commit.call_args,) *
+                                  InterceptConnection.commit.call_count))
+
+
 class TestGetDBConnection(unittest.TestCase):
 
     def test_normal_case(self):
@@ -89,6 +126,24 @@ class TestGetDBConnection(unittest.TestCase):
     def test_invalid_path(self):
         self.assertRaises(DatabaseConnectionError, get_db_connection,
                           'invalid database path / name')
+
+    def test_locked_db(self):
+        # This test is dependant on the code under test calling execute and
+        # commit as sqlite3.Cursor.execute in a subclass.
+        class InterceptCursor(sqlite3.Cursor):
+            pass
+
+        db_error = sqlite3.OperationalError('database is locked')
+        mock_db_cmd = MagicMock(side_effect=db_error)
+        InterceptCursor.execute = mock_db_cmd
+
+        with patch('sqlite3.Cursor', new=InterceptCursor):
+            self.assertRaises(Timeout, get_db_connection, ':memory:',
+                              timeout=0.1)
+            self.assertTrue(mock_db_cmd.called)
+            self.assertEqual(mock_db_cmd.call_args_list,
+                             list((mock_db_cmd.call_args,) *
+                                  mock_db_cmd.call_count))
 
 
 class TestDatabaseBroker(unittest.TestCase):
@@ -166,15 +221,10 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
-
-        def my_ismount(*a, **kw):
-            return True
-
-        with patch('os.path.ismount', my_ismount):
-            broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
-            broker._initialize = stub
-            self.assertRaises(DatabaseAlreadyExists,
-                              broker.initialize, normalize_timestamp('1'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker._initialize = stub
+        self.assertRaises(DatabaseAlreadyExists,
+                          broker.initialize, normalize_timestamp('1'))
 
     def test_delete_db(self):
         def init_stub(conn, put_timestamp):
