@@ -184,18 +184,16 @@ class Bulk(object):
     payload sent to the proxy (the list of objects/containers to be deleted).
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, max_containers_per_extraction=10000,
+                 max_failed_extractions=1000, max_deletes_per_request=10000,
+                 max_failed_deletes=1000, yield_frequency=60):
         self.app = app
         self.logger = get_logger(conf, log_route='bulk')
-        self.max_containers = int(
-            conf.get('max_containers_per_extraction', 10000))
-        self.max_failed_extractions = int(
-            conf.get('max_failed_extractions', 1000))
-        self.max_failed_deletes = int(
-            conf.get('max_failed_deletes', 1000))
-        self.max_deletes_per_request = int(
-            conf.get('max_deletes_per_request', 10000))
-        self.yield_frequency = int(conf.get('yield_frequency', 60))
+        self.max_containers = max_containers_per_extraction
+        self.max_failed_extractions = max_failed_extractions
+        self.max_failed_deletes = max_failed_deletes
+        self.max_deletes_per_request = max_deletes_per_request
+        self.yield_frequency = yield_frequency
 
     def create_container(self, req, container_path):
         """
@@ -542,8 +540,29 @@ class Bulk(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
-    register_swift_info('bulk')
+
+    max_containers_per_extraction = \
+        int(conf.get('max_containers_per_extraction', 10000))
+    max_failed_extractions = int(conf.get('max_failed_extractions', 1000))
+    max_deletes_per_request = int(conf.get('max_deletes_per_request', 10000))
+    max_failed_deletes = int(conf.get('max_failed_deletes', 1000))
+    yield_frequency = int(conf.get('yield_frequency', 60))
+
+    register_swift_info(
+        'bulk_upload',
+        max_containers_per_extraction=max_containers_per_extraction,
+        max_failed_extractions=max_failed_extractions)
+    register_swift_info(
+        'bulk_delete',
+        max_deletes_per_request=max_deletes_per_request,
+        max_failed_deletes=max_failed_deletes)
 
     def bulk_filter(app):
-        return Bulk(app, conf)
+        return Bulk(
+            app, conf,
+            max_containers_per_extraction=max_containers_per_extraction,
+            max_failed_extractions=max_failed_extractions,
+            max_deletes_per_request=max_deletes_per_request,
+            max_failed_deletes=max_failed_deletes,
+            yield_frequency=yield_frequency)
     return bulk_filter
