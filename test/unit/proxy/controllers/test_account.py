@@ -21,6 +21,7 @@ from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH as MAX_ANAME_LEN
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
+from swift.common.request_helpers import get_sys_meta_prefix
 
 
 class TestAccountController(unittest.TestCase):
@@ -94,6 +95,62 @@ class TestAccountController(unittest.TestCase):
                         fake_http_connect(200)):
             resp = controller.POST(req)
         self.assertEquals(400, resp.status_int)
+
+    def _make_callback_func(self, context):
+        def callback(ipaddr, port, device, partition, method, path,
+                     headers=None, query_string=None, ssl=False):
+            context['method'] = method
+            context['path'] = path
+            context['headers'] = headers or {}
+        return callback
+
+    def test_sys_meta_headers_PUT(self):
+        # check that headers in sys meta namespace make it through
+        # the proxy controller
+        sys_meta_key = '%stest' % get_sys_meta_prefix('account')
+        sys_meta_key = sys_meta_key.title()
+        user_meta_key = 'X-Account-Meta-Test'
+        # allow PUTs to account...
+        self.app.allow_account_management = True
+        controller = proxy_server.AccountController(self.app, 'a')
+        context = {}
+        callback = self._make_callback_func(context)
+        hdrs_in = {sys_meta_key: 'foo',
+                   user_meta_key: 'bar',
+                   'x-timestamp': '1.0'}
+        req = Request.blank('/v1/a', headers=hdrs_in)
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200, give_connect=callback)):
+            controller.PUT(req)
+        self.assertEqual(context['method'], 'PUT')
+        self.assertTrue(sys_meta_key in context['headers'])
+        self.assertEqual(context['headers'][sys_meta_key], 'foo')
+        self.assertTrue(user_meta_key in context['headers'])
+        self.assertEqual(context['headers'][user_meta_key], 'bar')
+        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+
+    def test_sys_meta_headers_POST(self):
+        # check that headers in sys meta namespace make it through
+        # the proxy controller
+        sys_meta_key = '%stest' % get_sys_meta_prefix('account')
+        sys_meta_key = sys_meta_key.title()
+        user_meta_key = 'X-Account-Meta-Test'
+        controller = proxy_server.AccountController(self.app, 'a')
+        context = {}
+        callback = self._make_callback_func(context)
+        hdrs_in = {sys_meta_key: 'foo',
+                   user_meta_key: 'bar',
+                   'x-timestamp': '1.0'}
+        req = Request.blank('/v1/a', headers=hdrs_in)
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200, give_connect=callback)):
+            controller.POST(req)
+        self.assertEqual(context['method'], 'POST')
+        self.assertTrue(sys_meta_key in context['headers'])
+        self.assertEqual(context['headers'][sys_meta_key], 'foo')
+        self.assertTrue(user_meta_key in context['headers'])
+        self.assertEqual(context['headers'][user_meta_key], 'bar')
+        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
 
 
 if __name__ == '__main__':

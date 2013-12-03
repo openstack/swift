@@ -87,3 +87,109 @@ def split_and_validate_path(request, minsegs=1, maxsegs=None,
     except ValueError as err:
         raise HTTPBadRequest(body=str(err), request=request,
                              content_type='text/plain')
+
+
+def is_user_meta(server_type, key):
+    """
+    Tests if a header key starts with and is longer than the user
+    metadata prefix for given server type.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    if len(key) <= 8 + len(server_type):
+        return False
+    return key.lower().startswith(get_user_meta_prefix(server_type))
+
+
+def is_sys_meta(server_type, key):
+    """
+    Tests if a header key starts with and is longer than the system
+    metadata prefix for given server type.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    if len(key) <= 11 + len(server_type):
+        return False
+    return key.lower().startswith(get_sys_meta_prefix(server_type))
+
+
+def is_sys_or_user_meta(server_type, key):
+    """
+    Tests if a header key starts with and is longer than the user or system
+    metadata prefix for given server type.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    return is_user_meta(server_type, key) or is_sys_meta(server_type, key)
+
+
+def strip_user_meta_prefix(server_type, key):
+    """
+    Removes the user metadata prefix for a given server type from the start
+    of a header key.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :param key: header key
+    :returns: stripped header key
+    """
+    return key[len(get_user_meta_prefix(server_type)):]
+
+
+def strip_sys_meta_prefix(server_type, key):
+    """
+    Removes the system metadata prefix for a given server type from the start
+    of a header key.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :param key: header key
+    :returns: stripped header key
+    """
+    return key[len(get_sys_meta_prefix(server_type)):]
+
+
+def get_user_meta_prefix(server_type):
+    """
+    Returns the prefix for user metadata headers for given server type.
+
+    This prefix defines the namespace for headers that will be persisted
+    by backend servers.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :returns: prefix string for server type's user metadata headers
+    """
+    return 'x-%s-%s-' % (server_type.lower(), 'meta')
+
+
+def get_sys_meta_prefix(server_type):
+    """
+    Returns the prefix for system metadata headers for given server type.
+
+    This prefix defines the namespace for headers that will be persisted
+    by backend servers.
+
+    :param server_type: type of backend server i.e. [account|container|object]
+    :returns: prefix string for server type's system metadata headers
+    """
+    return 'x-%s-%s-' % (server_type.lower(), 'sysmeta')
+
+
+def remove_items(headers, condition):
+    """
+    Removes items from a dict whose keys satisfy
+    the given condition.
+
+    :param headers: a dict of headers
+    :param condition: a function that will be passed the header key as a
+    single argument and should return True if the header is to be removed.
+    :returns: a dict, possibly empty, of headers that have been removed
+    """
+    removed = {}
+    keys = filter(condition, headers)
+    removed.update((key, headers.pop(key)) for key in keys)
+    return removed

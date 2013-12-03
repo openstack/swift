@@ -340,7 +340,8 @@ class TestController(unittest.TestCase):
                               'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
-                              'meta': {}}
+                              'meta': {},
+                              'sysmeta': {}}
             self.assertEquals(container_info,
                               self.memcache.get(cache_key))
 
@@ -366,7 +367,8 @@ class TestController(unittest.TestCase):
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
                             'bytes': None,
-                            'meta': {}}
+                            'meta': {},
+                            'sysmeta': {}}
             self.assertEquals(account_info,
                               self.memcache.get(cache_key))
 

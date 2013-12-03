@@ -26,7 +26,7 @@ import swift.common.db
 from swift.container.backend import ContainerBroker
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
-    split_and_validate_path
+    split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
@@ -266,7 +266,7 @@ class ContainerController(object):
                 (key, (value, timestamp))
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
-                key.lower().startswith('x-container-meta-'))
+                is_sys_or_user_meta('container', key))
             if metadata:
                 if 'X-Container-Sync-To' in metadata:
                     if 'X-Container-Sync-To' not in broker.metadata or \
@@ -307,7 +307,7 @@ class ContainerController(object):
             (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
             if value != '' and (key.lower() in self.save_headers or
-                                key.lower().startswith('x-container-meta-')))
+                                is_sys_or_user_meta('container', key)))
         headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
@@ -374,7 +374,7 @@ class ContainerController(object):
         }
         for key, (value, timestamp) in broker.metadata.iteritems():
             if value and (key.lower() in self.save_headers or
-                          key.lower().startswith('x-container-meta-')):
+                          is_sys_or_user_meta('container', key)):
                 resp_headers[key] = value
         ret = Response(request=req, headers=resp_headers,
                        content_type=out_content_type, charset='utf-8')
@@ -452,7 +452,7 @@ class ContainerController(object):
         metadata.update(
             (key, (value, timestamp)) for key, value in req.headers.iteritems()
             if key.lower() in self.save_headers or
-            key.lower().startswith('x-container-meta-'))
+            is_sys_or_user_meta('container', key))
         if metadata:
             if 'X-Container-Sync-To' in metadata:
                 if 'X-Container-Sync-To' not in broker.metadata or \

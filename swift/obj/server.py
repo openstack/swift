@@ -38,7 +38,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import split_and_validate_path
+from swift.common.request_helpers import split_and_validate_path, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -338,7 +338,7 @@ class ObjectController(object):
             return HTTPConflict(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
-                        if val[0].startswith('X-Object-Meta-'))
+                        if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
             if header_key in request.headers:
                 header_caps = header_key.title()
@@ -422,8 +422,7 @@ class ObjectController(object):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.iteritems()
-                                if val[0].lower().startswith('x-object-meta-')
-                                and len(val[0]) > 14)
+                                if is_user_meta('object', val[0]))
                 for header_key in (
                         request.headers.get('X-Backend-Replication-Headers') or
                         self.allowed_headers):
@@ -504,7 +503,7 @@ class ObjectController(object):
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.iteritems():
-                    if key.lower().startswith('x-object-meta-') or \
+                    if is_user_meta('object', key) or \
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
@@ -545,7 +544,7 @@ class ObjectController(object):
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():
-            if key.lower().startswith('x-object-meta-') or \
+            if is_user_meta('object', key) or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = metadata['ETag']
