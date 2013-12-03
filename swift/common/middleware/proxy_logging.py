@@ -131,7 +131,7 @@ class ProxyLoggingMiddleware(object):
         return value
 
     def log_request(self, req, status_int, bytes_received, bytes_sent,
-                    request_time):
+                    start_time, end_time):
         """
         Log a request.
 
@@ -139,7 +139,8 @@ class ProxyLoggingMiddleware(object):
         :param status_int: integer code for the response status
         :param bytes_received: bytes successfully read from the request body
         :param bytes_sent: bytes yielded to the WSGI server
-        :param request_time: time taken to satisfy the request, in seconds
+        :param start_time: timestamp request started
+        :param end_time: timestamp request completed
         """
         if self.req_already_logged(req):
             return
@@ -152,12 +153,17 @@ class ProxyLoggingMiddleware(object):
             logged_headers = '\n'.join('%s: %s' % (k, v)
                                        for k, v in req.headers.items())
         method = self.method_from_req(req)
+        end_gmtime_str = time.strftime('%d/%b/%Y/%H/%M/%S',
+                                       time.gmtime(end_time))
+        duration_time_str = "%.4f" % (end_time - start_time)
+        start_time_str = "%.9f" % start_time
+        end_time_str = "%.9f" % end_time
         self.access_logger.info(' '.join(
             quote(str(x) if x else '-', QUOTE_SAFE)
             for x in (
                 get_remote_client(req),
                 req.remote_addr,
-                time.strftime('%d/%b/%Y/%H/%M/%S', time.gmtime()),
+                end_gmtime_str,
                 method,
                 the_request,
                 req.environ.get('SERVER_PROTOCOL'),
@@ -170,9 +176,11 @@ class ProxyLoggingMiddleware(object):
                 req.headers.get('etag', None),
                 req.environ.get('swift.trans_id'),
                 logged_headers,
-                '%.4f' % request_time,
+                duration_time_str,
                 req.environ.get('swift.source'),
                 ','.join(req.environ.get('swift.log_info') or ''),
+                start_time_str,
+                end_time_str
             )))
         self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
@@ -181,7 +189,7 @@ class ProxyLoggingMiddleware(object):
         # down (egregious errors will get logged by the proxy server itself).
         if metric_name:
             self.access_logger.timing(metric_name + '.timing',
-                                      request_time * 1000)
+                                      (end_time - start_time) * 1000)
             self.access_logger.update_stats(metric_name + '.xfer',
                                             bytes_received + bytes_sent)
 
@@ -263,7 +271,7 @@ class ProxyLoggingMiddleware(object):
                 status_int = status_int_for_logging(client_disconnect)
                 self.log_request(
                     req, status_int, input_proxy.bytes_received, bytes_sent,
-                    time.time() - start_time)
+                    start_time, time.time())
 
         try:
             iterable = self.app(env, my_start_response)
@@ -271,8 +279,8 @@ class ProxyLoggingMiddleware(object):
             req = Request(env)
             status_int = status_int_for_logging(start_status=500)
             self.log_request(
-                req, status_int, input_proxy.bytes_received, 0,
-                time.time() - start_time)
+                req, status_int, input_proxy.bytes_received, 0, start_time,
+                time.time())
             raise
         else:
             return iter_response(iterable)
