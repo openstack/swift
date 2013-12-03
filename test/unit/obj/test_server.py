@@ -2840,6 +2840,13 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 204)
 
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
+                     'X-If-Delete-At': 'abc'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 400)
+
     def test_DELETE_calls_delete_at(self):
         given_args = []
 

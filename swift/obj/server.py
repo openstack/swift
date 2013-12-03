@@ -594,13 +594,21 @@ class ObjectController(object):
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
-        if 'x-if-delete-at' in request.headers and \
-                int(request.headers['x-if-delete-at']) != \
-                int(orig_metadata.get('X-Delete-At') or 0):
-            return HTTPPreconditionFailed(
-                request=request,
-                body='X-If-Delete-At and X-Delete-At do not match')
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+        try:
+            req_if_delete_at_val = request.headers['x-if-delete-at']
+            req_if_delete_at = int(req_if_delete_at_val)
+        except KeyError:
+            pass
+        except ValueError:
+            return HTTPBadRequest(
+                request=request,
+                body='Bad X-If-Delete-At header value')
+        else:
+            if orig_delete_at != req_if_delete_at:
+                return HTTPPreconditionFailed(
+                    request=request,
+                    body='X-If-Delete-At and X-Delete-At do not match')
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device)
