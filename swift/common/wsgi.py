@@ -21,7 +21,6 @@ import signal
 import time
 import mimetools
 from swift import gettext_ as _
-from itertools import chain
 from StringIO import StringIO
 
 import eventlet
@@ -35,7 +34,8 @@ from swift.common import utils
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
-    validate_configuration, get_hub, config_auto_int_value
+    validate_configuration, get_hub, config_auto_int_value, \
+    CloseableChain
 
 try:
     import multiprocessing
@@ -401,7 +401,7 @@ class WSGIContext(object):
         except StopIteration:
             return iter([])
         else:  # We got a first_chunk
-            return chain([first_chunk], resp)
+            return CloseableChain([first_chunk], resp)
 
     def _get_status_int(self):
         """

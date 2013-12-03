@@ -2074,6 +2074,24 @@ def csv_append(csv_string, item):
         return item
 
 
+class CloseableChain(object):
+    """
+    Like itertools.chain, but with a close method that will attempt to invoke
+    its sub-iterators' close methods, if any.
+    """
+    def __init__(self, *iterables):
+        self.iterables = iterables
+
+    def __iter__(self):
+        return iter(itertools.chain(*(self.iterables)))
+
+    def close(self):
+        for it in self.iterables:
+            close_method = getattr(it, 'close', None)
+            if close_method:
+                close_method()
+
+
 def reiterate(iterable):
     """
     Consume the first item from an iterator, then re-chain it to the rest of
@@ -2090,7 +2108,7 @@ def reiterate(iterable):
             chunk = ''
             while not chunk:
                 chunk = next(iterator)
-            return itertools.chain([chunk], iterator)
+            return CloseableChain([chunk], iterator)
         except StopIteration:
             return []
 

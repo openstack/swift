@@ -598,6 +598,27 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEquals(wc._response_status, '404 Not Found')
         self.assertEquals(''.join(it), 'Ok\n')
 
+    def test_app_iter_is_closable(self):
+
+        def app(env, start_response):
+            start_response('200 OK', [('Content-Length', '25')])
+            yield 'aaaaa'
+            yield 'bbbbb'
+            yield 'ccccc'
+            yield 'ddddd'
+            yield 'eeeee'
+
+        wc = wsgi.WSGIContext(app)
+        r = Request.blank('/')
+        iterable = wc._app_call(r.environ)
+        self.assertEquals(wc._response_status, '200 OK')
+
+        iterator = iter(iterable)
+        self.assertEqual('aaaaa', iterator.next())
+        self.assertEqual('bbbbb', iterator.next())
+        iterable.close()
+        self.assertRaises(StopIteration, iterator.next)
+
 
 if __name__ == '__main__':
     unittest.main()

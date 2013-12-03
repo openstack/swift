@@ -936,6 +936,22 @@ class TestResponse(unittest.TestCase):
         output_iter = resp(req.environ, lambda *_: None)
         self.assertEquals(list(output_iter), [''])
 
+    def test_call_preserves_closeability(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            yield "igloo"
+            yield "shindig"
+            yield "macadamia"
+            yield "hullabaloo"
+        req = swift.common.swob.Request.blank('/')
+        req.method = 'GET'
+        status, headers, app_iter = req.call_application(test_app)
+        iterator = iter(app_iter)
+        self.assertEqual('igloo', iterator.next())
+        self.assertEqual('shindig', iterator.next())
+        app_iter.close()
+        self.assertRaises(StopIteration, iterator.next)
+
     def test_location_rewrite(self):
         def start_response(env, headers):
             pass
