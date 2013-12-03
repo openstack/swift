@@ -51,6 +51,13 @@ class DiskFileNotExist(DiskFileError):
 
 
 class DiskFileDeleted(DiskFileNotExist):
+
+    def __init__(self, metadata=None):
+        self.metadata = metadata or {}
+        self.timestamp = self.metadata.get('X-Timestamp', 0)
+
+
+class DiskFileExpired(DiskFileDeleted):
     pass
 
 
