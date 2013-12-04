@@ -89,7 +89,7 @@ class TestFuncs(unittest.TestCase):
 
     def test_GETorHEAD_base(self):
         base = Controller(self.app)
-        req = Request.blank('/a/c/o/with/slashes')
+        req = Request.blank('/v1/a/c/o/with/slashes')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
             resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
@@ -97,14 +97,14 @@ class TestFuncs(unittest.TestCase):
         self.assertTrue('swift.object/a/c/o/with/slashes' in resp.environ)
         self.assertEqual(
             resp.environ['swift.object/a/c/o/with/slashes']['status'], 200)
-        req = Request.blank('/a/c/o')
+        req = Request.blank('/v1/a/c/o')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
             resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
                                        '/a/c/o')
         self.assertTrue('swift.object/a/c/o' in resp.environ)
         self.assertEqual(resp.environ['swift.object/a/c/o']['status'], 200)
-        req = Request.blank('/a/c')
+        req = Request.blank('/v1/a/c')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
             resp = base.GETorHEAD_base(req, 'container', FakeRing(), 'part',
@@ -112,7 +112,7 @@ class TestFuncs(unittest.TestCase):
         self.assertTrue('swift.container/a/c' in resp.environ)
         self.assertEqual(resp.environ['swift.container/a/c']['status'], 200)
 
-        req = Request.blank('/a')
+        req = Request.blank('/v1/a')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
             resp = base.GETorHEAD_base(req, 'account', FakeRing(), 'part',

@@ -669,6 +669,19 @@ class TestRequest(unittest.TestCase):
             req.accept.best_match(['text/plain', 'application/json']),
             'application/json')
 
+    def test_swift_entity_path(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        self.assertEqual(req.swift_entity_path, '/a/c/o')
+
+        req = swift.common.swob.Request.blank('/v1/a/c')
+        self.assertEqual(req.swift_entity_path, '/a/c')
+
+        req = swift.common.swob.Request.blank('/v1/a')
+        self.assertEqual(req.swift_entity_path, '/a')
+
+        req = swift.common.swob.Request.blank('/v1')
+        self.assertEqual(req.swift_entity_path, None)
+
     def test_path_qs(self):
         req = swift.common.swob.Request.blank('/hi/there?hello=equal&acl')
         self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')

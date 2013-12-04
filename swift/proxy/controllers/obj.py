@@ -158,8 +158,9 @@ class SegmentedIterable(object):
                 container, obj = self.container, self.segment_dict['name']
             partition = self.controller.app.object_ring.get_part(
                 self.controller.account_name, container, obj)
-            path = '/%s/%s/%s' % (self.controller.account_name, container, obj)
-            req = Request.blank(path)
+            path = '/%s/%s/%s' % (self.controller.account_name,
+                                  container, obj)
+            req = Request.blank('/v1' + path)
             if self.seek or (self.length and self.length > 0):
                 bytes_available = \
                     self.segment_dict['bytes'] - self.seek
@@ -375,14 +376,14 @@ class ObjectController(Controller):
             lreq = Request.blank('i will be overridden by env', environ=env)
             # Don't quote PATH_INFO, by WSGI spec
             lreq.environ['PATH_INFO'] = \
-                '/%s/%s' % (self.account_name, lcontainer)
+                '/v1/%s/%s' % (self.account_name, lcontainer)
             lreq.environ['REQUEST_METHOD'] = 'GET'
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
             lresp = self.GETorHEAD_base(
                 lreq, _('Container'), self.app.container_ring, lpartition,
-                lreq.path_info)
+                lreq.swift_entity_path)
             if 'swift.authorize' in env:
                 lreq.acl = lresp.headers.get('x-container-read')
                 aresp = env['swift.authorize'](lreq)
@@ -417,7 +418,7 @@ class ObjectController(Controller):
             new_req = incoming_req.copy_get()
             new_req.method = 'GET'
             new_req.range = None
-            new_req.path_info = '/'.join(['', account, container, obj])
+            new_req.path_info = '/'.join(['/v1', account, container, obj])
             if partition is None:
                 try:
                     partition = self.app.object_ring.get_part(
@@ -428,7 +429,7 @@ class ObjectController(Controller):
                         new_req.path)
             valid_resp = self.GETorHEAD_base(
                 new_req, _('Object'), self.app.object_ring, partition,
-                new_req.path_info)
+                new_req.swift_entity_path)
 
         if 'swift.authorize' in incoming_req.environ:
             incoming_req.acl = valid_resp.headers.get('x-container-read')
@@ -535,7 +536,8 @@ class ObjectController(Controller):
         partition = self.app.object_ring.get_part(
             self.account_name, self.container_name, self.object_name)
         resp = self.GETorHEAD_base(
-            req, _('Object'), self.app.object_ring, partition, req.path_info)
+            req, _('Object'), self.app.object_ring, partition,
+            req.swift_entity_path)
 
         if ';' in resp.headers.get('content-type', ''):
             # strip off swift_bytes from content-type
@@ -677,7 +679,7 @@ class ObjectController(Controller):
             req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
         if self.app.object_post_as_copy:
             req.method = 'PUT'
-            req.path_info = '/%s/%s/%s' % (
+            req.path_info = '/v1/%s/%s/%s' % (
                 self.account_name, self.container_name, self.object_name)
             req.headers['Content-Length'] = 0
             req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
@@ -741,7 +743,7 @@ class ObjectController(Controller):
                 delete_at_container, delete_at_part, delete_at_nodes)
 
             resp = self.make_requests(req, self.app.object_ring, partition,
-                                      'POST', req.path_info, headers)
+                                      'POST', req.swift_entity_path, headers)
             return resp
 
     def _backend_requests(self, req, n_outgoing,
@@ -913,7 +915,7 @@ class ObjectController(Controller):
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(
                 hreq, _('Object'), self.app.object_ring, partition,
-                hreq.path_info)
+                hreq.swift_entity_path)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
@@ -989,15 +991,15 @@ class ObjectController(Controller):
                 req.environ.setdefault('swift.log_info', []).append(
                     'x-copy-from:%s' % source_header)
             source_header = unquote(source_header)
-            acct = req.path_info.split('/', 2)[1]
+            acct = req.swift_entity_path.split('/', 2)[1]
             if isinstance(acct, unicode):
                 acct = acct.encode('utf-8')
             if not source_header.startswith('/'):
                 source_header = '/' + source_header
-            source_header = '/' + acct + source_header
+            source_header = '/v1/' + acct + source_header
             try:
                 src_container_name, src_obj_name = \
-                    source_header.split('/', 3)[2:]
+                    source_header.split('/', 4)[3:]
             except ValueError:
                 return HTTPPreconditionFailed(
                     request=req,
@@ -1082,7 +1084,8 @@ class ObjectController(Controller):
             if (req.content_length > 0) or chunked:
                 nheaders['Expect'] = '100-continue'
             pile.spawn(self._connect_put_node, node_iter, partition,
-                       req.path_info, nheaders, self.app.logger.thread_locals)
+                       req.swift_entity_path, nheaders,
+                       self.app.logger.thread_locals)
 
         conns = [conn for conn in pile if conn]
         min_conns = quorum_size(len(nodes))
@@ -1156,7 +1159,7 @@ class ObjectController(Controller):
                                   _('Object PUT'), etag=etag)
         if source_header:
             resp.headers['X-Copied-From'] = quote(
-                source_header.split('/', 2)[2])
+                source_header.split('/', 3)[3])
             if 'last-modified' in source_resp.headers:
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
@@ -1201,7 +1204,7 @@ class ObjectController(Controller):
                 orig_obj = self.object_name
                 self.container_name = lcontainer
                 self.object_name = last_item['name'].encode('utf-8')
-                copy_path = '/' + self.account_name + '/' + \
+                copy_path = '/v1/' + self.account_name + '/' + \
                             self.container_name + '/' + self.object_name
                 copy_headers = {'X-Newest': 'True',
                                 'Destination': orig_container + '/' + orig_obj
@@ -1256,7 +1259,8 @@ class ObjectController(Controller):
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
         resp = self.make_requests(req, self.app.object_ring,
-                                  partition, 'DELETE', req.path_info, headers)
+                                  partition, 'DELETE', req.swift_entity_path,
+                                  headers)
         return resp
 
     @public
@@ -1284,7 +1288,7 @@ class ObjectController(Controller):
         # re-write the existing request as a PUT instead of creating a new one
         # since this one is already attached to the posthooklogger
         req.method = 'PUT'
-        req.path_info = '/' + self.account_name + dest
+        req.path_info = '/v1/' + self.account_name + dest
         req.headers['Content-Length'] = 0
         req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']

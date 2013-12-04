@@ -33,7 +33,7 @@ class TestContainerController(unittest.TestCase):
         controller = proxy_server.ContainerController(self.app, 'a', 'c')
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, body='')):
-            req = Request.blank('/a/c', {'PATH_INFO': '/a/c'})
+            req = Request.blank('/v1/a/c', {'PATH_INFO': '/v1/a/c'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         self.assertTrue("swift.container/a/c" in resp.environ)
@@ -46,7 +46,7 @@ class TestContainerController(unittest.TestCase):
             'x-container-sync-key': 'value', 'x-container-sync-to': 'value'}
         controller = proxy_server.ContainerController(self.app, 'a', 'c')
 
-        req = Request.blank('/a/c')
+        req = Request.blank('/v1/a/c')
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
@@ -54,7 +54,7 @@ class TestContainerController(unittest.TestCase):
         for key in owner_headers:
             self.assertTrue(key not in resp.headers)
 
-        req = Request.blank('/a/c', environ={'swift_owner': True})
+        req = Request.blank('/v1/a/c', environ={'swift_owner': True})
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
