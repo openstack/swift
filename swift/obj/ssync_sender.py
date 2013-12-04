@@ -14,11 +14,6 @@
 # limitations under the License.
 
 import urllib
-
-import eventlet
-import eventlet.wsgi
-import eventlet.greenio
-
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
@@ -288,7 +283,7 @@ class Sender(object):
         msg = '\r\n'.join(msg) + '\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout, 'send_put'):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        for chunk in df.reader(iter_hook=eventlet.sleep):
+        for chunk in df.reader():
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout, 'send_put chunk'):
                 self.connection.send('%x\r\n%s\r\n' % (len(chunk), chunk))
