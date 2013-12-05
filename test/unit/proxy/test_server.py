@@ -4655,7 +4655,10 @@ class TestObjectController(unittest.TestCase):
         # Remember Request instance count, make sure the GC is run for pythons
         # without reference counting.
         for i in xrange(4):
+            sleep(0)  # let eventlet do its thing
             gc.collect()
+        else:
+            sleep(0)
         before_request_instances = len(_request_instances)
         # GET test file, but disconnect early
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -4672,10 +4675,12 @@ class TestObjectController(unittest.TestCase):
         fd.read(1)
         fd.close()
         sock.close()
-        sleep(0)  # let eventlet do it's thing
         # Make sure the GC is run again for pythons without reference counting
         for i in xrange(4):
+            sleep(0)  # let eventlet do its thing
             gc.collect()
+        else:
+            sleep(0)
         self.assertEquals(before_request_instances, len(_request_instances))
 
     def test_OPTIONS(self):
