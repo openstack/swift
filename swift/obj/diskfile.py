@@ -56,7 +56,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, \
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
-    ReplicationLockTimeout
+    ReplicationLockTimeout, DiskFileExpired
 from swift.common.swob import multi_range_iterator
 
 
@@ -1113,8 +1113,7 @@ class DiskFile(object):
                 # we don't have a data file so we are just going to raise an
                 # exception that we could not find the object, providing the
                 # tombstone's timestamp.
-                exc = DiskFileDeleted()
-                exc.timestamp = metadata['X-Timestamp']
+                exc = DiskFileDeleted(metadata=metadata)
         return exc
 
     def _verify_name_matches_hash(self, data_file):
@@ -1136,7 +1135,7 @@ class DiskFile(object):
                    verify the on-disk size with Content-Length metadata value
         :raises DiskFileCollision: if the metadata stored name does not match
                                    the referenced name of the file
-        :raises DiskFileNotExist: if the object has expired
+        :raises DiskFileExpired: if the object has expired
         :raises DiskFileQuarantined: if data inconsistencies were detected
                                      between the metadata and the file-system
                                      metadata
@@ -1165,7 +1164,7 @@ class DiskFile(object):
                     self._metadata['X-Delete-At']))
         else:
             if x_delete_at <= time.time():
-                raise DiskFileNotExist('Expired')
+                raise DiskFileExpired(metadata=self._metadata)
         try:
             metadata_size = int(self._metadata['Content-Length'])
         except KeyError:
