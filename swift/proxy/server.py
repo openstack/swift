@@ -292,8 +292,6 @@ class Application(object):
                 allowed_methods = getattr(controller, 'allowed_methods', set())
                 return HTTPMethodNotAllowed(
                     request=req, headers={'Allow': ', '.join(allowed_methods)})
-            if path_parts['version']:
-                req.path_info_pop()
             if 'swift.authorize' in req.environ:
                 # We call authorize before the handler, always. If authorized,
                 # we remove the swift.authorize hook so isn't ever called

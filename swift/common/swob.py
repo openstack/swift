@@ -858,6 +858,18 @@ class Request(object):
                              self.environ['PATH_INFO'])
 
     @property
+    def swift_entity_path(self):
+        """
+        Provides the account/container/object path, sans API version.
+
+        This can be useful when constructing a path to send to a backend
+        server, as that path will need everything after the "/v1".
+        """
+        _ver, entity_path = self.split_path(1, 2, rest_with_last=True)
+        if entity_path is not None:
+            return '/' + entity_path
+
+    @property
     def url(self):
         "Provides the full url of the request"
         return self.host_url + self.path_qs
