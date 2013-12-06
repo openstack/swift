@@ -270,6 +270,7 @@ user_test_tester3 = testing3
 # admin_password = password
 # delay_auth_decision = 1
 # cache = swift.cache
+# include_service_catalog = False
 #
 # [filter:keystoneauth]
 # use = egg:swift#keystoneauth
