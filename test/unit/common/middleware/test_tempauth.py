@@ -515,7 +515,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.headers['x-storage-url'],
                           'http://somehost:5678/v1/AUTH_test')
 
-    def test_storage_url_overriden_scheme(self):
+    def test_storage_url_overridden_scheme(self):
         self.test_auth = \
             auth.filter_factory({'user_test_tester': 'testing',
                                  'storage_url_scheme': 'fake'})(FakeApp())
