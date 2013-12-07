@@ -1,3 +1,115 @@
+swift (1.11.0)
+
+    * Added discoverable capabilities
+
+      A Swift proxy server now by default (although it can be turned off)
+      will respond to requests to /info. The response to these requests
+      include information about the cluster and can be used by clients to
+      determine which features are supported in the cluster.
+
+    * Object replication ssync (an rsync alternative)
+
+      A Swift storage node can now be configured to use Swift primitives
+      for replication transport instead of rsync. This is an experimental
+      feature that is not yet considered production ready.
+
+    * If a source times out on an object server read, try another one
+      of them with a modified range.
+
+    * The proxy now responds to many types of requests as soon as it
+      has a quorum. This can help speed up responses (without
+      changing the results), especially when one node is acting up.
+      There is a post_quorum_timeout config value that can tune how
+      long to wait for requests to finish after a quorum has been
+      established.
+
+    * Add accurate timestamps in proxy log lines for the start and
+      end of a request. These are added as new fields on the end of
+      the existing log lines, and therefore should not break
+      existing, well-behaved log processors.
+
+    * Add an "inline" query parameter to tempurl
+
+      By default, temporary URLs add a "Content-Disposition" header
+      that forces many clients to download the object. Now, temporary
+      URLs support an optional "inline" query parameter that will
+      force a "Content-Disposition: inline" header to be added to the
+      response, overriding the default.
+
+    * Use TCP_NODELAY for created sockets. This can dramatically
+      lower latency for small object workloads.
+
+    * DiskFile API, with reference implementation
+
+      The DiskFile abstraction for talking to data on disk has been
+      refactored to allow alternate implementations to be developed.
+      Included in the codebase is an in-memory reference
+      implementation. For full documentation, please see
+      http://docs.openstack.org/developer/swift/development_ondisk_backends.html
+
+    * Removal of swift-bench
+
+      The included benchmarking tool swift-bench has been extracted
+      from the codebase and is now in its own repository at
+      https://github.com/openstack/swift-bench. New swift-bench
+      binaries and packages may be found on PyPI at
+      https://pypi.python.org/pypi/swift-bench
+
+    * Bulk delete now also supports the POST verb, in addition to DELETE
+
+    * Added functionality to the swift-ring-builder to support
+      limited recreation of ring builder files from the ring file itself.
+
+    * HEAD on account now returns 410 if account was deleted and
+      not yet reaped. The old behavior was to return a 404.
+
+    * Fixed a bug introduced since the 1.10.0 release that
+      prevented expired objects from being removed from the system.
+      This resulted in orphaned expired objects taking up space on
+      the system but inaccessible to the API. This regression and
+      fix are only important if you have deployed code since the
+      1.10.0 release. For a full discussion, including a script that
+      can be used to clean up orphaned objects, see
+      https://bugs.launchpad.net/swift/+bug/1257330
+
+    * Tie socket write buffer size to server chunk size parameter. This
+      pairs the underlying network buffer size with the size of data
+      that Swift attempts to read from the connection, thereby
+      improving efficiency and throughput on connections.
+
+    * Fix 500 from account-quota middleware. If a user had set
+      X-Account-Meta-Quota-Bytes to something non-integer prior to
+      the installation of the account-quota middleware, then the
+      quota check would choke on it. Now a non-integer value is
+      treated as "no quota".
+
+    * Quarantine objects with busted metadata. Before, if you
+      encountered an object with corrupt or missing xattrs, the
+      object server would return a 500 on GET, and wouldn't quarantine
+      anything. Now the object server returns a 404 for that GET and
+      the corrupted file is quarantined, thus giving replication a
+      chance to fix it.
+
+    * Fix quarantine and error counts in audit logs
+
+    * Report transaction ID in failure exception logs
+
+    * Make pbr a build-time only dependency
+
+    * Worked around a bug in eventlet 0.9.16 where the size of the
+      memcache connection pools would grow unbounded.
+
+    * Tempurl keys are now properly stored as utf8
+
+    * Fixed an issue where concurrent PUT requests to accounts or
+      containers may result in errors due to locked databases.
+
+    * Handle copy requests in account and container quota middleware
+
+    * Now ensure that a WWW-Authenticate header is on all 401 responses
+
+    * Various other bug fixes and improvements
+
 swift (1.10.0)
 
     * Added support for pooling memcache connections
