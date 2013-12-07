@@ -24,7 +24,8 @@ from time import sleep, time
 from swiftclient import get_auth, head_account
 
 from swift.common.ring import Ring
-from swift.common.utils import readconf, ismount
+from swift.common.utils import readconf
+from swift.common.manager import Manager
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -153,9 +154,10 @@ def get_ring(server, force_validate=None):
         conf = port_to_config[dev['port']]
         for device in os.listdir(conf['devices']):
             if device == dev['device']:
-                full_path = path.realpath(path.join(conf['devices'], device))
-                assert ismount(full_path), \
-                    'device %s in %s was not mounted (%s)' % (
+                dev_path = path.join(conf['devices'], device)
+                full_path = path.realpath(dev_path)
+                assert path.exists(full_path), \
+                    'device %s in %s was not found (%s)' % (
                         device, conf['devices'], full_path)
                 break
         else:
@@ -163,7 +165,10 @@ def get_ring(server, force_validate=None):
                 "unable to find ring device %s under %s's devices (%s)" % (
                     dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
-        rsync_export = '%s%s' % (server, dev['replication_port'])
+        if port_to_config[dev['port']].get('vm_test_mode', False):
+            rsync_export = '%s%s' % (server, dev['replication_port'])
+        else:
+            rsync_export = server
         cmd = "rsync rsync://localhost/%s" % rsync_export
         p = Popen(cmd, shell=True, stdout=PIPE)
         stdout, _stderr = p.communicate()
@@ -184,6 +189,7 @@ def reset_environment():
     p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
     print stdout
+    Manager(['all']).stop()
     pids = {}
     try:
         account_ring = get_ring('account')
