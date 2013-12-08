@@ -1,0 +1,47 @@
+# [DEFAULT]
+# The number of seconds between checking the modified time of this config file
+# for changes and therefore reloading it.
+# mtime_check_interval = 300
+
+
+# [realm1]
+# key = realm1key
+# key2 = realm1key2
+# cluster_name1 = https://host1/v1/
+# cluster_name2 = https://host2/v1/
+#
+# [realm2]
+# key = realm2key
+# key2 = realm2key2
+# cluster_name3 = https://host3/v1/
+# cluster_name4 = https://host4/v1/
+
+
+# Each section name is the name of a sync realm. A sync realm is a set of
+# clusters that have agreed to allow container syncing with each other. Realm
+# names will be considered case insensitive.
+#
+# The key is the overall cluster-to-cluster key used in combination with the
+# external users' key that they set on their containers' X-Container-Sync-Key
+# metadata header values. These keys will be used to sign each request the
+# container sync daemon makes and used to validate each incoming container sync
+# request.
+#
+# The key2 is optional and is an additional key incoming requests will be
+# checked against. This is so you can rotate keys if you wish; you move the
+# existing key to key2 and make a new key value.
+#
+# Any values in the realm section whose names begin with cluster_ will indicate
+# the name and endpoint of a cluster and will be used by external users in
+# their containers' X-Container-Sync-To metadata header values with the format
+# "realm_name/cluster_name/container_name". Realm and cluster names are
+# considered case insensitive.
+#
+# The endpoint is what the container sync daemon will use when sending out
+# requests to that cluster. Keep in mind this endpoint must be reachable by all
+# container servers, since that is where the container sync daemon runs. Note
+# the the endpoint ends with /v1/ and that the container sync daemon will then
+# add the account/container/obj name after that.
+#
+# Distribute this container-sync-realms.conf file to all your proxy servers
+# and container servers.

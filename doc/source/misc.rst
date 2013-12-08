@@ -217,6 +217,20 @@ List Endpoints
     :members:
     :show-inheritance:
 
+Container Sync Realms
+=====================
+
+.. automodule:: swift.common.container_sync_realms
+    :members:
+    :show-inheritance:
+
+Container Sync Middleware
+=========================
+
+.. automodule:: swift.common.middleware.container_sync
+    :members:
+    :show-inheritance:
+
 Discoverability
 ===============
 

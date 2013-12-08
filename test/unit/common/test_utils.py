@@ -52,6 +52,7 @@ from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout,
                                      ReplicationLockTimeout)
 from swift.common import utils
+from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Response
 from test.unit import FakeLogger
 
@@ -1184,25 +1185,108 @@ log_name = %(yarr)s'''
                           '1024Yi')
 
     def test_validate_sync_to(self):
-        for goodurl in ('http://1.1.1.1/v1/a/c/o',
-                        'http://1.1.1.1:8080/a/c/o',
-                        'http://2.2.2.2/a/c/o',
-                        'https://1.1.1.1/v1/a/c/o',
-                        ''):
-            self.assertEquals(utils.validate_sync_to(goodurl,
-                                                     ['1.1.1.1', '2.2.2.2']),
-                              None)
-        for badurl in ('http://1.1.1.1',
-                       'httpq://1.1.1.1/v1/a/c/o',
-                       'http://1.1.1.1/v1/a/c/o?query',
-                       'http://1.1.1.1/v1/a/c/o#frag',
-                       'http://1.1.1.1/v1/a/c/o?query#frag',
-                       'http://1.1.1.1/v1/a/c/o?query=param',
-                       'http://1.1.1.1/v1/a/c/o?query=param#frag',
-                       'http://1.1.1.2/v1/a/c/o'):
-            self.assertNotEquals(
-                utils.validate_sync_to(badurl, ['1.1.1.1', '2.2.2.2']),
-                None)
+        fname = 'container-sync-realms.conf'
+        fcontents = '''
+[US]
+key = 9ff3b71c849749dbaec4ccdd3cbab62b
+cluster_dfw1 = http://dfw1.host/v1/
+'''
+        with temptree([fname], [fcontents]) as tempdir:
+            logger = FakeLogger()
+            fpath = os.path.join(tempdir, fname)
+            csr = ContainerSyncRealms(fpath, logger)
+            for realms_conf in (None, csr):
+                for goodurl, result in (
+                        ('http://1.1.1.1/v1/a/c',
+                         (None, 'http://1.1.1.1/v1/a/c', None, None)),
+                        ('http://1.1.1.1:8080/a/c',
+                         (None, 'http://1.1.1.1:8080/a/c', None, None)),
+                        ('http://2.2.2.2/a/c',
+                         (None, 'http://2.2.2.2/a/c', None, None)),
+                        ('https://1.1.1.1/v1/a/c',
+                         (None, 'https://1.1.1.1/v1/a/c', None, None)),
+                        ('//US/DFW1/a/c',
+                         (None, 'http://dfw1.host/v1/a/c', 'US',
+                          '9ff3b71c849749dbaec4ccdd3cbab62b')),
+                        ('//us/DFW1/a/c',
+                         (None, 'http://dfw1.host/v1/a/c', 'US',
+                          '9ff3b71c849749dbaec4ccdd3cbab62b')),
+                        ('//us/dfw1/a/c',
+                         (None, 'http://dfw1.host/v1/a/c', 'US',
+                          '9ff3b71c849749dbaec4ccdd3cbab62b')),
+                        ('//',
+                         (None, None, None, None)),
+                        ('',
+                         (None, None, None, None))):
+                    if goodurl.startswith('//') and not realms_conf:
+                        self.assertEquals(
+                            utils.validate_sync_to(
+                                goodurl, ['1.1.1.1', '2.2.2.2'], realms_conf),
+                            (None, None, None, None))
+                    else:
+                        self.assertEquals(
+                            utils.validate_sync_to(
+                                goodurl, ['1.1.1.1', '2.2.2.2'], realms_conf),
+                            result)
+                for badurl, result in (
+                        ('http://1.1.1.1',
+                         ('Path required in X-Container-Sync-To', None, None,
+                          None)),
+                        ('httpq://1.1.1.1/v1/a/c',
+                         ('Invalid scheme \'httpq\' in X-Container-Sync-To, '
+                          'must be "//", "http", or "https".', None, None,
+                          None)),
+                        ('http://1.1.1.1/v1/a/c?query',
+                         ('Params, queries, and fragments not allowed in '
+                          'X-Container-Sync-To', None, None, None)),
+                        ('http://1.1.1.1/v1/a/c#frag',
+                         ('Params, queries, and fragments not allowed in '
+                          'X-Container-Sync-To', None, None, None)),
+                        ('http://1.1.1.1/v1/a/c?query#frag',
+                         ('Params, queries, and fragments not allowed in '
+                          'X-Container-Sync-To', None, None, None)),
+                        ('http://1.1.1.1/v1/a/c?query=param',
+                         ('Params, queries, and fragments not allowed in '
+                          'X-Container-Sync-To', None, None, None)),
+                        ('http://1.1.1.1/v1/a/c?query=param#frag',
+                         ('Params, queries, and fragments not allowed in '
+                          'X-Container-Sync-To', None, None, None)),
+                        ('http://1.1.1.2/v1/a/c',
+                         ("Invalid host '1.1.1.2' in X-Container-Sync-To",
+                          None, None, None)),
+                        ('//us/invalid/a/c',
+                         ("No cluster endpoint for 'us' 'invalid'", None,
+                          None, None)),
+                        ('//invalid/dfw1/a/c',
+                         ("No realm key for 'invalid'", None, None, None)),
+                        ('//us/invalid1/a/',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us/invalid1/a/'", None, None, None)),
+                        ('//us/invalid1/a',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us/invalid1/a'", None, None, None)),
+                        ('//us/invalid1/',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us/invalid1/'", None, None, None)),
+                        ('//us/invalid1',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us/invalid1'", None, None, None)),
+                        ('//us/',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us/'", None, None, None)),
+                        ('//us',
+                         ("Invalid X-Container-Sync-To format "
+                          "'//us'", None, None, None))):
+                    if badurl.startswith('//') and not realms_conf:
+                        self.assertEquals(
+                            utils.validate_sync_to(
+                                badurl, ['1.1.1.1', '2.2.2.2'], realms_conf),
+                            (None, None, None, None))
+                    else:
+                        self.assertEquals(
+                            utils.validate_sync_to(
+                                badurl, ['1.1.1.1', '2.2.2.2'], realms_conf),
+                            result)
 
     def test_TRUE_VALUES(self):
         for v in utils.TRUE_VALUES:
