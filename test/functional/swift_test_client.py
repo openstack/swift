@@ -208,7 +208,11 @@ class Connection(object):
 
     def make_request(self, method, path=[], data='', hdrs={}, parms={},
                      cfg={}):
-        path = self.make_path(path, cfg=cfg)
+        if not cfg.get('verbatim_path'):
+            # Set verbatim_path=True to make a request to exactly the given
+            # path, not storage path + given path. Useful for
+            # non-account/container/object requests.
+            path = self.make_path(path, cfg=cfg)
         headers = self.make_headers(hdrs, cfg=cfg)
         if isinstance(parms, dict) and parms:
             quote = urllib.quote
