@@ -44,8 +44,9 @@ swift (1.11.0)
       The DiskFile abstraction for talking to data on disk has been
       refactored to allow alternate implementations to be developed.
       Included in the codebase is an in-memory reference
-      implementation. For full documentation, please see
-      http://docs.openstack.org/developer/swift/development_ondisk_backends.html
+      implementation. For full documentation, please see the developer
+      documentation. The DiskFile API is still a work in progress and
+      is not yet finalized.
 
     * Removal of swift-bench
 
