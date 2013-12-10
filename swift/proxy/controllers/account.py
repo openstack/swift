@@ -47,7 +47,7 @@ class AccountController(Controller):
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
         resp = self.GETorHEAD_base(
             req, _('Account'), self.app.account_ring, partition,
-            req.path_info.rstrip('/'))
+            req.swift_entity_path.rstrip('/'))
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
                 resp.status = HTTP_GONE
@@ -81,7 +81,7 @@ class AccountController(Controller):
         clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'PUT',
-            req.path_info, [headers] * len(accounts))
+            req.swift_entity_path, [headers] * len(accounts))
         return resp
 
     @public
@@ -101,12 +101,12 @@ class AccountController(Controller):
         clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'POST',
-            req.path_info, [headers] * len(accounts))
+            req.swift_entity_path, [headers] * len(accounts))
         if resp.status_int == HTTP_NOT_FOUND and self.app.account_autocreate:
             self.autocreate_account(req.environ, self.account_name)
             resp = self.make_requests(
                 req, self.app.account_ring, account_partition, 'POST',
-                req.path_info, [headers] * len(accounts))
+                req.swift_entity_path, [headers] * len(accounts))
         return resp
 
     @public
@@ -127,5 +127,5 @@ class AccountController(Controller):
         clear_info_cache(self.app, req.environ, self.account_name)
         resp = self.make_requests(
             req, self.app.account_ring, account_partition, 'DELETE',
-            req.path_info, [headers] * len(accounts))
+            req.swift_entity_path, [headers] * len(accounts))
         return resp

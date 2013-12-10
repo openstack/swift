@@ -34,7 +34,7 @@ from swift.common.constraints import check_object_creation, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
-    DiskFileDeviceUnavailable
+    DiskFileDeviceUnavailable, DiskFileExpired
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import split_and_validate_path
@@ -583,6 +583,10 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
+        except DiskFileExpired as e:
+            orig_timestamp = e.timestamp
+            orig_metadata = e.metadata
+            response_class = HTTPNotFound
         except DiskFileDeleted as e:
             orig_timestamp = e.timestamp
             orig_metadata = {}

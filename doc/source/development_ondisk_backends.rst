@@ -15,6 +15,8 @@ servers. For historical reasons, the object server backend reference
 implementation module is named `diskfile`, while the account and container
 server backend reference implementation modules are named appropriately.
 
+This API is still under development and not yet finalized.
+
 -----------------------------------------
 Back-end API for Account Server REST APIs
 -----------------------------------------

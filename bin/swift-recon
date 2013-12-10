@@ -47,6 +47,15 @@ def seconds2timeunit(seconds):
     return elapsed, unit
 
 
+def size_suffix(size):
+    suffixes = ['bytes', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+    for suffix in suffixes:
+        if size < 1000:
+            return "%s %s" % (size, suffix)
+        size = size / 1000
+    return "%s %s" % (size, suffix)
+
+
 class Scout(object):
     """
     Obtain swift recon information
@@ -625,7 +634,7 @@ class SwiftRecon(object):
                 print "No hosts returned valid data."
         print "=" * 79
 
-    def disk_usage(self, hosts, top=0):
+    def disk_usage(self, hosts, top=0, human_readable=False):
         """
         Obtain and print disk usage statistics
 
@@ -686,6 +695,10 @@ class SwiftRecon(object):
             raw_avail = sum(raw_total_avail)
             raw_total = raw_used + raw_avail
             avg_used = 100.0 * raw_used / raw_total
+            if human_readable:
+                raw_used = size_suffix(raw_used)
+                raw_avail = size_suffix(raw_avail)
+                raw_total = size_suffix(raw_total)
             print "Disk usage: space used: %s of %s" % (raw_used, raw_total)
             print "Disk usage: space free: %s of %s" % (raw_avail, raw_total)
             print "Disk usage: lowest: %s%%, highest: %s%%, avg: %s%%" % \
@@ -709,6 +722,7 @@ class SwiftRecon(object):
         usage = '''
         usage: %prog <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
         [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+        [--human-readable]
 
         <server_type>\taccount|container|object
         Defaults to object server.
@@ -734,6 +748,8 @@ class SwiftRecon(object):
                         help="Check cluster for unmounted devices")
         args.add_option('--diskusage', '-d', action="store_true",
                         help="Get disk usage stats")
+        args.add_option('--human-readable', action="store_true",
+                        help="Use human readable suffix for disk usage stats")
         args.add_option('--loadstats', '-l', action="store_true",
                         help="Get cluster load average stats")
         args.add_option('--quarantined', '-q', action="store_true",
@@ -836,7 +852,7 @@ class SwiftRecon(object):
             if options.loadstats:
                 self.load_check(hosts)
             if options.diskusage:
-                self.disk_usage(hosts, options.top)
+                self.disk_usage(hosts, options.top, options.human_readable)
             if options.md5:
                 self.get_ringmd5(hosts, ring_file)
             if options.quarantined:

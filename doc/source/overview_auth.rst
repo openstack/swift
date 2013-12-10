@@ -102,6 +102,7 @@ add the configuration for the authtoken middleware::
   admin_user = swift
   admin_password = password
   cache = swift.cache
+  include_service_catalog = False
 
 The actual values for these variables will need to be set depending on
 your situation.  For more information, please refer to the Keystone
@@ -114,6 +115,15 @@ documentation on the ``auth_token`` middleware, but in short:
 * The admin auth credentials (``admin_user``, ``admin_tenant_name``,
   ``admin_password``) will be used to retrieve an admin token. That
   token will be used to authorize user tokens behind the scenes.
+* cache is set to ``swift.cache``. This means that the middleware
+  will get the Swift memcache from the request environment.
+* include_service_catalog defaults to True if not set. This means
+  that when validating a token, the service catalog is retrieved
+  and stored in the X-Service-Catalog header. Since Swift does not
+  use the X-Service-Catalog header, there is no point in getting
+  the service catalog. We recommend you set include_service_catalog
+  to False.
+
 
 .. note::
 

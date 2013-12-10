@@ -95,11 +95,12 @@ class DatabaseAlreadyExists(sqlite3.DatabaseError):
 class GreenDBConnection(sqlite3.Connection):
     """SQLite DB Connection handler that plays well with eventlet."""
 
-    def __init__(self, *args, **kwargs):
-        self.timeout = kwargs.get('timeout', BROKER_TIMEOUT)
-        kwargs['timeout'] = 0
-        self.db_file = args[0] if args else'-'
-        sqlite3.Connection.__init__(self, *args, **kwargs)
+    def __init__(self, database, timeout=None, *args, **kwargs):
+        if timeout is None:
+            timeout = BROKER_TIMEOUT
+        self.timeout = timeout
+        self.db_file = database
+        super(GreenDBConnection, self).__init__(database, 0, *args, **kwargs)
 
     def cursor(self, cls=None):
         if cls is None:
@@ -118,7 +119,7 @@ class GreenDBCursor(sqlite3.Cursor):
     def __init__(self, *args, **kwargs):
         self.timeout = args[0].timeout
         self.db_file = args[0].db_file
-        sqlite3.Cursor.__init__(self, *args, **kwargs)
+        super(GreenDBCursor, self).__init__(*args, **kwargs)
 
     def execute(self, *args, **kwargs):
         return _db_timeout(

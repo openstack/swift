@@ -83,7 +83,8 @@ class ContainerController(Controller):
         part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
         resp = self.GETorHEAD_base(
-            req, _('Container'), self.app.container_ring, part, req.path_info)
+            req, _('Container'), self.app.container_ring, part,
+            req.swift_entity_path)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
@@ -147,7 +148,7 @@ class ContainerController(Controller):
                          self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring,
-            container_partition, 'PUT', req.path_info, headers)
+            container_partition, 'PUT', req.swift_entity_path, headers)
         return resp
 
     @public
@@ -175,7 +176,7 @@ class ContainerController(Controller):
                          self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring, container_partition, 'POST',
-            req.path_info, [headers] * len(containers))
+            req.swift_entity_path, [headers] * len(containers))
         return resp
 
     @public
@@ -194,7 +195,7 @@ class ContainerController(Controller):
                          self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring, container_partition, 'DELETE',
-            req.path_info, headers)
+            req.swift_entity_path, headers)
         # Indicates no server had the container
         if resp.status_int == HTTP_ACCEPTED:
             return HTTPNotFound(request=req)

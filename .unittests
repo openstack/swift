@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TOP_DIR=$(dirname $(python -c 'import os,sys;print os.path.realpath(sys.argv[1])' $0))
+TOP_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
 
 python -c 'from distutils.version import LooseVersion as Ver; import nose, sys; sys.exit(0 if Ver(nose.__version__) >= Ver("1.2.0") else 1)'
 if [ $? != 0 ]; then

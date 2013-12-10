@@ -168,14 +168,18 @@ class Ring(object):
             # doing it on every call to get_more_nodes().
             regions = set()
             zones = set()
+            ip_ports = set()
             self._num_devs = 0
             for dev in self._devs:
                 if dev:
                     regions.add(dev['region'])
                     zones.add((dev['region'], dev['zone']))
+                    ip_ports.add((dev['region'], dev['zone'],
+                                  dev['ip'], dev['port']))
                     self._num_devs += 1
             self._num_regions = len(regions)
             self._num_zones = len(zones)
+            self._num_ip_ports = len(ip_ports)
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
@@ -313,6 +317,8 @@ class Ring(object):
         used = set(d['id'] for d in primary_nodes)
         same_regions = set(d['region'] for d in primary_nodes)
         same_zones = set((d['region'], d['zone']) for d in primary_nodes)
+        same_ip_ports = set((d['region'], d['zone'], d['ip'], d['port'])
+                            for d in primary_nodes)
 
         parts = len(self._replica2part2dev_id[0])
         start = struct.unpack_from(
@@ -333,12 +339,14 @@ class Ring(object):
                     dev_id = part2dev_id[handoff_part]
                     dev = self._devs[dev_id]
                     region = dev['region']
-                    zone = (region, dev['zone'])
                     if dev_id not in used and region not in same_regions:
                         yield dev
                         used.add(dev_id)
                         same_regions.add(region)
-                        same_zones.add(zone)
+                        zone = dev['zone']
+                        ip_port = (region, zone, dev['ip'], dev['port'])
+                        same_zones.add((region, zone))
+                        same_ip_ports.add(ip_port)
                         if len(same_regions) == self._num_regions:
                             hit_all_regions = True
                             break
@@ -360,8 +368,32 @@ class Ring(object):
                         yield dev
                         used.add(dev_id)
                         same_zones.add(zone)
+                        ip_port = zone + (dev['ip'], dev['port'])
+                        same_ip_ports.add(ip_port)
                         if len(same_zones) == self._num_zones:
                             hit_all_zones = True
+                            break
+
+        hit_all_ip_ports = len(same_ip_ports) == self._num_ip_ports
+        for handoff_part in chain(xrange(start, parts, inc),
+                                  xrange(inc - ((parts - start) % inc),
+                                         start, inc)):
+            if hit_all_ip_ports:
+                # We've exhausted the pool of unused backends, so stop
+                # looking.
+                break
+            for part2dev_id in self._replica2part2dev_id:
+                if handoff_part < len(part2dev_id):
+                    dev_id = part2dev_id[handoff_part]
+                    dev = self._devs[dev_id]
+                    ip_port = (dev['region'], dev['zone'],
+                               dev['ip'], dev['port'])
+                    if dev_id not in used and ip_port not in same_ip_ports:
+                        yield dev
+                        used.add(dev_id)
+                        same_ip_ports.add(ip_port)
+                        if len(same_ip_ports) == self._num_ip_ports:
+                            hit_all_ip_ports = True
                             break
 
         hit_all_devs = len(used) == self._num_devs

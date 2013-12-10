@@ -1744,6 +1744,24 @@ class TestSloEnv(object):
     def setUp(cls):
         cls.conn = Connection(config)
         cls.conn.authenticate()
+
+        if cls.slo_enabled is None:
+            status = cls.conn.make_request('GET', '/info',
+                                           cfg={'verbatim_path': True})
+            if not (200 <= status <= 299):
+                # Can't tell if SLO is enabled or not since we're running
+                # against an old cluster, so let's skip the tests instead of
+                # possibly having spurious failures.
+                cls.slo_enabled = False
+            else:
+                # Don't bother looking for ValueError here. If something is
+                # responding to a GET /info request with invalid JSON, then
+                # the cluster is broken and a test failure will let us know.
+                cluster_info = json.loads(cls.conn.response.read())
+                cls.slo_enabled = 'slo' in cluster_info
+            if not cls.slo_enabled:
+                return
+
         cls.account = Account(cls.conn, config.get('account',
                                                    config['username']))
         cls.account.delete_containers()
@@ -1752,28 +1770,6 @@ class TestSloEnv(object):
 
         if not cls.container.create():
             raise ResponseError(cls.conn.response)
-
-        # TODO(seriously, anyone can do this): make this use the /info API once
-        # it lands, both for detection of SLO and for minimum segment size
-        if cls.slo_enabled is None:
-            test_file = cls.container.file(".test-slo")
-            try:
-                # If SLO is enabled, this'll raise an error since
-                # X-Static-Large-Object is a reserved header.
-                #
-                # If SLO is not enabled, then this will get the usual 2xx
-                # response.
-                test_file.write(
-                    "some contents",
-                    hdrs={'X-Static-Large-Object': 'true'})
-            except ResponseError as err:
-                if err.status == 400:
-                    cls.slo_enabled = True
-                else:
-                    raise
-            else:
-                cls.slo_enabled = False
-                return
 
         seg_info = {}
         for letter, size in (('a', 1024 * 1024),

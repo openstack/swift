@@ -954,6 +954,7 @@ class Controller(object):
         :param part: the partition number
         :param method: the method to send to the backend
         :param path: the path to send to the backend
+                     (full path ends up being /<$device>/<$part>/<$path>)
         :param headers: a list of dicts, where each dict represents one
                         backend request that should be made.
         :param query: query string to send to the backend.
@@ -999,6 +1000,7 @@ class Controller(object):
         :param part: the partition number
         :param method: the method to send to the backend
         :param path: the path to send to the backend
+                     (full path ends up being  /<$device>/<$part>/<$path>)
         :param headers: a list of dicts, where each dict represents one
                         backend request that should be made.
         :param query_string: optional query string to send to the backend
@@ -1145,12 +1147,12 @@ class Controller(object):
                 '%s %s' % (server_type, req.method),
                 headers=handler.source_headers)
         try:
-            (account, container) = split_path(req.path_info, 1, 2)
+            (vrs, account, container) = req.split_path(2, 3)
             _set_info_cache(self.app, req.environ, account, container, res)
         except ValueError:
             pass
         try:
-            (account, container, obj) = split_path(req.path_info, 3, 3, True)
+            (vrs, account, container, obj) = req.split_path(4, 4, True)
             _set_object_info_cache(self.app, req.environ, account,
                                    container, obj, res)
         except ValueError:

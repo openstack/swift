@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SRC_DIR=$(dirname $0)
+SRC_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
 
 cd ${SRC_DIR}/test/functional
 nosetests --exe $@

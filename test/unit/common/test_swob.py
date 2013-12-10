@@ -669,6 +669,19 @@ class TestRequest(unittest.TestCase):
             req.accept.best_match(['text/plain', 'application/json']),
             'application/json')
 
+    def test_swift_entity_path(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        self.assertEqual(req.swift_entity_path, '/a/c/o')
+
+        req = swift.common.swob.Request.blank('/v1/a/c')
+        self.assertEqual(req.swift_entity_path, '/a/c')
+
+        req = swift.common.swob.Request.blank('/v1/a')
+        self.assertEqual(req.swift_entity_path, '/a')
+
+        req = swift.common.swob.Request.blank('/v1')
+        self.assertEqual(req.swift_entity_path, None)
+
     def test_path_qs(self):
         req = swift.common.swob.Request.blank('/hi/there?hello=equal&acl')
         self.assertEqual(req.path_qs, '/hi/there?hello=equal&acl')
@@ -935,6 +948,22 @@ class TestResponse(unittest.TestCase):
                                           app_iter=app_iter)
         output_iter = resp(req.environ, lambda *_: None)
         self.assertEquals(list(output_iter), [''])
+
+    def test_call_preserves_closeability(self):
+        def test_app(environ, start_response):
+            start_response('200 OK', [])
+            yield "igloo"
+            yield "shindig"
+            yield "macadamia"
+            yield "hullabaloo"
+        req = swift.common.swob.Request.blank('/')
+        req.method = 'GET'
+        status, headers, app_iter = req.call_application(test_app)
+        iterator = iter(app_iter)
+        self.assertEqual('igloo', iterator.next())
+        self.assertEqual('shindig', iterator.next())
+        app_iter.close()
+        self.assertRaises(StopIteration, iterator.next)
 
     def test_location_rewrite(self):
         def start_response(env, headers):
