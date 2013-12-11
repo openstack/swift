@@ -157,7 +157,7 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient(containers)
 
         deleted_objects = {}
-        for i in xrange(0, 3):
+        for i in xrange(3):
             x.process = i
             x.run_once()
             self.assertNotEqual(deleted_objects, x.deleted_objects)
