@@ -40,6 +40,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict
+from swift.common.exceptions import DiskFileDeviceUnavailable
 
 
 def mock_time(*args, **kwargs):
@@ -62,59 +63,58 @@ class TestObjectController(unittest.TestCase):
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
-        self.df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.df_mgr = diskfile.DiskFileManager(conf,
+                                               self.object_controller.logger)
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
         rmtree(os.path.dirname(self.testdir))
         tpool.execute = self._orig_tpool_exc
 
-    def test_REQUEST_SPECIAL_CHARS(self):
-        obj = 'special昆%20/%'
-        path = '/sda1/p/a/c/%s' % obj
+    def check_all_api_methods(self, obj_name='o', alt_res=None):
+        path = '/sda1/p/a/c/%s' % obj_name
         body = 'SPECIAL_STRING'
 
-        # create one
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test'})
-        req.body = body
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        op_table = {
+            "PUT": (body, alt_res or 201, ''),  # create one
+            "GET": ('', alt_res or 200, body),  # check it
+            "POST": ('', alt_res or 202, ''),   # update it
+            "HEAD": ('', alt_res or 200, ''),   # head it
+            "DELETE": ('', alt_res or 204, '')  # delete it
+        }
 
-        # check it
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(path, environ={'REQUEST_METHOD': 'GET'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, body)
+        for method in ["PUT", "GET", "POST", "HEAD", "DELETE"]:
+            in_body, res, out_body = op_table[method]
+            timestamp = normalize_timestamp(time())
+            req = Request.blank(
+                path, environ={'REQUEST_METHOD': method},
+                headers={'X-Timestamp': timestamp,
+                         'Content-Type': 'application/x-test'})
+            req.body = in_body
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, res)
+            if out_body and (200 <= res < 300):
+                self.assertEqual(resp.body, out_body)
 
-        # update it
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(path, environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+    def test_REQUEST_SPECIAL_CHARS(self):
+        obj = 'special昆%20/%'
+        self.check_all_api_methods(obj)
 
-        # head it
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(path, environ={'REQUEST_METHOD': 'HEAD'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+    def test_device_unavailable(self):
+        def raise_disk_unavail(*args, **kwargs):
+            raise DiskFileDeviceUnavailable()
 
-        #delete it
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(path, environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.object_controller.get_diskfile = raise_disk_unavail
+        self.check_all_api_methods(alt_res=507)
+
+    def test_allowed_headers(self):
+        dah = ['content-disposition', 'content-encoding', 'x-delete-at',
+               'x-object-manifest', 'x-static-large-object']
+        conf = {'devices': self.testdir, 'mount_check': 'false',
+                'allowed_headers': ','.join(['content-type'] + dah)}
+        self.object_controller = object_server.ObjectController(
+            conf, logger=debug_logger())
+        self.assertEqual(self.object_controller.allowed_headers, set(dah))
 
     def test_POST_update_meta(self):
         # Test swift.obj.server.ObjectController.POST
@@ -286,6 +286,25 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
 
+    def test_POST_no_timestamp(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Object-Meta-1': 'One',
+                                     'X-Object-Meta-2': 'Two',
+                                     'Content-Type': 'text/plain'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_POST_bad_timestamp(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': 'bad',
+                                     'X-Object-Meta-1': 'One',
+                                     'X-Object-Meta-2': 'Two',
+                                     'Content-Type': 'text/plain'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_POST_container_connection(self):
 
         def mock_http_connect(response, with_exc=False):
@@ -360,7 +379,6 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = old_http_connect
 
     def test_POST_quarantine_zbyte(self):
-        # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -368,19 +386,20 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
+
         objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
         objfile.open()
-
         file_name = os.path.basename(objfile._data_file)
         with open(objfile._data_file) as fp:
             metadata = diskfile.read_metadata(fp)
         os.unlink(objfile._data_file)
         with open(objfile._data_file, 'w') as fp:
             diskfile.write_metadata(fp, metadata)
-
         self.assertEquals(os.listdir(objfile._datadir)[0], file_name)
+
         req = Request.blank(
             '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(time())})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
@@ -441,6 +460,16 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
 
+    def test_PUT_bad_transfer_encoding(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        req.headers['Transfer-Encoding'] = 'bad'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_PUT_common(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -498,6 +527,41 @@ class TestObjectController(unittest.TestCase):
                            'Content-Type': 'text/plain',
                            'name': '/a/c/o',
                            'Content-Encoding': 'gzip'})
+
+    def test_PUT_overwrite_w_delete_at(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(time()),
+                     'X-Delete-At': 9999999999,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+        sleep(.00001)
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.DATADIR, 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY TWO')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp,
+                          'Content-Length': '10',
+                          'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
+                          'Content-Type': 'text/plain',
+                          'name': '/a/c/o',
+                          'Content-Encoding': 'gzip'})
 
     def test_PUT_old_timestamp(self):
         ts = time()
@@ -2008,6 +2072,8 @@ class TestObjectController(unittest.TestCase):
             utils.HASH_PATH_PREFIX = _prefix
 
     def test_async_update_does_not_save_on_2xx(self):
+        _prefix = utils.HASH_PATH_PREFIX
+        utils.HASH_PATH_PREFIX = ''
 
         def fake_http_connect(status):
 
@@ -2037,6 +2103,36 @@ class TestObjectController(unittest.TestCase):
                         '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000')))
         finally:
             object_server.http_connect = orig_http_connect
+            utils.HASH_PATH_PREFIX = _prefix
+
+    def test_async_update_saves_on_timeout(self):
+        _prefix = utils.HASH_PATH_PREFIX
+        utils.HASH_PATH_PREFIX = ''
+
+        def fake_http_connect():
+
+            class FakeConn(object):
+
+                def getresponse(self):
+                    return sleep(1)
+
+            return lambda *args: FakeConn()
+
+        orig_http_connect = object_server.http_connect
+        try:
+            for status in (200, 299):
+                object_server.http_connect = fake_http_connect()
+                self.object_controller.node_timeout = 0.001
+                self.object_controller.async_update(
+                    'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
+                    {'x-timestamp': '1', 'x-out': str(status)}, 'sda1')
+                self.assertTrue(
+                    os.path.exists(os.path.join(
+                        self.testdir, 'sda1', 'async_pending', 'a83',
+                        '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000')))
+        finally:
+            object_server.http_connect = orig_http_connect
+            utils.HASH_PATH_PREFIX = _prefix
 
     def test_container_update_no_async_update(self):
         given_args = []
@@ -2087,6 +2183,28 @@ class TestObjectController(unittest.TestCase):
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/v1/a/c/o'},
                 'sda1'])
+
+    def test_container_update_bad_args(self):
+        given_args = []
+
+        def fake_async_update(*args):
+            given_args.extend(args)
+
+        self.object_controller.async_update = fake_async_update
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 1,
+                     'X-Trans-Id': '123',
+                     'X-Container-Host': 'chost,badhost',
+                     'X-Container-Partition': 'cpartition',
+                     'X-Container-Device': 'cdevice'})
+        self.object_controller.container_update(
+            'PUT', 'a', 'c', 'o', req, {
+                'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                'x-content-type': 'text/plain', 'x-timestamp': '1'},
+            'sda1')
+        self.assertEqual(given_args, [])
 
     def test_delete_at_update_on_put(self):
         # Test how delete_at_update works when issued a delete for old
@@ -2843,6 +2961,29 @@ class TestObjectController(unittest.TestCase):
             tpool.execute = was_tpool_exe
             diskfile.get_hashes = was_get_hashes
 
+    def test_REPLICATE_insufficient_storage(self):
+        conf = {'devices': self.testdir, 'mount_check': 'true'}
+        self.object_controller = object_server.ObjectController(
+            conf, logger=debug_logger())
+        self.object_controller.bytes_per_sync = 1
+
+        def fake_check_mount(*args, **kwargs):
+            return False
+
+        with mock.patch("swift.obj.diskfile.check_mount", fake_check_mount):
+            req = Request.blank('/sda1/p/suff',
+                                environ={'REQUEST_METHOD': 'REPLICATE'},
+                                headers={})
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 507)
+
+    def test_REPLICATION_can_be_called(self):
+        req = Request.blank('/sda1/p/other/suff',
+                            environ={'REQUEST_METHOD': 'REPLICATION'},
+                            headers={})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
     def test_PUT_with_full_drive(self):
 
         class IgnoredBody():
@@ -2904,6 +3045,14 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(global_conf, {'replication_semaphore': ['test1']})
         mocked_Semaphore.assert_called_once_with(123)
 
+    def test_handling_of_replication_semaphore_config(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        objsrv = object_server.ObjectController(conf)
+        self.assertTrue(objsrv.replication_semaphore is None)
+        conf['replication_semaphore'] = ['sema']
+        objsrv = object_server.ObjectController(conf)
+        self.assertEqual(objsrv.replication_semaphore, 'sema')
+
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
@@ -2935,7 +3084,7 @@ class TestObjectController(unittest.TestCase):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
-        self.object_controller = object_server.ObjectController(
+        self.object_controller = object_server.app_factory(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false'})
 
@@ -2946,7 +3095,7 @@ class TestObjectController(unittest.TestCase):
         method = 'PUT'
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
-               'PATH_INFO': '/sda1/p/a/c',
+               'PATH_INFO': '/sda1/p/a/c/o',
                'SERVER_NAME': '127.0.0.1',
                'SERVER_PORT': '8080',
                'SERVER_PROTOCOL': 'HTTP/1.0',
@@ -2974,7 +3123,7 @@ class TestObjectController(unittest.TestCase):
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
-             'replication_server': 'false'})
+             'replication_server': 'false'}, logger=FakeLogger())
 
         def start_response(*args):
             # Sends args to outbuf
@@ -2984,7 +3133,7 @@ class TestObjectController(unittest.TestCase):
 
         env = {'REQUEST_METHOD': method,
                'SCRIPT_NAME': '',
-               'PATH_INFO': '/sda1/p/a/c',
+               'PATH_INFO': '/sda1/p/a/c/o',
                'SERVER_NAME': '127.0.0.1',
                'SERVER_PORT': '8080',
                'SERVER_PROTOCOL': 'HTTP/1.0',
@@ -3003,8 +3152,150 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(self.object_controller, method,
                                new=mock_method):
             mock_method.replication = True
+            with mock.patch('time.gmtime',
+                            mock.MagicMock(side_effect=[gmtime(10001.0)])):
+                with mock.patch('time.time',
+                                mock.MagicMock(side_effect=[10000.0,
+                                                            10001.0])):
+                    response = self.object_controller.__call__(
+                        env, start_response)
+                    self.assertEqual(response, answer)
+                    self.assertEqual(
+                        self.object_controller.logger.log_dict['info'],
+                        [(('None - - [01/Jan/1970:02:46:41 +0000] "PUT'
+                           ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000',),
+                          {})])
+
+    def test_not_utf8_and_not_logging_requests(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false', 'log_requests': 'false'},
+            logger=FakeLogger())
+
+        def start_response(*args):
+            # Sends args to outbuf
+            outbuf.writelines(args)
+
+        method = 'PUT'
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c/\x00%20/%',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        answer = ['Invalid UTF8 or contains NULL']
+        mock_method = public(lambda x: mock.MagicMock())
+        with mock.patch.object(self.object_controller, method,
+                               new=mock_method):
             response = self.object_controller.__call__(env, start_response)
             self.assertEqual(response, answer)
+            self.assertEqual(self.object_controller.logger.log_dict['info'],
+                             [])
+
+    def test__call__returns_500(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false', 'log_requests': 'false'},
+            logger=FakeLogger())
+
+        def start_response(*args):
+            # Sends args to outbuf
+            outbuf.writelines(args)
+
+        method = 'PUT'
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c/o',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        @public
+        def mock_put_method(*args, **kwargs):
+            raise Exception()
+
+        with mock.patch.object(self.object_controller, method,
+                               new=mock_put_method):
+            response = self.object_controller.__call__(env, start_response)
+            self.assertTrue(response[0].startswith(
+                'Traceback (most recent call last):'))
+            self.assertEqual(
+                self.object_controller.logger.log_dict['exception'],
+                [(('ERROR __call__ error with %(method)s %(path)s ',
+                   {'method': 'PUT', 'path': '/sda1/p/a/c/o'}),
+                  {},
+                  '')])
+            self.assertEqual(self.object_controller.logger.log_dict['INFO'],
+                             [])
+
+    def test_PUT_slow(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false', 'log_requests': 'false',
+             'slow': '10'},
+            logger=FakeLogger())
+
+        def start_response(*args):
+            # Sends args to outbuf
+            outbuf.writelines(args)
+
+        method = 'PUT'
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c/o',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        mock_method = public(lambda x: mock.MagicMock())
+        with mock.patch.object(self.object_controller, method,
+                               new=mock_method):
+            with mock.patch('time.time',
+                            mock.MagicMock(side_effect=[10000.0,
+                                                        10001.0])):
+                with mock.patch('swift.obj.server.sleep',
+                                mock.MagicMock()) as ms:
+                    self.object_controller.__call__(env, start_response)
+                    ms.assert_called_with(9)
+                    self.assertEqual(
+                        self.object_controller.logger.log_dict['info'], [])
 
 
 if __name__ == '__main__':

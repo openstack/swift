@@ -350,12 +350,8 @@ class ObjectController(object):
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
                                       container, obj, request, device)
-        try:
-            disk_file.write_metadata(metadata)
-        except (DiskFileNotExist, DiskFileQuarantined):
-            return HTTPNotFound(request=request)
-        else:
-            return HTTPAccepted(request=request)
+        disk_file.write_metadata(metadata)
+        return HTTPAccepted(request=request)
 
     @public
     @timing_stats()
@@ -445,16 +441,14 @@ class ObjectController(object):
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
                     request, device)
-        if not orig_timestamp or \
-                orig_timestamp < request.headers['x-timestamp']:
-            self.container_update(
-                'PUT', account, container, obj, request,
-                HeaderKeyDict({
-                    'x-size': metadata['Content-Length'],
-                    'x-content-type': metadata['Content-Type'],
-                    'x-timestamp': metadata['X-Timestamp'],
-                    'x-etag': metadata['ETag']}),
-                device)
+        self.container_update(
+            'PUT', account, container, obj, request,
+            HeaderKeyDict({
+                'x-size': metadata['Content-Length'],
+                'x-content-type': metadata['Content-Type'],
+                'x-timestamp': metadata['X-Timestamp'],
+                'x-etag': metadata['ETag']}),
+            device)
         return HTTPCreated(request=request, etag=etag)
 
     @public
