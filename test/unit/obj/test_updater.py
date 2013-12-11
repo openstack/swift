@@ -26,7 +26,7 @@ from distutils.dir_util import mkpath
 from eventlet import spawn, Timeout, listen
 
 from swift.obj import updater as object_updater
-from swift.obj.diskfile import ASYNCDIR
+from swift.obj.diskfile import get_async_dir
 from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
@@ -82,11 +82,11 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(cu.get_container_ring() is not None)
 
     def test_object_sweep(self):
-        prefix_dir = os.path.join(self.sda1, ASYNCDIR, 'abc')
+        prefix_dir = os.path.join(self.sda1, get_async_dir(0), 'abc')
         mkpath(prefix_dir)
 
         # A non-directory where directory is expected should just be skipped...
-        not_a_dir_path = os.path.join(self.sda1, ASYNCDIR, 'not_a_dir')
+        not_a_dir_path = os.path.join(self.sda1, get_async_dir(0), 'not_a_dir')
         with open(not_a_dir_path, 'w'):
             pass
 
@@ -136,7 +136,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'})
         cu.run_once()
-        async_dir = os.path.join(self.sda1, ASYNCDIR)
+        async_dir = os.path.join(self.sda1, get_async_dir(0))
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
@@ -173,7 +173,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'})
         cu.run_once()
-        async_dir = os.path.join(self.sda1, ASYNCDIR)
+        async_dir = os.path.join(self.sda1, get_async_dir(0))
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))

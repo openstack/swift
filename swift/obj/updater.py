@@ -29,7 +29,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
-from swift.obj.diskfile import ASYNCDIR
+from swift.obj.diskfile import get_async_dir
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR
 
@@ -130,14 +130,16 @@ class ObjectUpdater(Daemon):
         dump_recon_cache({'object_updater_sweep': elapsed},
                          self.rcache, self.logger)
 
-    def object_sweep(self, device):
+    # XXX : remove the default value once updated has been fully plumbed
+    # for storage polciies
+    def object_sweep(self, device, policy_idx=0):
         """
         If there are async pendings on the device, walk each one and update.
 
         :param device: path to device
         """
         start_time = time.time()
-        async_pending = os.path.join(device, ASYNCDIR)
+        async_pending = os.path.join(device, get_async_dir(policy_idx))
         if not os.path.isdir(async_pending):
             return
         for prefix in os.listdir(async_pending):

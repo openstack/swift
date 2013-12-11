@@ -22,6 +22,12 @@ from swift.common import storage_policy
 
 class TestStoragePolicies(unittest.TestCase):
 
+    def setUp(self):
+        self._policies = storage_policy.StoragePolicyCollection([
+            storage_policy.StoragePolicy(0, 'zero', True),
+            storage_policy.StoragePolicy(1, 'one', False),
+            storage_policy.StoragePolicy(2, 'two', False)])
+
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
         conf = ConfigParser()
@@ -30,7 +36,7 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_defaults(self):
         policies = storage_policy.get_policies()
-        self.assert_(len(policies) > 0)
+        self.assert_(len(policies) == 3)
 
         # test class methods
         default_policy = policies.default
@@ -68,10 +74,6 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals("object", stor_pols.get_by_name("zero").ring_name)
         self.assertEquals("object-5", stor_pols.get_by_name("one").ring_name)
         self.assertEquals("object-6", stor_pols.get_by_name("apple").ring_name)
-
-        self.assertEquals("objects", stor_pols.get_by_name("zero").data_dir)
-        self.assertEquals("objects-5", stor_pols.get_by_name("one").data_dir)
-        self.assertEquals("objects-6", stor_pols.get_by_name("apple").data_dir)
 
         self.assertEquals(0, stor_pols.get_by_name("zero").idx)
         self.assertEquals(5, stor_pols.get_by_name("one").idx)

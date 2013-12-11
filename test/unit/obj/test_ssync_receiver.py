@@ -454,7 +454,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_REPL),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -485,7 +485,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_newer(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_REPL),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
@@ -518,7 +518,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_older(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_REPL),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
@@ -848,7 +848,7 @@ class TestReceiver(unittest.TestCase):
     def test_UPDATES_failures(self):
 
         @server.public
-        def _DELETE(request, obj_dir):
+        def _DELETE(request):
             if request.path == '/device/partition/a/c/works':
                 return swob.HTTPOk()
             else:
@@ -962,7 +962,7 @@ class TestReceiver(unittest.TestCase):
         _PUT_request = [None]
 
         @server.public
-        def _PUT(request, obj_dir):
+        def _PUT(request):
             _PUT_request[0] = request
             request.read_body = request.environ['wsgi.input'].read()
             return swob.HTTPOk()
@@ -1010,7 +1010,7 @@ class TestReceiver(unittest.TestCase):
         _DELETE_request = [None]
 
         @server.public
-        def _DELETE(request, obj_dir):
+        def _DELETE(request):
             _DELETE_request[0] = request
             return swob.HTTPOk()
 
@@ -1072,13 +1072,13 @@ class TestReceiver(unittest.TestCase):
         _requests = []
 
         @server.public
-        def _PUT(request, obj_dir):
+        def _PUT(request):
             _requests.append(request)
             request.read_body = request.environ['wsgi.input'].read()
             return swob.HTTPOk()
 
         @server.public
-        def _DELETE(request, obj_dir):
+        def _DELETE(request):
             _requests.append(request)
             return swob.HTTPOk()
 
@@ -1203,7 +1203,7 @@ class TestReceiver(unittest.TestCase):
         _requests = []
 
         @server.public
-        def _PUT(request, obj_dir):
+        def _PUT(request):
             _requests.append(request)
             # Deliberately just reading up to first 2 bytes.
             request.read_body = request.environ['wsgi.input'].read(2)

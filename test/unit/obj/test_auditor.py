@@ -24,7 +24,7 @@ from tempfile import mkdtemp
 from test.unit import FakeLogger
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
-    DATADIR_REPL, DiskFileManager, AuditLocation
+    get_data_dir, DiskFileManager, AuditLocation
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
 
@@ -299,7 +299,7 @@ class TestAuditor(unittest.TestCase):
             name_hash = hash_path('a', 'c', 'o')
             dir_path = os.path.join(
                 self.devices, 'sda',
-                storage_directory(DATADIR_REPL, '0', name_hash))
+                storage_directory(get_data_dir(0), '0', name_hash))
             ts_file_path = os.path.join(dir_path, '99999.ts')
             if not os.path.exists(dir_path):
                 mkdirs(dir_path)

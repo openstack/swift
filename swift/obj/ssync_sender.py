@@ -216,8 +216,12 @@ class Sender(object):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash in self.send_list:
             try:
+                # XXX - need to plumb policy_idx in here instead of 0 but first
+                # need to determine how ssync is going to handle policies; will
+                # do so once the rsync replicator patch is reviewed as that
+                # will force the discussion on the options
                 df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
-                    self.job['device'], self.job['partition'], object_hash)
+                    self.job['device'], self.job['partition'], object_hash, 0)
             except exceptions.DiskFileNotExist:
                 continue
             url_path = urllib.quote(

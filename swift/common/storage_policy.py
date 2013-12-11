@@ -14,10 +14,11 @@
 # limitations under the License.
 
 from ConfigParser import NoOptionError, ConfigParser
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 
 POLICY = 'X-Storage-Policy'
 POLICY_INDEX = 'X-Storage-Policy-Index'
+POLICIES = {}
 
 
 class StoragePolicy(object):
@@ -29,12 +30,7 @@ class StoragePolicy(object):
         self.name = name
         self.idx = int(idx)
         self.is_default = is_default
-        if self.idx == 0:
-            data_dir = "objects"
-        else:
-            data_dir = "objects-%d" % self.idx
         self.object_ring = object_ring
-        self.data_dir = data_dir
 
     def __repr__(self):
         return "StoragePolicy(%d, %r, is_default=%s, object_ring=%r)" % (
@@ -61,6 +57,7 @@ class StoragePolicyCollection(object):
               no policy was identified in the container metadata
     """
     def __init__(self, pols):
+        global POLICIES
         # keep them indexed for quicker lookups
         self.pols_by_name = dict((pol.name, pol) for pol in pols)
         self.pols_by_index = dict((int(pol.idx), pol) for pol in pols)
@@ -70,6 +67,7 @@ class StoragePolicyCollection(object):
                 (", ".join((pol.name for pol in defaults)))
             raise ValueError(msg)
         self.default = defaults[0]
+        POLICIES = self
 
     def __len__(self):
         return len(self.pols_by_index)
@@ -162,15 +160,8 @@ def parse_storage_policies(conf):
                 policy.is_default = True
     return StoragePolicyCollection(policies)
 
-policy_conf = ConfigParser()
-if policy_conf.read('/etc/swift/swift.conf'):
-    POLICIES = parse_storage_policies(policy_conf)
-else:
-    # set up default policy collection for unit test code
-    POLICIES = StoragePolicyCollection([StoragePolicy(0, 'zero', True),
-                                       StoragePolicy(1, 'one', False)])
 
-
+# Note:  module methods wrap the class methods
 def get_default():
     """
     Returns the default storage policy for new containers.
@@ -203,4 +194,15 @@ def get_by_index(index):
 
 
 def get_policies():
+    """
+    Gets the module global POLICIES
+
+    :returns: storage policies currently in effect
+    """
     return POLICIES
+
+
+# if swift.conf exists, parse for policies
+policy_conf = ConfigParser()
+if policy_conf.read(SWIFT_CONF_FILE):
+    parse_storage_policies(policy_conf)

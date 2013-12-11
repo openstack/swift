@@ -35,7 +35,8 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger, \
+    mock as unit_mock
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -833,17 +834,23 @@ class TestObjectController(unittest.TestCase):
 
     def test_policy_IO(self):
 
+        # for these tests we just need to dummy the policy response
+        def mock_get_by_index(poicy_idx):
+            return True
+
         def check_file(policy_idx, cont, devs, check_val):
-            data_dir = _policies.get_by_index(policy_idx).data_dir
             partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
                 'a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
-            df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
-            for dev in devs:
-                file = df_mgr.get_diskfile(dev, partition, 'a',
-                                           cont, 'o', obj_dir=data_dir)
-                if check_val is True:
-                    file.open()
+            with unit_mock({'swift.common.storage_policy.get_by_index':
+                           mock_get_by_index}):
+                df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+                for dev in devs:
+                    file = df_mgr.get_diskfile(dev, partition, 'a',
+                                               cont, 'o',
+                                               policy_idx=policy_idx)
+                    if check_val is True:
+                        file.open()
 
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -855,84 +862,86 @@ class TestObjectController(unittest.TestCase):
         except AttributeError:
             pass
 
-        # check policy 0: put file on c, read it back, check location on disk
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        obj = 'test_obejct0'
-        path = '/v1/a/c/o'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEqual(headers[:len(exp)], exp)
-        req = Request.blank(path,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Content-Type':
-                                     'text/plain'})
-        res = req.get_response(prosrv)
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, obj)
+        with unit_mock({'swift.common.storage_policy.get_by_index':
+                       mock_get_by_index}):
+            # check policy 0: put file on c, read it back, check loc on disk
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            obj = 'test_obejct0'
+            path = '/v1/a/c/o'
+            fd.write('PUT %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: text/plain\r\n'
+                     '\r\n%s' % (path, str(len(obj)), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEqual(headers[:len(exp)], exp)
+            req = Request.blank(path,
+                                environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Content-Type':
+                                         'text/plain'})
+            res = req.get_response(prosrv)
+            self.assertEqual(res.status_int, 200)
+            self.assertEqual(res.body, obj)
 
-        check_file('0', 'c', ['sda1', 'sdb1'], True)
-        check_file('0', 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
+            check_file(0, 'c', ['sda1', 'sdb1'], True)
+            check_file(0, 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
 
-        # check policy 1: put file on c1, read it back, check location on disk
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        path = '/v1/a/c1/o'
-        obj = 'test_obejct1'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        self.assertEqual(headers[:len(exp)], exp)
-        req = Request.blank(path,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Content-Type':
-                                     'text/plain'})
-        res = req.get_response(prosrv)
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, obj)
+            # check policy 1: put file on c1, read it back, check loc on disk
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            path = '/v1/a/c1/o'
+            obj = 'test_obejct1'
+            fd.write('PUT %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: text/plain\r\n'
+                     '\r\n%s' % (path, str(len(obj)), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            self.assertEqual(headers[:len(exp)], exp)
+            req = Request.blank(path,
+                                environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Content-Type':
+                                         'text/plain'})
+            res = req.get_response(prosrv)
+            self.assertEqual(res.status_int, 200)
+            self.assertEqual(res.body, obj)
 
-        check_file('1', 'c1', ['sdc1', 'sdd1'], True)
-        check_file('1', 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
+            check_file(1, 'c1', ['sdc1', 'sdd1'], True)
+            check_file(1, 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
 
-        # check policy 2: put file on c2, read it back, check location on disk
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        path = '/v1/a/c2/o'
-        obj = 'test_obejct2'
-        fd.write('PUT %s HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: text/plain\r\n'
-                 '\r\n%s' % (path, str(len(obj)), obj))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        self.assertEqual(headers[:len(exp)], exp)
-        req = Request.blank(path,
-                            environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Content-Type':
-                                     'text/plain'})
-        res = req.get_response(prosrv)
-        self.assertEqual(res.status_int, 200)
-        self.assertEqual(res.body, obj)
+            # check policy 2: put file on c2, read it back, check loc on disk
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            path = '/v1/a/c2/o'
+            obj = 'test_obejct2'
+            fd.write('PUT %s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: text/plain\r\n'
+                     '\r\n%s' % (path, str(len(obj)), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            self.assertEqual(headers[:len(exp)], exp)
+            req = Request.blank(path,
+                                environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Content-Type':
+                                         'text/plain'})
+            res = req.get_response(prosrv)
+            self.assertEqual(res.status_int, 200)
+            self.assertEqual(res.body, obj)
 
-        check_file('2', 'c2', ['sde1', 'sdf1'], True)
-        check_file('2', 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
+            check_file(2, 'c2', ['sde1', 'sdf1'], True)
+            check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
 
     def test_GET_newest_large_file(self):
         prolis = _test_sockets[0]

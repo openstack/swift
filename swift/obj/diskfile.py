@@ -68,12 +68,42 @@ METADATA_KEY = 'user.swift.metadata'
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
 DATAFILE_SYSTEM_META = set('content-length content-type deleted etag'.split())
+DATADIR_BASE = 'objects'
+ASYNCDIR_BASE = 'async_pending'
 
-# XXX:  fixme, this needs a bit of discussion wrt support of
-# multiple policy types and the impact on replicator, auditor, etc.
-# for now this works
-DATADIR_REPL = storage_policy.get_by_index(0).data_dir
-ASYNCDIR = 'async_pending'
+
+def get_data_dir(policy_idx=0):
+    """
+    Helper function to construct the objects dir from the policy index.
+
+    :param policy_idx: the storage policy index
+
+    :returns: object directory name (data_dir)
+    """
+    if policy_idx == 0:
+        data_dir = DATADIR_BASE
+    else:
+        if storage_policy.get_by_index(policy_idx) is None:
+            raise ValueError("No policy with index %d" % policy_idx)
+        data_dir = DATADIR_BASE + "-%d" % int(policy_idx)
+    return data_dir
+
+
+def get_async_dir(policy_idx=0):
+    """
+    Helper function to construct the async update dir from the policy index.
+
+    :param policy_idx: the storage policy index
+
+    :returns: async update directory name (async_dir)
+    """
+    if policy_idx == 0:
+        async_dir = ASYNCDIR_BASE
+    else:
+        if storage_policy.get_by_index(policy_idx) is None:
+            raise ValueError("No policy with index %d" % policy_idx)
+        async_dir = ASYNCDIR_BASE + "-%d" % int(policy_idx)
+    return async_dir
 
 
 def read_metadata(fd):
@@ -353,7 +383,8 @@ class AuditLocation(object):
         return str(self.path)
 
 
-def object_audit_location_generator(devices, mount_check=True, logger=None):
+def object_audit_location_generator(devices, policy_idx, mount_check=True,
+                                    logger=None):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
     objects stored under that directory. The AuditLocation only knows the path
@@ -362,6 +393,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None):
     so we don't.
 
     :param devices: parent directory of the devices to be audited
+    :param policy_idx: the storage policy index
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
@@ -376,7 +408,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None):
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)
             continue
-        datadir_path = os.path.join(devices, device, DATADIR_REPL)
+        datadir_path = os.path.join(devices, device,
+                                    get_data_dir(policy_idx))
         partitions = listdir(datadir_path)
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
@@ -484,9 +517,9 @@ class DiskFileManager(object):
             yield True
 
     def pickle_async_update(self, device, account, container, obj, data,
-                            timestamp):
+                            timestamp, policy_idx):
         device_path = self.construct_dev_path(device)
-        async_dir = os.path.join(device_path, ASYNCDIR)
+        async_dir = os.path.join(device_path, get_async_dir(policy_idx))
         ohash = hash_path(account, container, obj)
         self.threadpools[device].run_in_thread(
             write_pickle,
@@ -497,17 +530,18 @@ class DiskFileManager(object):
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     obj_dir=DATADIR_REPL, **kwargs):
+                     policy_idx=0, **kwargs):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         return DiskFile(self, dev_path, self.threadpools[device],
-                        partition, account, container, obj, obj_dir=obj_dir,
-                        **kwargs)
+                        partition, account, container, obj,
+                        policy_idx=policy_idx, **kwargs)
 
-    def object_audit_location_generator(self):
-        return object_audit_location_generator(self.devices, self.mount_check,
-                                               self.logger)
+    # XXX remove the default of 0 once the auditor has been made policy aware
+    def object_audit_location_generator(self, policy_idx=0):
+        return object_audit_location_generator(self.devices, policy_idx,
+                                               self.mount_check, self.logger)
 
     def get_diskfile_from_audit_location(self, audit_location):
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
@@ -515,7 +549,8 @@ class DiskFileManager(object):
             self, audit_location.path, dev_path,
             audit_location.partition)
 
-    def get_diskfile_from_hash(self, device, partition, object_hash, **kwargs):
+    def get_diskfile_from_hash(self, device, partition, object_hash,
+                               policy_idx, **kwargs):
         """
         Returns a DiskFile instance for an object at the given
         object_hash. Just in case someone thinks of refactoring, be
@@ -529,7 +564,8 @@ class DiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         object_path = os.path.join(
-            dev_path, DATADIR_REPL, partition, object_hash[-3:], object_hash)
+            dev_path, get_data_dir(policy_idx), partition, object_hash[-3:],
+            object_hash)
         try:
             filenames = hash_cleanup_listdir(object_path, self.reclaim_age)
         except OSError as err:
@@ -556,11 +592,12 @@ class DiskFileManager(object):
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj, **kwargs)
 
-    def get_hashes(self, device, partition, suffix, obj_dir):
+    def get_hashes(self, device, partition, suffix, policy_idx):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, obj_dir, partition)
+        partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+                                      partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
         suffixes = suffix.split('-') if suffix else []
@@ -578,7 +615,7 @@ class DiskFileManager(object):
                     path, err)
         return []
 
-    def yield_suffixes(self, device, partition):
+    def yield_suffixes(self, device, partition, policy_idx):
         """
         Yields tuples of (full_path, suffix_only) for suffixes stored
         on the given device and partition.
@@ -586,7 +623,8 @@ class DiskFileManager(object):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, DATADIR_REPL, partition)
+        partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+                                      partition)
         for suffix in self._listdir(partition_path):
             if len(suffix) != 3:
                 continue
@@ -596,7 +634,7 @@ class DiskFileManager(object):
                 continue
             yield (os.path.join(partition_path, suffix), suffix)
 
-    def yield_hashes(self, device, partition, suffixes=None):
+    def yield_hashes(self, device, partition, policy_idx, suffixes=None):
         """
         Yields tuples of (full_path, hash_only, timestamp) for object
         information stored for the given device, partition, and
@@ -609,9 +647,10 @@ class DiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         if suffixes is None:
-            suffixes = self.yield_suffixes(device, partition)
+            suffixes = self.yield_suffixes(device, partition, policy_idx)
         else:
-            partition_path = os.path.join(dev_path, DATADIR_REPL, partition)
+            partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+                                          partition)
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
@@ -928,13 +967,13 @@ class DiskFile(object):
     :param account: account name for the object
     :param container: container name for the object
     :param obj: object name for the object
-    :param _datadir: optional interal override for self._datadir
-    :param obj_dir: directory name for objects
+    :param _datadir: override the full datadir otherwise constructed here
+    :param policy_idx: used to get the data dir when contructing it here
     """
 
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
-                 obj_dir=DATADIR_REPL):
+                 policy_idx=0):
         self._mgr = mgr
         self._device_path = device_path
         self._threadpool = threadpool or ThreadPool(nthreads=0)
@@ -948,7 +987,8 @@ class DiskFile(object):
             self._obj = obj
             name_hash = hash_path(account, container, obj)
             self._datadir = join(
-                device_path, storage_directory(obj_dir, partition, name_hash))
+                device_path, storage_directory(get_data_dir(policy_idx),
+                                               partition, name_hash))
         else:
             # gets populated when we read the metadata
             self._name = None
@@ -967,7 +1007,8 @@ class DiskFile(object):
         else:
             name_hash = hash_path(account, container, obj)
             self._datadir = join(
-                device_path, storage_directory(obj_dir, partition, name_hash))
+                device_path, storage_directory(get_data_dir(policy_idx),
+                                               partition, name_hash))
 
     @property
     def account(self):

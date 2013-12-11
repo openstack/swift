@@ -227,8 +227,12 @@ class Receiver(object):
             object_hash, timestamp = [urllib.unquote(v) for v in line.split()]
             want = False
             try:
+                # XXX - need to plumb policy_idx in here instead of 0 but first
+                # need to determine how ssync is going to handle policies; will
+                # do so once the rsync replicator patch is reviewed as that
+                # will force the discussion on the options
                 df = self.app._diskfile_mgr.get_diskfile_from_hash(
-                    self.device, self.partition, object_hash)
+                    self.device, self.partition, object_hash, 0)
             except exceptions.DiskFileNotExist:
                 want = True
             else:
