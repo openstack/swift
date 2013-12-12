@@ -303,8 +303,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 part, recalculate=['a83'])
         self.assertEquals(i[0], 3)
 
-    def test_hash_cleanup_listdir(self):
-        file_list = []
+    def check_hash_cleanup_listdir(self, input_files, output_files):
+        file_list = list(input_files)
 
         def mock_listdir(path):
             return list(file_list)
@@ -313,35 +313,96 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             file_list.remove(os.path.basename(path))
 
         with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
-            # purge .data if there's a newer .ts
-            file1 = normalize_timestamp(time()) + '.data'
-            file2 = normalize_timestamp(time() + 1) + '.ts'
-            file_list = [file1, file2]
             self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
-                              [file2])
+                              output_files)
 
-            # purge .ts if there's a newer .data
-            file1 = normalize_timestamp(time()) + '.ts'
-            file2 = normalize_timestamp(time() + 1) + '.data'
-            file_list = [file1, file2]
-            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
-                              [file2])
+    def test_hash_cleanup_listdir_purge_data_newer_ts(self):
+        # purge .data if there's a newer .ts
+        file1 = normalize_timestamp(time()) + '.data'
+        file2 = normalize_timestamp(time() + 1) + '.ts'
+        file_list = [file1, file2]
+        self.check_hash_cleanup_listdir(file_list, [file2])
 
-            # keep .meta and .data if meta newer than data
-            file1 = normalize_timestamp(time()) + '.ts'
-            file2 = normalize_timestamp(time() + 1) + '.data'
-            file3 = normalize_timestamp(time() + 2) + '.meta'
-            file_list = [file1, file2, file3]
-            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
-                              [file3, file2])
+    def test_hash_cleanup_listdir_purge_ts_newer_data(self):
+        # purge .ts if there's a newer .data
+        file1 = normalize_timestamp(time()) + '.ts'
+        file2 = normalize_timestamp(time() + 1) + '.data'
+        file_list = [file1, file2]
+        self.check_hash_cleanup_listdir(file_list, [file2])
 
-            # keep only latest of multiple .ts files
-            file1 = normalize_timestamp(time()) + '.ts'
-            file2 = normalize_timestamp(time() + 1) + '.ts'
-            file3 = normalize_timestamp(time() + 2) + '.ts'
-            file_list = [file1, file2, file3]
-            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
-                              [file3])
+    def test_hash_cleanup_listdir_keep_meta_data_purge_ts(self):
+        # keep .meta and .data if meta newer than data and purge .ts
+        file1 = normalize_timestamp(time()) + '.ts'
+        file2 = normalize_timestamp(time() + 1) + '.data'
+        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3, file2])
+
+    def test_hash_cleanup_listdir_keep_one_ts(self):
+        # keep only latest of multiple .ts files
+        file1 = normalize_timestamp(time()) + '.ts'
+        file2 = normalize_timestamp(time() + 1) + '.ts'
+        file3 = normalize_timestamp(time() + 2) + '.ts'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3])
+
+    def test_hash_cleanup_listdir_keep_one_data(self):
+        # keep only latest of multiple .data files
+        file1 = normalize_timestamp(time()) + '.data'
+        file2 = normalize_timestamp(time() + 1) + '.data'
+        file3 = normalize_timestamp(time() + 2) + '.data'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3])
+
+    def test_hash_cleanup_listdir_keep_one_meta(self):
+        # keep only latest of multiple .meta files
+        file1 = normalize_timestamp(time()) + '.data'
+        file2 = normalize_timestamp(time() + 1) + '.meta'
+        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3, file1])
+
+    def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
+        # A more recent orphaned .meta file will prevent old .ts files
+        # from being cleaned up otherwise
+        file1 = normalize_timestamp(time()) + '.ts'
+        file2 = normalize_timestamp(time() + 1) + '.ts'
+        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3, file2])
+
+    def test_hash_cleanup_listdir_purge_old_data_only(self):
+        # Oldest .data will be purge, .meta and .ts won't be touched
+        file1 = normalize_timestamp(time()) + '.data'
+        file2 = normalize_timestamp(time() + 1) + '.ts'
+        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file_list = [file1, file2, file3]
+        self.check_hash_cleanup_listdir(file_list, [file3, file2])
+
+    def test_hash_cleanup_listdir_purge_old_ts(self):
+        # A single old .ts file will be removed
+        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.ts'
+        file_list = [file1]
+        self.check_hash_cleanup_listdir(file_list, [])
+
+    def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
+        # An orphaned .meta will not clean up a very old .ts
+        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.ts'
+        file2 = normalize_timestamp(time() + 2) + '.meta'
+        file_list = [file1, file2]
+        self.check_hash_cleanup_listdir(file_list, [file2, file1])
+
+    def test_hash_cleanup_listdir_keep_single_old_data(self):
+        # A single old .data file will not be removed
+        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.data'
+        file_list = [file1]
+        self.check_hash_cleanup_listdir(file_list, [file1])
+
+    def test_hash_cleanup_listdir_keep_single_old_meta(self):
+        # A single old .meta file will not be removed
+        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.meta'
+        file_list = [file1]
+        self.check_hash_cleanup_listdir(file_list, [file1])
 
 
 class TestObjectAuditLocationGenerator(unittest.TestCase):
@@ -1577,7 +1638,7 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertEqual(df.timestamp, '1383181759.12345')
 
-    def test_error_in_hashdir_cleanup_listdir(self):
+    def test_error_in_hash_cleanup_listdir(self):
 
         def mock_hcl(*args, **kwargs):
             raise OSError()
