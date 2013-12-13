@@ -241,6 +241,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     :param conf_path: Path to paste.deploy style configuration file/directory
     :param app_section: App name from conf file to load config from
+    :returns: 0 if successful, nonzero otherwise
     """
     # Load configuration, Set logger and Load request processor
     try:
@@ -248,7 +249,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             _initrp(conf_path, app_section, *args, **kwargs)
     except ConfigFileError as e:
         print e
-        return
+        return 1
 
     # bind to address and port
     sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
@@ -273,7 +274,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     # Useful for profiling [no forks].
     if worker_count == 0:
         run_server(conf, logger, sock, global_conf=global_conf)
-        return
+        return 0
 
     def kill_children(*args):
         """Kills the entire process group."""
@@ -300,7 +301,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 run_server(conf, logger, sock)
                 logger.notice('Child %d exiting normally' % os.getpid())
-                return
+                return 0
             else:
                 logger.notice('Started child %s' % pid)
                 children.append(pid)
@@ -318,6 +319,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     greenio.shutdown_safe(sock)
     sock.close()
     logger.notice('Exited')
+    return 0
 
 
 class ConfigFileError(Exception):

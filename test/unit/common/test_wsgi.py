@@ -538,6 +538,53 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(calls['_global_conf_callback'], 1)
         self.assertEqual(calls['_loadapp'], 1)
 
+    def test_run_server_success(self):
+        calls = defaultdict(lambda: 0)
+
+        def _initrp(conf_file, app_section, *args, **kwargs):
+            calls['_initrp'] += 1
+            return (
+                {'__file__': 'test', 'workers': 0},
+                'logger',
+                'log_name')
+
+        def _loadapp(uri, name=None, **kwargs):
+            calls['_loadapp'] += 1
+
+        with nested(
+                mock.patch.object(wsgi, '_initrp', _initrp),
+                mock.patch.object(wsgi, 'get_socket'),
+                mock.patch.object(wsgi, 'drop_privileges'),
+                mock.patch.object(wsgi, 'loadapp', _loadapp),
+                mock.patch.object(wsgi, 'capture_stdio'),
+                mock.patch.object(wsgi, 'run_server')):
+            rc = wsgi.run_wsgi('conf_file', 'app_section')
+        self.assertEqual(calls['_initrp'], 1)
+        self.assertEqual(calls['_loadapp'], 1)
+        self.assertEqual(rc, 0)
+
+    def test_run_server_failure1(self):
+        calls = defaultdict(lambda: 0)
+
+        def _initrp(conf_file, app_section, *args, **kwargs):
+            calls['_initrp'] += 1
+            raise wsgi.ConfigFileError('test exception')
+
+        def _loadapp(uri, name=None, **kwargs):
+            calls['_loadapp'] += 1
+
+        with nested(
+                mock.patch.object(wsgi, '_initrp', _initrp),
+                mock.patch.object(wsgi, 'get_socket'),
+                mock.patch.object(wsgi, 'drop_privileges'),
+                mock.patch.object(wsgi, 'loadapp', _loadapp),
+                mock.patch.object(wsgi, 'capture_stdio'),
+                mock.patch.object(wsgi, 'run_server')):
+            rc = wsgi.run_wsgi('conf_file', 'app_section')
+        self.assertEqual(calls['_initrp'], 1)
+        self.assertEqual(calls['_loadapp'], 0)
+        self.assertEqual(rc, 1)
+
     def test_pre_auth_req_with_empty_env_no_path(self):
         r = wsgi.make_pre_authed_request(
             {}, 'GET')
