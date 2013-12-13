@@ -38,6 +38,22 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPServerError, HTTPException, Request
 
 
+# List of entry points for mandatory middlewares.
+#
+# Fields:
+#
+# "name" (required) is the entry point name from setup.py.
+#
+# "after" (optional) is a list of middlewares that this middleware should come
+# after. Default is for the middleware to go at the start of the pipeline. Any
+# middlewares in the "after" list that are not present in the pipeline will be
+# ignored, so you can safely name optional middlewares to come after. For
+# example, 'after: ["catch_errors", "bulk"]' would install this middleware
+# after catch_errors and bulk if both were present, but if bulk were absent,
+# would just install it after catch_errors.
+required_filters = [{'name': 'catch_errors'}]
+
+
 class Application(object):
     """WSGI application for the proxy server."""
 
@@ -477,6 +493,37 @@ class Application(object):
               '%(info)s'),
             {'type': typ, 'ip': node['ip'], 'port': node['port'],
              'device': node['device'], 'info': additional_info})
+
+    def modify_wsgi_pipeline(self, pipe):
+        """
+        Called during WSGI pipeline creation. Modifies the WSGI pipeline
+        context to ensure that mandatory middleware is present in the pipeline.
+
+        :param pipe: A PipelineWrapper object
+        """
+        pipeline_was_modified = False
+        for filter_spec in reversed(required_filters):
+            filter_name = filter_spec['name']
+            if filter_name not in pipe:
+                afters = filter_spec.get('after', [])
+                insert_at = 0
+                for after in afters:
+                    try:
+                        insert_at = max(insert_at, pipe.index(after) + 1)
+                    except ValueError:  # not in pipeline; ignore it
+                        pass
+                self.logger.info(
+                    'Adding required filter %s to pipeline at position %d' %
+                    (filter_name, insert_at))
+                ctx = pipe.create_filter(filter_name)
+                pipe.insert_filter(ctx, index=insert_at)
+                pipeline_was_modified = True
+
+        if pipeline_was_modified:
+            self.logger.info("Pipeline was modified. New pipeline is \"%s\".",
+                             pipe)
+        else:
+            self.logger.debug("Pipeline is \"%s\"", pipe)
 
 
 def app_factory(global_conf, **local_conf):
