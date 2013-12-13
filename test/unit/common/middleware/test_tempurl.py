@@ -20,7 +20,7 @@ from time import time
 
 from swift.common.middleware import tempauth, tempurl
 from swift.common.swob import Request, Response, HeaderKeyDict
-from swift.common.utils import split_path
+from swift.common import utils
 
 
 class FakeApp(object):
@@ -59,7 +59,7 @@ class TestTempURL(unittest.TestCase):
         if environ is None:
             environ = {}
 
-        _junk, account, _junk, _junk = split_path(path, 2, 4)
+        _junk, account, _junk, _junk = utils.split_path(path, 2, 4)
         self._fake_cache_environ(environ, account, keys)
         req = Request.blank(path, environ=environ, **kwargs)
         return req
@@ -867,6 +867,26 @@ class TestTempURL(unittest.TestCase):
         results = tempurl.get_tempurl_keys_from_metadata(meta)
         for str_value in results:
             self.assertTrue(isinstance(str_value, str))
+
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        tempurl.filter_factory({})
+        swift_info = utils.get_swift_info()
+        self.assertTrue('tempurl' in swift_info)
+        self.assertEqual(set(swift_info['tempurl']['methods']),
+                         set(('GET', 'HEAD', 'PUT')))
+
+    def test_non_default_methods(self):
+        tempurl.filter_factory({'methods': 'GET HEAD PUT POST DELETE'})
+        swift_info = utils.get_swift_info()
+        self.assertTrue('tempurl' in swift_info)
+        self.assertEqual(set(swift_info['tempurl']['methods']),
+                         set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
 
 
 if __name__ == '__main__':
