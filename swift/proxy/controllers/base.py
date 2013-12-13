@@ -628,7 +628,7 @@ class GetOrHeadHandler(object):
                         bytes_read_from_source += len(chunk)
                 except ChunkReadTimeout:
                     exc_type, exc_value, exc_traceback = exc_info()
-                    if self.newest:
+                    if self.newest or self.server_type != 'Object':
                         raise exc_type, exc_value, exc_traceback
                     try:
                         self.fast_forward(bytes_read_from_source)

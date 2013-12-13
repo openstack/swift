@@ -2306,18 +2306,6 @@ class TestObjectController(unittest.TestCase):
 
     def test_node_read_timeout_retry(self):
         with save_globals():
-            self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs.values():
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs.values():
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
-            self.app.object_ring.get_nodes('account')
-            for dev in self.app.object_ring.devs.values():
-                dev['ip'] = '127.0.0.1'
-                dev['port'] = 1
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             self.app.update_request(req)
 
@@ -5975,6 +5963,19 @@ class TestContainerController(unittest.TestCase):
              'X-Account-Partition': '1',
              'X-Account-Device': 'sdc'}
         ])
+
+    def test_node_read_timeout_retry_to_container(self):
+        with save_globals():
+            req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+            self.app.node_timeout = 0.1
+            set_http_connect(200, 200, 200, body='abcdef', slow=[2])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                resp.body
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(got_exc)
 
 
 class TestAccountController(unittest.TestCase):
