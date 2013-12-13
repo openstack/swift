@@ -44,7 +44,8 @@ from swift.common.middleware import proxy_logging
 from swift.common.exceptions import ChunkReadTimeout, SegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
-    MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
+    MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
+    ACCOUNT_LISTING_LIMIT, CONTAINER_LISTING_LIMIT, MAX_OBJECT_NAME_LENGTH
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
@@ -6908,6 +6909,33 @@ class TestProxyObjectPerformance(unittest.TestCase):
 
             end = time.time()
             print "Run %02d took %07.03f" % (i, end - start)
+
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        proxy_server.Application({}, FakeMemcache(),
+                                 account_ring=FakeRing(),
+                                 container_ring=FakeRing(),
+                                 object_ring=FakeRing)
+
+        si = utils.get_swift_info()['swift']
+        self.assertTrue('version' in si)
+        self.assertEqual(si['max_file_size'], MAX_FILE_SIZE)
+        self.assertEqual(si['max_meta_name_length'], MAX_META_NAME_LENGTH)
+        self.assertEqual(si['max_meta_value_length'], MAX_META_VALUE_LENGTH)
+        self.assertEqual(si['max_meta_count'], MAX_META_COUNT)
+        self.assertEqual(si['account_listing_limit'], ACCOUNT_LISTING_LIMIT)
+        self.assertEqual(si['container_listing_limit'],
+                         CONTAINER_LISTING_LIMIT)
+        self.assertEqual(si['max_account_name_length'],
+                         MAX_ACCOUNT_NAME_LENGTH)
+        self.assertEqual(si['max_container_name_length'],
+                         MAX_CONTAINER_NAME_LENGTH)
+        self.assertEqual(si['max_object_name_length'], MAX_OBJECT_NAME_LENGTH)
 
 
 if __name__ == '__main__':
