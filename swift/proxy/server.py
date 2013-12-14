@@ -24,6 +24,7 @@ import itertools
 from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
+from swift.common import constraints
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
@@ -171,7 +172,17 @@ class Application(object):
         self.disallowed_sections = list_from_csv(
             conf.get('disallowed_sections'))
         self.admin_key = conf.get('admin_key', None)
-        register_swift_info(version=swift_version)
+        register_swift_info(
+            version=swift_version,
+            max_file_size=constraints.MAX_FILE_SIZE,
+            max_meta_name_length=constraints.MAX_META_NAME_LENGTH,
+            max_meta_value_length=constraints.MAX_META_VALUE_LENGTH,
+            max_meta_count=constraints.MAX_META_COUNT,
+            account_listing_limit=constraints.ACCOUNT_LISTING_LIMIT,
+            container_listing_limit=constraints.CONTAINER_LISTING_LIMIT,
+            max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
+            max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
+            max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH)
 
     def get_controller(self, path):
         """
