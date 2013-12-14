@@ -6881,7 +6881,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         self.obj_len = obj_len
 
     def test_GET_debug_large_file(self):
-        for i in range(0, 10):
+        for i in range(10):
             start = time.time()
 
             prolis = _test_sockets[0]
