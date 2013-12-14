@@ -29,6 +29,28 @@ parser.add_option('-w', '--wsgi', action='store_true',
                   help="use wsgi/paste parser instead of readconf")
 
 
+def _context_name(context):
+    return ':'.join((context.object_type.name, context.name))
+
+
+def inspect_app_config(app_config):
+    conf = {}
+    context = app_config.context
+    section_name = _context_name(context)
+    conf[section_name] = context.config()
+    if context.object_type.name == 'pipeline':
+        filters = context.filter_contexts
+        pipeline = []
+        for filter_context in filters:
+            conf[_context_name(filter_context)] = filter_context.config()
+            pipeline.append(filter_context.entry_point_name)
+        app_context = context.app_context
+        conf[_context_name(app_context)] = app_context.config()
+        pipeline.append(app_context.entry_point_name)
+        conf[section_name]['pipeline'] = ' '.join(pipeline)
+    return conf
+
+
 def main():
     options, args = parser.parse_args()
     options = dict(vars(options))
@@ -45,10 +67,7 @@ def main():
         print '# %s' % conf_file
         if options['wsgi']:
             app_config = appconfig(conf_file)
-            context = app_config.context
-            conf = dict([(c.name, c.config()) for c in getattr(
-                context, 'filter_contexts', [])])
-            conf[context.name] = app_config
+            conf = inspect_app_config(app_config)
         else:
             conf = readconf(conf_file)
         flat_vars = {}
