@@ -531,7 +531,9 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
 class TestDiskFileManager(unittest.TestCase):
 
     def setUp(self):
-        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(
+            self.tmpdir, 'tmp_test_obj_server_DiskFile')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         mkdirs(os.path.join(self.testdir, 'sda2', 'tmp'))
         self._orig_tpool_exc = tpool.execute
@@ -539,6 +541,9 @@ class TestDiskFileManager(unittest.TestCase):
         self.conf = dict(devices=self.testdir, mount_check='false',
                          keep_cache_size=2 * 1024)
         self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
+
+    def tearDown(self):
+        rmtree(self.tmpdir, ignore_errors=1)
 
     def test_replication_lock_on(self):
         # Double check settings
@@ -599,7 +604,9 @@ class TestDiskFile(unittest.TestCase):
 
     def setUp(self):
         """Set up for testing swift.obj.diskfile"""
-        self.testdir = os.path.join(mkdtemp(), 'tmp_test_obj_server_DiskFile')
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(
+            self.tmpdir, 'tmp_test_obj_server_DiskFile')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
@@ -609,7 +616,7 @@ class TestDiskFile(unittest.TestCase):
 
     def tearDown(self):
         """Tear down for testing swift.obj.diskfile"""
-        rmtree(os.path.dirname(self.testdir))
+        rmtree(self.tmpdir, ignore_errors=1)
         tpool.execute = self._orig_tpool_exc
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,

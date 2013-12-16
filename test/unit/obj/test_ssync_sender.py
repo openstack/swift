@@ -15,6 +15,7 @@
 
 import hashlib
 import os
+import shutil
 import StringIO
 import tempfile
 import time
@@ -92,10 +93,13 @@ class FakeConnection(object):
 class TestSender(unittest.TestCase):
 
     def setUp(self):
-        self.testdir = os.path.join(
-            tempfile.mkdtemp(), 'tmp_test_ssync_sender')
+        self.tmpdir = tempfile.mkdtemp()
+        self.testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_sender')
         self.replicator = FakeReplicator(self.testdir)
         self.sender = ssync_sender.Sender(self.replicator, None, None, None)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=1)
 
     def _make_open_diskfile(self, device='dev', partition='9',
                             account='a', container='c', obj='o', body='test',
