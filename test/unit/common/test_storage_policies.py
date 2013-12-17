@@ -120,6 +120,24 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertRaises(
             ValueError, storage_policy.parse_storage_policies, conf)
 
+        conf = self._conf("""
+        [storage-policy:0]
+        default = no
+        [storage-policy:1]
+        default = no
+        """)
+        stor_pols = storage_policy.parse_storage_policies(conf)
+        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
+
+        conf = self._conf("""
+        [storage-policy:1]
+        default = no
+        [storage-policy:2]
+        default = no
+        """)
+        stor_pols = storage_policy.parse_storage_policies(conf)
+        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
+
     def test_no_default_specified(self):
         conf = self._conf("""
         [storage-policy:1]
@@ -135,6 +153,23 @@ class TestStoragePolicies(unittest.TestCase):
         """)
         stor_pols = storage_policy.parse_storage_policies(conf1)
         self.assertEqual(stor_pols.default.name, 'thisOne')
+
+    def test_false_default(self):
+        conf = self._conf("""
+        [storage-policy:0]
+        default = no
+        [storage-policy:1]
+        """)
+        stor_pols = storage_policy.parse_storage_policies(conf)
+        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
+
+        conf = self._conf("""
+        [storage-policy:0]
+        [storage-policy:1]
+        default = no
+        """)
+        stor_pols = storage_policy.parse_storage_policies(conf)
+        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
 
 if __name__ == '__main__':
     unittest.main()

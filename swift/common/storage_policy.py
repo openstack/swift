@@ -129,7 +129,8 @@ def parse_storage_policies(conf):
                 raise ValueError("Malformed storage policy %s" % section)
             try:
                 is_default = conf.get(section, 'default')
-                need_default = False
+                if config_true_value(is_default):
+                    need_default = False
             except NoOptionError:
                 is_default = False
             try:
