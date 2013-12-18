@@ -420,6 +420,9 @@ def _get_info_cache(app, env, account, container=None):
     if memcache:
         info = memcache.get(cache_key)
         if info:
+            for key in info:
+                if isinstance(info[key], unicode):
+                    info[key] = info[key].encode("utf-8")
             env[env_key] = info
         return info
     return None

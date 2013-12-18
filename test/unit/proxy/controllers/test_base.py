@@ -251,7 +251,9 @@ class TestFuncs(unittest.TestCase):
     def test_get_container_info_cache(self):
         cached = {'status': 404,
                   'bytes': 3333,
-                  'object_count': 10}
+                  'object_count': 10,
+                  # simplejson sometimes hands back strings, sometimes unicodes
+                  'versions': u"\u1F4A9"}
         req = Request.blank("/v1/account/cont",
                             environ={'swift.cache': FakeCache(cached)})
         with patch('swift.proxy.controllers.base.'
@@ -260,6 +262,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(resp['bytes'], 3333)
         self.assertEquals(resp['object_count'], 10)
         self.assertEquals(resp['status'], 404)
+        self.assertEquals(resp['versions'], "\xe1\xbd\x8a\x39")
 
     def test_get_container_info_env(self):
         cache_key = get_container_memcache_key("account", "cont")
