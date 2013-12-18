@@ -101,7 +101,10 @@ class MockOS(object):
 
     def fake_ismount(self, *args, **kwargs):
         self.ismount_calls.append((args, kwargs))
-        return self.ismount_output
+        if isinstance(self.ismount_output, Exception):
+            raise self.ismount_output
+        else:
+            return self.ismount_output
 
     def fake_statvfs(self, *args, **kwargs):
         self.statvfs_calls.append((args, kwargs))
@@ -560,13 +563,30 @@ class TestReconSuccess(TestCase):
                 "quarantined": 0}})
 
     def test_get_unmounted(self):
-
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]
         self.mockos.ls_output = ['fakeone', 'faketwo']
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(rv, unmounted_resp)
+
+    def test_get_unmounted_everything_normal(self):
+        unmounted_resp = []
+        self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.ismount_output = True
+        rv = self.app.get_unmounted()
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(rv, unmounted_resp)
+
+    def test_get_unmounted_checkmount_fail(self):
+        unmounted_resp = [{'device': 'fakeone', 'mounted': 'brokendrive'}]
+        self.mockos.ls_output = ['fakeone']
+        self.mockos.ismount_output = OSError('brokendrive')
+        rv = self.app.get_unmounted()
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.ismount_calls,
+                          [(('/srv/node/fakeone',), {})])
         self.assertEquals(rv, unmounted_resp)
 
     def test_no_get_unmounted(self):
@@ -601,9 +621,9 @@ class TestReconSuccess(TestCase):
 
     def test_get_diskusage_checkmount_fail(self):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
-                    'mounted': False, 'used': '', 'size': ''}]
+                    'mounted': 'brokendrive', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
-        self.mockos.ismount_output = False
+        self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_diskusage()
         self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
         self.assertEquals(self.mockos.ismount_calls,

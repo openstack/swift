@@ -242,20 +242,29 @@ class SwiftRecon(object):
         :param hosts: set of hosts to check. in the format of:
             set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
         """
-        stats = {}
+        unmounted = {}
+        errors = {}
         recon = Scout("unmounted", self.verbose, self.suppress_errors,
                       self.timeout)
         print "[%s] Getting unmounted drives from %s hosts..." % \
             (self._ptime(), len(hosts))
         for url, response, status in self.pool.imap(recon.scout, hosts):
             if status == 200:
-                stats[url] = []
+                unmounted[url] = []
+                errors[url] = []
                 for i in response:
-                    stats[url].append(i['device'])
-        for host in stats:
+                    if not isinstance(i['mounted'], bool):
+                        errors[url].append(i['device'])
+                    else:
+                        unmounted[url].append(i['device'])
+        for host in unmounted:
             node = urlparse(host).netloc
-            for entry in stats[host]:
+            for entry in unmounted[host]:
                 print "Not mounted: %s on %s" % (entry, node)
+        for host in errors:
+            node = urlparse(host).netloc
+            for entry in errors[host]:
+                print "Device errors: %s on %s" % (entry, node)
         print "=" * 79
 
     def expirer_check(self, hosts):
@@ -655,7 +664,10 @@ class SwiftRecon(object):
             if status == 200:
                 hostusage = []
                 for entry in response:
-                    if entry['mounted']:
+                    if not isinstance(entry['mounted'], bool):
+                        print "-> %s/%s: Error: %s" % (url, entry['device'],
+                                                       entry['mounted'])
+                    elif entry['mounted']:
                         used = float(entry['used']) / float(entry['size']) \
                             * 100.0
                         raw_total_used.append(entry['used'])
@@ -672,7 +684,7 @@ class SwiftRecon(object):
 
         for url in stats:
             if len(stats[url]) > 0:
-                #get per host hi/los for another day
+                # get per host hi/los for another day
                 low = min(stats[url])
                 high = max(stats[url])
                 highs.append(high)
@@ -685,7 +697,7 @@ class SwiftRecon(object):
         if len(lows) > 0:
             low = min(lows)
             high = max(highs)
-            #dist graph shamelessly stolen from https://github.com/gholt/tcod
+            # dist graph shamelessly stolen from https://github.com/gholt/tcod
             print "Distribution Graph:"
             mul = 69.0 / max(percents.values())
             for percent in sorted(percents):
