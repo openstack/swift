@@ -2233,8 +2233,8 @@ class ThreadPool(object):
             try:
                 result = func(*args, **kwargs)
                 result_queue.put((ev, True, result))
-            except BaseException as err:
-                result_queue.put((ev, False, err))
+            except BaseException:
+                result_queue.put((ev, False, sys.exc_info()))
             finally:
                 work_queue.task_done()
                 os.write(self.wpipe, self.BYTE)
@@ -2264,7 +2264,7 @@ class ThreadPool(object):
                     if success:
                         ev.send(result)
                     else:
-                        ev.send_exception(result)
+                        ev.send_exception(*result)
                 finally:
                     queue.task_done()
 
