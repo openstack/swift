@@ -40,7 +40,7 @@ class RequestError(Exception):
 
 
 class ResponseError(Exception):
-    def __init__(self, response, method, path):
+    def __init__(self, response, method=None, path=None):
         self.status = response.status
         self.reason = response.reason
         self.method = method
@@ -310,10 +310,11 @@ class Base:
     def __str__(self):
         return self.name
 
-    def header_fields(self, fields):
+    def header_fields(self, required_fields, optional_fields=()):
         headers = dict(self.conn.response.getheaders())
         ret = {}
-        for field in fields:
+
+        for field in required_fields:
             if field[1] not in headers:
                 raise ValueError("%s was not found in response header" %
                                  (field[1]))
@@ -322,6 +323,15 @@ class Base:
                 ret[field[0]] = int(headers[field[1]])
             except ValueError:
                 ret[field[0]] = headers[field[1]]
+
+        for field in optional_fields:
+            if field[1] not in headers:
+                continue
+            try:
+                ret[field[0]] = int(headers[field[1]])
+            except ValueError:
+                ret[field[0]] = headers[field[1]]
+
         return ret
 
 
@@ -480,10 +490,11 @@ class Container(Base):
                                parms=parms, cfg=cfg)
 
         if self.conn.response.status == 204:
-            fields = [['bytes_used', 'x-container-bytes-used'],
-                      ['object_count', 'x-container-object-count']]
+            required_fields = [['bytes_used', 'x-container-bytes-used'],
+                               ['object_count', 'x-container-object-count']]
+            optional_fields = [['versions', 'x-versions-location']]
 
-            return self.header_fields(fields)
+            return self.header_fields(required_fields, optional_fields)
 
         raise ResponseError(self.conn.response, 'HEAD',
                             self.conn.make_path(self.path))
