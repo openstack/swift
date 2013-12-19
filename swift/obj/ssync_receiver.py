@@ -65,7 +65,10 @@ class Receiver(object):
         self.device = None
         self.partition = None
         self.fp = None
-        self.disconnect = False
+        # We default to dropping the connection in case there is any exception
+        # raised during processing because otherwise the sender could send for
+        # quite some time before realizing it was all in vain.
+        self.disconnect = True
 
     def __call__(self):
         """
@@ -100,6 +103,9 @@ class Receiver(object):
                             yield data
                         for data in self.updates():
                             yield data
+                    # We didn't raise an exception, so end the request
+                    # normally.
+                    self.disconnect = False
                 finally:
                     if self.app.replication_semaphore:
                         self.app.replication_semaphore.release()
@@ -288,10 +294,6 @@ class Receiver(object):
             raise Exception('Looking for :UPDATES: START got %r' % line[:1024])
         successes = 0
         failures = 0
-        # We default to dropping the connection in case there is any exception
-        # raised during processing because otherwise the sender could send for
-        # quite some time before realizing it was all in vain.
-        self.disconnect = True
         while True:
             with exceptions.MessageTimeout(
                     self.app.client_timeout, 'updates line'):
@@ -376,8 +378,6 @@ class Receiver(object):
             raise swob.HTTPInternalServerError(
                 'ERROR: With :UPDATES: %d failures to %d successes' %
                 (failures, successes))
-        # We didn't raise an exception, so end the request normally.
-        self.disconnect = False
         yield ':UPDATES: START\r\n'
         yield ':UPDATES: END\r\n'
         for data in self._ensure_flush():

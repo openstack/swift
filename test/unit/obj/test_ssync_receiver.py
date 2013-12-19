@@ -365,7 +365,7 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [":ERROR: 408 '0.01 seconds: missing_check line'"])
             self.assertEqual(resp.status_int, 200)
-            self.assertFalse(mock_shutdown_safe.called)
+            self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.error.assert_called_once_with(
                 '2.3.4.5/sda1/1 TIMEOUT in replication.Receiver: '
                 '0.01 seconds: missing_check line')
@@ -407,7 +407,7 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [":ERROR: 0 'test exception'"])
             self.assertEqual(resp.status_int, 200)
-            self.assertFalse(mock_shutdown_safe.called)
+            self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.exception.assert_called_once_with(
                 '3.4.5.6/sda1/1 EXCEPTION in replication.Receiver')
 
