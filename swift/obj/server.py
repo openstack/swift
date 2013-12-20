@@ -21,6 +21,7 @@ import multiprocessing
 import time
 import traceback
 import socket
+import math
 from datetime import datetime
 from swift import gettext_ as _
 from hashlib import md5
@@ -492,7 +493,7 @@ class ObjectController(object):
                 except (OverflowError, ValueError):
                     # catches timestamps before the epoch
                     return HTTPPreconditionFailed(request=request)
-                if if_modified_since and file_x_ts_utc < if_modified_since:
+                if if_modified_since and file_x_ts_utc <= if_modified_since:
                     return HTTPNotModified(request=request)
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
@@ -507,7 +508,7 @@ class ObjectController(object):
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = file_x_ts_flt
+                response.last_modified = math.ceil(file_x_ts_flt)
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
@@ -549,7 +550,7 @@ class ObjectController(object):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = metadata['X-Timestamp']
-        response.last_modified = float(ts)
+        response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts
         response.content_length = int(metadata['Content-Length'])

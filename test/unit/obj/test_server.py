@@ -21,6 +21,7 @@ import operator
 import os
 import mock
 import unittest
+import math
 from shutil import rmtree
 from StringIO import StringIO
 from time import gmtime, strftime, time
@@ -739,7 +740,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['content-type'], 'application/x-test')
         self.assertEquals(
             resp.headers['last-modified'],
-            strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp))))
+            strftime('%a, %d %b %Y %H:%M:%S GMT',
+                     gmtime(math.ceil(float(timestamp)))))
         self.assertEquals(resp.headers['etag'],
                           '"0b4c12d7e0a73840c1c4f148fda3b037"')
         self.assertEquals(resp.headers['x-object-meta-1'], 'One')
@@ -841,7 +843,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['content-type'], 'application/x-test')
         self.assertEquals(
             resp.headers['last-modified'],
-            strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp))))
+            strftime('%a, %d %b %Y %H:%M:%S GMT',
+                     gmtime(math.ceil(float(timestamp)))))
         self.assertEquals(resp.headers['etag'],
                           '"0b4c12d7e0a73840c1c4f148fda3b037"')
         self.assertEquals(resp.headers['x-object-meta-1'], 'One')
@@ -1043,6 +1046,37 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 304)
 
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        since = resp.headers['Last-Modified']
+        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                          gmtime(math.ceil(float(timestamp)))))
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'If-Modified-Since': since})
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 304)
+
+        timestamp = normalize_timestamp(int(time()))
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': timestamp,
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(float(timestamp)))
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'If-Modified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+
     def test_GET_if_unmodified_since(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1077,6 +1111,18 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        since = resp.headers['Last-Modified']
+        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                          gmtime(math.ceil(float(timestamp)))))
+
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'If-Unmodified-Since': since})
+        resp = self.object_controller.GET(req)
         self.assertEquals(resp.status_int, 200)
 
     def test_GET_quarantine(self):

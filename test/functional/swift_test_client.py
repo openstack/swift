@@ -723,7 +723,8 @@ class File(Base):
         else:
             raise RuntimeError
 
-    def write(self, data='', hdrs={}, parms={}, callback=None, cfg={}):
+    def write(self, data='', hdrs={}, parms={}, callback=None, cfg={},
+              return_resp=False):
         block_size = 2 ** 20
 
         if isinstance(data, file):
@@ -767,6 +768,9 @@ class File(Base):
             pass
         self.md5 = self.compute_md5sum(data)
 
+        if return_resp:
+            return self.conn.response
+
         return True
 
     def write_random(self, size=None, hdrs={}, parms={}, cfg={}):
@@ -776,3 +780,12 @@ class File(Base):
                                 self.conn.make_path(self.path))
         self.md5 = self.compute_md5sum(StringIO.StringIO(data))
         return data
+
+    def write_random_return_resp(self, size=None, hdrs={}, parms={}, cfg={}):
+        data = self.random_data(size)
+        resp = self.write(data, hdrs=hdrs, parms=parms, cfg=cfg,
+                          return_resp=True)
+        if not resp:
+            raise ResponseError(self.conn.response)
+        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        return resp

@@ -1732,6 +1732,28 @@ class TestFileComparison(Base):
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
 
+    def testLastModified(self):
+        file_name = Utils.create_name()
+        content_type = Utils.create_name()
+
+        file = self.env.container.file(file_name)
+        file.content_type = content_type
+        resp = file.write_random_return_resp(self.env.file_size)
+        put_last_modified = resp.getheader('last-modified')
+
+        file = self.env.container.file(file_name)
+        info = file.info()
+        self.assert_('last_modified' in info)
+        last_modified = info['last_modified']
+        self.assertEqual(put_last_modified, info['last_modified'])
+
+        hdrs = {'If-Modified-Since': last_modified}
+        self.assertRaises(ResponseError, file.read, hdrs=hdrs)
+        self.assert_status(304)
+
+        hdrs = {'If-Unmodified-Since': last_modified}
+        self.assert_(file.read(hdrs=hdrs))
+
 
 class TestFileComparisonUTF8(Base2, TestFileComparison):
     set_up = False

@@ -1036,6 +1036,56 @@ class TestObjectController(unittest.TestCase):
         finally:
             swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
 
+    def test_PUT_last_modified(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        lm_hdr = 'Last-Modified: '
+        self.assertEqual(headers[:len(exp)], exp)
+
+        last_modified_put = [line for line in headers.split('\r\n')
+                             if lm_hdr in line][0][len(lm_hdr):]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        last_modified_head = [line for line in headers.split('\r\n')
+                              if lm_hdr in line][0][len(lm_hdr):]
+        self.assertEqual(last_modified_put, last_modified_head)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'If-Modified-Since: %s\r\n'
+                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 304'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'If-Unmodified-Since: %s\r\n'
+                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
     def test_expirer_DELETE_on_versioned_object(self):
         test_errors = []
 
