@@ -16,6 +16,7 @@
 """WSGI tools for use with swift."""
 
 import errno
+import inspect
 import os
 import signal
 import time
@@ -109,7 +110,6 @@ def wrap_conf_type(f):
 
 
 appconfig = wrap_conf_type(loadwsgi.appconfig)
-loadapp = wrap_conf_type(loadwsgi.loadapp)
 
 
 def monkey_patch_mimetools():
@@ -195,6 +195,111 @@ class RestrictedGreenPool(GreenPool):
         super(RestrictedGreenPool, self).spawn_n(*args, **kwargs)
         if self._rgp_do_wait:
             self.waitall()
+
+
+class PipelineWrapper(object):
+    """
+    This class provides a number of utility methods for
+    modifying the composition of a wsgi pipeline.
+    """
+
+    def __init__(self, context):
+        self.context = context
+
+    def __contains__(self, entry_point_name):
+        try:
+            self.index(entry_point_name)
+            return True
+        except ValueError:
+            return False
+
+    def _format_for_display(self, ctx):
+        if ctx.entry_point_name:
+            return ctx.entry_point_name
+        elif inspect.isfunction(ctx.object):
+            # ctx.object is a reference to the actual filter_factory
+            # function, so we pretty-print that. It's not the nice short
+            # entry point, but it beats "<unknown>".
+            #
+            # These happen when, instead of something like
+            #
+            #    use = egg:swift#healthcheck
+            #
+            # you have something like this:
+            #
+            #    paste.filter_factory = \
+            #        swift.common.middleware.healthcheck:filter_factory
+            return "%s:%s" % (inspect.getmodule(ctx.object).__name__,
+                              ctx.object.__name__)
+        else:
+            # No idea what this is
+            return "<unknown context>"
+
+    def __str__(self):
+        parts = [self._format_for_display(ctx)
+                 for ctx in self.context.filter_contexts]
+        parts.append(self._format_for_display(self.context.app_context))
+        return " ".join(parts)
+
+    def create_filter(self, entry_point_name):
+        """
+        Creates a context for a filter that can subsequently be added
+        to a pipeline context.
+
+        :param entry_point_name: entry point of the middleware (Swift only)
+
+        :returns: a filter context
+        """
+        spec = 'egg:swift#' + entry_point_name
+        ctx = loadwsgi.loadcontext(loadwsgi.FILTER, spec,
+                                   global_conf=self.context.global_conf)
+        ctx.protocol = 'paste.filter_factory'
+        return ctx
+
+    def index(self, entry_point_name):
+        """
+        Returns the first index of the given entry point name in the pipeline.
+
+        Raises ValueError if the given module is not in the pipeline.
+        """
+        for i, ctx in enumerate(self.context.filter_contexts):
+            if ctx.entry_point_name == entry_point_name:
+                return i
+        raise ValueError("%s is not in pipeline" % (entry_point_name,))
+
+    def insert_filter(self, ctx, index=0):
+        """
+        Inserts a filter module into the pipeline context.
+
+        :param ctx: the context to be inserted
+        :param index: (optional) index at which filter should be
+                      inserted in the list of pipeline filters. Default
+                      is 0, which means the start of the pipeline.
+        """
+        self.context.filter_contexts.insert(index, ctx)
+
+
+def loadcontext(object_type, uri, name=None, relative_to=None,
+                global_conf=None):
+    add_conf_type = wrap_conf_type(lambda x: x)
+    return loadwsgi.loadcontext(object_type, add_conf_type(uri), name=name,
+                                relative_to=relative_to,
+                                global_conf=global_conf)
+
+
+def loadapp(conf_file, global_conf):
+    """
+    Loads a context from a config file, and if the context is a pipeline
+    then presents the app with the opportunity to modify the pipeline.
+    """
+    ctx = loadcontext(loadwsgi.APP, conf_file, global_conf=global_conf)
+    if ctx.object_type.name == 'pipeline':
+        # give app the opportunity to modify the pipeline context
+        app = ctx.app_context.create()
+        func = getattr(app, 'modify_wsgi_pipeline', None)
+        if func:
+            func(PipelineWrapper(ctx))
+    return ctx.create()
 
 
 def run_server(conf, logger, sock, global_conf=None):
